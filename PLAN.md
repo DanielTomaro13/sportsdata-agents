@@ -55,6 +55,7 @@ Three rules shape every decision in this document:
 10. [Sandboxing & code execution](#10-sandboxing--code-execution)
 11. [Interfaces](#11-interfaces)
 12. [Multi-tenancy & SaaS-readiness](#12-multi-tenancy--saas-readiness)
+    - [12.1 Pricing, packaging & entitlements (SaaS)](#121-pricing-packaging--entitlements-saas)
 13. [Security, secrets & guardrails](#13-security-secrets--guardrails)
 14. [Compliance & responsible use](#14-compliance--responsible-use)
 15. [The self-improvement loop](#15-the-self-improvement-loop)
@@ -524,6 +525,7 @@ Core entities (Postgres; `odds_snapshots` and `prices` on TimescaleDB hypertable
 | `usage_ledger` | **Cost spine**: normalised per-run cost — model tokens (in/out) × price, sandbox seconds (+GPU), tool calls, latency, outcome — tagged with tenant/workspace/agent/task-type/model-tier. Basis for cost dashboards, per-agent ROI, and SaaS billing (§16.1). |
 | `budgets` | Per-workspace / per-agent spend caps + running balances, enforced by the gateway. |
 | `agent_metrics` | Rolled-up efficiency per agent: cost-per-successful-task, success rate, value-add, quality, latency (§16.2). |
+| `subscriptions`, `entitlements` | Tenant plan + included quotas + enabled add-ons + Stripe ids — the source of truth the gateway checks before enabling an MCP / agent / interface or starting a run (§12.1). |
 | `fixtures`, `events`, `selections` | Normalised entities resolved from feeds (cross-provider keys). |
 | `odds_snapshots`, `prices` | **Time-series** of prices per selection/book — the basis for line movement, CLV, backtests. |
 | `models`, `predictions` | Trained models + their probability outputs (with calibration metadata). |
@@ -617,6 +619,67 @@ boundaries even for single-user; multi-"workspace" is useful even solo (e.g. sep
 bankrolls/strategies). **Cons:** a little extra plumbing (a `tenant_id` you "don't need"
 yet) and discipline to always scope queries. Net: low cost now, very high option value —
 **recommended**. (See [§19, D6](#19-decision-register).)
+
+### 12.1 Pricing, packaging & entitlements (SaaS)
+
+The same composable platform is monetised by **entitlements over its building blocks** — data
+sources (MCP providers), agents, interface, seats, and usage. The per-workspace config that
+already defines "what this desk is" (§12) *is* the entitlement set; billing simply grants or
+limits it. (Prices below are placeholders — the actual numbers are a go-to-market decision, not
+an architectural one, and should be market-validated.)
+
+**Billable units**
+
+| Unit | What it is | How it's billed |
+|---|---|---|
+| **MCP providers** | each enabled data source (AFL, MLB, a bookmaker, …) | N included per tier; extra = add-on ($X each / mo) |
+| **Agents** | enabled product-plane agents (preset or custom) | N "of choice" per tier; extra = add-on |
+| **Interface** | API + CLI → chat (Slack/Discord) → web app | unlocked by tier |
+| **Seats** | users in a workspace | N included, then per-seat |
+| **Usage allowance** | LLM tokens + sandbox compute (the §16.1 `usage_ledger`) | monthly allowance per tier; overage metered or via top-up packs |
+| **Betting module** | the opt-in betting agents | add-on; jurisdiction-gated entitlement (§14) |
+
+**Tiers** (mirrors your sketch — each tier is a superset of the one below)
+
+| | **Tier 1 — Starter** | **Tier 2 — Pro** | **Tier 3 — Team** |
+|---|---|---|---|
+| **Interface** | API + CLI | **+ Slack / Discord** | **+ Web app** (dashboards, P&L & odds viz) |
+| **MCP providers included** | **3** (extra: $X each) | 3 (extra: $X each) | more (extra: $X each) |
+| **Agents** | presets only | **3 of choice** + agent-builder | 3+ of choice (more available) |
+| **Seats** | 1 | a few | **multi-seat** (per-seat add-on) |
+| **Usage allowance** | base | higher | highest |
+| **Betting module** | add-on | add-on | add-on |
+| **Indicative price** | `$ / mo` | `$$ / mo` | `$$$ / mo` |
+
+So: **Tier 1** = pay-per-MCP with 3 included (API/CLI); **Tier 2** = Tier 1 + a non-web (chat)
+interface + 3 agents of choice; **Tier 3** = Tier 2 + the web app — extras (MCPs, agents, seats)
+metered on top at every tier.
+
+**Add-ons & metered extras (any tier):** additional MCP provider · additional agent · additional
+seat · betting module · premium-model access · extra usage packs.
+
+**The variable-cost reality (why pure-flat won't work).** Every run costs us real money — LLM
+tokens + sandbox compute, metered in `usage_ledger` (§16.1). A flat, unlimited subscription loses
+money on heavy users and invites abuse, so the *cost-recovery* model matters as much as the tier
+ladder:
+
+| Model | Pros | Cons |
+|---|---|---|
+| Flat / all-you-can-use | Simplest; predictable bill for the customer | Margin risk; abusable; one heavy user erodes profit |
+| Pure usage-based | Margins protected; "pay for what you use" | Unpredictable bills deter customers; harder to forecast |
+| **Hybrid — allowance + metered overage (recommended)** | Predictable *and* margin-safe; reuses the meter + budgets already built | Allowances must be communicated clearly; metering UX to get right |
+
+**Recommendation:** each tier **includes a usage allowance**; overage is metered (or bought as
+top-up packs); per-workspace **budgets/ceilings (§16.1) hard-cap** spend so the customer is never
+surprised and we are never out of pocket.
+
+**Enforcement & infra.** Entitlements are per-workspace config (§12); the gateway checks them
+**before** enabling an MCP group, instantiating an agent, exposing an interface, or starting a run
+that would breach budget. **Stripe** (subscriptions + metered usage) is the billing system; the
+`usage_ledger` feeds the metered components; upgrades/downgrades are config changes, not
+migrations. An optional limited **free tier / trial** (e.g. 1 MCP, presets only, capped usage) is
+a low-cost acquisition lever. Decisions: **D18** (packaging), **D19** (cost recovery), **D20**
+(seats) in §19.
 
 ---
 
@@ -772,7 +835,7 @@ Each phase is shippable and de-risks the next. Maps to the agent roster in §6.
 | **P1 — Track & converse** | Slack + performance | Slack adapter, **Bet-notification**, **Bet-tracking/P&L (CLV)**, **Bankroll/risk**, **Concierge**, first **sandbox** for **Data-analysis** | Log a user's bets, report ROI/CLV in Slack; one analysis runs in a sandbox |
 | **P2 — Quant** | Models that beat the line | **Modelling**, **Value-finder**, **Backtesting**, odds-history warehouse | A model backtests with CLV > 0 on held-out data; value alerts fire |
 | **P3 — Self-maintaining** | The engineering dept + alerts + fantasy | **MCP health/QA**, **Improver**, **Reviewer**, **Eval**, **Line-monitor**, **Fantasy advisor**, **Agent-builder**, Discord | QA agent opens an issue on a broken feed; improver lands a CI-passing PR; a user builds a custom agent from chat |
-| **P4 — Productize (optional)** | SaaS | Auth, billing, web app, per-tenant isolation hardening, compliance policies | A second tenant onboarded with isolated data, budgets, and disclaimers |
+| **P4 — Productize (optional)** | SaaS | Auth, **billing + tiers/entitlements (§12.1)**, web app, per-tenant isolation hardening, compliance policies | A second tenant onboarded on a paid tier with isolated data, enforced entitlements + budgets, and disclaimers |
 
 ---
 
@@ -794,12 +857,15 @@ Status: **(set)** = chosen with you; **(open)** = needs your steer.
 | **D9** | Agent definition | YAML spec / Python code / DB-only | **YAML spec (+ DB for user-created)** *(set)* | + User-customizable, reviewable, versioned, matches mcp. − A schema to maintain; very dynamic logic may still need code tools. |
 | **D10** | Hosting (when not local) | Fly / Railway / Render / own cloud | **Fly or Railway** to start | + Fast, cheap, container-native, portable. − Less control than raw cloud; revisit for scale/compliance. |
 | **D11** | Memory/RAG | None early / pgvector / dedicated vector DB | **pgvector (in Postgres)** when needed | + No new system, good enough early. − Not as fast as a dedicated store at large scale. |
-| **D12** | LLM providers in the pool | *(open)* | Anthropic + one of OpenAI/Google, + a cheap fast model | Your call — drives cost & quality; the gateway makes it swappable. |
-| **D13** | SaaS go/no-go & legal | *(open)* | Decide after P2–P3 prove value | Gates Mode B and any client exposure; needs legal review (§14). |
+| **D12** | LLM providers in the pool | *(set)* | **Anthropic + OpenAI/Google + a cheap fast model**, swappable via the gateway | + Quality, redundancy, and cost control; no lock-in. − Several vendor keys/accounts to manage. |
+| **D13** | SaaS go/no-go & legal | *(set: build SaaS-ready now; launch gated on legal)* | Architecture is SaaS-ready (§12, §12.1); **legal review before any paid launch** | + No rework to productize. − A gambling-adjacent sale needs legal sign-off (§14) before go-live. |
 | **D14** | Operations-plane packaging ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)) | Same repo (separate package + deployable) / separate repo `sportsdata-ops` / same runtime as product | **Same repo, separate package + separate deployable now; split to its own repo/service when SaaS hardening demands it** | + Shares the agent runtime & spec format (one place to evolve the framework) while deploying with its own credentials and trigger path. − A softer boundary than two repos; needs discipline that operator code/creds never bundle into the tenant runtime. |
 | **D15** | How operations consumes tenant signals | Raw / aggregated+anonymized / opt-in granular | **Aggregated + anonymized by default; opt-in for finer detail** | + Privacy/compliance and customer trust by construction; safe for self-improvement. − Coarser debugging of a single tenant — mitigated by time-boxed, tenant-authorized support sessions. |
 | **D16** | Betting: core vs module ([§1](#1-vision--scope)) | Always-on betting / **toggleable, off-by-default module (composable presets)** / two separate products | **Toggleable module, off by default** | + One composable platform serves coaches/analysts/fantasy/media *and* bettors; bigger market; far lower compliance surface where it's off (§14). − An entitlements/feature-flag layer to maintain; shared agents must honour the toggle. |
 | **D17** | Cost-attribution granularity ([§16.1](#161-cost-tracking)) | Per-run only / per-run + per-agent + per-tenant rollups / full per-tool-call | **Per-run + per-agent + per-tenant rollups (per-tool-call detail kept in the audit log)** | + Enough to bill, budget, and judge each agent's ROI without excess storage. − Slightly more write volume than per-run-only; mitigated by Timescale rollups + retention. |
+| **D18** | Packaging model ([§12.1](#121-pricing-packaging--entitlements-saas)) | Tiered per-feature entitlements (MCP/agents/interface/seats) + add-ons / flat all-in tiers / pure usage | **Tiered entitlements + add-ons (per your sketch), each tier including a usage allowance** | + Price tracks both value and our cost; clear upsell path; fits the composable model. − More billing logic + quota UX to maintain. |
+| **D19** | Cost recovery: LLM + sandbox ([§12.1](#121-pricing-packaging--entitlements-saas)) | Flat / pure usage / hybrid allowance + overage | **Hybrid: per-tier allowance + metered overage + hard budgets ([§16.1](#161-cost-tracking))** | + Predictable for the customer *and* margin-safe; reuses the `usage_ledger` meter. − Allowances must be communicated; metering adds complexity. |
+| **D20** | Seats / collaboration ([§12.1](#121-pricing-packaging--entitlements-saas)) | Single-seat / per-seat from the web tier | **Per-seat from Tier 3 (web / teams)** | + Monetises team use where collaboration actually happens. − Seat management + invite/RBAC UX overhead. |
 
 ---
 
