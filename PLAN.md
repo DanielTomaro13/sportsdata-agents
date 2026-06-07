@@ -13,9 +13,11 @@
 ## 0. TL;DR
 
 We are building a **team of cooperating LLM agents** on top of the `sportsdata-mcp` tool
-catalogue. The agents gather sports data, compare odds across every bookmaker, model
-outcomes, surface value bets and fantasy insights, track performance, and maintain their
-own codebase by opening pull requests that must pass CI and review.
+catalogue. The agents gather and analyse sports data and surface insight for **analysts,
+coaches, fantasy players, media and fans — as well as bettors**. On top of that analytics
+backbone sits an **opt-in trading desk** that compares odds across every bookmaker, models
+outcomes, finds value, and tracks performance. A separate engineering team of agents maintains
+the codebase by opening pull requests that must pass CI and review.
 
 Three rules shape every decision in this document:
 
@@ -54,7 +56,7 @@ Three rules shape every decision in this document:
 13. [Security, secrets & guardrails](#13-security-secrets--guardrails)
 14. [Compliance & responsible use](#14-compliance--responsible-use)
 15. [The self-improvement loop](#15-the-self-improvement-loop)
-16. [Observability & evaluation](#16-observability--evaluation)
+16. [Observability, cost tracking & evaluation](#16-observability-cost-tracking--evaluation)
 17. [Deployment topology](#17-deployment-topology)
 18. [Delivery roadmap](#18-delivery-roadmap)
 19. [Decision register](#19-decision-register)
@@ -68,15 +70,42 @@ Three rules shape every decision in this document:
 ## 1. Vision & scope
 
 ### What it is
-A conversational, multi-agent **sports research & trading desk**. A user (you today; a
-client tomorrow) asks a question or sets up a standing job, and a coordinated team of
-agents answers it using live and historical sports data and bookmaker prices:
+A conversational, multi-agent **sports analytics & research platform** — with an optional
+**trading desk** layered on top. A user (you today; a client tomorrow) asks a question or sets
+up a standing job, and a coordinated team of agents answers it using live and historical sports
+data (and, when the betting module is enabled, bookmaker prices):
 
+**Analytics & research (no gambling involved):**
+- *"Show me our next opponent's last-five defensive splits and where they concede."* — coach / analyst
+- *"Trend player X's workload and shooting efficiency across the season."* — performance analyst
+- *"Optimise my DFS lineup for Saturday."* / *"Who should I start this week?"* — fantasy
+- *"Summarise last night's match with the key stats and storylines."* — media / fan
+
+**Trading desk (opt-in betting module):**
 - *"Where's the best price on the Pies tonight, and is there value?"*
-- *"Build me a model for AFL totals and tell me when the line disagrees with it."*
-- *"Optimise my DFS lineup for Saturday's slate."*
+- *"Build a model for AFL totals and alert me when the line disagrees."*
 - *"How did my tracked bets do last month — ROI and closing-line value?"*
-- *"Are any of our data feeds broken?"* / *"Add Bet365 as a provider."*
+
+**Platform self-maintenance (operator):**
+- *"Are any data feeds broken?"* / *"Add a new data provider."*
+
+### Who it's for (personas)
+The statistics surface is valuable far beyond betting. From one data backbone the platform
+serves several audiences — and **betting is just one of them**:
+
+| Persona | Wants | Primary agents |
+|---|---|---|
+| **Coaches & performance analysts** | Opponent scouting, player workload/efficiency trends, matchup splits | Stats specialist · Data-analysis · Modelling |
+| **Fantasy / DFS players** | Projections, lineup optimisation, player research | Fantasy advisor · Stats specialist |
+| **Media & content** | Fast, accurate match summaries, storylines, records | Stats specialist · Concierge |
+| **Fans** | "How did my team do", standings, player comparisons | Stats specialist · Concierge |
+| **Bettors / traders** *(opt-in module)* | Best price, value, CLV, bankroll, alerts | Odds · Value · Bankroll · Bet-notifier · Line-monitor |
+| **Operators (you)** | Healthy feeds, an improving codebase, cost control | Operations plane (§3.1) |
+
+**Analytics-first, betting opt-in.** The betting agents are a **module** a workspace can enable
+or disable (per tenant, per jurisdiction). A coaching, fantasy, or media customer runs the same
+platform with the trading desk switched off — a bigger addressable market, and materially lower
+compliance exposure (§14).
 
 ### What it explicitly is **not** (non-goals)
 - **It never places bets or moves money.** No agent is wired to a stake-placement,
@@ -88,11 +117,12 @@ agents answers it using live and historical sports data and bookmaker prices:
   fantasy, performance tracking, and self-maintenance.
 
 ### Primary user outcomes
-1. **Odds intelligence** — best price, fair price, value, arbs, line movement, across all books.
-2. **Modelling & analytics** — predictive models, backtests, calibrated probabilities.
+1. **Stats & analytics** — fixtures, boxscores, player/team trends, opponent scouting, summaries.
+2. **Modelling** — predictive models, backtests, calibrated probabilities.
 3. **Fantasy / DFS** — projections, lineup optimisation, player research.
-4. **Performance tracking** — log bets the user places, settle them, report P&L / ROI / CLV.
-5. **Self-maintenance** — keep the data feeds healthy and the codebase improving.
+4. **Odds intelligence** *(betting module)* — best price, fair price, value, arbs, line movement.
+5. **Performance tracking** *(betting module)* — log bets the user places, settle, report P&L / ROI / CLV.
+6. **Self-maintenance** — keep the data feeds healthy and the codebase improving.
 
 ---
 
@@ -215,7 +245,7 @@ Every repo write and the merge gate live entirely in the operations plane (§15)
 **Today (single-user / local):** both planes run side-by-side under one principal (you). The
 seams — separate credential sets, separate trigger paths, and a separate package + deployable
 for operations — go in now, so SaaS is *turning on isolation + an operator console*, not
-re-architecting. Whether operations becomes its own repo/service is [D15](#19-decision-register).
+re-architecting. Whether operations becomes its own repo/service is [D14](#19-decision-register).
 
 ---
 
@@ -232,7 +262,7 @@ sportsdata-agents/
 ├── src/sportsdata_agents/
 │   ├── gateway/                ← PRODUCT entry: customer-facing FastAPI app, auth, tenancy, queue, streaming
 │   ├── operations/             ← OPERATIONS entry: operator console + engineering agents
-│   │                             (separate deployable; platform creds; off the customer gateway) — §3.1, D15
+│   │                             (separate deployable; platform creds; off the customer gateway) — §3.1, D14
 │   ├── orchestrator/           ← router, planner, model-selection policy (product plane)
 │   ├── agents/                 ← SHARED agent runtime + loader (reads agent specs; used by both planes)
 │   ├── specs/                  ← *.yaml agent definitions (user-customizable)
@@ -256,7 +286,7 @@ sportsdata-agents/
 **Dependency flow:** `interfaces → gateway → orchestrator → agents → (mcp client | tools |
 sandboxes | data | models)`. One-directional; no cycles.
 
-**Plane split ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split), [D15](#19-decision-register)):**
+**Plane split ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split), [D14](#19-decision-register)):**
 the shared runtime — `agents/`, `specs/`, `mcp/`, `tools/`, `data/`, `models/`, `sandboxes/` —
 lives once. The **product** plane (`gateway/` + the tenant-facing agents) and the **operations**
 plane (`operations/` + the engineering agents) are **separate deployables with separate
@@ -303,6 +333,12 @@ Agents are grouped into tiers. Each is defined by a YAML spec ([§7](#7-agent-sp
 > 6 are the **Product plane** (tenant-facing, customer-invokable, per-workspace scope). **Tier 5
 > is the Operations plane** — platform/operator-only, **never customer-invokable**, holds the
 > platform credentials, triggered by the operator / schedules / CI.
+>
+> **Betting module ([§1](#1-vision--scope)):** the odds & sharp-reference specialists (Tier 1),
+> value-finder & bankroll/risk (Tier 2), and the reporting/alerts agents (Tier 3) make up the
+> **opt-in betting module**. The stats specialist, data-analysis, backtesting, modelling,
+> fantasy, and concierge agents serve coaches / analysts / fantasy / media **with the betting
+> module switched off** — same platform, no gambling features.
 
 ### Tier 0 — Control plane
 | Agent | Purpose | Tools | Model tier |
@@ -474,6 +510,9 @@ Core entities (Postgres; `odds_snapshots` and `prices` on TimescaleDB hypertable
 | `agent_specs` | Registered agent definitions (DB-backed for user-created agents; files for built-ins). |
 | `conversations`, `messages` | Per-channel chat history + context. |
 | `agent_runs`, `tool_calls` | **Audit**: every run, model used, tokens, cost, latency; every tool call + args + result hash. |
+| `usage_ledger` | **Cost spine**: normalised per-run cost — model tokens (in/out) × price, sandbox seconds (+GPU), tool calls, latency, outcome — tagged with tenant/workspace/agent/task-type/model-tier. Basis for cost dashboards, per-agent ROI, and SaaS billing (§16.1). |
+| `budgets` | Per-workspace / per-agent spend caps + running balances, enforced by the gateway. |
+| `agent_metrics` | Rolled-up efficiency per agent: cost-per-successful-task, success rate, value-add, quality, latency (§16.2). |
 | `fixtures`, `events`, `selections` | Normalised entities resolved from feeds (cross-provider keys). |
 | `odds_snapshots`, `prices` | **Time-series** of prices per selection/book — the basis for line movement, CLV, backtests. |
 | `models`, `predictions` | Trained models + their probability outputs (with calibration metadata). |
@@ -598,6 +637,10 @@ yet) and discipline to always scope queries. Net: low cost now, very high option
 Advisory-only positioning materially lowers (but doesn't erase) regulatory exposure: we
 provide research/analytics, not a betting service, and never handle stakes or funds.
 
+- **Analytics-first, betting opt-in (§1).** With the betting module disabled, a workspace is a
+  pure sports-analytics tool — sellable to coaches, clubs, fantasy players and media with **no
+  gambling-regulation surface at all**. Enable the betting module only per tenant and only where
+  the jurisdiction permits; entitlements gate it centrally.
 - **Single-user/local:** personal research tool — low risk.
 - **SaaS:** offering betting-adjacent tooling to others can engage gambling-advertising,
   consumer-protection, data-protection (PII/GDPR), and jurisdiction rules. **Get legal
@@ -640,15 +683,53 @@ on measured performance and testing:
 
 ---
 
-## 16. Observability & evaluation
+## 16. Observability, cost tracking & evaluation
 
 - **Tracing:** every agent run, delegation, tool call, model choice, token count, latency,
   and cost is traced (Logfire/Langfuse). Essential for debugging multi-agent flows and for
   per-tenant cost accounting.
-- **Evaluation:** the eval agent runs scheduled and PR-triggered evals — model calibration
-  (Brier/log-loss vs outcomes), recommendation quality (CLV is the gold standard — did we
-  beat the closing line?), routing efficiency (cost vs quality), and data-feed health. Eval
-  results gate "is this change actually better?" before the improver's PRs are taken seriously.
+
+### 16.1 Cost tracking
+
+Spend is never a mystery — every run carries a full cost attribution.
+
+- **What's metered:** LLM tokens (in/out) × per-model price + sandbox seconds (and GPU) + tool
+  calls + wall-clock latency, written to `usage_ledger` (§9) and tagged with **tenant,
+  workspace, agent, task type, model tier, and conversation**.
+- **Roll-ups:** cost per run / agent / task type / tenant / day on the dashboard — *"where is
+  the money going?"* is one query.
+- **Budgets & ceilings:** per-run `cost_ceiling_usd` (agent spec, §7) + per-workspace `budgets`
+  (§9), enforced by the gateway. A run that would breach is throttled, **down-shifted a model
+  tier**, or paused for approval. In SaaS this same ledger is the **billing meter**.
+- **Cost-watchdog (operations plane):** alerts on anomalies (a spec that suddenly costs 5×, a
+  runaway loop) and proposes cheaper tiers where eval shows no quality loss.
+
+### 16.2 Agent efficiency — "are we getting what we need from each agent?"
+
+Each agent is measured as an **investment**, not just traced. The eval/benchmark agent
+(operations plane) computes these on a schedule and on PRs and writes them to `agent_metrics`
+(§9), so an underperforming or over-priced agent is *visible* and actionable.
+
+| Metric | The question it answers |
+|---|---|
+| **Cost per successful task** | What does a *useful* answer from this agent actually cost? |
+| **Success / completion rate** | How often does it produce a valid, used result (vs error, empty, discarded)? |
+| **Value-add** | Did its output get used downstream / accepted by the user / improve the final answer? |
+| **Quality** | Calibration (Brier/log-loss) for models; **CLV** for betting recs; rubric / LLM-judge scores for narrative answers |
+| **Latency** | Time-to-answer per agent and task type |
+| **Routing efficiency** | Is the model tier right — over-paying on easy tasks, or under-reasoning hard ones? |
+| **Tokens / tool-calls per task** | Is the agent efficient, or thrashing? |
+
+The payoff: **"ROI of each agent" is a first-class, dashboarded number.** A weak or expensive
+agent can be retuned (prompt / model tier), have its scope narrowed, or be retired — and the
+self-improvement loop (§15) can propose those changes automatically.
+
+### 16.3 Evaluation
+
+The eval agent runs scheduled and PR-triggered evals — model calibration (Brier/log-loss vs
+outcomes), recommendation quality (CLV — did we beat the closing line?), routing efficiency
+(cost vs quality), answer quality for analytics/narrative tasks, and data-feed health. Eval
+results gate *"is this change actually better?"* before the improver's PRs are taken seriously.
 
 ---
 
@@ -703,9 +784,10 @@ Status: **(set)** = chosen with you; **(open)** = needs your steer.
 | **D11** | Memory/RAG | None early / pgvector / dedicated vector DB | **pgvector (in Postgres)** when needed | + No new system, good enough early. − Not as fast as a dedicated store at large scale. |
 | **D12** | LLM providers in the pool | *(open)* | Anthropic + one of OpenAI/Google, + a cheap fast model | Your call — drives cost & quality; the gateway makes it swappable. |
 | **D13** | SaaS go/no-go & legal | *(open)* | Decide after P2–P3 prove value | Gates Mode B and any client exposure; needs legal review (§14). |
-| **D14** | SportCast feed | Add as an mcp provider / skip | **Add** (probe first; it's `http://`) | + Another pricing source for value/CLV. − Unverified auth/params; insecure transport to assess. |
-| **D15** | Operations-plane packaging ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)) | Same repo (separate package + deployable) / separate repo `sportsdata-ops` / same runtime as product | **Same repo, separate package + separate deployable now; split to its own repo/service when SaaS hardening demands it** | + Shares the agent runtime & spec format (one place to evolve the framework) while deploying with its own credentials and trigger path. − A softer boundary than two repos; needs discipline that operator code/creds never bundle into the tenant runtime. |
-| **D16** | How operations consumes tenant signals | Raw / aggregated+anonymized / opt-in granular | **Aggregated + anonymized by default; opt-in for finer detail** | + Privacy/compliance and customer trust by construction; safe for self-improvement. − Coarser debugging of a single tenant — mitigated by time-boxed, tenant-authorized support sessions. |
+| **D14** | Operations-plane packaging ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)) | Same repo (separate package + deployable) / separate repo `sportsdata-ops` / same runtime as product | **Same repo, separate package + separate deployable now; split to its own repo/service when SaaS hardening demands it** | + Shares the agent runtime & spec format (one place to evolve the framework) while deploying with its own credentials and trigger path. − A softer boundary than two repos; needs discipline that operator code/creds never bundle into the tenant runtime. |
+| **D15** | How operations consumes tenant signals | Raw / aggregated+anonymized / opt-in granular | **Aggregated + anonymized by default; opt-in for finer detail** | + Privacy/compliance and customer trust by construction; safe for self-improvement. − Coarser debugging of a single tenant — mitigated by time-boxed, tenant-authorized support sessions. |
+| **D16** | Betting: core vs module ([§1](#1-vision--scope)) | Always-on betting / **toggleable, off-by-default module (analytics-first)** / two separate products | **Toggleable module, off by default** | + One platform serves coaches/analysts/fantasy/media *and* bettors; bigger market; far lower compliance surface where it's off (§14). − An entitlements/feature-flag layer to maintain; shared agents must honour the toggle. |
+| **D17** | Cost-attribution granularity ([§16.1](#161-cost-tracking)) | Per-run only / per-run + per-agent + per-tenant rollups / full per-tool-call | **Per-run + per-agent + per-tenant rollups (per-tool-call detail kept in the audit log)** | + Enough to bill, budget, and judge each agent's ROI without excess storage. − Slightly more write volume than per-run-only; mitigated by Timescale rollups + retention. |
 
 ---
 
