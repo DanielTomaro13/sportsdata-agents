@@ -842,7 +842,9 @@ Each phase is shippable and de-risks the next. Maps to the agent roster in §6.
 ## 19. Decision register
 
 The decisions that need a call, each with options, a recommendation, and the trade-off.
-Status: **(set)** = chosen with you; **(open)** = needs your steer.
+Status: **(set)** = chosen/confirmed. All decisions below are currently **set**; the row records
+the rationale and trade-off so any can be revisited as we learn (notably D13, where a paid SaaS
+launch remains gated on legal review).
 
 | ID | Decision | Options | Recommendation | Pros / Cons of the recommendation |
 |---|---|---|---|---|
