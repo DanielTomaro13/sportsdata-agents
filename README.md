@@ -1,14 +1,16 @@
 # sportsdata-agents
 
 An agentic platform that turns the [`sportsdata-mcp`](https://github.com/DanielTomaro13/sportsdata-mcp)
-tool catalogue into a **sports analytics & research platform** — a team of LLM agents that
-gather and analyse sports data for **analysts, coaches, fantasy players, media and fans**,
-with an **optional trading desk** (an opt-in betting module) that compares odds across
-bookmakers, models outcomes, finds value, and tracks performance. A separate engineering team
-of agents maintains the codebase via CI-gated PRs.
+tool catalogue into **whatever desk you need** — a cross-bookmaker **trading desk**, a
+**sports-analytics / coaching team**, a **fantasy desk**, or a custom mix. It's one composable
+team of LLM agents over a shared data backbone: they gather and analyse sports data, model
+outcomes, compare odds, optimise fantasy lineups, and track performance — **you turn on the
+agents and modules that fit your purpose**. A separate engineering team of agents maintains the
+codebase via CI-gated PRs.
 
-Betting is one use case, not the point: with the betting module switched off the platform is a
-pure analytics tool (bigger market, lower compliance surface).
+Nothing is privileged: a trading desk and a coaching desk are equal configurations of the same
+team. Betting is one **opt-in module** — switch it off and the same platform is a pure analytics
+tool (bigger market, lower compliance surface).
 
 > ### Advisory only — no agent ever places a bet or moves money.
 > The platform **informs**. It surfaces recommendations, the statistics you asked for,

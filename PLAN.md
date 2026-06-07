@@ -13,11 +13,13 @@
 ## 0. TL;DR
 
 We are building a **team of cooperating LLM agents** on top of the `sportsdata-mcp` tool
-catalogue. The agents gather and analyse sports data and surface insight for **analysts,
-coaches, fantasy players, media and fans — as well as bettors**. On top of that analytics
-backbone sits an **opt-in trading desk** that compares odds across every bookmaker, models
-outcomes, finds value, and tracks performance. A separate engineering team of agents maintains
-the codebase by opening pull requests that must pass CI and review.
+catalogue. The same composable team becomes **whatever the user configures it to be** — a
+cross-bookmaker **trading desk**, a **sports-analytics / coaching team**, a **fantasy desk**, or
+a custom mix — serving analysts, coaches, fantasy players, media and fans as readily as bettors.
+It gathers and analyses sports data, models outcomes, compares odds, optimises lineups, and
+tracks performance; **each workspace turns on the agents and modules it wants** (betting is one
+opt-in module). A separate engineering team of agents maintains the codebase by opening pull
+requests that must pass CI and review.
 
 Three rules shape every decision in this document:
 
@@ -70,10 +72,12 @@ Three rules shape every decision in this document:
 ## 1. Vision & scope
 
 ### What it is
-A conversational, multi-agent **sports analytics & research platform** — with an optional
-**trading desk** layered on top. A user (you today; a client tomorrow) asks a question or sets
-up a standing job, and a coordinated team of agents answers it using live and historical sports
-data (and, when the betting module is enabled, bookmaker prices):
+A conversational, multi-agent **sports desk that is whatever you configure it to be** — a
+cross-bookmaker **trading desk**, a **sports-analytics / coaching team**, a **fantasy desk**, or
+a custom blend. It is *one composable team of agents over the same data backbone*; each workspace
+turns on the agents and modules that fit its purpose. A user (you today; a client tomorrow) asks
+a question or sets up a standing job, and the team answers using live and historical sports data
+(and, when the betting module is enabled, bookmaker prices):
 
 **Analytics & research (no gambling involved):**
 - *"Show me our next opponent's last-five defensive splits and where they concede."* — coach / analyst
@@ -102,9 +106,16 @@ serves several audiences — and **betting is just one of them**:
 | **Bettors / traders** *(opt-in module)* | Best price, value, CLV, bankroll, alerts | Odds · Value · Bankroll · Bet-notifier · Line-monitor |
 | **Operators (you)** | Healthy feeds, an improving codebase, cost control | Operations plane (§3.1) |
 
-**Analytics-first, betting opt-in.** The betting agents are a **module** a workspace can enable
-or disable (per tenant, per jurisdiction). A coaching, fantasy, or media customer runs the same
-platform with the trading desk switched off — a bigger addressable market, and materially lower
+**You decide what it is — composable presets.** A workspace turns on the agents and modules it
+wants. Nothing is privileged: a trading desk and a coaching desk are equal configurations of the
+same team. Example presets:
+- **Trading desk** — odds + value + bankroll + line-monitor + tracking (betting module on).
+- **Analytics / coaching desk** — stats + data-analysis + modelling + opponent scouting (betting off).
+- **Fantasy desk** — fantasy advisor + stats + lineup optimisation (betting off).
+- **Custom** — any mix, or a bespoke agent the user defines (§7, via the agent-builder).
+
+The betting agents are a **module** enabled/disabled **per tenant and per jurisdiction**; with it
+off, the same platform is a pure analytics tool — a bigger addressable market and materially lower
 compliance exposure (§14).
 
 ### What it explicitly is **not** (non-goals)
@@ -593,8 +604,9 @@ We run single-tenant/local now but **bake the seams in** so SaaS is hardening + 
   swaps to Clerk/Auth0/Supabase for SaaS — interfaces already pass a principal.
 - **Cost & rate limits per tenant:** the `limits` in agent specs + a gateway budget ledger
   meter usage per workspace (essential for billing/abuse control).
-- **Config over code:** model allow-lists, enabled agents, enabled MCP groups, and budgets
-  are per-workspace config.
+- **Config over code:** a workspace **preset** (trading / analytics / fantasy / custom — §1),
+  the set of enabled agents and modules, model allow-lists, enabled MCP groups, and budgets are
+  all per-workspace config. "What this desk is" is data, not a code branch.
 - **The operations plane is platform-level, not per-tenant ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)):**
   operator/engineering agents run under the platform identity with platform credentials, are
   never exposed on the customer gateway, and consume only aggregated/anonymized cross-tenant
@@ -637,7 +649,7 @@ yet) and discipline to always scope queries. Net: low cost now, very high option
 Advisory-only positioning materially lowers (but doesn't erase) regulatory exposure: we
 provide research/analytics, not a betting service, and never handle stakes or funds.
 
-- **Analytics-first, betting opt-in (§1).** With the betting module disabled, a workspace is a
+- **Composable; betting is opt-in (§1).** A workspace configured without the betting module is a
   pure sports-analytics tool — sellable to coaches, clubs, fantasy players and media with **no
   gambling-regulation surface at all**. Enable the betting module only per tenant and only where
   the jurisdiction permits; entitlements gate it centrally.
