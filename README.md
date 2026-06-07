@@ -8,9 +8,10 @@ outcomes, compare odds, optimise fantasy lineups, and track performance — **yo
 agents and modules that fit your purpose**. A separate engineering team of agents maintains the
 codebase via CI-gated PRs.
 
-Nothing is privileged: a trading desk and a coaching desk are equal configurations of the same
-team. Betting is one **opt-in module** — switch it off and the same platform is a pure analytics
-tool (bigger market, lower compliance surface).
+You assemble a workspace from **modules we build and you select** — Match Analytics, Fantasy,
+Racing, Trading/Betting, and more. Nothing is privileged: a Trading module and a Coaching module
+are equal citizens of the catalogue. Trading/Betting is just one module (and jurisdiction-gated),
+so a workspace without it is a pure analytics tool (bigger market, lower compliance surface).
 
 > ### Advisory only — no agent ever places a bet or moves money.
 > The platform **informs**. It surfaces recommendations, the statistics you asked for,

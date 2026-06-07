@@ -17,9 +17,10 @@ catalogue. The same composable team becomes **whatever the user configures it to
 cross-bookmaker **trading desk**, a **sports-analytics / coaching team**, a **fantasy desk**, or
 a custom mix — serving analysts, coaches, fantasy players, media and fans as readily as bettors.
 It gathers and analyses sports data, models outcomes, compares odds, optimises lineups, and
-tracks performance; **each workspace turns on the agents and modules it wants** (betting is one
-opt-in module). A separate engineering team of agents maintains the codebase by opening pull
-requests that must pass CI and review.
+tracks performance; **each workspace is assembled from modules we build and the customer selects**
+— Match Analytics, Fantasy, Racing, Trading/Betting, and more — the Trading/Betting module being
+just one of them (and jurisdiction-gated). A separate engineering team of agents maintains the
+codebase by opening pull requests that must pass CI and review.
 
 Three rules shape every decision in this document:
 
@@ -79,7 +80,7 @@ cross-bookmaker **trading desk**, a **sports-analytics / coaching team**, a **fa
 a custom blend. It is *one composable team of agents over the same data backbone*; each workspace
 turns on the agents and modules that fit its purpose. A user (you today; a client tomorrow) asks
 a question or sets up a standing job, and the team answers using live and historical sports data
-(and, when the betting module is enabled, bookmaker prices):
+(and, when the Trading/Betting module is enabled, bookmaker prices):
 
 **Analytics & research (no gambling involved):**
 - *"Show me our next opponent's last-five defensive splits and where they concede."* — coach / analyst
@@ -87,7 +88,7 @@ a question or sets up a standing job, and the team answers using live and histor
 - *"Optimise my DFS lineup for Saturday."* / *"Who should I start this week?"* — fantasy
 - *"Summarise last night's match with the key stats and storylines."* — media / fan
 
-**Trading desk (opt-in betting module):**
+**Trading desk (the opt-in Trading/Betting module):**
 - *"Where's the best price on the Pies tonight, and is there value?"*
 - *"Build a model for AFL totals and alert me when the line disagrees."*
 - *"How did my tracked bets do last month — ROI and closing-line value?"*
@@ -105,20 +106,25 @@ serves several audiences — and **betting is just one of them**:
 | **Fantasy / DFS players** | Projections, lineup optimisation, player research | Fantasy advisor · Stats specialist |
 | **Media & content** | Fast, accurate match summaries, storylines, records | Stats specialist · Concierge |
 | **Fans** | "How did my team do", standings, player comparisons | Stats specialist · Concierge |
-| **Bettors / traders** *(opt-in module)* | Best price, value, CLV, bankroll, alerts | Odds · Value · Bankroll · Bet-notifier · Line-monitor |
+| **Bettors / traders** *(Trading/Betting module)* | Best price, value, CLV, bankroll, alerts | Odds · Value · Bankroll · Bet-notifier · Line-monitor |
 | **Operators (you)** | Healthy feeds, an improving codebase, cost control | Operations plane (§3.1) |
 
-**You decide what it is — composable presets.** A workspace turns on the agents and modules it
-wants. Nothing is privileged: a trading desk and a coaching desk are equal configurations of the
-same team. Example presets:
-- **Trading desk** — odds + value + bankroll + line-monitor + tracking (betting module on).
-- **Analytics / coaching desk** — stats + data-analysis + modelling + opponent scouting (betting off).
-- **Fantasy desk** — fantasy advisor + stats + lineup optimisation (betting off).
-- **Custom** — any mix, or a bespoke agent the user defines (§7, via the agent-builder).
+**You decide what it is — pick from modules.** A workspace is assembled from **modules**: named,
+operator-curated bundles of agents + data sources + default config, each packaging a use case.
+**We build and version the modules; the customer selects** which to enable (within their plan's
+entitlements, §12.1). Nothing is privileged — a Trading module and a Coaching module are equal
+citizens of the same catalogue. Example modules:
+- **Match Analytics** — stats, data-analysis, modelling, match summaries.
+- **Opponent Scouting** — team/player splits, form, matchup breakdowns (coaches / analysts).
+- **Fantasy / DFS** — projections, lineup optimisation, player research.
+- **Racing** — meetings, cards, results, next-to-jump, futures.
+- **Trading / Betting** — odds comparison, value, bankroll, alerts, P&L *(jurisdiction-gated, §14)*.
+- **Custom** — a bespoke module we build for a client, or one a user assembles via the agent-builder (§7).
 
-The betting agents are a **module** enabled/disabled **per tenant and per jurisdiction**; with it
-off, the same platform is a pure analytics tool — a bigger addressable market and materially lower
-compliance exposure (§14).
+Modules are how the platform becomes "whatever you want it to be." A customer can start from a
+**recommended bundle** for their persona (table above) and adjust. The **Trading / Betting** module
+is just one of the modules — enabled only per tenant and per jurisdiction; a workspace that hasn't
+selected it is a pure analytics tool (bigger market, lower compliance exposure, §14).
 
 ### What it explicitly is **not** (non-goals)
 - **It never places bets or moves money.** No agent is wired to a stake-placement,
@@ -133,8 +139,8 @@ compliance exposure (§14).
 1. **Stats & analytics** — fixtures, boxscores, player/team trends, opponent scouting, summaries.
 2. **Modelling** — predictive models, backtests, calibrated probabilities.
 3. **Fantasy / DFS** — projections, lineup optimisation, player research.
-4. **Odds intelligence** *(betting module)* — best price, fair price, value, arbs, line movement.
-5. **Performance tracking** *(betting module)* — log bets the user places, settle, report P&L / ROI / CLV.
+4. **Odds intelligence** *(Trading/Betting module)* — best price, fair price, value, arbs, line movement.
+5. **Performance tracking** *(Trading/Betting module)* — log bets the user places, settle, report P&L / ROI / CLV.
 6. **Self-maintenance** — keep the data feeds healthy and the codebase improving.
 
 ---
@@ -347,11 +353,12 @@ Agents are grouped into tiers. Each is defined by a YAML spec ([§7](#7-agent-sp
 > is the Operations plane** — platform/operator-only, **never customer-invokable**, holds the
 > platform credentials, triggered by the operator / schedules / CI.
 >
-> **Betting module ([§1](#1-vision--scope)):** the odds & sharp-reference specialists (Tier 1),
-> value-finder & bankroll/risk (Tier 2), and the reporting/alerts agents (Tier 3) make up the
-> **opt-in betting module**. The stats specialist, data-analysis, backtesting, modelling,
-> fantasy, and concierge agents serve coaches / analysts / fantasy / media **with the betting
-> module switched off** — same platform, no gambling features.
+> **Modules ([§1](#1-vision--scope)):** agents are packaged into **operator-curated modules** a
+> workspace selects from — e.g. Match Analytics, Opponent Scouting, Fantasy/DFS, Racing, and the
+> **Trading/Betting** module (odds + sharp-reference + value + bankroll + reporting/alerts,
+> jurisdiction-gated). The stats / data-analysis / backtesting / modelling / fantasy / concierge
+> agents underpin the analytics modules, so a workspace that hasn't selected the Trading/Betting
+> module is a pure analytics tool — no gambling features.
 
 ### Tier 0 — Control plane
 | Agent | Purpose | Tools | Model tier |
@@ -473,6 +480,11 @@ Key properties:
   enforce the advisory-only invariant in code.
 - **`output_type`** gives typed, validated results (great for chaining and for the UI).
 - **`limits`** are enforced by the gateway (cost/latency guardrails), critical for SaaS.
+
+**Modules** are the next level up: an operator-authored **module spec** is a small bundle file
+that names its member agent specs, the MCP groups/capabilities they require, default config/prompts,
+and any UI — the unit a customer selects and is billed for (§1, §12.1). Agents are the parts;
+modules are the products built from them.
 
 ---
 
@@ -695,11 +707,11 @@ an architectural one, and should be market-validated.)
 | Unit | What it is | How it's billed |
 |---|---|---|
 | **MCP providers** | each enabled data source (AFL, MLB, a bookmaker, …) | N included per tier; extra = add-on ($X each / mo) |
-| **Agents** | enabled product-plane agents (preset or custom) | N "of choice" per tier; extra = add-on |
+| **Modules** | operator-curated bundles of agents + data for a use case — Match Analytics, Fantasy, Racing, Trading/Betting, … (we build them; the customer selects) | N "of choice" per tier; extra = add-on; some (e.g. Trading/Betting) are jurisdiction-gated (§14) |
 | **Interface** | API + CLI → chat (Slack/Discord) → web app | unlocked by tier |
 | **Seats** | users in a workspace | N included, then per-seat |
 | **Usage allowance** | LLM tokens + sandbox compute (the §16.1 `usage_ledger`) | monthly allowance per tier; overage metered or via top-up packs |
-| **Betting module** | the opt-in betting agents | add-on; jurisdiction-gated entitlement (§14) |
+| **Custom build** | a bespoke module/agent we build for a client | add-on / professional services |
 
 **Tiers** (mirrors your sketch — each tier is a superset of the one below)
 
@@ -707,18 +719,18 @@ an architectural one, and should be market-validated.)
 |---|---|---|---|
 | **Interface** | API + CLI | **+ Slack / Discord** | **+ Web app** (dashboards, P&L & odds viz) |
 | **MCP providers included** | **3** (extra: $X each) | 3 (extra: $X each) | more (extra: $X each) |
-| **Agents** | presets only | **3 of choice** + agent-builder | 3+ of choice (more available) |
+| **Modules included** | 1–2 | **3 of choice** + agent-builder | more (extra: add-on) |
 | **Seats** | 1 | a few | **multi-seat** (per-seat add-on) |
 | **Usage allowance** | base | higher | highest |
-| **Betting module** | add-on | add-on | add-on |
 | **Indicative price** | `$ / mo` | `$$ / mo` | `$$$ / mo` |
 
 So: **Tier 1** = pay-per-MCP with 3 included (API/CLI); **Tier 2** = Tier 1 + a non-web (chat)
-interface + 3 agents of choice; **Tier 3** = Tier 2 + the web app — extras (MCPs, agents, seats)
-metered on top at every tier.
+interface + 3 **modules** of choice; **Tier 3** = Tier 2 + the web app — extras (MCPs, modules,
+seats) metered on top at every tier. The **Trading/Betting** module is simply one of the modules
+a workspace can select, enabled only per tenant and per jurisdiction (§14).
 
-**Add-ons & metered extras (any tier):** additional MCP provider · additional agent · additional
-seat · betting module · premium-model access · extra usage packs.
+**Add-ons & metered extras (any tier):** additional module · additional MCP provider · additional
+seat · custom module/agent build · premium-model access · extra usage packs.
 
 **The variable-cost reality (why pure-flat won't work).** Every run costs us real money — LLM
 tokens + sandbox compute, metered in `usage_ledger` (§16.1). A flat, unlimited subscription loses
@@ -774,10 +786,10 @@ a low-cost acquisition lever. Decisions: **D18** (packaging), **D19** (cost reco
 Advisory-only positioning materially lowers (but doesn't erase) regulatory exposure: we
 provide research/analytics, not a betting service, and never handle stakes or funds.
 
-- **Composable; betting is opt-in (§1).** A workspace configured without the betting module is a
-  pure sports-analytics tool — sellable to coaches, clubs, fantasy players and media with **no
-  gambling-regulation surface at all**. Enable the betting module only per tenant and only where
-  the jurisdiction permits; entitlements gate it centrally.
+- **Modular; the Trading/Betting module is opt-in (§1).** A workspace that hasn't selected the
+  Trading/Betting module is a pure sports-analytics tool — sellable to coaches, clubs, fantasy
+  players and media with **no gambling-regulation surface at all**. That module is offered only
+  per tenant and only where the jurisdiction permits; entitlements gate it centrally.
 - **Single-user/local:** personal research tool — low risk.
 - **SaaS:** offering betting-adjacent tooling to others can engage gambling-advertising,
   consumer-protection, data-protection (PII/GDPR), and jurisdiction rules. **Get legal
@@ -925,7 +937,7 @@ launch remains gated on legal review).
 | **D13** | SaaS go/no-go & legal | *(set: build SaaS-ready now; launch gated on legal)* | Architecture is SaaS-ready (§12, §12.1); **legal review before any paid launch** | + No rework to productize. − A gambling-adjacent sale needs legal sign-off (§14) before go-live. |
 | **D14** | Operations-plane packaging ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)) | Same repo (separate package + deployable) / separate repo `sportsdata-ops` / same runtime as product | **Same repo, separate package + separate deployable now; split to its own repo/service when SaaS hardening demands it** | + Shares the agent runtime & spec format (one place to evolve the framework) while deploying with its own credentials and trigger path. − A softer boundary than two repos; needs discipline that operator code/creds never bundle into the tenant runtime. |
 | **D15** | How operations consumes tenant signals | Raw / aggregated+anonymized / opt-in granular | **Aggregated + anonymized by default; opt-in for finer detail** | + Privacy/compliance and customer trust by construction; safe for self-improvement. − Coarser debugging of a single tenant — mitigated by time-boxed, tenant-authorized support sessions. |
-| **D16** | Betting: core vs module ([§1](#1-vision--scope)) | Always-on betting / **toggleable, off-by-default module (composable presets)** / two separate products | **Toggleable module, off by default** | + One composable platform serves coaches/analysts/fantasy/media *and* bettors; bigger market; far lower compliance surface where it's off (§14). − An entitlements/feature-flag layer to maintain; shared agents must honour the toggle. |
+| **D16** | Module model ([§1](#1-vision--scope), [§12.1](#121-pricing-packaging--entitlements-saas)) | Everything always-on / **operator-curated modules the customer selects from** / per-agent à-la-carte | **Operator-curated module catalogue; Trading/Betting is one module, jurisdiction-gated** | + Productizes the composable platform into clear, sellable, quality-controlled units; betting is just one gated module among many; bigger market with it off (§14). − We must build/version a module catalogue + entitlements; module boundaries need design. |
 | **D17** | Cost-attribution granularity ([§16.1](#161-cost-tracking)) | Per-run only / per-run + per-agent + per-tenant rollups / full per-tool-call | **Per-run + per-agent + per-tenant rollups (per-tool-call detail kept in the audit log)** | + Enough to bill, budget, and judge each agent's ROI without excess storage. − Slightly more write volume than per-run-only; mitigated by Timescale rollups + retention. |
 | **D18** | Packaging model ([§12.1](#121-pricing-packaging--entitlements-saas)) | Tiered per-feature entitlements (MCP/agents/interface/seats) + add-ons / flat all-in tiers / pure usage | **Tiered entitlements + add-ons (per your sketch), each tier including a usage allowance** | + Price tracks both value and our cost; clear upsell path; fits the composable model. − More billing logic + quota UX to maintain. |
 | **D19** | Cost recovery: LLM + sandbox ([§12.1](#121-pricing-packaging--entitlements-saas)) | Flat / pure usage / hybrid allowance + overage | **Hybrid: per-tier allowance + metered overage + hard budgets ([§16.1](#161-cost-tracking))** | + Predictable for the customer *and* margin-safe; reuses the `usage_ledger` meter. − Allowances must be communicated; metering adds complexity. |
@@ -966,6 +978,10 @@ launch remains gated on legal review).
   "fair" probability.
 - **HITL** — human-in-the-loop; here, the user is always the one who places any bet.
 - **Workspace / tenant** — an isolated unit of data, secrets, config, and budget.
+- **Module** — an operator-curated, named bundle of agents + data sources (MCP groups) + default
+  config that packages a use case (Match Analytics, Fantasy, Racing, Trading/Betting, …). *We*
+  build and version modules; customers *select* which to enable per workspace, within their plan's
+  entitlements (§1, §12.1). Trading/Betting is one module, jurisdiction-gated.
 
 ---
 
