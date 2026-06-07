@@ -28,7 +28,10 @@ Three rules shape every decision in this document:
 3. **Local-first, SaaS-ready.** We run single-user/local now, but every design choice
    (multi-tenant data model, per-workspace secrets, stateless gateway, scoped tools) is
    made so that turning this into a multi-tenant SaaS is configuration and hardening — not
-   a rewrite. Where a decision has a meaningful trade-off, it is recorded in
+   a rewrite. Crucially, the agents themselves are split into a customer-facing **product
+   plane** and an operator-only **operations plane** ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)),
+   so customers can never reach your codebase, your platform credentials, or another tenant's
+   data. Where a decision has a meaningful trade-off, it is recorded in
    [§19 Decision register](#19-decision-register) with pros and cons.
 
 ---
@@ -38,6 +41,7 @@ Three rules shape every decision in this document:
 1. [Vision & scope](#1-vision--scope)
 2. [Guiding principles](#2-guiding-principles)
 3. [System architecture](#3-system-architecture)
+   - [3.1 Two agent planes — product vs operations (the SaaS split)](#31-two-agent-planes--product-vs-operations-the-saas-split)
 4. [Repository & code organization](#4-repository--code-organization)
 5. [Technology stack](#5-technology-stack)
 6. [The agent team](#6-the-agent-team)
@@ -156,6 +160,63 @@ reaches the upstream sports/bookmaker APIs directly.
 - **Model gateway** — unified access to all LLM providers with per-tenant keys/budgets.
 - **Observability** — tracing + evaluation over every run.
 
+### 3.1 Two agent planes — product vs operations (the SaaS split)
+
+For SaaS, the agents fall into **two classes with completely different trust boundaries,
+credentials, triggers, billing, and blast radius.** Designing the split now — even while you
+are the only user — is what makes the SaaS transition safe rather than a re-architecture. (It
+is a *security and privacy boundary*, not merely an org chart.)
+
+**Product plane — tenant agents (what a customer uses).**
+- Run *inside a tenant workspace*, scoped to that tenant's data, secrets, config, and budget.
+- Invoked by customers through the customer interfaces (Slack / Discord / web).
+- Hold only *per-workspace* secrets (the tenant's own keys) — never platform credentials.
+- Usage is metered and billed to the tenant.
+- Members: orchestrator, domain specialists, quants, reporting/tracking, fantasy, concierge,
+  agent-builder (Tiers 0–4 and 6 in §6).
+
+**Operations plane — platform / operator agents (what *you* use to run and improve the platform).**
+- Run under the *platform's own identity*, not any tenant's; they are cross-tenant or
+  repo/infra-facing.
+- **Never reachable from the customer gateway.** Triggered only by the operator (an admin
+  console / internal CLI), schedules, or CI/webhook events.
+- Hold *platform* credentials — GitHub repo-write, CI, infra — that **no tenant agent can see**.
+- Cost is platform opex, not billed to customers.
+- Members: MCP health/QA, repo-improver, code-reviewer, eval/benchmark, plus future
+  platform-ops agents — incident triage, cost watchdog, provider-unblock (Tier 5 in §6).
+
+```
+ customers ──► Customer gateway ──► PRODUCT PLANE ─────► per-workspace data + tenant secrets
+               (auth, tenancy,      (orchestrator + specialists + quants + fantasy + concierge)
+                budgets)                   │
+                                           │  emits ONLY aggregated, anonymized signals
+                                           ▼
+ operator ───► Operator console ──► OPERATIONS PLANE ──► platform creds (GitHub / CI / infra)
+ (admin/RBAC)  + schedules + CI     (QA · improver · reviewer · eval)  ──► CI-gated PRs,
+                                                                           human-merged
+```
+
+**Why the hard split**
+- **Blast radius / security** — a prompt-injection or jailbreak in a tenant agent must not be
+  able to reach repo-write credentials or another tenant's data. Separate identities + no
+  inbound path from customer traffic enforce this in infrastructure, not prompts.
+- **Privacy** — improvement must never leak one customer's data into the codebase or to another
+  tenant. The operations plane consumes only **aggregated, anonymized** signals from the product
+  plane (eval scores, feed health, opt-in performance metrics) — never raw tenant data.
+- **Billing & SLA** — customer usage and your platform opex are different ledgers.
+- **Lifecycle** — you ship platform changes on your cadence; customers consume the product
+  continuously.
+
+**How the planes connect — one-way and sanitized.** Product plane → emits aggregated/anonymized
+eval, performance, and health signals → operations plane prioritizes fixes and improvements →
+changes land as **CI-gated, human-merged PRs** → a new platform version rolls out to all tenants.
+Every repo write and the merge gate live entirely in the operations plane (§15).
+
+**Today (single-user / local):** both planes run side-by-side under one principal (you). The
+seams — separate credential sets, separate trigger paths, and a separate package + deployable
+for operations — go in now, so SaaS is *turning on isolation + an operator console*, not
+re-architecting. Whether operations becomes its own repo/service is [D15](#19-decision-register).
+
 ---
 
 ## 4. Repository & code organization
@@ -169,9 +230,11 @@ sportsdata-agents/
 ├── PLAN.md                     ← this document
 ├── pyproject.toml              ← package: "sportsdata_agents"
 ├── src/sportsdata_agents/
-│   ├── gateway/                ← FastAPI app, auth, tenancy, task queue, streaming
-│   ├── orchestrator/           ← router, planner, model-selection policy
-│   ├── agents/                 ← agent runtime + loader (reads agent specs)
+│   ├── gateway/                ← PRODUCT entry: customer-facing FastAPI app, auth, tenancy, queue, streaming
+│   ├── operations/             ← OPERATIONS entry: operator console + engineering agents
+│   │                             (separate deployable; platform creds; off the customer gateway) — §3.1, D15
+│   ├── orchestrator/           ← router, planner, model-selection policy (product plane)
+│   ├── agents/                 ← SHARED agent runtime + loader (reads agent specs; used by both planes)
 │   ├── specs/                  ← *.yaml agent definitions (user-customizable)
 │   │   ├── _schema.yaml        ← the agent-spec contract (mirrors pydantic models)
 │   │   ├── orchestrator.yaml
@@ -192,6 +255,14 @@ sportsdata-agents/
 
 **Dependency flow:** `interfaces → gateway → orchestrator → agents → (mcp client | tools |
 sandboxes | data | models)`. One-directional; no cycles.
+
+**Plane split ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split), [D15](#19-decision-register)):**
+the shared runtime — `agents/`, `specs/`, `mcp/`, `tools/`, `data/`, `models/`, `sandboxes/` —
+lives once. The **product** plane (`gateway/` + the tenant-facing agents) and the **operations**
+plane (`operations/` + the engineering agents) are **separate deployables with separate
+credentials and trigger paths**, in the same repo for now. Only the operations deployable is
+given the platform secrets (GitHub/CI/infra); only the product deployable is exposed to
+customers.
 
 ---
 
@@ -227,6 +298,11 @@ Each row notes the choice and the key trade-off; the deeper pros/cons live in
 Agents are grouped into tiers. Each is defined by a YAML spec ([§7](#7-agent-specification-format)).
 "Tools" lists the **scoped** MCP groups / capabilities and native tools it may use.
 "Gating" notes any human checkpoint. **No agent has bet-placement or money tools.**
+
+> **Plane ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)):** Tiers 0–4 and
+> 6 are the **Product plane** (tenant-facing, customer-invokable, per-workspace scope). **Tier 5
+> is the Operations plane** — platform/operator-only, **never customer-invokable**, holds the
+> platform credentials, triggered by the operator / schedules / CI.
 
 ### Tier 0 — Control plane
 | Agent | Purpose | Tools | Model tier |
@@ -269,7 +345,9 @@ stronger than one-agent-per-book.
 |---|---|---|
 | **Fantasy advisor** | Projections, lineup optimisation, player research, slate analysis (e.g. DFS, season-long) | DataGolf fantasy, MLB/NBA/AFL stats, optimisation in sandbox |
 
-### Tier 5 — Engineering department (maintains the repos)
+### Tier 5 — Engineering department · **Operations plane** (maintains the repos)
+*Platform/operator-only — runs under the platform identity with platform credentials, never
+exposed to customers (§3.1). Consumes only aggregated/anonymized signals from the product plane.*
 | Agent | Purpose | Tools | Gating |
 |---|---|---|---|
 | **MCP health / QA agent** | Run `doctor` + the contract suite on a schedule; detect breakage/shape drift; file issues | sandbox + the mcp repo's CLI/tests | alerts humans |
@@ -478,6 +556,10 @@ We run single-tenant/local now but **bake the seams in** so SaaS is hardening + 
   meter usage per workspace (essential for billing/abuse control).
 - **Config over code:** model allow-lists, enabled agents, enabled MCP groups, and budgets
   are per-workspace config.
+- **The operations plane is platform-level, not per-tenant ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)):**
+  operator/engineering agents run under the platform identity with platform credentials, are
+  never exposed on the customer gateway, and consume only aggregated/anonymized cross-tenant
+  signals — so customer data never crosses into the codebase or another workspace.
 
 **Pros of baking it in now:** SaaS later is config + hardening, not a rewrite; cleaner
 boundaries even for single-user; multi-"workspace" is useful even solo (e.g. separate
@@ -489,6 +571,11 @@ yet) and discipline to always scope queries. Net: low cost now, very high option
 
 ## 13. Security, secrets & guardrails
 
+- **Plane isolation ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)).**
+  Product (tenant) agents and operations (operator) agents have *separate identities and
+  credential sets*. Tenant agents never hold platform credentials (GitHub/CI/infra); operator
+  agents are unreachable from the customer gateway. This caps the blast radius of any
+  tenant-side compromise and keeps customer data out of the codebase.
 - **The no-money invariant is structural.** The MCP tool catalogue exposed to agents is
   filtered to exclude any placement/deposit/withdrawal tool; agent specs cannot grant one;
   the runtime denies them even if requested. Advisory-only is enforced by capability, not
@@ -546,6 +633,10 @@ on measured performance and testing:
 - **Guardrails:** improver opens PRs only; the **contract test suite we built in
   `sportsdata-mcp`** is the objective gate (a feed shape change or broken spec fails CI);
   the reviewer agent comments; **a human merges.** No autonomous changes to `main`.
+- **Plane boundary ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)):** the
+  loop spans both planes, but the product plane only *emits* aggregated, anonymized signals —
+  all repo writes, the reviewer, and the human merge gate live entirely in the **operations
+  plane**. Customers cannot trigger, see, or influence it beyond opt-in aggregate metrics.
 
 ---
 
@@ -613,6 +704,8 @@ Status: **(set)** = chosen with you; **(open)** = needs your steer.
 | **D12** | LLM providers in the pool | *(open)* | Anthropic + one of OpenAI/Google, + a cheap fast model | Your call — drives cost & quality; the gateway makes it swappable. |
 | **D13** | SaaS go/no-go & legal | *(open)* | Decide after P2–P3 prove value | Gates Mode B and any client exposure; needs legal review (§14). |
 | **D14** | SportCast feed | Add as an mcp provider / skip | **Add** (probe first; it's `http://`) | + Another pricing source for value/CLV. − Unverified auth/params; insecure transport to assess. |
+| **D15** | Operations-plane packaging ([§3.1](#31-two-agent-planes--product-vs-operations-the-saas-split)) | Same repo (separate package + deployable) / separate repo `sportsdata-ops` / same runtime as product | **Same repo, separate package + separate deployable now; split to its own repo/service when SaaS hardening demands it** | + Shares the agent runtime & spec format (one place to evolve the framework) while deploying with its own credentials and trigger path. − A softer boundary than two repos; needs discipline that operator code/creds never bundle into the tenant runtime. |
+| **D16** | How operations consumes tenant signals | Raw / aggregated+anonymized / opt-in granular | **Aggregated + anonymized by default; opt-in for finer detail** | + Privacy/compliance and customer trust by construction; safe for self-improvement. − Coarser debugging of a single tenant — mitigated by time-boxed, tenant-authorized support sessions. |
 
 ---
 
@@ -627,6 +720,7 @@ Status: **(set)** = chosen with you; **(open)** = needs your steer.
 | Prompt injection via feed/web content | Untrusted-by-default handling, structured tool returns, sandbox egress allow-list |
 | Legal exposure if sold | Advisory-only positioning + compliance seams; legal review before SaaS (§14) |
 | Multi-agent flows hard to debug | Full tracing of every run/tool/model (§16) |
+| A customer reaches an operator agent, or one tenant's data leaks into the codebase / another tenant | Hard plane split (§3.1, §13): separate identities + credentials, operator agents off the customer gateway, and only aggregated/anonymized signals cross from product → operations |
 | Vendor lock-in (LLM/sandbox) | Gateway + sandbox abstractions keep both swappable |
 
 ---
@@ -634,6 +728,9 @@ Status: **(set)** = chosen with you; **(open)** = needs your steer.
 ## 21. Glossary
 
 - **Data plane / agent plane** — the MCP tool layer vs the orchestration/reasoning layer.
+- **Product plane / operations plane** — *within* the agent plane: the customer-facing tenant
+  agents vs the operator-only platform/engineering agents. Different identities, credentials,
+  triggers, and blast radius (§3.1). Don't confuse this axis with data-vs-agent plane above.
 - **Capability tag** — a provider-agnostic slug (e.g. `sport.prices`) that makes tools from
   different providers interchangeable; the basis for cross-bookmaker agents.
 - **CLV (closing-line value)** — whether a bet's price beat the market's closing price; the
