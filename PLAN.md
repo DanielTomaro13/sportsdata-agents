@@ -54,6 +54,7 @@ Three rules shape every decision in this document:
 9. [Data & state model](#9-data--state-model)
 10. [Sandboxing & code execution](#10-sandboxing--code-execution)
 11. [Interfaces](#11-interfaces)
+    - [11.1 Marketing site & capabilities showcase (live MCP demo)](#111-marketing-site-and-capabilities-showcase)
 12. [Multi-tenancy & SaaS-readiness](#12-multi-tenancy--saas-readiness)
     - [12.1 Pricing, packaging & entitlements (SaaS)](#121-pricing-packaging--entitlements-saas)
 13. [Security, secrets & guardrails](#13-security-secrets--guardrails)
@@ -526,6 +527,7 @@ Core entities (Postgres; `odds_snapshots` and `prices` on TimescaleDB hypertable
 | `budgets` | Per-workspace / per-agent spend caps + running balances, enforced by the gateway. |
 | `agent_metrics` | Rolled-up efficiency per agent: cost-per-successful-task, success rate, value-add, quality, latency (§16.2). |
 | `subscriptions`, `entitlements` | Tenant plan + included quotas + enabled add-ons + Stripe ids — the source of truth the gateway checks before enabling an MCP / agent / interface or starting a run (§12.1). |
+| `leads`, `waitlist` | Marketing-site sign-ups / contact / demo emails — the top of the funnel (§11.1). |
 | `fixtures`, `events`, `selections` | Normalised entities resolved from feeds (cross-provider keys). |
 | `odds_snapshots`, `prices` | **Time-series** of prices per selection/book — the basis for line movement, CLV, backtests. |
 | `models`, `predictions` | Trained models + their probability outputs (with calibration metadata). |
@@ -588,6 +590,66 @@ notifications (the line-monitor's alerts) and a client-ready demo for almost no 
 the heavy web build is deferred until a paying product justifies it. **Slack vs Discord:**
 Slack reads as a "trading desk"/enterprise tool (better SaaS story); Discord wins only if
 the eventual users are retail communities. (See [§19, D4](#19-decision-register).)
+
+### 11.1 Marketing site and capabilities showcase
+
+A **public website that promotes the platform and lets a visitor *experience* it** — separate
+from the authenticated product (the Tier-3 web app above). It's the funnel: a landing page, a
+**live "chat with your sports data via MCP" demo**, pricing, docs, and sign-up.
+[theracingapi.com](https://www.theracingapi.com) is a good reference for the genre — clean
+developer-API marketing with an "AI agents via our MCP" section and logos — and the centerpiece
+below goes one better with an *actual interactive* demo rather than just logos.
+
+**Marketing site ≠ product web app.** The marketing site is public, unauthenticated, SEO-driven,
+and conversion-focused; the web app (§11) is the logged-in product. Typical split: marketing at
+`www.` / root, the app at `app.`, docs at `docs.`.
+
+**Page structure** (top → bottom)
+1. **Hero** — one-line value prop (*"Your sports data + odds, as an agent team — ask anything"*) +
+   CTAs: *Try the demo · Get started · Docs*.
+2. **★ Live MCP chat demo (the centerpiece)** — a chat widget where an LLM answers a real sports
+   question by calling the MCP tools, **with the tool calls rendered live** ("calling
+   `mlb_boxscore` … `sportsbet_event_markets` …") so visitors *see* the data plane working. This
+   is the "wow" that earns attention for the rest of the page.
+3. **Works with any LLM** — *"Plug our MCP into Claude, ChatGPT, Gemini, Grok…"* + a model-agnostic
+   message (ties to D12), mirroring theracingapi's MCP section.
+4. **Live capability counters** — pulled from the MCP itself: *N providers · N tools · N
+   capabilities · N sports* — a concrete, always-current flex of breadth.
+5. **Use cases by persona** — Coach / Analyst · Fantasy · Media · Trader (§1), each with a sample
+   prompt → answer (shows it's *whatever you configure it to be*).
+6. **Pricing** — the §12.1 tiers, pulled from the billing system so they're never stale.
+7. **Docs / quickstart** — connect the MCP, run a first query, link to full docs.
+8. **Social proof + FAQ** — testimonials, data coverage, update frequency, limits.
+9. **CTA / footer** — sign-up / waitlist, terms, privacy, responsible-gambling note.
+
+**Building the live demo safely** — it's a public endpoint, so cost, abuse, and safety matter:
+
+| Approach | Pros | Cons |
+|---|---|---|
+| Animated playback (recorded transcript that types out) | Zero backend/cost, zero abuse risk, always works | Not real; savvy visitors can tell |
+| Fully-live interactive (visitor types anything → real agent) | Most impressive | Cost + abuse + prompt-injection exposure on a public endpoint |
+| **Hybrid (recommended)** | Real *and* controlled | A hardened public demo agent to build + monitor |
+
+**Recommendation (hybrid):** a set of **curated example prompts** the visitor clicks, which run a
+real but tightly-bounded **demo agent** — a public "demo workspace" with read-only/analytics MCP
+groups only, a couple of providers, **aggressive per-session rate limits + a tiny budget ceiling
+(§16.1)**, responses served from a warm cache where possible, and **no secrets**. Tool calls are
+shown live for the effect. Free-form typing is allowed but rate-limited / budget-capped or gated
+behind an email. An **animated playback** is the always-on fallback (and what search engines /
+no-JS visitors see). The advisory-only + no-money invariants (§13) hold here as everywhere — the
+demo can never place a bet.
+
+**Tech & hosting.** A static/SSR site — **Astro** (lightest, SEO-first) or **Next.js** (shares the
+web-app stack) — on Vercel/Netlify (cheap, fast, preview deploys). Analytics + a `leads` table
+(§9) feed the funnel.
+
+**A second distribution channel — hosted/remote MCP.** Like theracingapi, we can also offer the
+MCP itself as a **hosted endpoint customers plug into their *own* Claude/ChatGPT** (bring-your-own
+LLM) — a lower-friction entry that upsells to the full agent platform. See [D23](#19-decision-register).
+
+**Timing.** Worth building as soon as P0/P1 give a working agent to demo — a strong go-to-market
+asset even before full SaaS. Decisions: **D21** (site/tech), **D22** (demo approach), **D23**
+(hosted-MCP channel) in §19.
 
 ---
 
@@ -834,7 +896,7 @@ Each phase is shippable and de-risks the next. Maps to the agent roster in §6.
 | **P0 — Foundations** | One real flow end-to-end on a CLI | Gateway skeleton, MCP client manager, **Orchestrator + Odds + Stats specialists**, Postgres, agent-spec loader, tracing | "Best price + value on tonight's game" works from CLI with audit + traces |
 | **P1 — Track & converse** | Slack + performance | Slack adapter, **Bet-notification**, **Bet-tracking/P&L (CLV)**, **Bankroll/risk**, **Concierge**, first **sandbox** for **Data-analysis** | Log a user's bets, report ROI/CLV in Slack; one analysis runs in a sandbox |
 | **P2 — Quant** | Models that beat the line | **Modelling**, **Value-finder**, **Backtesting**, odds-history warehouse | A model backtests with CLV > 0 on held-out data; value alerts fire |
-| **P3 — Self-maintaining** | The engineering dept + alerts + fantasy | **MCP health/QA**, **Improver**, **Reviewer**, **Eval**, **Line-monitor**, **Fantasy advisor**, **Agent-builder**, Discord | QA agent opens an issue on a broken feed; improver lands a CI-passing PR; a user builds a custom agent from chat |
+| **P3 — Self-maintaining** | The engineering dept + alerts + fantasy + GTM | **MCP health/QA**, **Improver**, **Reviewer**, **Eval**, **Line-monitor**, **Fantasy advisor**, **Agent-builder**, Discord, **marketing site + live MCP demo (§11.1)** | QA agent opens an issue on a broken feed; improver lands a CI-passing PR; a user builds a custom agent from chat; the public site demos the MCP live |
 | **P4 — Productize (optional)** | SaaS | Auth, **billing + tiers/entitlements (§12.1)**, web app, per-tenant isolation hardening, compliance policies | A second tenant onboarded on a paid tier with isolated data, enforced entitlements + budgets, and disclaimers |
 
 ---
@@ -868,6 +930,9 @@ launch remains gated on legal review).
 | **D18** | Packaging model ([§12.1](#121-pricing-packaging--entitlements-saas)) | Tiered per-feature entitlements (MCP/agents/interface/seats) + add-ons / flat all-in tiers / pure usage | **Tiered entitlements + add-ons (per your sketch), each tier including a usage allowance** | + Price tracks both value and our cost; clear upsell path; fits the composable model. − More billing logic + quota UX to maintain. |
 | **D19** | Cost recovery: LLM + sandbox ([§12.1](#121-pricing-packaging--entitlements-saas)) | Flat / pure usage / hybrid allowance + overage | **Hybrid: per-tier allowance + metered overage + hard budgets ([§16.1](#161-cost-tracking))** | + Predictable for the customer *and* margin-safe; reuses the `usage_ledger` meter. − Allowances must be communicated; metering adds complexity. |
 | **D20** | Seats / collaboration ([§12.1](#121-pricing-packaging--entitlements-saas)) | Single-seat / per-seat from the web tier | **Per-seat from Tier 3 (web / teams)** | + Monetises team use where collaboration actually happens. − Seat management + invite/RBAC UX overhead. |
+| **D21** | Marketing site: build + tech ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Astro (static, SEO-first) / Next.js (shares web-app stack) / no dedicated site | **Astro or Next on Vercel/Netlify** | + Fast, cheap, SEO-friendly funnel; Next reuses the web-app stack. − Another surface + content to maintain. |
+| **D22** | Live MCP demo approach ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Animated playback / fully-live interactive / hybrid | **Hybrid: clickable example prompts → a real read-only, rate-limited + budget-capped demo agent with tool calls shown live; animated playback as the always-on fallback; free-form typing gated** | + The "wow" of seeing the MCP work, with controlled cost/abuse; reuses budgets + cache. − A hardened public demo agent to build and monitor. |
+| **D23** | Hosted / remote MCP as a channel ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Agent platform only / also offer a hosted MCP for BYO-LLM | **Offer both — a hosted MCP (plug into your own Claude/ChatGPT) that upsells to the platform** | + Low-friction entry (theracingapi-style); meets users in their own LLM client. − A second supported surface (hosted-MCP auth, rate limits, per-tenant keys). |
 
 ---
 
