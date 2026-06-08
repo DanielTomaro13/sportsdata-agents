@@ -52,6 +52,7 @@ Three rules shape every decision in this document:
 6. [The agent team](#6-the-agent-team)
 7. [Agent specification format](#7-agent-specification-format)
 8. [Orchestration & model selection](#8-orchestration--model-selection)
+   - [8.1 LLM provisioning & caps (BYO vs managed)](#81-llm-provisioning-and-caps-byo-vs-managed)
 9. [Data & state model](#9-data--state-model)
 10. [Sandboxing & code execution](#10-sandboxing--code-execution)
 11. [Interfaces](#11-interfaces)
@@ -479,7 +480,9 @@ Key properties:
 - **`forbidden_capabilities`** + the runtime's hard exclusion of any money/placement tool
   enforce the advisory-only invariant in code.
 - **`output_type`** gives typed, validated results (great for chaining and for the UI).
-- **`limits`** are enforced by the gateway (cost/latency guardrails), critical for SaaS.
+- **`limits`** are enforced by the gateway (cost/latency guardrails), critical for SaaS. They are
+  **clamped to the workspace's LLM-provisioning mode (§8.1)** — the customer's own caps under
+  bring-your-own, or the plan's hard ceilings under managed.
 
 **Modules** are the next level up: an operator-authored **module spec** is a small bundle file
 that names its member agent specs, the MCP groups/capabilities they require, default config/prompts,
@@ -518,6 +521,51 @@ overrides_by_tenant: {}            # SaaS: per-tenant model allow-lists + budget
   models, per-tenant budgets for SaaS. **Cons:** an indirection layer to maintain, and a
   mis-tiered task wastes money or under-reasons — mitigated by the eval agent measuring
   routing quality.
+
+### 8.1 LLM provisioning and caps (BYO vs managed)
+
+Every workspace chooses **how the LLMs are supplied** — and that choice determines **who sets the
+caps**. The principle: *whoever pays the LLM bill controls the cost caps; the platform always keeps
+its own operational guardrails regardless.*
+
+**Option A — Bring your own LLM (BYO).** The customer connects their own provider keys
+(Anthropic / OpenAI / Google / …). They pay the LLM bill directly; we charge only the platform fee.
+- **They set their own cost caps** — token limits, per-run cost ceilings, monthly budgets, and
+  which models/tiers to use — because it's their money and their keys (sensible defaults pre-filled;
+  they can raise or lower them).
+- We still enforce **operational guardrails** that protect the *platform*, not their wallet:
+  sandbox limits, request rate limits, fair-use, and the no-money / advisory invariants. These are
+  about stability and safety, not cost, so they aren't user-removable.
+- Keys are stored as **per-workspace secrets** (§13), used only by that workspace's agents, never
+  logged.
+- Best for power users, clubs/enterprises with existing LLM contracts, and the cost-sensitive.
+
+**Option B — Managed LLM (we provide it, for additional cost).** We set it up and the customer
+calls **our** LLMs on our keys.
+- Because **we** carry the LLM bill, limiting is **strict and set by us** — hard per-run token +
+  cost ceilings, per-day/month usage allowances, rate limits, and a model allow-list, all keyed to
+  the plan (the §12.1 allowance + overage model, D19). A run that would breach is throttled,
+  down-shifted a tier, or paused — **the customer cannot lift these above their plan.**
+- Priced as an **LLM-included add-on / higher tier**: a markup over our wholesale LLM cost to cover
+  usage + abuse risk + margin; the `usage_ledger` (§16.1) is the meter, and the **cost-watchdog**
+  watches managed workspaces especially for loops/spikes.
+- Best for customers who want zero setup and a single bill.
+
+**Who sets what**
+
+| | **BYO LLM** | **Managed LLM** |
+|---|---|---|
+| Pays the LLM bill | Customer (direct) | Us (rebilled + markup) |
+| Token / cost / budget caps | **Customer sets** (defaults provided) | **We set by plan — hard ceilings the customer can't exceed** |
+| Model choice | Customer's full pool | Our allow-list (per plan) |
+| Rate / sandbox / safety limits | Platform-enforced (always) | Platform-enforced (always) |
+| Cost to customer | Platform fee only | Platform fee + LLM markup |
+| Setup | Customer adds keys | We set it up |
+
+Both run through the same model gateway (§5): BYO swaps in the customer's keys; managed uses
+platform keys with strict per-tenant budgets. The agent-spec `limits` (§7) are **clamped** to
+whatever the workspace's mode allows — the customer's own caps under BYO, the plan's hard ceilings
+under managed. See [D24](#19-decision-register).
 
 ---
 
@@ -732,6 +780,12 @@ a workspace can select, enabled only per tenant and per jurisdiction (§14).
 **Add-ons & metered extras (any tier):** additional module · additional MCP provider · additional
 seat · custom module/agent build · premium-model access · extra usage packs.
 
+**LLM provisioning is a pricing axis (§8.1).** **BYO-LLM** workspaces pay the **platform fee only**
+and set their own usage caps (the LLM cost sits with the customer). **Managed-LLM** is an add-on /
+higher tier that bundles *our* LLMs with **strict per-plan caps** + a usage allowance + metered
+overage (D19) — priced at a markup over wholesale to cover usage, abuse risk, and margin. So a
+heavy user on BYO is cheap for us to serve; a heavy user on managed is bounded by the hard caps.
+
 **The variable-cost reality (why pure-flat won't work).** Every run costs us real money — LLM
 tokens + sandbox compute, metered in `usage_ledger` (§16.1). A flat, unlimited subscription loses
 money on heavy users and invites abuse, so the *cost-recovery* model matters as much as the tier
@@ -770,6 +824,10 @@ a low-cost acquisition lever. Decisions: **D18** (packaging), **D19** (cost reco
   just by prompt.
 - **Secrets** are never in specs or prompts; they're per-workspace references resolved at
   run time and injected only into the agent/sandbox that needs them.
+- **LLM keys by provisioning mode (§8.1):** under **BYO-LLM** the customer's provider keys are
+  per-workspace secrets, used only by that workspace and never logged; under **managed** the LLM
+  keys are *platform* secrets that no tenant agent can read, and every managed run is hard-capped
+  by the plan's ceilings to prevent cost blow-ups.
 - **Prompt-injection defense:** treat all fetched web/feed content as untrusted; tools
   return structured data, not instructions; the orchestrator strips/ignores instruction-like
   content from tool results; sandboxes have allow-listed egress.
@@ -945,6 +1003,7 @@ launch remains gated on legal review).
 | **D21** | Marketing site: build + tech ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Astro (static, SEO-first) / Next.js (shares web-app stack) / no dedicated site | **Astro or Next on Vercel/Netlify** | + Fast, cheap, SEO-friendly funnel; Next reuses the web-app stack. − Another surface + content to maintain. |
 | **D22** | Live MCP demo approach ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Animated playback / fully-live interactive / hybrid | **Hybrid: clickable example prompts → a real read-only, rate-limited + budget-capped demo agent with tool calls shown live; animated playback as the always-on fallback; free-form typing gated** | + The "wow" of seeing the MCP work, with controlled cost/abuse; reuses budgets + cache. − A hardened public demo agent to build and monitor. |
 | **D23** | Hosted / remote MCP as a channel ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Agent platform only / also offer a hosted MCP for BYO-LLM | **Offer both — a hosted MCP (plug into your own Claude/ChatGPT) that upsells to the platform** | + Low-friction entry (theracingapi-style); meets users in their own LLM client. − A second supported surface (hosted-MCP auth, rate limits, per-tenant keys). |
+| **D24** | LLM provisioning ([§8.1](#81-llm-provisioning-and-caps-byo-vs-managed)) | BYO only / managed only / **offer both** | **Offer both: BYO-LLM (customer keys, customer sets caps, platform fee only) + Managed (our LLMs, we set strict hard caps, priced as an add-on)** | + BYO removes our cost/abuse risk and suits power users; managed = zero-setup convenience + margin, with runaway-cost protection by hard caps. − Two provisioning paths to build/support; managed needs tight metering + abuse detection. |
 
 ---
 
@@ -977,6 +1036,10 @@ launch remains gated on legal review).
 - **Vig / overround** — the bookmaker's margin baked into prices; removing it estimates the
   "fair" probability.
 - **HITL** — human-in-the-loop; here, the user is always the one who places any bet.
+- **BYO-LLM** — bring-your-own LLM: the customer connects their own provider keys, pays the LLM
+  bill, and sets their own cost caps (§8.1).
+- **Managed LLM** — we provide the LLMs on our keys for an added cost, under strict per-plan hard
+  caps to prevent runaway spend (§8.1).
 - **Workspace / tenant** — an isolated unit of data, secrets, config, and budget.
 - **Module** — an operator-curated, named bundle of agents + data sources (MCP groups) + default
   config that packages a use case (Match Analytics, Fantasy, Racing, Trading/Betting, …). *We*
