@@ -45,6 +45,11 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] **Env-var secrets** confirmed — auth providers read `os.environ` (e.g. `DATAGOLF_KEY` via `static_query`); the agent plane injects premium secrets into the MCP subprocess env per workspace.
 - [ ] MCP installed into this project (editable path or pinned `v0.1.0`) — do at **M0.4**.
 
+**When deployment matters (it mostly doesn't):**
+- **Local (P0–P3):** spawn the MCP as a **local stdio subprocess** — nothing to deploy.
+- **Cloud / SaaS (P4):** **co-locate** the MCP in the agents container and spawn it as a subprocess — **still not a separate deployment**. Only the cloud *geo-block* (AU feeds) needs the caching + proxy/egress work below.
+- **Hosted-MCP channel (`D23`) — the only separate deployment:** the MCP as a **remote HTTP/SSE server** with auth + rate limits for BYO-LLM users; P3/P4, not a prerequisite.
+
 **MCP-side enhancements — when (phased, all in the `sportsdata-mcp` repo):**
 - [ ] **Caching** (per-endpoint TTLs) — at **P2** when the ingestion worker starts polling (reduces upstream load/cost), and required by **P4** (cloud). `D25`.
 - [ ] **Proxy / geo-egress** (AU bookmaker feeds geo-block cloud IPs) — at **P4 (cloud deploy)**; for the **P3 public demo**, sidestep by using globally-reachable feeds (MLB/OpenF1/ESPN/cricket). `D25`.

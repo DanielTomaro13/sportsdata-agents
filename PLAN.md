@@ -1151,6 +1151,17 @@ results gate *"is this change actually better?"* before the improver's PRs are t
 **Recommendation:** ship **Mode A** now on the SaaS-ready architecture (§12). Flip to
 **Mode B** only after the agents prove value and the legal question (§14) is answered.
 
+**How the MCP (`sportsdata-mcp`) is deployed across modes.**
+- **Local (Mode A):** the agent plane spawns the MCP as a **local stdio subprocess** — no deployment.
+- **Cloud / SaaS (Mode B):** simplest is to **co-locate** the MCP in the agents container and spawn
+  it as a subprocess — **still not a separate deployment**. The catch: the cloud IP will **geo-block
+  AU bookmaker feeds**, which is exactly when the MCP-side **caching + proxy/egress** work (`D25`,
+  in the MCP repo) is needed. For the **public demo**, dodge it by using **globally-reachable feeds**
+  (MLB / OpenF1 / ESPN / cricket).
+- **Hosted-MCP channel (`D23`) — the only case that needs a *separate* deployment:** the MCP runs as
+  a **remote HTTP/SSE server** with auth + rate limits, for BYO-LLM users plugging it into their own
+  Claude/ChatGPT. A P3/P4 item, **not** a prerequisite.
+
 **Operational readiness (Mode B).** A public **status page** (feed/agent/uptime health, fed by the
 observability stack, §16) is table stakes for paying customers; backups + disaster recovery; defined
 SLOs. First-line incident response is the **Incident-triage agent (§6)** — it watches errors/alerts,
