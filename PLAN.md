@@ -60,6 +60,7 @@ Three rules shape every decision in this document:
 12. [Multi-tenancy & SaaS-readiness](#12-multi-tenancy--saas-readiness)
     - [12.1 Pricing, packaging & entitlements (SaaS)](#121-pricing-packaging--entitlements-saas)
 13. [Security, secrets & guardrails](#13-security-secrets--guardrails)
+    - [13.1 Accuracy, provenance & grounding](#131-accuracy-provenance--grounding)
 14. [Compliance & responsible use](#14-compliance--responsible-use)
 15. [The self-improvement loop](#15-the-self-improvement-loop)
 16. [Observability, cost tracking & evaluation](#16-observability-cost-tracking--evaluation)
@@ -411,6 +412,7 @@ exposed to customers (§3.1). Consumes only aggregated/anonymized signals from t
 | **Repo-improver / scout** | Propose changes from feedback (new providers, endpoints, model/prompt tweaks); **author PRs** | sandbox + git + GitHub API | PR only — never self-merges |
 | **Code-reviewer agent** | Review PRs (improver's and humans'): correctness, security, contract-tests-pass | sandbox (read) + GitHub API | approve/request changes; **human merges** |
 | **Eval / benchmark agent** | Score quality over time (calibration, routing, betting performance) → feedback for the improver | DB + eval harness | closes the loop |
+| **Incident-triage agent** | Watches errors/alerts (failed runs, broken feeds, cost spikes, exceptions); diagnoses, attempts a safe auto-remediation where it can (e.g. retry, fail over a provider, disable a broken module), otherwise **escalates a clear report to the operator** | traces/logs + status page + sandbox (read) + notify | auto-fix only within a safe allow-list; everything else escalates to you |
 
 ### Tier 6 — Product / interaction
 | Agent | Purpose | Tools |
@@ -488,6 +490,13 @@ Key properties:
 that names its member agent specs, the MCP groups/capabilities they require, default config/prompts,
 and any UI — the unit a customer selects and is billed for (§1, §12.1). Agents are the parts;
 modules are the products built from them.
+
+**Versioning (required).** Agent and module specs are **versioned** (`spec_version` + a semantic
+version per spec). Built-in specs ship with the platform release; a workspace's selected and custom
+modules **pin a version**, so a platform change can never silently break them — upgrades are
+explicit, with a migration path and a deprecation window, and old versions keep running until the
+customer migrates. Same discipline for breaking changes to the agent-spec schema itself. See
+[D27](#19-decision-register).
 
 ---
 
@@ -605,6 +614,18 @@ Two deliberate separations:
 - **Snapshots are immutable** — every recommendation references the exact `odds_snapshot`
   it was made from, so it's explainable and reproducible (P9).
 
+### 9.1 Data ingestion & history (agent-plane)
+
+Alerts, the line-monitor, backtesting, and CLV need *history* and *freshness*, which the on-demand
+MCP doesn't retain. The agent plane therefore runs a thin **ingestion worker**: a scheduled service
+that calls MCP tools at intervals and writes snapshots to Postgres/Timescale (`odds_snapshots`,
+`prices`) — the basis for line-movement, alerts, and backtests. It is kept **separate** from the MCP
+so the data plane stays a stateless, reusable tool boundary (the MCP fetches; the worker schedules +
+stores). Design only — not yet built. See [D25](#19-decision-register).
+
+> Caching, rate-limit handling, and geo-egress / proxies are **data-plane concerns handled in the
+> `sportsdata-mcp` repo** — out of scope for this plan.
+
 ---
 
 ## 10. Sandboxing & code execution
@@ -650,6 +671,15 @@ notifications (the line-monitor's alerts) and a client-ready demo for almost no 
 the heavy web build is deferred until a paying product justifies it. **Slack vs Discord:**
 Slack reads as a "trading desk"/enterprise tool (better SaaS story); Discord wins only if
 the eventual users are retail communities. (See [§19, D4](#19-decision-register).)
+
+**Onboarding (non-technical users are first-class).** Most customers — bettors, coaches, fantasy
+players — are **not developers**, so time-to-first-value must be minutes, not setup docs:
+- a guided setup wizard (pick a **module** / starter bundle → connect or choose LLM provisioning
+  (§8.1) → done), with sensible defaults pre-filled;
+- **starter templates + clickable sample prompts** per module so the first answer is one tap away;
+- plain-language explanations from the concierge agent, never raw tool/JSON;
+- the marketing **live demo (§11.1)** is the on-ramp — the same experience, signed-in, becomes the
+  product.
 
 ### 11.1 Marketing site and capabilities showcase
 
@@ -801,6 +831,22 @@ ladder:
 top-up packs); per-workspace **budgets/ceilings (§16.1) hard-cap** spend so the customer is never
 surprised and we are never out of pocket.
 
+**Unit economics — built to "slot in" real numbers.** Prices can't be set until we know what a
+customer *costs* us, so the model is parameterised now and populated from `usage_ledger` telemetry
+(§16.1) as soon as P0/P1 produce real figures. The variables (placeholders today):
+
+| Symbol | Meaning | Source when known |
+|---|---|---|
+| `c_run` | avg cost per agent run (LLM tokens + sandbox + data/proxy) | `usage_ledger` rollup |
+| `r_user` | avg runs per active user / month | usage analytics |
+| `COGS_user` = `c_run × r_user` | monthly cost to serve one active user | derived |
+| `P_tier` | tier price / month | go-to-market |
+| **Gross margin** = `(P_tier − COGS_user) / P_tier` | the number that must stay healthy per tier | derived |
+
+Each tier's `P_tier` and each managed allowance must clear `COGS_user` with margin; drop in the
+measured `c_run` / `r_user` and the table tells you if a tier is profitable. (Also model demo/
+free-tier cost and a heavy-user p95, not just the average.)
+
 **Enforcement & infra.** Entitlements are per-workspace config (§12); the gateway checks them
 **before** enabling an MCP group, instantiating an agent, exposing an interface, or starting a run
 that would breach budget. **Stripe** (subscriptions + metered usage) is the billing system; the
@@ -837,6 +883,30 @@ a low-cost acquisition lever. Decisions: **D18** (packaging), **D19** (cost reco
   merge; CI (lint + contract + offline tests) is a hard gate; a human merges.
 - **Rate/cost ceilings** per agent run and per tenant prevent runaway spend.
 
+### 13.1 Accuracy, provenance & grounding
+
+The platform is only as trusted as its numbers, and LLMs confabulate. Six controls keep answers
+honest (none promise *edge* — see §14 — only that what we report is real and sourced):
+
+- **Math is done by running code, not by token-arithmetic.** When a calculation matters (stats,
+  vig removal, EV, stakes, models), the agent **writes and executes Python in the sandbox**
+  (pandas/numpy + analysis libs) — deterministic, reproducible, and inspectable — rather than
+  "doing the math" in free text. Common operations also have native helper tools, but the sandbox
+  is the general path, available whenever the user wants real computation.
+- **Provenance on every datum.** Tool results carry `{provider, endpoint, fetched_at, snapshot_id}`;
+  agents cite source + timestamp for every figure, linked to the immutable snapshot (§9).
+- **A grounding / verification post-check.** Before an answer ships, a deterministic validator
+  extracts the numeric/factual claims from the draft and checks each against the structured tool
+  outputs (and the sandbox results); ungrounded numbers are flagged or trigger a regenerate. This
+  is the highest-leverage anti-hallucination control.
+- **Explicit "no data" over guessing.** Tools return an explicit empty/unknown; agents say "data
+  unavailable" rather than invent.
+- **Accuracy evals.** Golden Q→A sets + LLM-judge + deterministic source-matching, tracked over
+  time by the eval agent — the same discipline as the MCP contract tests, but for answers.
+- **Uncertainty + disclaimers** are surfaced in the UI; outputs never imply a guaranteed result.
+
+See [D26](#19-decision-register).
+
 ---
 
 ## 14. Compliance & responsible use
@@ -855,6 +925,10 @@ provide research/analytics, not a betting service, and never handle stakes or fu
   responsible-gambling messaging and self-exclusion/limit hooks, age/jurisdiction gating,
   and per-tenant data isolation/retention. These are cheap to stub now and expensive to
   retrofit — so the seams go in early, the policies turn on at SaaS.
+- **No edge / profit promises (positioning).** We provide information, tooling, and resources — we
+  do **not** promise winning, profit, or an edge. Marketing copy, the live demo, and agent outputs
+  must avoid any guaranteed-return language and carry "informational, not advice" framing. This is
+  both honest and a deliberate reduction of consumer-protection / advertising risk.
 
 ---
 
@@ -955,6 +1029,13 @@ results gate *"is this change actually better?"* before the improver's PRs are t
 **Recommendation:** ship **Mode A** now on the SaaS-ready architecture (§12). Flip to
 **Mode B** only after the agents prove value and the legal question (§14) is answered.
 
+**Operational readiness (Mode B).** A public **status page** (feed/agent/uptime health, fed by the
+observability stack, §16) is table stakes for paying customers; backups + disaster recovery; defined
+SLOs. First-line incident response is the **Incident-triage agent (§6)** — it watches errors/alerts,
+auto-remediates within a safe allow-list (retry, fail over a provider, disable a broken module), and
+escalates a clear report to the operator for anything else. Humans still own incidents; the agent
+shrinks time-to-detect and handles the routine.
+
 ---
 
 ## 18. Delivery roadmap
@@ -966,8 +1047,14 @@ Each phase is shippable and de-risks the next. Maps to the agent roster in §6.
 | **P0 — Foundations** | One real flow end-to-end on a CLI | Gateway skeleton, MCP client manager, **Orchestrator + Odds + Stats specialists**, Postgres, agent-spec loader, tracing | "Best price + value on tonight's game" works from CLI with audit + traces |
 | **P1 — Track & converse** | Slack + performance | Slack adapter, **Bet-notification**, **Bet-tracking/P&L (CLV)**, **Bankroll/risk**, **Concierge**, first **sandbox** for **Data-analysis** | Log a user's bets, report ROI/CLV in Slack; one analysis runs in a sandbox |
 | **P2 — Quant** | Models that beat the line | **Modelling**, **Value-finder**, **Backtesting**, odds-history warehouse | A model backtests with CLV > 0 on held-out data; value alerts fire |
-| **P3 — Self-maintaining** | The engineering dept + alerts + fantasy + GTM | **MCP health/QA**, **Improver**, **Reviewer**, **Eval**, **Line-monitor**, **Fantasy advisor**, **Agent-builder**, Discord, **marketing site + live MCP demo (§11.1)** | QA agent opens an issue on a broken feed; improver lands a CI-passing PR; a user builds a custom agent from chat; the public site demos the MCP live |
-| **P4 — Productize (optional)** | SaaS | Auth, **billing + tiers/entitlements (§12.1)**, web app, per-tenant isolation hardening, compliance policies | A second tenant onboarded on a paid tier with isolated data, enforced entitlements + budgets, and disclaimers |
+| **P3 — Self-maintaining** | The engineering dept + alerts + fantasy + GTM | **MCP health/QA**, **Improver**, **Reviewer**, **Eval**, **Incident-triage**, **Line-monitor**, **Fantasy advisor**, **Agent-builder**, Discord, **marketing site + live MCP demo (§11.1)** | QA/triage agents catch a broken feed (auto-remediate or escalate); improver lands a CI-passing PR; a user builds a custom agent from chat; the public site demos the MCP live |
+| **P4 — Productize (optional)** | SaaS | Auth, **billing + tiers/entitlements (§12.1)**, web app, per-tenant isolation hardening, **status page + ops (§17)**, spec/module **versioning (§7)**, guided **onboarding (§11)**, compliance policies | A second tenant onboarded on a paid tier with isolated data, enforced entitlements + budgets, versioned modules, and disclaimers |
+
+**Beachhead (first paying customers = bettors).** The ICP is **bettors**, so the early phases lead
+with the Trading/Betting value chain — odds intelligence + value (P0), bet-notification + tracking
+(CLV) + bankroll (P1), models + backtesting (P2) — and the **Trading/Betting module** is the first
+one productised. Analytics / fantasy / coaching modules follow once the betting beachhead is
+proven; the architecture serves them with no rework (§1).
 
 ---
 
@@ -1004,6 +1091,9 @@ launch remains gated on legal review).
 | **D22** | Live MCP demo approach ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Animated playback / fully-live interactive / hybrid | **Hybrid: clickable example prompts → a real read-only, rate-limited + budget-capped demo agent with tool calls shown live; animated playback as the always-on fallback; free-form typing gated** | + The "wow" of seeing the MCP work, with controlled cost/abuse; reuses budgets + cache. − A hardened public demo agent to build and monitor. |
 | **D23** | Hosted / remote MCP as a channel ([§11.1](#111-marketing-site-and-capabilities-showcase)) | Agent platform only / also offer a hosted MCP for BYO-LLM | **Offer both — a hosted MCP (plug into your own Claude/ChatGPT) that upsells to the platform** | + Low-friction entry (theracingapi-style); meets users in their own LLM client. − A second supported surface (hosted-MCP auth, rate limits, per-tenant keys). |
 | **D24** | LLM provisioning ([§8.1](#81-llm-provisioning-and-caps-byo-vs-managed)) | BYO only / managed only / **offer both** | **Offer both: BYO-LLM (customer keys, customer sets caps, platform fee only) + Managed (our LLMs, we set strict hard caps, priced as an add-on)** | + BYO removes our cost/abuse risk and suits power users; managed = zero-setup convenience + margin, with runaway-cost protection by hard caps. − Two provisioning paths to build/support; managed needs tight metering + abuse detection. |
+| **D25** | Ingestion & history ([§9.1](#91-data-ingestion--history-agent-plane)) | On-demand only / **thin ingestion worker → Timescale warehouse** / bake storage into the MCP | **A separate ingestion worker that drives the MCP and stores snapshots** | + Enables alerts/line-movement/backtests/CLV; keeps the MCP a stateless tool boundary. − A new scheduled service to run; storage + retention to manage. (Caching/proxies stay in the MCP repo.) |
+| **D26** | Accuracy / anti-hallucination ([§13.1](#131-accuracy-provenance--grounding)) | Trust the model / **deterministic edges + provenance + a grounding post-check + accuracy evals** | **Compute via sandboxed code, cite provenance, verify claims against tool output, eval over time** | + Trustworthy numbers; reproducible; measurable. − Build + run a verifier and an accuracy-eval set; a little latency per answer. |
+| **D27** | Spec / module versioning ([§7](#7-agent-specification-format)) | Unversioned / **semver per spec, workspaces pin versions, explicit migrations** | **Versioned specs; customers pin; deprecation window + migration path** | + A platform change can't silently break a customer's modules/agents. − Versioning + migration machinery to maintain. |
 
 ---
 
@@ -1018,6 +1108,9 @@ launch remains gated on legal review).
 | Prompt injection via feed/web content | Untrusted-by-default handling, structured tool returns, sandbox egress allow-list |
 | Legal exposure if sold | Advisory-only positioning + compliance seams; legal review before SaaS (§14) |
 | Multi-agent flows hard to debug | Full tracing of every run/tool/model (§16) |
+| Hallucinated / wrong numbers erode trust | Deterministic math via the sandbox, provenance on every figure, a grounding post-check, and accuracy evals (§13.1); no edge/profit promises (§14) |
+| A feed breaks or an agent errors in production | Incident-triage agent auto-remediates within a safe allow-list or escalates a report to the operator; status page + SLOs (§6, §17) |
+| A platform change breaks a customer's modules | Versioned specs that workspaces pin, with migrations + a deprecation window (§7, D27) |
 | A customer reaches an operator agent, or one tenant's data leaks into the codebase / another tenant | Hard plane split (§3.1, §13): separate identities + credentials, operator agents off the customer gateway, and only aggregated/anonymized signals cross from product → operations |
 | Vendor lock-in (LLM/sandbox) | Gateway + sandbox abstractions keep both swappable |
 
