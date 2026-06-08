@@ -51,6 +51,7 @@ Three rules shape every decision in this document:
 5. [Technology stack](#5-technology-stack)
 6. [The agent team](#6-the-agent-team)
 7. [Agent specification format](#7-agent-specification-format)
+   - [7.1 How users build their own agents (no code)](#71-how-users-build-their-own-agents-no-code)
 8. [Orchestration & model selection](#8-orchestration--model-selection)
    - [8.1 LLM provisioning & caps (BYO vs managed)](#81-llm-provisioning-and-caps-byo-vs-managed)
    - [8.2 Context engineering & the agent harness](#82-context-engineering--the-agent-harness)
@@ -509,6 +510,41 @@ modules **pin a version**, so a platform change can never silently break them �
 explicit, with a migration path and a deprecation window, and old versions keep running until the
 customer migrates. Same discipline for breaking changes to the agent-spec schema itself. See
 [D27](#19-decision-register).
+
+### 7.1 How users build their own agents (no code)
+
+A non-technical user **never sees YAML, tools, or JSON**. They build an agent through two
+complementary paths that both produce the same validated, versioned spec under the hood:
+
+- **Describe it (conversational — the default).** The **agent-builder** agent takes a plain-English
+  goal — *"watch AFL totals and ping me when the line moves 3+ points from my model"* — asks a few
+  clarifying questions, and **drafts the whole spec for them**: the system prompt, which skills and
+  data the agent needs, the model tier, schedule/triggers, and limits. They confirm; they never wire
+  anything by hand.
+- **Assemble it (visual — the console).** A guided builder where they pick from **curated, friendly-
+  named building blocks**, not raw tools:
+  - a **goal/template** to start from (or blank);
+  - which **skills** the agent can use (e.g. *"Compare odds across books"*, *"Build a model"*,
+    *"Optimise a lineup"*) — selected from the **catalogue they're entitled to**;
+  - which **data** it can see — surfaced as human labels (*"AFL stats"*, *"Live odds"*), which map to
+    MCP **capability tags** behind the scenes (never tool names);
+  - behaviour: a model tier shown as **Fast / Balanced / Smart**, output style, schedule, and a
+    **budget slider** (clamped to their plan, §8.1/§12.1);
+  - a name + optional plain-English instructions (the builder drafts these too).
+
+**So: yes — they select from skills, data, and behaviour — but as a curated, friendly catalogue,
+not the raw tool surface.** Three things make this safe and simple:
+1. **Guardrails by construction** — they can only pick what their **entitlements** allow and what's
+   safe; the no-money invariant is structural (§13), budgets are clamped, and jurisdiction-gated
+   modules (e.g. Trading/Betting) only appear where permitted. They *cannot* build something
+   dangerous or over-budget.
+2. **The builder does the wiring** — picking blocks is optional; describing the goal is enough, and
+   the agent-builder fills in the rest from a validated template.
+3. **Test-before-save + provenance/accuracy** — they preview the agent on a sample question (with the
+   grounding checks of §13.1) before saving it as a custom agent / module (versioned, §7).
+
+Friendly labels for capability tags live in an agent-plane **label map** (a build task); the catalogue
+a user sees is just *their entitled modules → their skills + data*, rendered in plain language.
 
 ---
 

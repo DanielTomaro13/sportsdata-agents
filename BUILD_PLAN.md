@@ -35,17 +35,21 @@ References: `§N` = PLAN.md section, `Dn` = PLAN.md decision register entry.
 
 **No deployment is required to start.** The agent plane spawns `sportsdata-mcp` as a **local stdio
 subprocess** and talks to it directly. The MCP is built, contract-tested, capability-tagged, and
-packaged — essentially ready. Confirm the items below; the cloud items are *later*, and live in the
-MCP repo.
+packaged — essentially ready. The pre-flight checks below are **done**; the cloud items are *later*
+(phased), and live in the MCP repo.
 
-- [ ] MCP runs locally (`sportsdata-mcp serve`, stdio) and is installable into this project (editable / `uvx` from the private repo).
-- [ ] **Tag a release/version** of `sportsdata-mcp` to pin as a dependency here (reproducible builds).
-- [ ] Agent specs reference data tools by **capability tag** (`mcp_capabilities`), not raw tool names — resilient to MCP tool renames.
-- [ ] Per-agent **least-privilege scoping** via `SPORTSDATA_MCP_GROUPS` confirmed from a spawned subprocess.
-- [ ] **No-money invariant at source** confirmed — the MCP exposes no placement/deposit/account tools (pure data + odds reading); keep the agent-side deny-filter anyway.
-- [ ] Premium-provider secrets (e.g. `DATAGOLF_KEY`) pass into the MCP subprocess env per workspace.
-- [ ] **Later (cloud/SaaS, MCP repo):** response **caching** (per-endpoint TTLs) + **proxy/geo-egress** (AU bookmaker feeds geo-block cloud IPs) — `D25`. Prefer global feeds (MLB/OpenF1/ESPN/cricket) for the public demo.
-- [ ] **Later (hosted-MCP channel, `D23`):** deploy the MCP as a **remote HTTP/SSE server** with auth + rate limits — only for BYO-LLM users plugging into their own Claude/ChatGPT; not a prerequisite.
+- [x] **Release tagged** — `sportsdata-mcp` **`v0.1.0`** is tagged + pushed; pin this tag as the dependency here.
+- [x] **Per-agent least-privilege scoping** confirmed — `SPORTSDATA_MCP_GROUPS="mlb.reference"` registered only its 20 tools.
+- [x] **No-money invariant at source** confirmed — scan of all **335** tools found **zero** placement/deposit/withdraw/stake/account verbs; the one non-GET (`fanduel_racing_promotions`) is a POST that *reads* promos. (Keep the agent-side deny-filter as defense-in-depth.)
+- [x] **Capability tags ready** — **51** tags + the `list_tools_by_capability` meta-tool; agent specs reference data by `mcp_capabilities` (resilient to tool renames).
+- [x] **Env-var secrets** confirmed — auth providers read `os.environ` (e.g. `DATAGOLF_KEY` via `static_query`); the agent plane injects premium secrets into the MCP subprocess env per workspace.
+- [ ] MCP installed into this project (editable path or pinned `v0.1.0`) — do at **M0.4**.
+
+**MCP-side enhancements — when (phased, all in the `sportsdata-mcp` repo):**
+- [ ] **Caching** (per-endpoint TTLs) — at **P2** when the ingestion worker starts polling (reduces upstream load/cost), and required by **P4** (cloud). `D25`.
+- [ ] **Proxy / geo-egress** (AU bookmaker feeds geo-block cloud IPs) — at **P4 (cloud deploy)**; for the **P3 public demo**, sidestep by using globally-reachable feeds (MLB/OpenF1/ESPN/cricket). `D25`.
+- [ ] **Remote HTTP/SSE transport + auth + rate limits** — at **P3** *only if* the demo backend calls a remote MCP (co-locating a subprocess avoids it), and at **P4** for the **hosted-MCP / BYO-LLM channel**. `D23`.
+- [ ] **Re-tag** `sportsdata-mcp` (`v0.x`) whenever its tool surface changes; bump the pin here and let the contract suite + MCP-health agent catch drift.
 
 ---
 
@@ -237,7 +241,8 @@ MCP repo.
 
 ### M3.3 — Fantasy advisor + agent-builder + Discord
 - [ ] **Fantasy advisor** — projections, lineup optimisation (sandbox), player research.
-- [ ] **Agent-builder** — NL → a validated agent/module spec (the customization path).
+- [ ] **Agent-builder** — NL → a validated agent/module spec (the customization path, §7.1); drafts the system prompt, skills, data (capability tags), tier, schedule, and limits from a plain-English goal; preview/test before save; output is versioned (D27).
+- [ ] **Capability→friendly-label map** — human names for capability tags + skills/modules ("AFL stats", "Compare odds across books") so users pick from a curated catalogue, never raw tool names (§7.1). Reused by the visual builder (M4.5).
 - [ ] **Discord adapter**.
 - [ ] **Exit gate:** optimise a DFS lineup; a user builds a working custom agent from chat.
 
