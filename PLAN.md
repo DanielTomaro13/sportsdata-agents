@@ -53,6 +53,7 @@ Three rules shape every decision in this document:
 7. [Agent specification format](#7-agent-specification-format)
 8. [Orchestration & model selection](#8-orchestration--model-selection)
    - [8.1 LLM provisioning & caps (BYO vs managed)](#81-llm-provisioning-and-caps-byo-vs-managed)
+   - [8.2 Context engineering & the agent harness](#82-context-engineering--the-agent-harness)
 9. [Data & state model](#9-data--state-model)
 10. [Sandboxing & code execution](#10-sandboxing--code-execution)
 11. [Interfaces](#11-interfaces)
@@ -324,7 +325,7 @@ Each row notes the choice and the key trade-off; the deeper pros/cons live in
 
 | Layer | Choice | Why (short) |
 |---|---|---|
-| **Agent framework** | **Pydantic AI** | Model-agnostic, **native MCP client**, typed outputs, agent delegation, Logfire integration. |
+| **Agent framework / harness** | **Pydantic AI** (+ **Claude Managed Agents** as an optional backend) | Model-agnostic harness with native MCP, typed outputs, delegation; Managed Agents adds a turnkey loop/sandbox/sessions/compaction/skills for Anthropic + long-running work (§8.2, D28). |
 | **Model gateway** | **LiteLLM** (self-host) or **OpenRouter** (hosted) | One interface to all LLMs; per-tenant keys + budgets; the orchestrator swaps models freely. |
 | **Gateway/API** | **FastAPI** + async workers | Async-native, streaming, typed, ubiquitous. |
 | **Task queue** | **Arq** or **Celery** (Redis) | Long jobs (modelling, PRs) run off the request path with status updates. |
@@ -459,6 +460,9 @@ agent:
     native: [vig_removal, implied_probability]   # deterministic helpers
   forbidden_capabilities: []       # hard deny-list (defense in depth)
 
+  # Skills (§8.2): progressively-disclosed capability bundles loaded just-in-time.
+  skills: [vig_removal, kelly_staking]
+
   # Delegation: which other agents this one may call as tools.
   can_delegate_to: [stats_specialist]
 
@@ -467,8 +471,15 @@ agent:
   secrets: []                      # named secret refs this agent may read (per-workspace)
   output_type: OddsComparison      # a registered pydantic result schema (typed output)
 
+  # Harness / context policy (§8.2)
+  context:
+    retrieval: jit                 # jit | preload
+    long_run: compact              # compact | reset  (strategy near the window limit)
+    verify: true                   # run the grounding/verification post-check (§13.1)
+
   limits:
     max_tool_calls: 25
+    max_steps: 40                  # loop-control hard stop (§8.2)
     max_tokens: 120000
     timeout_seconds: 120
     cost_ceiling_usd: 0.50         # per run; enforced by the gateway
@@ -576,6 +587,65 @@ platform keys with strict per-tenant budgets. The agent-spec `limits` (§7) are 
 whatever the workspace's mode allows — the customer's own caps under BYO, the plan's hard ceilings
 under managed. See [D24](#19-decision-register).
 
+### 8.2 Context engineering & the agent harness
+
+An agent is only as good as its **harness** — the scaffolding around the model: the loop, the
+tools/skills, how context is managed, and how feedback closes. Treating the **context window as a
+finite budget** (high-signal tokens only; performance degrades as it fills — "context anxiety") is
+the central discipline. Drawing on Anthropic's harness-design and Managed-Agents guidance:
+
+**Capability taxonomy (tools vs skills vs agents vs modules).**
+- **Tools** — atomic calls the model makes: **MCP tools** (data, via capability tags), native
+  deterministic helpers, and the **sandbox** (bash / Python / file ops). Designed to be minimal,
+  token-efficient, unambiguous, and non-overlapping.
+- **Skills** — packaged, **progressively-disclosed** capability bundles (instructions + scripts +
+  resources) the agent loads **just-in-time** *only when relevant*, keeping context lean. E.g.
+  `vig-removal`, `kelly-staking`, `wagon-wheel-chart`, a `build-a-totals-model` playbook. A skill's
+  scripts run in the sandbox (§10). This is the Agent-Skills pattern.
+- **Agents** = model + system prompt (at the "right altitude") + tools + skills + MCP servers + a
+  role. **Modules** (§1) bundle agents + skills + data + config into the products customers select.
+
+**The loop & loop control.** Each agent runs *gather context → plan → act (tool / skill / sandbox)
+→ observe → verify → repeat or stop*. **Stop conditions:** goal met **and** the verifier passes;
+max steps; the budget / time / token ceilings from the spec `limits` (§7); awaiting-human; or a
+**no-progress / thrash** detector. Long or async work can be **steered or interrupted** mid-run.
+
+**Context management.**
+- **Just-in-time retrieval** — don't pre-load everything; pull data via tools and memory only when
+  needed.
+- **Compaction** — near the window limit, summarise the run in place and continue on shortened
+  history.
+- **Context resets / structured hand-offs** — for very long runs, clear the window and restart from
+  a compact, structured artifact (the "clean slate" that beats lingering context anxiety).
+- **External memory / structured note-taking** — persist notes, to-dos, and decisions *outside* the
+  window (in `memory`, §9) and re-read JIT; **agents communicate via durable artifacts/files**, not
+  just conversation, which doubles as checkpoints.
+- **Sub-agent isolation** — specialists run in their own clean context and return a *condensed
+  summary* to the orchestrator (our delegation model, §8), so the orchestrator's window stays lean.
+
+**Iterative feedback (generator–evaluator).** Quality comes from a critique loop, not a single
+pass: a generator acts, an **evaluator** grades against **concrete, measurable criteria** (turn
+"is this good?" into "does it meet these rules?"), and returns **specific, actionable** findings the
+generator acts on. "Done" is a negotiated **contract** of testable success criteria. The
+grounding/verification post-check (§13.1) is the inner loop; the eval agent (§16) is the outer one.
+Human judgment is **codified into machine-checkable criteria** (calibrated with few-shot examples),
+not left to post-hoc review.
+
+**Long-running durability.** Standing jobs (line-monitor, ingestion, the engineering agents) need
+**durable, resumable sessions**: state checkpointed to artifacts + DB, **pause/resume**, and
+recovery from failure — so a multi-hour task survives a restart.
+
+**Right-size the harness.** *Every harness component encodes an assumption about what the model
+can't do on its own — stress-test it.* As models improve, **remove** scaffolding (fewer forced
+resets, fewer hand-holding steps); the eval agent measures whether a component still earns its keep.
+
+> **Runtime ([D28](#19-decision-register)).** We build a **model-agnostic harness on Pydantic AI**
+> implementing the above, and use **Claude Managed Agents as an optional execution backend** for
+> Anthropic-model + long-running/async sessions (it provides the loop, sandbox/environment, durable
+> sessions, compaction, skills, and MCP out of the box) — both behind the same agent-spec
+> abstraction (§7), so a workspace's LLM-provisioning choice (§8.1) picks the runtime without
+> changing the agents.
+
 ---
 
 ## 9. Data & state model
@@ -591,6 +661,7 @@ Core entities (Postgres; `odds_snapshots` and `prices` on TimescaleDB hypertable
 | `tenants`, `workspaces`, `users`, `memberships` | Identity & isolation (one tenant today). |
 | `agent_specs` | Registered agent definitions (DB-backed for user-created agents; files for built-ins). |
 | `conversations`, `messages` | Per-channel chat history + context. |
+| `memory`, `notes`, `artifacts` | **External agent memory** (§8.2): long-term facts, user prefs, structured notes/to-dos, and durable run artifacts — persisted *outside* the context window and pulled back just-in-time; also the checkpoints for long-running/resumable sessions. |
 | `agent_runs`, `tool_calls` | **Audit**: every run, model used, tokens, cost, latency; every tool call + args + result hash. |
 | `usage_ledger` | **Cost spine**: normalised per-run cost — model tokens (in/out) × price, sandbox seconds (+GPU), tool calls, latency, outcome — tagged with tenant/workspace/agent/task-type/model-tier. Basis for cost dashboards, per-agent ROI, and SaaS billing (§16.1). |
 | `budgets` | Per-workspace / per-agent spend caps + running balances, enforced by the gateway. |
@@ -1094,6 +1165,7 @@ launch remains gated on legal review).
 | **D25** | Ingestion & history ([§9.1](#91-data-ingestion--history-agent-plane)) | On-demand only / **thin ingestion worker → Timescale warehouse** / bake storage into the MCP | **A separate ingestion worker that drives the MCP and stores snapshots** | + Enables alerts/line-movement/backtests/CLV; keeps the MCP a stateless tool boundary. − A new scheduled service to run; storage + retention to manage. (Caching/proxies stay in the MCP repo.) |
 | **D26** | Accuracy / anti-hallucination ([§13.1](#131-accuracy-provenance--grounding)) | Trust the model / **deterministic edges + provenance + a grounding post-check + accuracy evals** | **Compute via sandboxed code, cite provenance, verify claims against tool output, eval over time** | + Trustworthy numbers; reproducible; measurable. − Build + run a verifier and an accuracy-eval set; a little latency per answer. |
 | **D27** | Spec / module versioning ([§7](#7-agent-specification-format)) | Unversioned / **semver per spec, workspaces pin versions, explicit migrations** | **Versioned specs; customers pin; deprecation window + migration path** | + A platform change can't silently break a customer's modules/agents. − Versioning + migration machinery to maintain. |
+| **D28** | Agent harness / runtime ([§8.2](#82-context-engineering--the-agent-harness)) | Build on Pydantic AI / use Claude Managed Agents / **both behind one agent-spec abstraction** | **Model-agnostic harness on Pydantic AI implementing context-engineering patterns, with Claude Managed Agents as an optional execution backend for Anthropic + long-running/async sessions** | + Keeps model-agnosticism (D2/D12) *and* gets a managed loop/sandbox/sessions/compaction/skills for free where Anthropic is used; provisioning mode (§8.1) picks the runtime. − Two runtimes to keep behind one abstraction; Managed Agents is Anthropic-only + beta. |
 
 ---
 
@@ -1134,6 +1206,14 @@ launch remains gated on legal review).
 - **Managed LLM** — we provide the LLMs on our keys for an added cost, under strict per-plan hard
   caps to prevent runaway spend (§8.1).
 - **Workspace / tenant** — an isolated unit of data, secrets, config, and budget.
+- **Harness** — the scaffolding around the model: the agent loop, tools/skills, context management,
+  feedback, and durable state (§8.2).
+- **Skill** — a progressively-disclosed capability bundle (instructions + scripts + resources) an
+  agent loads just-in-time when relevant; its scripts run in the sandbox (§8.2).
+- **Compaction / context reset** — summarising a long run in place, or clearing the window and
+  restarting from a compact structured hand-off, to manage the context budget (§8.2).
+- **Context engineering** — curating the smallest set of high-signal tokens that gets the job done;
+  treating the context window as a finite budget (§8.2).
 - **Module** — an operator-curated, named bundle of agents + data sources (MCP groups) + default
   config that packages a use case (Match Analytics, Fantasy, Racing, Trading/Betting, …). *We*
   build and version modules; customers *select* which to enable per workspace, within their plan's
