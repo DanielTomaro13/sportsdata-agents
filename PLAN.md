@@ -293,6 +293,7 @@ sportsdata-agents/
 │   │   ├── odds_specialist.yaml
 │   │   └── ...
 │   ├── mcp/                    ← MCP client manager (scoped sessions per agent)
+│   ├── skills/                 ← Agent Skills (instructions + sandbox scripts), loaded JIT (§8.2, D29)
 │   ├── tools/                  ← native (non-MCP) tools: staking math, DB, charts
 │   ├── sandboxes/              ← sandbox provider abstraction (E2B/Modal/Docker)
 │   ├── data/                   ← DB models, migrations, repositories
@@ -601,7 +602,11 @@ the central discipline. Drawing on Anthropic's harness-design and Managed-Agents
 - **Skills** — packaged, **progressively-disclosed** capability bundles (instructions + scripts +
   resources) the agent loads **just-in-time** *only when relevant*, keeping context lean. E.g.
   `vig-removal`, `kelly-staking`, `wagon-wheel-chart`, a `build-a-totals-model` playbook. A skill's
-  scripts run in the sandbox (§10). This is the Agent-Skills pattern.
+  scripts run in the sandbox (§10). This is the Agent-Skills pattern. **Skills live in the agent
+  plane (this repo), not in `sportsdata-mcp`:** they execute scripts (only the agent plane has a
+  sandbox) and often encode our IP, which must not leak via the hosted MCP (D23). The MCP may ship a
+  few *instruction-only* usage prompts (no scripts, no IP) to make the standalone/hosted MCP more
+  useful — but anything runnable or proprietary is agent-plane. See [D29](#19-decision-register).
 - **Agents** = model + system prompt (at the "right altitude") + tools + skills + MCP servers + a
   role. **Modules** (§1) bundle agents + skills + data + config into the products customers select.
 
@@ -1166,6 +1171,7 @@ launch remains gated on legal review).
 | **D26** | Accuracy / anti-hallucination ([§13.1](#131-accuracy-provenance--grounding)) | Trust the model / **deterministic edges + provenance + a grounding post-check + accuracy evals** | **Compute via sandboxed code, cite provenance, verify claims against tool output, eval over time** | + Trustworthy numbers; reproducible; measurable. − Build + run a verifier and an accuracy-eval set; a little latency per answer. |
 | **D27** | Spec / module versioning ([§7](#7-agent-specification-format)) | Unversioned / **semver per spec, workspaces pin versions, explicit migrations** | **Versioned specs; customers pin; deprecation window + migration path** | + A platform change can't silently break a customer's modules/agents. − Versioning + migration machinery to maintain. |
 | **D28** | Agent harness / runtime ([§8.2](#82-context-engineering--the-agent-harness)) | Build on Pydantic AI / use Claude Managed Agents / **both behind one agent-spec abstraction** | **Model-agnostic harness on Pydantic AI implementing context-engineering patterns, with Claude Managed Agents as an optional execution backend for Anthropic + long-running/async sessions** | + Keeps model-agnosticism (D2/D12) *and* gets a managed loop/sandbox/sessions/compaction/skills for free where Anthropic is used; provisioning mode (§8.1) picks the runtime. − Two runtimes to keep behind one abstraction; Managed Agents is Anthropic-only + beta. |
+| **D29** | Where skills live ([§8.2](#82-context-engineering--the-agent-harness)) | In `sportsdata-mcp` / **in the agent plane (`sportsdata-agents`)** / split | **Agent plane** — script-bearing & proprietary skills here; the MCP may ship only a few instruction-only usage prompts | + Skills need the sandbox (agent-plane only), are a harness concept, and keep IP off the hosted MCP (D23). − Slightly less value for the standalone MCP — recovered by the optional non-proprietary usage prompts. |
 
 ---
 
