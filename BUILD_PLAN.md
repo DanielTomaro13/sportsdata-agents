@@ -63,13 +63,13 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 **Goal:** "Best price + value on tonight's game" works from a CLI, with audit + traces.
 **Agents:** Orchestrator + Odds specialist + Stats specialist. **Interface:** CLI. **LLM:** BYO (your key).
 
-### M0.1 — Project scaffolding & tooling
-- [ ] `uv init`; `pyproject.toml` (deps: `pydantic`, `pydantic-ai`, `pydantic-settings`, `httpx`, `fastmcp`/`mcp` client, `litellm`, `asyncpg`/`sqlalchemy`, `alembic`, `typer`, `rich`, `logfire`, `pytest`, `pytest-asyncio`, `ruff`, `mypy`).
-- [ ] Directory skeleton per `§4` (`gateway/ orchestrator/ agents/ specs/ skills/ mcp/ tools/ sandboxes/ data/ models/ interfaces/ eval/ observability/ operations/`), each with `__init__.py`.
-- [ ] `ruff` + `mypy` config; `pre-commit` hooks.
-- [ ] `.github/workflows/ci.yml`: ruff, mypy, `pytest -m "not live and not eval"`, on push/PR (mirror MCP repo).
-- [ ] `LICENSE` (proprietary), `.gitignore`, `docker-compose.yml` (Postgres+Timescale).
-- [ ] **Exit gate:** `uv run pytest` (empty), `ruff check`, `mypy` all green in CI.
+### M0.1 — Project scaffolding & tooling ✅
+- [x] `pyproject.toml` (hatchling, PEP 621, uv-compatible) with runtime deps (`pydantic`, `pydantic-ai`, `pydantic-settings`, `httpx`, `mcp` client, `litellm`, `sqlalchemy`, `asyncpg`, `alembic`, `typer`, `rich`, `logfire`) + `[dev]` (`ruff`, `mypy`, `pytest`, `pytest-asyncio`, `pre-commit`). *(`uv` not installed locally → used `python -m venv` + pip; project stays `uv sync`-compatible. `sportsdata-mcp` pin deferred to M0.4.)*
+- [x] Directory skeleton per `§4` (`gateway/ orchestrator/ agents/ specs/ skills/ mcp/ tools/ sandboxes/ data/ models/ interfaces/ eval/ observability/ operations/`), each a package with `__init__.py`; `py.typed`; minimal Typer CLI (`agents version`).
+- [x] `ruff` + `mypy` config (in `pyproject`); `.pre-commit-config.yaml` (ruff, ruff-format, mypy, hooks incl. `detect-private-key`).
+- [x] `.github/workflows/ci.yml`: ruff, mypy, `pytest -m "not live and not eval"` on push/PR, Py 3.12 + 3.13.
+- [x] `docker-compose.yml` (TimescaleDB pg16); `LICENSE` (proprietary) + `.gitignore` already present.
+- [x] **Exit gate:** local — `ruff check` ✓, `mypy` ✓ (15 files), `pytest` ✓ (13 passed), `agents version` → `sportsdata-agents 0.1.0`. CI will mirror.
 
 ### M0.2 — Config & secrets
 - [ ] `config.py`: `Settings` (pydantic-settings) — DB URL, model keys, MCP location, Logfire token, `default_tenant`.
