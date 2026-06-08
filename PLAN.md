@@ -757,6 +757,16 @@ players — are **not developers**, so time-to-first-value must be minutes, not 
 - the marketing **live demo (§11.1)** is the on-ramp — the same experience, signed-in, becomes the
   product.
 
+**The web app is also the agent/module management console ([D30](#19-decision-register)).** Beyond
+chat, it's the **control panel** where users compose and run their agent team: browse/toggle
+**modules**, view/edit/build **agents** (a visual wrapper over the agent-builder, producing
+versioned specs), set **LLM provisioning + budgets** (§8.1), and see **per-agent cost/performance**
+(§16) and P&L/odds dashboards. This is phased to match the customer: **specs + chat + agent-builder**
+do the job in P0–P3 (and for you, the operator), and the **full management console lands with the
+web app at SaaS** (it needs auth + multi-tenancy anyway). An optional thin internal admin can come
+earlier. "Users create their own agents, fully customizable" is delivered conversationally first,
+then visually.
+
 ### 11.1 Marketing site and capabilities showcase
 
 A **public website that promotes the platform and lets a visitor *experience* it** — separate
@@ -1172,6 +1182,7 @@ launch remains gated on legal review).
 | **D27** | Spec / module versioning ([§7](#7-agent-specification-format)) | Unversioned / **semver per spec, workspaces pin versions, explicit migrations** | **Versioned specs; customers pin; deprecation window + migration path** | + A platform change can't silently break a customer's modules/agents. − Versioning + migration machinery to maintain. |
 | **D28** | Agent harness / runtime ([§8.2](#82-context-engineering--the-agent-harness)) | Build on Pydantic AI / use Claude Managed Agents / **both behind one agent-spec abstraction** | **Model-agnostic harness on Pydantic AI implementing context-engineering patterns, with Claude Managed Agents as an optional execution backend for Anthropic + long-running/async sessions** | + Keeps model-agnosticism (D2/D12) *and* gets a managed loop/sandbox/sessions/compaction/skills for free where Anthropic is used; provisioning mode (§8.1) picks the runtime. − Two runtimes to keep behind one abstraction; Managed Agents is Anthropic-only + beta. |
 | **D29** | Where skills live ([§8.2](#82-context-engineering--the-agent-harness)) | In `sportsdata-mcp` / **in the agent plane (`sportsdata-agents`)** / split | **Agent plane** — script-bearing & proprietary skills here; the MCP may ship only a few instruction-only usage prompts | + Skills need the sandbox (agent-plane only), are a harness concept, and keep IP off the hosted MCP (D23). − Slightly less value for the standalone MCP — recovered by the optional non-proprietary usage prompts. |
+| **D30** | Agent-management frontend ([§11](#11-interfaces)) | None (specs/chat only) / **phased: conversational + specs early → web management console at SaaS** / full UI up front | **Phased — specs + CLI + agent-builder in P0–P3; the full web console (browse/toggle modules, view/edit/build agents, provisioning, budgets, cost/perf dashboards) lands with the web app at P4; optional thin internal admin earlier** | + Delivers "build your own agent" conversationally now without a big UI build; the console arrives when non-technical customers (and multi-tenancy) need it. − Power users wait for visual management; two management paths (spec/chat then UI) to keep consistent. |
 
 ---
 

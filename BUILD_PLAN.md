@@ -31,6 +31,24 @@ References: `§N` = PLAN.md section, `Dn` = PLAN.md decision register entry.
 
 ---
 
+## Data-plane (`sportsdata-mcp`) readiness — confirm before/early P0
+
+**No deployment is required to start.** The agent plane spawns `sportsdata-mcp` as a **local stdio
+subprocess** and talks to it directly. The MCP is built, contract-tested, capability-tagged, and
+packaged — essentially ready. Confirm the items below; the cloud items are *later*, and live in the
+MCP repo.
+
+- [ ] MCP runs locally (`sportsdata-mcp serve`, stdio) and is installable into this project (editable / `uvx` from the private repo).
+- [ ] **Tag a release/version** of `sportsdata-mcp` to pin as a dependency here (reproducible builds).
+- [ ] Agent specs reference data tools by **capability tag** (`mcp_capabilities`), not raw tool names — resilient to MCP tool renames.
+- [ ] Per-agent **least-privilege scoping** via `SPORTSDATA_MCP_GROUPS` confirmed from a spawned subprocess.
+- [ ] **No-money invariant at source** confirmed — the MCP exposes no placement/deposit/account tools (pure data + odds reading); keep the agent-side deny-filter anyway.
+- [ ] Premium-provider secrets (e.g. `DATAGOLF_KEY`) pass into the MCP subprocess env per workspace.
+- [ ] **Later (cloud/SaaS, MCP repo):** response **caching** (per-endpoint TTLs) + **proxy/geo-egress** (AU bookmaker feeds geo-block cloud IPs) — `D25`. Prefer global feeds (MLB/OpenF1/ESPN/cricket) for the public demo.
+- [ ] **Later (hosted-MCP channel, `D23`):** deploy the MCP as a **remote HTTP/SSE server** with auth + rate limits — only for BYO-LLM users plugging into their own Claude/ChatGPT; not a prerequisite.
+
+---
+
 ## Phase P0 — Foundations: one real flow end-to-end on a CLI
 
 **Goal:** "Best price + value on tonight's game" works from a CLI, with audit + traces.
@@ -260,10 +278,22 @@ References: `§N` = PLAN.md section, `Dn` = PLAN.md decision register entry.
 - [ ] Operator-authored **module specs** (bundle agents + skills + MCP groups + config + UI); customer selects per workspace; **Trading/Betting** module jurisdiction-gated (`§14`).
 - [ ] **Exit gate:** enable/disable a module flips the workspace's capabilities; betting module gated by jurisdiction entitlement.
 
-### M4.5 — Web app
-- [ ] Next.js app (`app.` subdomain): chat, P&L/odds dashboards, module/agent management, billing, onboarding.
+### M4.5 — Web app + **agent/module management console** (`§11`, `D30`)
+The web app is also the **control panel** where users compose and run their agent team (the
+non-technical path to everything that's specs+chat in P0–P3). Sub-surfaces:
+- [ ] **Chat workspace** — the conversational product (same gateway as CLI/Slack), streamed, with tool-call/provenance display.
+- [ ] **Module catalogue** — browse, enable/disable, and configure modules (within entitlements; Trading/Betting jurisdiction-gated).
+- [ ] **Agent management** — view/edit agent specs within entitlements (prompt, tools, skills, model tier, limits); enable/disable; per-agent **cost & performance** from `agent_metrics`.
+- [ ] **Visual custom-agent builder** — a UI wrapping the agent-builder agent (NL → validated, versioned spec); save as a custom module.
+- [ ] **Provisioning & budgets** — BYO-LLM keys vs managed (`§8.1`), per-agent/workspace caps + budgets, usage meter.
+- [ ] **Dashboards** — P&L / ROI / CLV, odds/line-movement viz, run history + audit, alerts/subscriptions management.
+- [ ] **Billing** — plan/tier, add-ons, invoices, usage (Stripe, `§12.1`).
 - [ ] **Guided onboarding** for non-technical users (`§11`): wizard → pick module/bundle → provisioning → sample prompts.
-- [ ] **Exit gate:** a non-technical user reaches first value in minutes via the web app.
+- [ ] **Exit gate:** a non-technical user, via the web app, enables a module, builds/edits an agent, sets a budget, runs a query, and sees its cost/performance — reaching first value in minutes.
+
+> **Earlier (optional, P1+):** a thin **internal admin UI** for *you* (the operator) to manage
+> workspaces/specs/budgets without editing files. Nice-to-have; specs + CLI + agent-builder suffice
+> until the full console at P4.
 
 ### M4.6 — Ops readiness (`§17`)
 - [ ] Managed Postgres+Timescale (backups/DR), autoscaled compute (Fly/Railway/cloud), SLOs.
