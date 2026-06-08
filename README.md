@@ -20,6 +20,9 @@ so a workspace without it is a pure analytics tool (bigger market, lower complia
 
 ## Design
 
+🛠️ **[`BUILD_PLAN.md`](./BUILD_PLAN.md)** — the technical, phase-by-phase implementation
+checklist to tick off while coding (P0 → P4, milestones, exit gates).
+
 📐 **[`PLAN.md`](./PLAN.md)** — the full architecture: the two-plane design, the agent
 roster, the user-customizable agent-spec format, the data model, orchestration & model
 selection, sandboxing, interfaces (CLI → Slack → web), multi-tenancy / SaaS-readiness,
