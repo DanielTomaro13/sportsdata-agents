@@ -91,12 +91,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 > → **M2.4** · `alerts`/`subscriptions` (watches) → **M3.2** · billing
 > `subscriptions`/`entitlements` + `leads`/`waitlist` → **P4 / M3.4**.
 
-### M0.4 — MCP client manager
-- [ ] `mcp/manager.py`: open an MCP client session to `sportsdata-mcp` (stdio/uvx locally), **scoped per agent** via `SPORTSDATA_MCP_GROUPS` (least privilege, `§P3`/`§13`).
-- [ ] Map MCP **capability tags** → the tools an agent may call; build a Pydantic AI toolset from the scoped session.
-- [ ] Session lifecycle (open/close), retry/reconnect, and a hard **deny-filter** that strips any money/placement tool (`§13` no-money invariant).
-- [ ] Cache the tool catalogue; surface `list_tools_by_capability` for the orchestrator.
-- [ ] **Exit gate:** integration test (`live`-ish, local MCP) — an agent calls `mlb_teams`/an odds tool through the manager and gets data; deny-filter test proves no placement tool is exposed.
+### M0.4 — MCP client manager ✅
+- [x] `mcp/manager.py`: `MCPManager` — spawns `sportsdata-mcp` (v0.2.1, 342 tools) as a **stdio subprocess**, scoped per agent via `SPORTSDATA_MCP_GROUPS` (least privilege, `§13`); async context-manager lifecycle. *(Not installed into this venv — subprocess is the production model; the binary comes from the sibling repo locally / co-located in the container later.)*
+- [x] Hard **deny-filter**: `DENY_PATTERN` + `ForbiddenToolError` — money/placement names are hidden from the catalogue *and* refused at `call_tool` before any traffic. Deliberately strict (also hides the read-only `betfair_cashout` feed — accepted cost).
+- [x] Catalogue cached per session; `tools_for_capability()` over the `list_tools_by_capability` meta-tool (offline — computed server-side, no upstream HTTP); JSON payload decoding (structured content → text-JSON fallback).
+- [x] *(Moved)* the Pydantic AI toolset adapter over this manager lands at **M0.6** with the agent runtime (avoids installing pydantic-ai before it's used).
+- [x] **Exit gate:** integration tests (skip when the local binary is absent, e.g. CI): scoping (mlb.reference → only its tools + meta-tools), deny-filter end-to-end (cashout hidden + refused), cross-provider capability lookup (`ref.players` → mlb + openf1). **Live** test: `mlb_teams` round-trip returns the 30 clubs through the spawned server. ruff/mypy clean (23 files); 50 passed + 1 live passed.
 
 ### M0.5 — Model gateway (LiteLLM, tiers, BYO/managed seam)
 - [ ] `models/gateway.py`: wrap LiteLLM; `complete(messages, tier, workspace)` resolving **tier → concrete model** via `models/policy.yaml` (`§8`), with fallback on error/rate-limit.
