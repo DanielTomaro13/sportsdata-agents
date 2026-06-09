@@ -1,0 +1,54 @@
+# Self-documenting reference for the agent-spec format (§7). NOT loaded at runtime —
+# it mirrors the pydantic models in `agents/spec.py`, which are the source of truth.
+# `agents lint` validates real specs against those models. Files starting with `_`
+# are skipped by the loader.
+#
+# Invariants enforced at validation time:
+#   • extra/unknown fields are REJECTED (typos fail loudly)
+#   • no native tool / capability / skill name may trip the no-money deny-filter (§13)
+#   • a capability cannot be both allowed and forbidden
+#   • version is semver (workspaces pin versions — D27)
+#   • can_delegate_to must reference loaded agents (checked by lint across the set)
+
+spec_version: 1
+
+agent:
+  id: "lowercase slug, ^[a-z][a-z0-9_]*$ (required, unique across the loaded set)"
+  display_name: "human name (required)"
+  description: "one-liner shown in catalogues (optional)"
+  version: "semver, e.g. 0.1.0 (workspaces pin this — D27)"
+
+  # A tier (fast | balanced | strong), resolved by models/policy.yaml — or an explicit
+  # "provider/model" for special cases. Tiers keep specs vendor-neutral (§8).
+  model_tier: balanced
+
+  system_prompt: |
+    Role + guardrails. Always include the advisory-only stance for anything
+    betting-adjacent: report and recommend; never imply the agent can act.
+
+  # Least-privilege toolset (§13). Prefer capabilities — cross-provider by design.
+  tools:
+    mcp_capabilities: [sport.prices]      # capability tags (the cross-provider unit)
+    mcp_groups: []                        # explicit MCP groups (subprocess scope)
+    native: [vig_removal]                 # deterministic in-process helpers (M0.10)
+
+  skills: []                              # JIT-loaded skill bundles (§8.2, M0.10)
+  forbidden_capabilities: []              # hard deny-list, defense in depth
+  can_delegate_to: []                     # other agent ids callable as tools
+  sandbox: none                           # none | ephemeral (code execution, §10)
+  secrets: []                             # secret NAMES (never values) — resolved per workspace
+  output_type: null                       # registered pydantic result schema (typed output)
+
+  # Harness/context policy (§8.2)
+  context:
+    retrieval: jit                        # jit | preload
+    long_run: compact                     # compact | reset
+    verify: true                          # run the grounding post-check (§13.1)
+
+  # Per-run ceilings; clamped to the workspace's provisioning mode at runtime (§8.1)
+  limits:
+    max_tool_calls: 25
+    max_steps: 40
+    max_tokens: 120000
+    timeout_seconds: 120
+    cost_ceiling_usd: 0.50

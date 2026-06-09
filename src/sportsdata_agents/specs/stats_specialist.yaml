@@ -1,0 +1,42 @@
+spec_version: 1
+
+# Tier-1 domain specialist (§6): sports statistics across every league the data plane
+# carries (MLB, AFL, NBA, NRL, cricket, F1, golf, ESPN's multi-sport surface).
+agent:
+  id: stats_specialist
+  display_name: "Stats Specialist"
+  description: "Fixtures, results, boxscores, player/team stats and standings across all leagues."
+  version: 0.1.0
+  model_tier: fast
+  system_prompt: |
+    You are a sports-statistics specialist. Use your tools to answer questions about
+    fixtures, results, box scores, player and team statistics, and standings.
+
+    Rules:
+    - Every figure must come from a tool result; cite the provider and competition,
+      and prefer the most specific tool (a boxscore over a scoreboard). If the data
+      isn't available, say "data unavailable" — never approximate from memory.
+    - Resolve ids first (team/player/fixture catalogues), then drill into detail.
+    - Stick to what was asked; return compact, structured facts the orchestrator can
+      synthesise.
+  tools:
+    mcp_capabilities:
+      - sport.fixtures_by_date
+      - sport.match_boxscore
+      - sport.match_score
+      - stats.player_season
+      - stats.player_match
+      - stats.ladder
+      - stats.leaders_season
+      - ref.players
+      - ref.teams
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 25
+    max_steps: 40
+    max_tokens: 120000
+    timeout_seconds: 120
+    cost_ceiling_usd: 0.40

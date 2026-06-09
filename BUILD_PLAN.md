@@ -105,11 +105,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] **Metering**: every call emits a `UsageEvent` (model/tier/tokens/cost/latency/tenant/workspace) to a pluggable sink — M0.11 wires it to `usage_ledger`. Cost via `litellm.completion_cost`, **never crashes a run** (unknown pricing → 0).
 - [x] **Exit gate:** 10 mock-backend unit tests — policy load/route/override/unknown-tier, primary path + metering, fallback, both-fail, refusal-before-call on exhausted budget, accumulate-and-trip, workspace ceiling, cost-failure safety. ruff/mypy clean; **60 passed**.
 
-### M0.6 — Agent runtime + spec loader
-- [ ] `specs/_schema.yaml` + pydantic models for the **agent spec** (`§7`): `id, display_name, model_tier, system_prompt, tools{mcp_capabilities, mcp_groups, native}, skills, forbidden_capabilities, can_delegate_to, sandbox, secrets, output_type, context{retrieval,long_run,verify}, limits{max_tool_calls,max_steps,max_tokens,timeout,cost_ceiling}, spec_version + semantic version`.
-- [ ] `agents/loader.py`: load + validate specs (files + DB), build a Pydantic AI `Agent` (model, system prompt, scoped toolset, output type, deps).
-- [ ] `lint` command: validate all specs (mirror `sportsdata-mcp lint`).
-- [ ] **Exit gate:** load the bundled specs; `lint` passes; a malformed spec fails loudly; registration test (all expected agents present).
+### M0.6 — Agent spec schema + loader + lint ✅
+- [x] `agents/spec.py`: strict pydantic models for the **agent spec** (`§7`) — all fields (`model_tier` tier-or-explicit-model, `tools{mcp_capabilities, mcp_groups, native}`, `skills`, `forbidden_capabilities`, `can_delegate_to`, `sandbox`, `secrets`, `output_type`, `context{retrieval,long_run,verify}`, `limits{...}`, semver `version` (D27)). `extra="forbid"` everywhere (typos fail loudly); **the no-money invariant is enforced at authoring time** — a spec cannot name a money-ish tool/capability/skill (§13); allowed∩forbidden rejected.
+- [x] `specs/_schema.yaml` (self-documenting contract, mirrors the MCP repo convention) + three bundled specs: `orchestrator` (no data tools — delegation only), `odds_specialist`, `stats_specialist` (drafts; M0.8/M0.9 refine prompts + typed outputs).
+- [x] `agents/loader.py`: `load_spec_text/file/dir` (skips `_`-files, duplicate-id detection, **errors always carry the source path**), `load_builtin_specs()`, `lint_specs()` (cross-spec: dangling/self delegation). *(Runtime binding — the Pydantic AI agent construction — moved to **M0.7** with the harness, per D28's runtime-neutral spec abstraction; capability→tool validation against the live MCP catalogue happens there too.)*
+- [x] CLI: `agents lint [--dir]` (exit 1 on problems) + `agents list`.
+- [x] **Exit gate:** bundled specs load + register (test); `agents lint` passes (3 specs); malformed specs fail loudly with the file in the error (id/semver/tier/unknown-field/money-tool/overlap/dup/dangling all tested); CLI lint/list tested. ruff/mypy clean; **77 passed**.
 
 ### M0.7 — The harness (loop, loop control, context, skills) — `§8.2`
 - [ ] `agents/harness.py`: the agent loop *gather→plan→act→observe→verify→stop*.

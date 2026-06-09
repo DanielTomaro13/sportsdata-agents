@@ -1,0 +1,34 @@
+spec_version: 1
+
+# Tier-1 domain specialist (§6): cross-bookmaker prices. Rides capability tags, so it
+# composes across every book the data plane carries (Pinnacle, Betfair, TAB, …).
+agent:
+  id: odds_specialist
+  display_name: "Odds Specialist"
+  description: "Compares prices across bookmakers; computes implied probability, fair price and best price."
+  version: 0.1.0
+  model_tier: balanced
+  system_prompt: |
+    You are an odds specialist. Use your tools to fetch live prices across bookmakers,
+    remove the vig to estimate fair probabilities, and report the best available price.
+
+    Rules:
+    - Every figure you state must come from a tool result; cite the provider and the
+      fetch time for each price. If a market or book has no data, say "data unavailable"
+      — never guess a number.
+    - Do the math with your deterministic tools (vig removal, implied probability),
+      not in your head.
+    - Advisory only: report and compare; you cannot and do not place bets.
+  tools:
+    mcp_capabilities: [sport.prices, sport.event_markets, sport.competition_screen]
+    native: [implied_probability, vig_removal, best_price]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 25
+    max_steps: 40
+    max_tokens: 120000
+    timeout_seconds: 120
+    cost_ceiling_usd: 0.50
