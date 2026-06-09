@@ -1,0 +1,21 @@
+# Model policy (§8): tier → concrete model, task → tier. Config, not code.
+# Workspaces can override a tier's primary model via Workspace.model_tiers (D12 pool).
+tiers:
+  fast:
+    default: "anthropic/claude-haiku-4-5"
+    fallback: "openai/gpt-4o-mini"
+  balanced:
+    default: "anthropic/claude-sonnet-4-6"
+    fallback: "openai/gpt-4o"
+  strong:
+    default: "anthropic/claude-opus-4-8"
+    fallback: "openai/gpt-4o"
+
+routing:
+  intent_classification: fast
+  data_lookup: fast
+  odds_comparison: balanced
+  analysis: balanced
+  modelling: strong
+  code: strong
+  default: balanced

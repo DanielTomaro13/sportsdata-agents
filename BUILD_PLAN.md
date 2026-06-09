@@ -98,11 +98,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] *(Moved)* the Pydantic AI toolset adapter over this manager lands at **M0.6** with the agent runtime (avoids installing pydantic-ai before it's used).
 - [x] **Exit gate:** integration tests (skip when the local binary is absent, e.g. CI): scoping (mlb.reference → only its tools + meta-tools), deny-filter end-to-end (cashout hidden + refused), cross-provider capability lookup (`ref.players` → mlb + openf1). **Live** test: `mlb_teams` round-trip returns the 30 clubs through the spawned server. ruff/mypy clean (23 files); 50 passed + 1 live passed.
 
-### M0.5 — Model gateway (LiteLLM, tiers, BYO/managed seam)
-- [ ] `models/gateway.py`: wrap LiteLLM; `complete(messages, tier, workspace)` resolving **tier → concrete model** via `models/policy.yaml` (`§8`), with fallback on error/rate-limit.
-- [ ] Provisioning modes (`§8.1`/`D24`): **BYO** (workspace keys) vs **managed** (platform keys + hard caps). Caps **clamped** to the mode.
-- [ ] Emit per-call cost/tokens → `usage_ledger` (`§16.1`).
-- [ ] **Exit gate:** unit tests with a mock backend — tier resolution, fallback, BYO vs managed key selection, cost row written, managed cap enforced (run refused over ceiling).
+### M0.5 — Model gateway (LiteLLM, tiers, BYO/managed seam) ✅
+- [x] `models/policy.yaml` + `policy.py`: tier → (primary, fallback) with **per-workspace primary overrides**; task-type → tier routing with a default (`§8`). Packaged as data; `load_policy()` cached.
+- [x] `models/gateway.py`: `ModelGateway.complete()` over `litellm.acompletion` — tier-resolved model, **fallback** to the tier's secondary on primary failure, typed `ModelReply` (text/model/tokens/cost).
+- [x] **Budgets (`§16.1`)**: `RunBudget` (per-run ceiling from `Workspace.budgets`) — exhausted budgets refused **before** any model traffic (`BudgetExceededError`); cost charged after each call. *(Who sets the ceiling is the §8.1 BYO/managed distinction — by gateway time it's just a number to enforce. Managed platform-key routing is a SaaS-phase seam, noted in the module docstring.)*
+- [x] **Metering**: every call emits a `UsageEvent` (model/tier/tokens/cost/latency/tenant/workspace) to a pluggable sink — M0.11 wires it to `usage_ledger`. Cost via `litellm.completion_cost`, **never crashes a run** (unknown pricing → 0).
+- [x] **Exit gate:** 10 mock-backend unit tests — policy load/route/override/unknown-tier, primary path + metering, fallback, both-fail, refusal-before-call on exhausted budget, accumulate-and-trip, workspace ceiling, cost-failure safety. ruff/mypy clean; **60 passed**.
 
 ### M0.6 — Agent runtime + spec loader
 - [ ] `specs/_schema.yaml` + pydantic models for the **agent spec** (`§7`): `id, display_name, model_tier, system_prompt, tools{mcp_capabilities, mcp_groups, native}, skills, forbidden_capabilities, can_delegate_to, sandbox, secrets, output_type, context{retrieval,long_run,verify}, limits{max_tool_calls,max_steps,max_tokens,timeout,cost_ceiling}, spec_version + semantic version`.
