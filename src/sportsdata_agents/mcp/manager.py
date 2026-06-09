@@ -16,6 +16,7 @@ The Pydantic AI toolset adapter over this manager lands at M0.6 with the agent r
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
@@ -82,11 +83,17 @@ class MCPManager:
         if self.groups:
             env["SPORTSDATA_MCP_GROUPS"] = ",".join(self.groups)
         params = StdioServerParameters(command=self._command[0], args=self._command[1:], env=env)
-        self._stdio_cm = stdio_client(params)
-        read, write = await self._stdio_cm.__aenter__()
-        self._session_cm = ClientSession(read, write)
-        self._session = await self._session_cm.__aenter__()
-        await self._session.initialize()
+        # If anything after the spawn fails, Python will NOT call __aexit__ (CM protocol),
+        # so we must tear down ourselves or the subprocess is orphaned.
+        try:
+            self._stdio_cm = stdio_client(params)
+            read, write = await self._stdio_cm.__aenter__()
+            self._session_cm = ClientSession(read, write)
+            self._session = await self._session_cm.__aenter__()
+            await self._session.initialize()
+        except BaseException:
+            await self.__aexit__(None, None, None)
+            raise
         return self
 
     async def __aexit__(
@@ -95,12 +102,19 @@ class MCPManager:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        if self._session_cm is not None:
-            await self._session_cm.__aexit__(exc_type, exc, tb)
-        if self._stdio_cm is not None:
-            await self._stdio_cm.__aexit__(exc_type, exc, tb)
-        self._session = None
-        self._tools_cache = None
+        # finally-chained so a failing session close can never leak the subprocess.
+        try:
+            if self._session_cm is not None:
+                await self._session_cm.__aexit__(exc_type, exc, tb)
+        finally:
+            self._session_cm = None
+            try:
+                if self._stdio_cm is not None:
+                    await self._stdio_cm.__aexit__(exc_type, exc, tb)
+            finally:
+                self._stdio_cm = None
+                self._session = None
+                self._tools_cache = None
 
     @property
     def session(self) -> ClientSession:
@@ -111,10 +125,21 @@ class MCPManager:
     # ── catalogue ──────────────────────────────────────────────────────────
 
     async def list_tools(self) -> list[Any]:
-        """The scoped tool catalogue, deny-filtered, cached for the session."""
+        """The scoped tool catalogue, deny-filtered, cached for the session.
+
+        Follows ``nextCursor`` pagination — an unscoped discovery session can exceed one
+        page (342 tools), and silently truncating it would hide tools from the orchestrator.
+        """
         if self._tools_cache is None:
-            result = await self.session.list_tools()
-            self._tools_cache = [t for t in result.tools if not is_denied(t.name)]
+            tools: list[Any] = []
+            cursor: str | None = None
+            while True:
+                result = await self.session.list_tools(cursor=cursor)
+                tools.extend(result.tools)
+                cursor = getattr(result, "nextCursor", None)
+                if not cursor:
+                    break
+            self._tools_cache = [t for t in tools if not is_denied(t.name)]
         return self._tools_cache
 
     async def tool_names(self) -> set[str]:
@@ -129,11 +154,23 @@ class MCPManager:
 
     # ── calls ──────────────────────────────────────────────────────────────
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
-        """Call a tool and return its JSON payload. Denied names are refused up front."""
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        timeout_seconds: float = 60.0,
+    ) -> Any:
+        """Call a tool and return its JSON payload. Denied names are refused up front.
+
+        A default read timeout stops a wedged upstream from hanging the agent forever
+        (the harness's own budgets layer on top at M0.7).
+        """
         if is_denied(name):
             raise ForbiddenToolError(name)
-        result = await self.session.call_tool(name, arguments or {})
+        result = await self.session.call_tool(
+            name, arguments or {}, read_timeout_seconds=dt.timedelta(seconds=timeout_seconds)
+        )
         if getattr(result, "isError", False):
             text = _first_text(result)
             raise RuntimeError(f"tool {name} failed: {text or 'unknown error'}")
