@@ -69,6 +69,14 @@ def test_secret_does_not_leak_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "supersecret" not in repr(out)
 
 
+def test_secret_maps_do_not_leak_in_reprs() -> None:
+    """The secrets maps on Settings and Workspace are repr-hidden (§13)."""
+    s = Settings(_env_file=None, secrets={"K": "supersecret-settings"})  # type: ignore[call-arg]
+    ws = Workspace(secrets={"K": "supersecret-workspace"})
+    assert "supersecret-settings" not in repr(s)
+    assert "supersecret-workspace" not in repr(ws)
+
+
 # ── Workspace ────────────────────────────────────────────────────────────────
 
 

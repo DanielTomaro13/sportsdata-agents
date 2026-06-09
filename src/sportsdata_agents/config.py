@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     logfire_token: SecretStr | None = None
 
     # ── local-dev secret fallback (env is always preferred) ──
-    secrets: dict[str, str] = Field(default_factory=dict)
+    # repr=False so secret values never appear in logs/reprs of Settings (§13).
+    secrets: dict[str, str] = Field(default_factory=dict, repr=False)
 
 
 @lru_cache

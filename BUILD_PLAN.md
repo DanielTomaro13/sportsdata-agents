@@ -19,6 +19,7 @@ References: `§N` = PLAN.md section, `Dn` = PLAN.md decision register entry.
 - [ ] **Branching:** feature branches → PR → CI green → review → merge `main`. Engineering agents only ever open PRs (`§15`).
 - [ ] **Definition of Done (every task):** code + types + unit test + docstring + passes ruff/mypy/pytest; no secret in tree.
 - [ ] **Commit trailer:** `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` when AI-assisted.
+- [ ] **Dev-disk hygiene:** the dev machine runs tight on space (a full disk killed one session). Use `pip install --no-cache-dir`, clear `~/Library/Caches/pip` and project `dist/`/`build/` periodically, and check `df -h /System/Volumes/Data` before heavy installs.
 
 ### Prerequisites / accounts (gather before P0)
 - [ ] Anthropic API key (+ OpenAI and/or Google) — for the model pool (`D12`).
@@ -83,6 +84,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] `alembic` (async `env.py` reading `Settings.database_url`; `0001_initial` builds the schema from the model metadata — cross-dialect; Timescale hypertables deferred to M2.1).
 - [x] `data/repository.py` — `Repository[T: TenantScopedModel]` + `TenantScope`; **every** query filtered by `tenant_id`+`workspace_id`, every insert stamps them (§12/§13).
 - [x] **Exit gate:** `alembic upgrade head` on clean SQLite creates all 20 tables (test); CRUD round-trip (test); **cross-tenant isolation** proven (a tenant-B repo can't `get`/`list` tenant-A's row). `aiosqlite` added to `[dev]`; ruff/mypy clean (22 files), pytest **25 passed**.
+
+> **Remaining §9 tables arrive via new migrations at their milestones** (don't forget the
+> migration when you get there): `performance` → **M1.4** · `odds_snapshots`/`prices`
+> (Timescale hypertables) → **M2.1** · `models`/`predictions` → **M2.2** · `evals`/`feedback`
+> → **M2.4** · `alerts`/`subscriptions` (watches) → **M3.2** · billing
+> `subscriptions`/`entitlements` + `leads`/`waitlist` → **P4 / M3.4**.
 
 ### M0.4 — MCP client manager
 - [ ] `mcp/manager.py`: open an MCP client session to `sportsdata-mcp` (stdio/uvx locally), **scoped per agent** via `SPORTSDATA_MCP_GROUPS` (least privilege, `§P3`/`§13`).
@@ -313,6 +320,8 @@ non-technical path to everything that's specs+chat in P0–P3). Sub-surfaces:
 ### Testing
 - [ ] Unit (tools, gateway, harness, loader) · integration (flows vs local MCP) · contract (agent registration + typed-output shape) · eval (accuracy/calibration/CLV) · isolation (multi-tenant).
 - [ ] CI default `-m "not live and not eval"`; nightly job runs `live` + `eval`.
+- [ ] **(P1)** Add a Postgres service container job to CI so migrations + queries are tested on the prod dialect, not just SQLite (JSON/JSONB, timezone semantics).
+- [ ] **(P3)** Enable branch protection on `main` (PRs + CI required) before the engineering agents exist — they must be unable to push directly.
 
 ### Security & guardrails (`§13`)
 - [ ] No-money invariant test on every agent (deny-filter). · Prompt-injection handling (untrusted feed/web content). · Plane isolation (no platform creds in tenant runtime). · Secret-in-tree scan in CI. · Per-run + per-tenant budget ceilings enforced.

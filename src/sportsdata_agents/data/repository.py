@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -57,4 +57,12 @@ class Repository[T: TenantScopedModel]:
         return (await self.session.execute(self._scoped(select(self.model)))).scalars().all()
 
     async def count(self) -> int:
-        return len(await self.list())
+        stmt = (
+            select(func.count())
+            .select_from(self.model)
+            .where(
+                self.model.tenant_id == self.scope.tenant_id,
+                self.model.workspace_id == self.scope.workspace_id,
+            )
+        )
+        return int((await self.session.execute(stmt)).scalar_one())

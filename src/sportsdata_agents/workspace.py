@@ -48,7 +48,8 @@ class Workspace(BaseModel):
     model_tiers: dict[str, str] = Field(default_factory=dict)
 
     # Per-workspace secret fallback (env is always preferred).
-    secrets: dict[str, str] = Field(default_factory=dict)
+    # repr=False so secret values never appear in logs/reprs of Workspace (§13).
+    secrets: dict[str, str] = Field(default_factory=dict, repr=False)
 
     def resolve_secret(self, name: str, settings: Settings | None = None) -> SecretStr:
         """Resolve a secret for this workspace: env > workspace secrets > settings secrets."""
