@@ -49,14 +49,16 @@ class _Resp:
 
 
 class _FakeLiteLLM:
-    """Records calls; optionally fails specific models."""
+    """Records calls + kwargs; optionally fails specific models."""
 
     def __init__(self, fail_models: set[str] | None = None) -> None:
         self.calls: list[str] = []
+        self.kwargs: list[dict[str, Any]] = []
         self.fail_models = fail_models or set()
 
     async def acompletion(self, *, model: str, messages: list[dict[str, Any]], **kw: Any) -> _Resp:
         self.calls.append(model)
+        self.kwargs.append(kw)
         if model in self.fail_models:
             raise RuntimeError(f"simulated failure for {model}")
         return _Resp(model=model)
@@ -159,7 +161,40 @@ def test_run_budget_from_workspace() -> None:
     assert RunBudget.for_workspace(ws).ceiling_usd == 0.75
 
 
-async def test_cost_failure_never_crashes_a_run(fake: _FakeLiteLLM, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cost_failure_never_crashes_and_is_flagged(fake: _FakeLiteLLM, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown pricing meters 0 but flags cost_known=False (managed mode must act on it, §8.1)."""
     monkeypatch.setattr(fake, "completion_cost", lambda **_: (_ for _ in ()).throw(ValueError("no pricing")))
-    reply = await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=WS)
+    events: list[UsageEvent] = []
+    reply = await ModelGateway(usage_sink=events.append).complete(
+        [{"role": "user", "content": "hi"}], tier="fast", workspace=WS
+    )
     assert reply.cost_usd == 0.0
+    assert events[0].cost_known is False
+
+
+async def test_call_timeout_defaults_from_workspace_budget(fake: _FakeLiteLLM) -> None:
+    """A wedged provider can't hang the run: budget timeout rides on every call."""
+    ws = Workspace(budgets=Budgets(timeout_seconds=42))
+    await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=ws)
+    assert fake.kwargs[0]["timeout"] == 42
+    # caller override wins
+    await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=ws, timeout=7)
+    assert fake.kwargs[1]["timeout"] == 7
+
+
+async def test_fallback_is_logged_and_flagged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    policy = load_policy()
+    primary, fallback = policy.models_for_tier("balanced")
+    fake = _FakeLiteLLM(fail_models={primary})
+    monkeypatch.setattr(gw, "litellm", fake)
+
+    events: list[UsageEvent] = []
+    with caplog.at_level("WARNING", logger="sportsdata_agents.models.gateway"):
+        await ModelGateway(usage_sink=events.append).complete(
+            [{"role": "user", "content": "hi"}], tier="balanced", workspace=WS
+        )
+    assert any("model fallback" in r.getMessage() for r in caplog.records)
+    assert events[0].fallback_used is True
+    assert events[0].model == fallback

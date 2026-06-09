@@ -17,6 +17,7 @@ parameter resolved per provider, currently left to litellm's env-based resolutio
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -26,6 +27,8 @@ import litellm
 
 from sportsdata_agents.models.policy import ModelPolicy, load_policy
 from sportsdata_agents.workspace import Workspace
+
+logger = logging.getLogger(__name__)
 
 
 class BudgetExceededError(RuntimeError):
@@ -72,6 +75,11 @@ class UsageEvent:
     latency_ms: int
     tenant_id: str
     workspace_id: str
+    # False when litellm had no pricing for the model (cost metered as 0). BYO: fine —
+    # the customer pays the vendor directly. Managed: this MUST be acted on (a $0-metered
+    # model is free usage on our keys) — managed mode should allow-list priced models.
+    cost_known: bool = True
+    fallback_used: bool = False
     at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
 
 
@@ -110,26 +118,47 @@ class ModelGateway:
         budget: RunBudget | None = None,
         **kwargs: Any,
     ) -> ModelReply:
-        """One completion at a tier: budget-checked, fallback on primary failure, metered."""
+        """One completion at a tier: budget-checked, fallback on primary failure, metered.
+
+        Budget semantics: checked **before** the call, charged **after** — so a single
+        expensive call can overshoot the ceiling and only the *next* call is refused.
+        The hard per-call bound is ``max_tokens`` (the harness sets it from the agent
+        spec's limits at M0.7); this is a spend tripwire, not a per-call cap.
+        """
         if budget is not None:
             budget.check()
 
+        # A wedged provider must not hang the run: default the call timeout from the
+        # workspace budget (callers can still override via kwargs).
+        kwargs.setdefault("timeout", workspace.budgets.timeout_seconds)
+
         primary, fallback = self.policy.models_for_tier(tier, workspace)
+        fallback_used = False
         started = time.monotonic()
         try:
             response = await litellm.acompletion(model=primary, messages=list(messages), **kwargs)
             model_used = primary
-        except Exception:
+        except Exception as primary_err:
             if fallback is None:
                 raise
+            # Surface persistent primary failures to ops (cost-watchdog / eval) instead
+            # of silently absorbing them. A double failure chains primary_err as context.
+            logger.warning(
+                "model fallback: %s failed (%s: %s); retrying on %s",
+                primary,
+                type(primary_err).__name__,
+                primary_err,
+                fallback,
+            )
             response = await litellm.acompletion(model=fallback, messages=list(messages), **kwargs)
             model_used = fallback
+            fallback_used = True
         latency_ms = int((time.monotonic() - started) * 1000)
 
         usage = getattr(response, "usage", None)
         tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0)
         tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
-        cost_usd = _cost_of(response)
+        cost_usd, cost_known = _cost_of(response)
 
         if budget is not None:
             budget.charge(cost_usd)
@@ -145,6 +174,8 @@ class ModelGateway:
                     latency_ms=latency_ms,
                     tenant_id=workspace.tenant_id,
                     workspace_id=workspace.workspace_id,
+                    cost_known=cost_known,
+                    fallback_used=fallback_used,
                 )
             )
 
@@ -160,9 +191,13 @@ def _text_of(response: Any) -> str:
     return content or ""
 
 
-def _cost_of(response: Any) -> float:
-    """litellm's pricing map when it knows the model; 0 when it doesn't (never crash a run)."""
+def _cost_of(response: Any) -> tuple[float, bool]:
+    """(cost, known): litellm's pricing when it knows the model; (0, False) when it doesn't.
+
+    Never crashes a run — but the ``False`` flag must surface on the UsageEvent so managed
+    mode can refuse/alert on unpriced models instead of metering them as free (§8.1).
+    """
     try:
-        return float(litellm.completion_cost(completion_response=response) or 0.0)
+        return float(litellm.completion_cost(completion_response=response) or 0.0), True
     except Exception:
-        return 0.0
+        return 0.0, False
