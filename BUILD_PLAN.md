@@ -71,11 +71,11 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] `docker-compose.yml` (TimescaleDB pg16); `LICENSE` (proprietary) + `.gitignore` already present.
 - [x] **Exit gate:** local — `ruff check` ✓, `mypy` ✓ (15 files), `pytest` ✓ (13 passed), `agents version` → `sportsdata-agents 0.1.0`. CI will mirror.
 
-### M0.2 — Config & secrets
-- [ ] `config.py`: `Settings` (pydantic-settings) — DB URL, model keys, MCP location, Logfire token, `default_tenant`.
-- [ ] Secret resolution: env first, then a `secrets` map; a `SecretRef` type (name → value) so specs never hold secrets (`§13`).
-- [ ] `Workspace`/`Tenant` config object (enabled modules, MCP groups, model policy, provisioning mode, budgets) — even with one local workspace.
-- [ ] **Exit gate:** `Settings` loads from `.env`; unit test for secret resolution + missing-secret error.
+### M0.2 — Config & secrets ✅
+- [x] `config.py`: `Settings` (pydantic-settings, prefix `SPORTSDATA_AGENTS_`) — env, DB URL, `mcp_command`, Logfire token, `default_tenant`/`default_workspace`, local secrets map; cached `get_settings()`.
+- [x] `secrets.py`: `SecretRef` (name only), `resolve_secret()` (env → map → `MissingSecretError`), values wrapped in `SecretStr` so they don't leak (§13).
+- [x] `workspace.py`: `Workspace`/`Budgets` config object (enabled modules, MCP groups, provisioning mode §8.1, budgets, per-workspace secrets) + `default_workspace()`; `.env.example` added.
+- [x] **Exit gate:** `Settings` loads from `.env` (test) + env-var override; secret resolution layering (env > workspace > settings) + missing-secret error tested. ruff/mypy/pytest green (22 passed).
 
 ### M0.3 — Data layer (Postgres + Timescale + migrations)
 - [ ] `data/db.py`: async engine/session (SQLAlchemy 2.0 async or asyncpg + repositories).
