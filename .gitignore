@@ -15,11 +15,12 @@ venv/
 *.local
 secrets/
 
-# Data / artifacts
+# Data / artifacts (root-anchored so they don't match the src/ package dirs
+# `sportsdata_agents/data/` or `.../artifacts/`)
 *.sqlite
 *.db
-data/
-artifacts/
+/data/
+/artifacts/
 *.parquet
 *.csv
 
