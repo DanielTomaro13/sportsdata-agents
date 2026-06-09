@@ -1,0 +1,212 @@
+"""ORM models for the §9 data model (lean first cut; columns grow via migrations).
+
+Tenant-owned tables inherit ``TenantScopedModel`` (UUID pk + tenant/workspace + created_at).
+Public reference data (fixtures/events/selections) is global (inherits ``Base``) — the one
+deliberate exception to tenant-scoping, since it's identical across tenants.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+from decimal import Decimal
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, Uuid
+from sqlalchemy.orm import Mapped, mapped_column
+
+from .base import Base, TenantScopedModel
+
+# ─── Identity & tenancy ──────────────────────────────────────────────────
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+    workspace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id"), index=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    provisioning: Mapped[str] = mapped_column(String(16), default="byo")  # byo | managed (§8.1)
+    enabled_modules: Mapped[list] = mapped_column(JSON, default=list)
+    mcp_groups: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class User(TenantScopedModel):
+    __tablename__ = "users"
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+
+
+class Membership(TenantScopedModel):
+    __tablename__ = "memberships"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(32), default="member")  # operator | member
+
+
+# ─── Agents, conversations, audit ────────────────────────────────────────
+
+
+class AgentSpec(TenantScopedModel):
+    __tablename__ = "agent_specs"
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    version: Mapped[str] = mapped_column(String(32), default="0.1.0")  # semver (D27)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    spec: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Conversation(TenantScopedModel):
+    __tablename__ = "conversations"
+    channel: Mapped[str] = mapped_column(String(32), default="cli")  # cli | slack | discord | web
+    external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class Message(TenantScopedModel):
+    __tablename__ = "messages"
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user | assistant | tool | system
+    content: Mapped[str] = mapped_column(Text, default="")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class AgentRun(TenantScopedModel):
+    __tablename__ = "agent_runs"
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id"), nullable=True)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tier: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="running")  # running | ok | error | paused
+    tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal("0"))
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ToolCall(TenantScopedModel):
+    __tablename__ = "tool_calls"
+    agent_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_runs.id"), index=True)
+    tool: Mapped[str] = mapped_column(String(128), index=True)
+    args: Mapped[dict] = mapped_column(JSON, default=dict)
+    result_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+# ─── Cost / budgets / metrics (§16.1) ────────────────────────────────────
+
+
+class UsageLedger(TenantScopedModel):
+    __tablename__ = "usage_ledger"
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(24))  # llm | sandbox | tool
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tokens_in: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, default=0)
+    units: Mapped[Decimal] = mapped_column(Numeric(16, 4), default=Decimal("0"))
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal("0"))
+
+
+class Budget(TenantScopedModel):
+    __tablename__ = "budgets"
+    period: Mapped[str] = mapped_column(String(16), default="monthly")  # run | daily | monthly
+    cap_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    spent_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal("0"))
+    resets_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentMetric(TenantScopedModel):
+    __tablename__ = "agent_metrics"
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    window_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    runs: Mapped[int] = mapped_column(Integer, default=0)
+    success_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
+    cost_per_success_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
+    avg_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+# ─── External memory (§8.2) ──────────────────────────────────────────────
+
+
+class Memory(TenantScopedModel):
+    __tablename__ = "memory"
+    scope: Mapped[str] = mapped_column(String(24), default="workspace")  # user | workspace
+    key: Mapped[str] = mapped_column(String(200), index=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Note(TenantScopedModel):
+    __tablename__ = "notes"
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True)
+    body: Mapped[str] = mapped_column(Text, default="")
+
+
+class Artifact(TenantScopedModel):
+    __tablename__ = "artifacts"
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(32))  # chart | model | file | ...
+    uri: Mapped[str] = mapped_column(String(1024))
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+# ─── Recommendations vs tracked bets (distinct — §9) ─────────────────────
+
+
+class Recommendation(TenantScopedModel):
+    __tablename__ = "recommendations"
+    selection: Mapped[str] = mapped_column(String(400))
+    book: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    odds: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    stake_suggestion: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    edge: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    reasoning: Mapped[str] = mapped_column(Text, default="")
+    snapshot_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)  # provenance (§13.1)
+
+
+class TrackedBet(TenantScopedModel):
+    __tablename__ = "tracked_bets"
+    selection: Mapped[str] = mapped_column(String(400))
+    book: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    stake: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    odds: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0"))
+    placed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open | won | lost | void | cashed
+    result_pnl: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    closing_odds: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)  # for CLV
+
+
+# ─── Public reference data (GLOBAL — not tenant-scoped) ───────────────────
+
+
+class Fixture(Base):
+    __tablename__ = "fixtures"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    sport: Mapped[str] = mapped_column(String(32), index=True)
+    external_id: Mapped[str] = mapped_column(String(128), index=True)  # e.g. an MLB gamePk
+    name: Mapped[str] = mapped_column(String(400), default="")
+    start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Event(Base):
+    __tablename__ = "events"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    fixture_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("fixtures.id"), nullable=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    external_id: Mapped[str] = mapped_column(String(128), index=True)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Selection(Base):
+    __tablename__ = "selections"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("events.id"), nullable=True)
+    market: Mapped[str] = mapped_column(String(128), index=True)
+    name: Mapped[str] = mapped_column(String(400))
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)

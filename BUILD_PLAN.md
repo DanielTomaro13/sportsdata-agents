@@ -77,19 +77,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] `workspace.py`: `Workspace`/`Budgets` config object (enabled modules, MCP groups, provisioning mode §8.1, budgets, per-workspace secrets) + `default_workspace()`; `.env.example` added.
 - [x] **Exit gate:** `Settings` loads from `.env` (test) + env-var override; secret resolution layering (env > workspace > settings) + missing-secret error tested. ruff/mypy/pytest green (22 passed).
 
-### M0.3 — Data layer (Postgres + Timescale + migrations)
-- [ ] `data/db.py`: async engine/session (SQLAlchemy 2.0 async or asyncpg + repositories).
-- [ ] `alembic` init; first migration with **core tables** (`§9`), all carrying `tenant_id`/`workspace_id`:
-  - [ ] `tenants`, `workspaces`, `users`, `memberships`
-  - [ ] `agent_specs` (registry; built-ins from files, custom in DB)
-  - [ ] `conversations`, `messages`
-  - [ ] `agent_runs`, `tool_calls` (audit)
-  - [ ] `usage_ledger`, `budgets`, `agent_metrics` (`§16.1`)
-  - [ ] `memory`, `notes`, `artifacts` (`§8.2` external memory)
-  - [ ] `fixtures`, `events`, `selections` (normalised entities — minimal now)
-  - [ ] `recommendations`, `tracked_bets` (distinct — `§9`)
-- [ ] Repository layer enforcing `tenant_id` scoping on every query (the SaaS seam, `§12`).
-- [ ] **Exit gate:** `alembic upgrade head` on a clean DB; round-trip CRUD test per table; a test proving cross-tenant queries are filtered.
+### M0.3 — Data layer (Postgres + Timescale + migrations) ✅
+- [x] `data/base.py` (DeclarativeBase + `TimestampMixin` + `TenantScopedModel`, cross-dialect `Uuid`/`JSON`/`Numeric`); `data/db.py` (async engine/session, `session_scope()`, `reset_engine()`).
+- [x] `data/models.py` — all **core tables** (`§9`): `tenants`, `workspaces`, `users`, `memberships`, `agent_specs`, `conversations`, `messages`, `agent_runs`, `tool_calls`, `usage_ledger`, `budgets`, `agent_metrics`, `memory`, `notes`, `artifacts`, `recommendations`, `tracked_bets`. Tenant-owned tables inherit `TenantScopedModel`; **`fixtures`/`events`/`selections` are global** (public reference data — the one deliberate exception to tenant-scoping, §9).
+- [x] `alembic` (async `env.py` reading `Settings.database_url`; `0001_initial` builds the schema from the model metadata — cross-dialect; Timescale hypertables deferred to M2.1).
+- [x] `data/repository.py` — `Repository[T: TenantScopedModel]` + `TenantScope`; **every** query filtered by `tenant_id`+`workspace_id`, every insert stamps them (§12/§13).
+- [x] **Exit gate:** `alembic upgrade head` on clean SQLite creates all 20 tables (test); CRUD round-trip (test); **cross-tenant isolation** proven (a tenant-B repo can't `get`/`list` tenant-A's row). `aiosqlite` added to `[dev]`; ruff/mypy clean (22 files), pytest **25 passed**.
 
 ### M0.4 — MCP client manager
 - [ ] `mcp/manager.py`: open an MCP client session to `sportsdata-mcp` (stdio/uvx locally), **scoped per agent** via `SPORTSDATA_MCP_GROUPS` (least privilege, `§P3`/`§13`).
