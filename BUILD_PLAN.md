@@ -142,10 +142,13 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] `odds_specialist` granted `expected_value` + `skills: [vig_removal, compare_odds]`; lint green.
 - [x] **Exit gate:** golden values for every native tool (incl. negative-edge Kelly clamp, probability bounds, deny-filter naming test); builtin bundles load from the packaged root, trigger on the right phrases, refuse false positives; **end-to-end**: the odds specialist's skills disclose JIT in a harness run with index-in-prompt + both bodies disclosed + typed output still parsing. ruff/mypy clean; offline **157 passed**, live **3 passed**, `agents lint` ✓. *(Skill scripts run in the sandbox from M1.3.)*
 
-### M0.11 — Observability & cost
-- [ ] `observability/`: wire **Logfire** (or OTel) — trace every agent run, delegation, tool call, model choice, tokens, latency, cost.
-- [ ] Persist `agent_runs` + `tool_calls` + `usage_ledger` on every run.
-- [ ] **Exit gate:** one CLI run produces a full trace + DB audit rows + a cost row.
+### M0.11 — Observability & cost ✅
+- [x] `observability/recorder.py`: `RunRecorder` protocol + `DbRecorder` — every run → `agent_runs` (status from stop_reason, cost/tokens/model/tier/latency/finished_at), every tool call → `tool_calls` (args/ok/latency), every gateway `UsageEvent` → `usage_ledger` (buffered per run via the sink, flushed in one transaction at run end). **Recording can never break a run** — the harness guards every hook (tested with an exploding recorder).
+- [x] **Delegation audit tree:** `CURRENT_RUN_ID` contextvar (same pattern as the shared budget) → sub-runs persist `parent_run_id`; child rows carry **delta** cost, parent the team total (the M0.8-review accounting, now proven in the DB).
+- [x] `agent_runs.parent_run_id` added to the model + **inspector-guarded migration 0002** (0001 builds from live metadata, so fresh DBs already have the column — guard tested).
+- [x] `observability/tracing.py`: `setup_observability()` — stdlib logging always; Logfire enabled when `SPORTSDATA_AGENTS_LOGFIRE_TOKEN` is set (the recorder's structured run/tool/usage log lines ride it); setup failure can't break the app.
+- [x] Recorder threaded through `Harness` / `AgentRuntime` / `open_team`.
+- [x] **Exit gate:** a recorded run produces run + tool + 2 usage rows with correct tenant scoping, cost (0.004), tokens, model; delegation produces the parent/child tree with delta accounting; failed tools persist `ok=False`; migration idempotent on fresh DBs. *(The "one CLI run" wording lands with M0.12, which wires this recorder into the CLI.)* ruff/mypy clean; offline **166 passed**, live **3 passed**.
 
 ### M0.12 — CLI interface
 - [ ] `interfaces/cli/` (Typer): `agents chat`, `agents run "<prompt>"`, `--workspace`, streaming output via `rich`.

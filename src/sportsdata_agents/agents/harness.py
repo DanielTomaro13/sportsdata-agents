@@ -18,9 +18,13 @@ import contextvars
 import json
 import logging
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+if TYPE_CHECKING:
+    from sportsdata_agents.observability.recorder import RunRecorder
 
 from sportsdata_agents.agents.outputs import get_output_type, parse_output, schema_instructions
 from sportsdata_agents.agents.skills import SkillSet
@@ -77,6 +81,11 @@ PARSE_RETRIES = 1
 # would mean per-harness, and a team run could spend ceiling x (1 + delegations) (§16.1).
 CURRENT_RUN_BUDGET: contextvars.ContextVar[RunBudget | None] = contextvars.ContextVar(
     "current_run_budget", default=None
+)
+# The id of the currently-executing run. Delegated sub-runs read it as their
+# parent_run_id (audit linkage, §16) — same pattern as the shared budget.
+CURRENT_RUN_ID: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
+    "current_run_id", default=None
 )
 
 
@@ -166,6 +175,7 @@ class Harness:
         skills: SkillSet | None = None,
         verifier: Verifier | None = None,
         compactor: Compactor = default_compactor,
+        recorder: RunRecorder | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.spec = spec
@@ -179,6 +189,7 @@ class Harness:
         self.skills = skills
         self.verifier = verifier
         self.compactor = compactor
+        self.recorder = recorder
         self._now = now
         self.output_model = get_output_type(spec.output_type) if spec.output_type else None
 
@@ -212,11 +223,19 @@ class Harness:
         self._disclose_skills(messages, user_input)
 
         budget = budget if budget is not None else RunBudget(ceiling_usd=self.cost_ceiling_usd)
+        run_id = uuid.uuid4()
+        parent_run_id = CURRENT_RUN_ID.get()
         budget_token = CURRENT_RUN_BUDGET.set(budget)
+        run_token = CURRENT_RUN_ID.set(run_id)
+        started = time.monotonic()
+        await self._record_start(run_id, parent_run_id, user_input)
         try:
-            return await self._loop(messages, budget)
+            result = await self._loop(messages, budget)
         finally:
             CURRENT_RUN_BUDGET.reset(budget_token)
+            CURRENT_RUN_ID.reset(run_token)
+        await self._record_end(run_id, result, int((time.monotonic() - started) * 1000))
+        return result
 
     async def _loop(self, messages: list[dict[str, Any]], budget: RunBudget) -> RunResult:
         deadline = self._now() + self.timeout_seconds
@@ -336,22 +355,58 @@ class Harness:
     async def _execute_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Run one tool; errors are returned to the model as content, never raised
         (the model should see the failure and adapt — the loop ceilings bound retries)."""
+        started = time.monotonic()
+        payload, ok = await self._execute_tool_inner(name, arguments)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if self.recorder is not None:
+            run_id = CURRENT_RUN_ID.get()
+            if run_id is not None:
+                try:
+                    await self.recorder.on_tool_call(
+                        run_id=run_id, tool=name, arguments=arguments, ok=ok, latency_ms=latency_ms
+                    )
+                except Exception as e:  # recording must never break a run
+                    logger.warning("recorder.on_tool_call failed: %s: %s", type(e).__name__, e)
+        return payload
+
+    async def _execute_tool_inner(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
         if is_denied(name):
-            return f"error: tool {name!r} is forbidden by the no-money invariant"
+            return f"error: tool {name!r} is forbidden by the no-money invariant", False
         tool = self.tools.get(name)
         if tool is None:
-            return f"error: unknown tool {name!r}; available: {sorted(self.tools)}"
+            return f"error: unknown tool {name!r}; available: {sorted(self.tools)}", False
         try:
             output = await tool.execute(arguments)
         except Exception as e:
             logger.warning("tool %s failed: %s: %s", name, type(e).__name__, e)
-            return f"error: {type(e).__name__}: {e}"
+            return f"error: {type(e).__name__}: {e}", False
         if isinstance(output, str):
-            return output
+            return output, True
         try:
-            return json.dumps(output)
+            return json.dumps(output), True
         except (TypeError, ValueError):
-            return str(output)
+            return str(output), True
+
+    async def _record_start(self, run_id: uuid.UUID, parent_run_id: uuid.UUID | None, task: str) -> None:
+        if self.recorder is None:
+            return
+        try:
+            await self.recorder.on_run_start(
+                run_id=run_id, parent_run_id=parent_run_id, agent=self.spec.id, task=task
+            )
+        except Exception as e:  # recording must never break a run
+            logger.warning("recorder.on_run_start failed: %s: %s", type(e).__name__, e)
+
+    async def _record_end(self, run_id: uuid.UUID, result: RunResult, latency_ms: int) -> None:
+        if self.recorder is None:
+            return
+        status = "ok" if result.stop_reason == "done" else result.stop_reason
+        try:
+            await self.recorder.on_run_end(
+                run_id=run_id, agent=self.spec.id, status=status, cost_usd=result.cost_usd, latency_ms=latency_ms
+            )
+        except Exception as e:
+            logger.warning("recorder.on_run_end failed: %s: %s", type(e).__name__, e)
 
     def _disclose_skills(self, messages: list[dict[str, Any]], text: str) -> None:
         """Progressive disclosure: append a skill's body the first time it becomes relevant."""

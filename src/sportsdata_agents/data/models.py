@@ -75,6 +75,9 @@ class Message(TenantScopedModel):
 class AgentRun(TenantScopedModel):
     __tablename__ = "agent_runs"
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id"), nullable=True)
+    # Delegated sub-runs link to their caller (audit tree, §16). Plain Uuid, no FK:
+    # self-referential FKs complicate cross-dialect batch ALTERs for no integrity gain here.
+    parent_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     agent: Mapped[str] = mapped_column(String(128), index=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     tier: Mapped[str | None] = mapped_column(String(32), nullable=True)

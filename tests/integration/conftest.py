@@ -13,7 +13,7 @@ from sportsdata_agents.data.base import Base
 
 
 @pytest.fixture
-async def session() -> AsyncIterator[AsyncSession]:
+async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine(
         "sqlite+aiosqlite://",
         connect_args={"check_same_thread": False},
@@ -21,7 +21,11 @@ async def session() -> AsyncIterator[AsyncSession]:
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    sm = async_sessionmaker(engine, expire_on_commit=False)
-    async with sm() as s:
-        yield s
+    yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
+
+
+@pytest.fixture
+async def session(db_sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncSession]:
+    async with db_sessionmaker() as s:
+        yield s

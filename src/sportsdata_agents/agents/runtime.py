@@ -32,6 +32,7 @@ from sportsdata_agents.mcp.manager import MCPManager
 from sportsdata_agents.mcp.pool import MCPSessionPool
 from sportsdata_agents.mcp.toolset import bridge_mcp_tools
 from sportsdata_agents.models.gateway import RunBudget
+from sportsdata_agents.observability.recorder import RunRecorder
 from sportsdata_agents.tools.registry import get_native_tools
 from sportsdata_agents.workspace import Workspace
 
@@ -86,6 +87,7 @@ class AgentRuntime:
         delegates: Sequence[AgentRuntime] = (),
         skills_root: Path | None = None,
         verifier: Verifier | None = None,
+        recorder: RunRecorder | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.spec = spec
@@ -101,6 +103,7 @@ class AgentRuntime:
             raise ValueError(f"{spec.id}: delegates {undeclared} are not declared in can_delegate_to (§13)")
         self._skills_root = skills_root
         self._verifier = verifier
+        self._recorder = recorder
         self._now = now
         self._manager: MCPManager | None = None
         self.harness: Harness | None = None
@@ -136,6 +139,7 @@ class AgentRuntime:
                 tools=tools,
                 skills=skills,
                 verifier=self._verifier,
+                recorder=self._recorder,
                 now=self._now,
             )
         except BaseException:
@@ -174,6 +178,7 @@ async def open_team(
     pool: MCPSessionPool | None = None,
     skills_root: Path | None = None,
     verifier: Verifier | None = None,
+    recorder: RunRecorder | None = None,
 ) -> AsyncIterator[AgentRuntime]:
     """Open the root agent with its delegates bound (one level deep — the Tier-0 model:
     the orchestrator delegates to specialists; specialists do not delegate further).
@@ -201,6 +206,7 @@ async def open_team(
                 pool=pool,
                 skills_root=skills_root,
                 verifier=verifier,
+                recorder=recorder,
             )
             delegates.append(await stack.enter_async_context(sub))
         root = AgentRuntime(
@@ -212,5 +218,6 @@ async def open_team(
             delegates=delegates,
             skills_root=skills_root,
             verifier=verifier,
+            recorder=recorder,
         )
         yield await stack.enter_async_context(root)
