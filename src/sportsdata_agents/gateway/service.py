@@ -51,12 +51,25 @@ def detect_tier_overrides() -> dict[str, str]:
     return {}
 
 
-def try_db_recorder(settings: Settings, scope: TenantScope) -> DbRecorder | None:
-    """A DbRecorder when the database is usable; None (with a warning) otherwise —
-    the CLI must work without Postgres running, just without audit rows."""
-    try:
-        from sportsdata_agents.data.db import get_sessionmaker
+def has_model_key() -> bool:
+    """True when any supported model-provider key is configured (BYO-LLM, §8.1)."""
+    import os
 
+    return any(os.environ.get(env_name) for env_name, _ in _PROVIDER_KEYS)
+
+
+async def try_db_recorder(settings: Settings, scope: TenantScope) -> DbRecorder | None:
+    """A DbRecorder when the database actually accepts a connection; None (with ONE
+    warning) otherwise — the CLI must work without Postgres running, just without
+    audit rows. The probe matters: the sessionmaker is lazy and 'succeeds' even when
+    the DB is down, which would otherwise surface as guarded-hook warning spam on
+    every run instead of a single clear notice."""
+    try:
+        from sportsdata_agents.data.db import get_engine, get_sessionmaker
+
+        engine = get_engine()
+        async with engine.connect():
+            pass
         return DbRecorder(get_sessionmaker(), scope)
     except Exception as e:
         logger.warning("audit disabled — database unavailable (%s: %s)", type(e).__name__, e)

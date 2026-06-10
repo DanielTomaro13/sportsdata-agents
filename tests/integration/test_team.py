@@ -7,13 +7,13 @@ The end-to-end test needs a real model key (and real upstreams) and is ``live``.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from sportsdata_agents.agents.loader import load_builtin_specs
 from sportsdata_agents.agents.runtime import AgentRuntime, open_team
+from sportsdata_agents.gateway.service import detect_tier_overrides, has_model_key
 from sportsdata_agents.mcp.pool import MCPSessionPool
 from sportsdata_agents.models.gateway import ModelGateway, UsageEvent
 from sportsdata_agents.workspace import Budgets, Workspace
@@ -70,45 +70,21 @@ async def test_team_shares_one_subprocess_for_identical_scopes() -> None:
         assert len(pool) == 1, f"expected 1 shared subprocess, pool has {len(pool)}"
 
 
-# Provider-agnostic live E2E: uses whichever key is present. A FREE-tier key works —
-# e.g. Google AI Studio (GEMINI_API_KEY) or Groq (GROQ_API_KEY) cost $0.
-_LIVE_PROVIDERS: list[tuple[str, str | None]] = [
-    ("ANTHROPIC_API_KEY", None),  # None = use the policy's default tiers
-    ("OPENROUTER_API_KEY", "openrouter/openai/gpt-4o-mini"),  # one key, many models
-    ("GEMINI_API_KEY", "gemini/gemini-2.0-flash"),
-    ("GROQ_API_KEY", "groq/llama-3.3-70b-versatile"),
-    ("OPENAI_API_KEY", "openai/gpt-4o-mini"),
-]
-
-
-def _live_model_override() -> str | None | object:
-    for env_name, model in _LIVE_PROVIDERS:
-        if os.environ.get(env_name):
-            return model
-    return _NO_KEY
-
-
-_NO_KEY = object()
+# Provider-agnostic live E2E: uses whichever key is present (a FREE-tier Gemini/Groq
+# key costs $0). Detection logic is shared with the CLI: gateway.service owns it.
 
 
 def _live_workspace() -> Workspace:
-    override = _live_model_override()
-    model_tiers = (
-        {"fast": override, "balanced": override, "strong": override} if isinstance(override, str) else {}
-    )
     return Workspace(
         tenant_id="t",
         workspace_id="w",
         budgets=Budgets(per_run_usd=0.50, timeout_seconds=180),
-        model_tiers=model_tiers,
+        model_tiers=detect_tier_overrides(),
     )
 
 
 @pytest.mark.live
-@pytest.mark.skipif(
-    _live_model_override() is _NO_KEY,
-    reason="no model API key set (any of ANTHROPIC/OPENROUTER/GEMINI/GROQ/OPENAI _API_KEY)",
-)
+@pytest.mark.skipif(not has_model_key(), reason="no model API key set (free Gemini/Groq tiers work)")
 async def test_specialist_returns_typed_output_live() -> None:
     """M0.9 exit gate: a specialist answers a scoped question via the real MCP with a
     VALIDATED typed output (StatsAnswer), sources included."""
@@ -127,27 +103,13 @@ async def test_specialist_returns_typed_output_live() -> None:
 
 
 @pytest.mark.live
-@pytest.mark.skipif(
-    _live_model_override() is _NO_KEY,
-    reason="no model API key set (any of ANTHROPIC/OPENROUTER/GEMINI/GROQ/OPENAI _API_KEY)",
-)
+@pytest.mark.skipif(not has_model_key(), reason="no model API key set (free Gemini/Groq tiers work)")
 async def test_team_end_to_end_real_model() -> None:
     """P0's headline: orchestrator delegates to a specialist over the real MCP with a
     real model, and the answer comes back grounded + metered."""
     events: list[UsageEvent] = []
     gateway = ModelGateway(usage_sink=events.append)
-
-    override = _live_model_override()
-    model_tiers: dict[str, str] = {}
-    if isinstance(override, str):  # pin every tier to the available provider's model
-        model_tiers = {"fast": override, "balanced": override, "strong": override}
-    ws = Workspace(
-        tenant_id="t",
-        workspace_id="w",
-        budgets=Budgets(per_run_usd=0.50, timeout_seconds=180),
-        model_tiers=model_tiers,
-    )
-
+    ws = _live_workspace()
     specs = load_builtin_specs()
     async with open_team(
         specs, "orchestrator", provider=gateway, workspace=ws, mcp_command=[str(MCP_BIN)]

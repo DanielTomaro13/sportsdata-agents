@@ -31,6 +31,11 @@ from sportsdata_agents.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
+# Per-call OUTPUT token cap (the hard per-call cost bound, §16.1) — callers override
+# via kwargs when a task genuinely needs long output. Also matters for prepaid
+# providers (OpenRouter reserves max_tokens upfront against the credit balance).
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
+
 
 class BudgetExceededError(RuntimeError):
     """The run's cost ceiling is spent; the gateway refuses further model calls."""
@@ -157,6 +162,7 @@ class ModelGateway:
         # A wedged provider must not hang the run: default the call timeout from the
         # workspace budget (callers can still override via kwargs).
         kwargs.setdefault("timeout", workspace.budgets.timeout_seconds)
+        kwargs.setdefault("max_tokens", DEFAULT_MAX_OUTPUT_TOKENS)
 
         primary, fallback = self.policy.models_for_tier(tier, workspace)
         fallback_used = False

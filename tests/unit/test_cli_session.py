@@ -189,3 +189,30 @@ def test_cli_help_lists_run_and_chat() -> None:
 
     out = CliRunner().invoke(app, ["--help"]).output
     assert "run" in out and "chat" in out
+
+
+async def test_try_db_recorder_probes_connectivity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The sessionmaker is lazy — without a real connect() probe, a down DB 'succeeds'
+    here and then spams guarded-hook warnings on every run."""
+    from sportsdata_agents.config import Settings, get_settings
+    from sportsdata_agents.data.db import reset_engine
+    from sportsdata_agents.data.repository import TenantScope
+    from sportsdata_agents.gateway.service import try_db_recorder
+
+    scope = TenantScope("t", "w")
+    await reset_engine()
+    try:
+        # unreachable DB → None, not a recorder that fails later
+        monkeypatch.setenv("SPORTSDATA_AGENTS_DATABASE_URL", "postgresql+asyncpg://x:x@127.0.0.1:1/x")
+        get_settings.cache_clear()
+        assert await try_db_recorder(Settings(_env_file=None), scope) is None  # type: ignore[call-arg]
+
+        # reachable (sqlite) → a real recorder
+        await reset_engine()
+        monkeypatch.setenv("SPORTSDATA_AGENTS_DATABASE_URL", "sqlite+aiosqlite://")
+        get_settings.cache_clear()
+        recorder = await try_db_recorder(Settings(_env_file=None), scope)  # type: ignore[call-arg]
+        assert recorder is not None
+    finally:
+        await reset_engine()
+        get_settings.cache_clear()

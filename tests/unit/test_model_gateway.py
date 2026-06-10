@@ -84,12 +84,15 @@ def test_policy_loads_and_routes() -> None:
     assert p.tier_for_task("nonsense") == "balanced"  # routing default
 
 
-def test_policy_workspace_override_replaces_primary_only() -> None:
+def test_policy_workspace_override_pins_provider_and_suppresses_fallback() -> None:
+    """A pinned provider must not fall back to a vendor the user never configured —
+    it violates the pin and masks the primary's real error behind missing-credential
+    noise from the fallback vendor."""
     p = load_policy()
     ws = Workspace(model_tiers={"balanced": "groq/llama"})
     primary, fallback = p.models_for_tier("balanced", ws)
     assert primary == "groq/llama"
-    assert fallback == p.tiers["balanced"].fallback  # fallback untouched
+    assert fallback is None
 
 
 def test_policy_unknown_tier_raises() -> None:
@@ -180,6 +183,18 @@ async def test_call_timeout_defaults_from_workspace_budget(fake: _FakeLiteLLM) -
     # caller override wins
     await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=ws, timeout=7)
     assert fake.kwargs[1]["timeout"] == 7
+
+
+async def test_output_token_cap_defaults_and_overrides(fake: _FakeLiteLLM) -> None:
+    """The per-call output cap (§16.1's hard per-call bound) rides every call —
+    prepaid providers reserve max_tokens upfront, so an uncapped default can fail
+    against a small credit balance."""
+    from sportsdata_agents.models.gateway import DEFAULT_MAX_OUTPUT_TOKENS
+
+    await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=WS)
+    assert fake.kwargs[0]["max_tokens"] == DEFAULT_MAX_OUTPUT_TOKENS
+    await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=WS, max_tokens=128)
+    assert fake.kwargs[1]["max_tokens"] == 128
 
 
 async def test_fallback_is_logged_and_flagged(

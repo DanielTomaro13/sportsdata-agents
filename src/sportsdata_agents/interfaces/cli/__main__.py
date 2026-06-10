@@ -68,7 +68,7 @@ def list_agents() -> None:
         typer.echo(f"{spec.id:20} v{spec.version}  tier={spec.model_tier:9} caps: {caps}")
 
 
-def _bootstrap_session(workspace_id: str, agent_id: str | None):
+async def _bootstrap_session(workspace_id: str, agent_id: str | None):
     """Shared setup for run/chat: env, observability, recorder, session (unopened)."""
     from dotenv import load_dotenv
 
@@ -92,7 +92,7 @@ def _bootstrap_session(workspace_id: str, agent_id: str | None):
         model_tiers=detect_tier_overrides(),  # BYO-LLM: use whichever key is configured (§8.1)
     )
     recorder = ConsoleProgressRecorder(
-        console, inner=try_db_recorder(settings, TenantScope(settings.default_tenant, workspace_id))
+        console, inner=await try_db_recorder(settings, TenantScope(settings.default_tenant, workspace_id))
     )
     session = TeamSession(settings=settings, workspace=workspace, recorder=recorder, agent_id=agent_id)
     return console, session
@@ -128,7 +128,7 @@ def run(
     import asyncio
 
     async def _run() -> None:
-        console, session = _bootstrap_session(workspace, agent)
+        console, session = await _bootstrap_session(workspace, agent)
         console.print(f"[dim]opening {session.agent_name}…[/dim]")
         async with session:
             result = await session.run(prompt)
@@ -149,7 +149,7 @@ def chat(
     import asyncio
 
     async def _chat() -> None:
-        console, session = _bootstrap_session(workspace, agent)
+        console, session = await _bootstrap_session(workspace, agent)
         console.print(f"[dim]opening {session.agent_name}… (/exit to quit)[/dim]")
         async with session:
             while True:

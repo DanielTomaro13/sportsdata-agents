@@ -32,14 +32,19 @@ class ModelPolicy(BaseModel):
         return self.routing.get(task_type, self.routing.get("default", "balanced"))
 
     def models_for_tier(self, tier: str, workspace: Workspace | None = None) -> tuple[str, str | None]:
-        """(primary, fallback) for a tier. A workspace override replaces the primary only."""
+        """(primary, fallback) for a tier.
+
+        A workspace override replaces the primary AND suppresses the policy fallback:
+        the user pinned a provider deliberately, and falling back to a different
+        vendor they never configured both violates that pin and masks the primary's
+        real error behind that vendor's missing-credentials noise.
+        """
         if tier not in self.tiers:
             raise KeyError(f"unknown model tier {tier!r}; expected one of {sorted(self.tiers)}")
         models = self.tiers[tier]
-        primary = models.default
         if workspace is not None and tier in workspace.model_tiers:
-            primary = workspace.model_tiers[tier]
-        return primary, models.fallback
+            return workspace.model_tiers[tier], None
+        return models.default, models.fallback
 
 
 @lru_cache
