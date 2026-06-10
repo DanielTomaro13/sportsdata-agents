@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _PROVIDER_KEYS: list[tuple[str, str | None]] = [
     ("ANTHROPIC_API_KEY", None),
     ("OPENROUTER_API_KEY", "openrouter/openai/gpt-4o-mini"),
-    ("GEMINI_API_KEY", "gemini/gemini-2.0-flash"),
+    ("GEMINI_API_KEY", "gemini/gemini-2.5-flash-lite"),  # free tier, tool-calling
     ("GROQ_API_KEY", "groq/llama-3.3-70b-versatile"),
     ("OPENAI_API_KEY", "openai/gpt-4o-mini"),
 ]

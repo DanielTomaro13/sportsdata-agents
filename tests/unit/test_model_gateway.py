@@ -197,6 +197,12 @@ async def test_output_token_cap_defaults_and_overrides(fake: _FakeLiteLLM) -> No
     assert fake.kwargs[1]["max_tokens"] == 128
 
 
+async def test_rate_limit_retries_default(fake: _FakeLiteLLM) -> None:
+    """Free-tier providers 429 per minute; the gateway rides it out via litellm retries."""
+    await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=WS)
+    assert fake.kwargs[0]["num_retries"] == 3
+
+
 async def test_fallback_is_logged_and_flagged(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

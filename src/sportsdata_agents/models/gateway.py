@@ -163,6 +163,10 @@ class ModelGateway:
         # workspace budget (callers can still override via kwargs).
         kwargs.setdefault("timeout", workspace.budgets.timeout_seconds)
         kwargs.setdefault("max_tokens", DEFAULT_MAX_OUTPUT_TOKENS)
+        # Free-tier providers rate-limit per minute (e.g. Gemini: 20 req/min); a
+        # multi-call team run must ride out transient 429s instead of dying mid-run
+        # (the per-call timeout and the run's wall-clock deadline still bound waiting).
+        kwargs.setdefault("num_retries", 3)
 
         primary, fallback = self.policy.models_for_tier(tier, workspace)
         fallback_used = False
