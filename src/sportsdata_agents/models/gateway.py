@@ -71,9 +71,12 @@ async def _acompletion_with_patience(**kwargs: Any) -> Any:
                 logger.warning("rate limited (attempt %d/%d); waiting %.1fs", attempt, RATE_LIMIT_RETRIES, wait)
                 await asyncio.sleep(wait)
                 continue
-            if name == "BadRequestError" and "tool_use_failed" in str(e) and bad_generations < 2:
+            rejected_generation = name == "BadRequestError" and any(
+                code in str(e) for code in ("tool_use_failed", "output_parse_failed")
+            )
+            if rejected_generation and bad_generations < 2:
                 bad_generations += 1
-                logger.warning("provider rejected a malformed tool call; re-rolling (%d/2)", bad_generations)
+                logger.warning("provider rejected a malformed generation; re-rolling (%d/2)", bad_generations)
                 continue
             raise
 

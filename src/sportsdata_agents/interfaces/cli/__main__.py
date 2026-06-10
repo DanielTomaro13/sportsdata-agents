@@ -68,7 +68,7 @@ def list_agents() -> None:
         typer.echo(f"{spec.id:20} v{spec.version}  tier={spec.model_tier:9} caps: {caps}")
 
 
-async def _bootstrap_session(workspace_id: str, agent_id: str | None):
+async def _bootstrap_session(workspace_id: str, agent_id: str | None, model: str | None = None):
     """Shared setup for run/chat: env, observability, recorder, session (unopened)."""
     from dotenv import load_dotenv
 
@@ -86,10 +86,15 @@ async def _bootstrap_session(workspace_id: str, agent_id: str | None):
     settings = get_settings()
     setup_observability(settings)
     console = Console()
+    tiers = (
+        {"fast": model, "balanced": model, "strong": model}
+        if model
+        else detect_tier_overrides()  # BYO-LLM: use whichever key is configured (§8.1)
+    )
     workspace = Workspace(
         tenant_id=settings.default_tenant,
         workspace_id=workspace_id,
-        model_tiers=detect_tier_overrides(),  # BYO-LLM: use whichever key is configured (§8.1)
+        model_tiers=tiers,
     )
     recorder = ConsoleProgressRecorder(
         console, inner=await try_db_recorder(settings, TenantScope(settings.default_tenant, workspace_id))
@@ -125,12 +130,13 @@ def run(
     prompt: str = typer.Argument(..., help="The question/task for the team."),
     workspace: str = typer.Option("local", "--workspace", help="Workspace id (tenant scoping + budgets)."),
     agent: str | None = typer.Option(None, "--agent", help="Run a single agent instead of the team."),
+    model: str | None = typer.Option(None, "--model", help="Pin every tier to one litellm model id."),
 ) -> None:
     """Ask the agent team one question and print the answer (with sources + cost)."""
     import asyncio
 
     async def _run() -> None:
-        console, session = await _bootstrap_session(workspace, agent)
+        console, session = await _bootstrap_session(workspace, agent, model)
         console.print(f"[dim]opening {session.agent_name}…[/dim]")
         async with session:
             result = await session.run(prompt)
