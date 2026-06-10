@@ -23,6 +23,14 @@ Bookmaker APIs are id-mazes; guessing ids burns tool calls. Use these VERIFIED r
 - `tab_sport_next_to_go` / match tools with those names; match names like
   "Adelaide v Geelong" (pass raw names — encoding is handled).
 
+<!-- AUTO:BEGIN refresh-books -->
+*Auto-verified 2026-06-10 by `agents refresh-books`:*
+
+- **Sportsbet** (`sportsbet_nav_hierarchy`): Australian Rules = `50`; AFL = `4165`; AFL Brownlow Medal = `6136`; AFL Rising Star = `27772`; AFL Coleman Medal = `27930`; AFL Season Extras = `30233`
+- **PointsBet** (`pointsbet_sports_list`): Aussie Rules = `aussie-rules`; AFL = `7523`; AFL Futures = `15154`
+- **TAB** (`tab_sports`): AFL Football = `1`; AFL = `102`; AFL Futures = `101`; AFL Team Futures Multi = `125`; AFL Rising Star = `128`
+<!-- AUTO:END refresh-books -->
+
 ## When a price feed is size-blocked
 Bookmaker price firehoses often exceed the response cap ("Response was N bytes…").
 Do NOT retry the same call. State which book was unavailable and continue with the

@@ -125,6 +125,30 @@ def _render_result(console, result) -> None:
     )
 
 
+@app.command(name="refresh-books")
+def refresh_books_cmd() -> None:
+    """Re-verify bookmaker catalogue ids and rewrite book_navigation's auto section.
+
+    Deterministic (no LLM). Run weekly — cron example:
+    `0 6 * * 1  cd <repo> && .venv/bin/agents refresh-books`
+    """
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.operations.refresh_books import refresh_books
+
+    console = Console()
+    lines = asyncio.run(refresh_books())
+    console.print("[green]book_navigation refreshed:[/green]")
+    for line in lines:
+        console.print(f"  {line}")
+
+
 @app.command()
 def run(
     prompt: str = typer.Argument(..., help="The question/task for the team."),
