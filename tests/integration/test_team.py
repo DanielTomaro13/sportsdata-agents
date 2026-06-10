@@ -62,6 +62,7 @@ async def test_specialist_capabilities_resolve_against_real_catalogue() -> None:
 # e.g. Google AI Studio (GEMINI_API_KEY) or Groq (GROQ_API_KEY) cost $0.
 _LIVE_PROVIDERS: list[tuple[str, str | None]] = [
     ("ANTHROPIC_API_KEY", None),  # None = use the policy's default tiers
+    ("OPENROUTER_API_KEY", "openrouter/openai/gpt-4o-mini"),  # one key, many models
     ("GEMINI_API_KEY", "gemini/gemini-2.0-flash"),
     ("GROQ_API_KEY", "groq/llama-3.3-70b-versatile"),
     ("OPENAI_API_KEY", "openai/gpt-4o-mini"),
@@ -111,6 +112,7 @@ async def test_team_end_to_end_real_model() -> None:
     # the orchestrator actually delegated (a tool message names a specialist)
     tool_msgs = [m for m in res.messages if m.get("role") == "tool"]
     assert tool_msgs, "no delegation happened"
-    # and every model call was metered
+    # and every model call was metered — either with a real cost, or honestly flagged
+    # cost_known=False when litellm has no pricing for the provider's model (§16.1)
     assert events and all(e.tenant_id == "t" for e in events)
-    assert res.cost_usd > 0
+    assert res.cost_usd > 0 or all(not e.cost_known for e in events)
