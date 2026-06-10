@@ -228,3 +228,101 @@ def chat(
 
 if __name__ == "__main__":  # pragma: no cover
     app()
+
+
+@app.command()
+def ingest(
+    once: bool = typer.Option(True, "--once/--loop", help="One capture (default) or the scheduled loop."),
+    feed: str | None = typer.Option(None, "--feed", help="Run a single feed by name."),
+    prune_days: int | None = typer.Option(None, "--prune", help="Also prune snapshots older than N days."),
+) -> None:
+    """Capture odds into the history warehouse (M2.1). Deterministic — no LLM.
+
+    Uses SPORTSDATA_AGENTS_DATABASE_URL (SQLite urls work: the schema is ensured
+    on startup). Cron the --once form, or run --loop for per-feed schedules.
+    """
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.mcp.manager import MCPManager
+    from sportsdata_agents.operations.ingestion import FEEDS, ingest_once, prune_snapshots, run_loop
+
+    console = Console()
+    settings = get_settings()
+    feeds = list(FEEDS.values()) if feed is None else [FEEDS[feed]]
+    groups = sorted({g for f in feeds for g in f.mcp_groups})
+
+    async def _run() -> None:
+        engine = make_engine(settings.database_url)
+        async with engine.begin() as conn:  # additive + idempotent; alembic owns prod
+            await conn.run_sync(Base.metadata.create_all)
+        sf = make_sessionmaker(engine)
+        try:
+            async with MCPManager(groups=groups, command=settings.mcp_command) as manager:
+                if once:
+                    report = await ingest_once(manager, sf, feeds)
+                    for name, stats in report.items():
+                        mark = "✓" if stats.get("ok") else "✗"
+                        console.print(f"{mark} {name}: {stats}")
+                else:
+                    console.print(f"[dim]ingestion loop: {', '.join(f.name for f in feeds)} (ctrl-c to stop)[/dim]")
+                    await run_loop(manager, sf, feeds)
+            if prune_days is not None:
+                pruned = await prune_snapshots(sf, older_than_days=prune_days)
+                console.print(f"pruned {pruned} snapshots older than {prune_days}d")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+@app.command()
+def movement(
+    event: str = typer.Argument(..., help="Event external id (e.g. an NBA gameId)."),
+    market: str | None = typer.Option(None, "--market"),
+    selection: str | None = typer.Option(None, "--selection"),
+    book: str | None = typer.Option(None, "--book"),
+) -> None:
+    """Show line movement for an event from the warehouse (change-points)."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.operations.ingestion import line_movement
+
+    console = Console()
+
+    async def _run() -> None:
+        engine = make_engine(get_settings().database_url)
+        try:
+            rows = await line_movement(
+                make_sessionmaker(engine), event_external_id=event, market=market, selection=selection, book=book
+            )
+        finally:
+            await engine.dispose()
+        if not rows:
+            console.print("no price history for that event")
+            return
+        table = Table(title=f"line movement — {event}")
+        for col in ("changed_at", "book", "market", "selection", "prev_odds", "odds"):
+            table.add_column(col)
+        for r in rows:
+            table.add_row(r["changed_at"], r["book"], r["market"], r["selection"], str(r["prev_odds"]), str(r["odds"]))
+        console.print(table)
+
+    asyncio.run(_run())

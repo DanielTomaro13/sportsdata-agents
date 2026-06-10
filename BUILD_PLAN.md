@@ -216,10 +216,10 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 
 **Goal:** a model backtests with CLV > 0 on held-out data; value alerts fire.
 
-### M2.1 — Ingestion worker + odds-history warehouse (`§9.1`/`D25`)
-- [ ] `operations/ingestion/` (or sibling service): scheduled jobs call MCP tools at intervals → write `odds_snapshots`, `prices` to **TimescaleDB** hypertables.
-- [ ] Backfill + retention policies; dedupe; per-provider schedules; failure handling → triage (M3.x).
-- [ ] **Exit gate:** continuous capture of a market over time; query line movement for an event.
+### M2.1 — Ingestion worker + odds-history warehouse (`§9.1`/`D25`) ✅
+- [x] `operations/ingestion/`: `Feed` registry (tool + mcp_groups + normalizer + interval) → `ingest_once`/`run_loop` write `odds_snapshots` (raw, prunable) and `prices` (change-points — the dedupe IS the series) + `event_results` (M2.3 settles against it). Migration 0005; **Timescale attempted, not required** (*deviation, recorded: hypertable + 90-day retention DDL applied when the extension exists; plain Postgres/SQLite get ordinary tables + `prune_snapshots` — local Docker is down and CI postgres:16 carries no Timescale, so the guarded path is what's exercised*). Composite PKs include the time column so hypertabling stays possible.
+- [x] Per-feed schedules (`run_loop` with injectable clock), per-feed failure isolation (one bad feed logs, the rest ingest), dedupe to change-points, retention via Timescale policy or `prune_snapshots`. Shipped feed: `nba_odds` (CDN, group `nba.public.cdn`); a provider = one normalizer + one registry row. `agents ingest --once/--loop [--prune N]`, `agents movement <event>`.
+- [x] **Exit gate:** offline — 3 captures/1 move → 6 snapshots, 3 change-points, movement query ordered with prev→new (7 tests). **Live** (2026-06-10, SQLite warehouse): two real captures 45s apart → 44 first-sighting change-points then 44 snapshots / **0 changes** (dedupe proven on real data); `agents movement 0042500403 --selection home` renders the 5-book series.
 
 ### M2.2 — Modelling agent
 - [ ] `specs/modelling.yaml` (sandbox + history store) — build/run models; output **calibrated** probabilities; persist `models`, `predictions` with calibration metadata.

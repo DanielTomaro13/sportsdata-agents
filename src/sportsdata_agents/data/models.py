@@ -230,3 +230,84 @@ class Selection(Base):
     market: Mapped[str] = mapped_column(String(128), index=True)
     name: Mapped[str] = mapped_column(String(400))
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+# ─── Odds-history warehouse (M2.1, §9.1 — GLOBAL: market data is tenant-neutral) ──
+
+
+class OddsSnapshot(Base):
+    """One raw odds observation. Append-only; prunable by retention (the time series
+    of record lives in ``prices`` as change-points). Composite PK includes the time
+    column so Timescale can hypertable it (partition column must be in the PK)."""
+
+    __tablename__ = "odds_snapshots"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    captured_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)  # feed, e.g. nba_cdn
+    book: Mapped[str] = mapped_column(String(64), index=True)  # bookmaker within the feed
+    sport: Mapped[str] = mapped_column(String(32), index=True)
+    event_external_id: Mapped[str] = mapped_column(String(128), index=True)
+    event_name: Mapped[str] = mapped_column(String(400), default="")
+    market: Mapped[str] = mapped_column(String(128), index=True)  # 2way | spread | total | ...
+    selection: Mapped[str] = mapped_column(String(200))  # home | away -1.5 | over 220.5 ...
+    odds: Mapped[Decimal] = mapped_column(Numeric(10, 3))
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Price(Base):
+    """Change-point series: a row only when a (feed, book, event, market, selection)
+    price MOVES — line-movement queries and backtests read this, dedupe writes it."""
+
+    __tablename__ = "prices"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    changed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    book: Mapped[str] = mapped_column(String(64), index=True)
+    sport: Mapped[str] = mapped_column(String(32), index=True)
+    event_external_id: Mapped[str] = mapped_column(String(128), index=True)
+    market: Mapped[str] = mapped_column(String(128), index=True)
+    selection: Mapped[str] = mapped_column(String(200))
+    odds: Mapped[Decimal] = mapped_column(Numeric(10, 3))
+    prev_odds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)  # None = first sighting
+
+
+class EventResult(Base):
+    """Final result per event (GLOBAL) — what backtests settle against (M2.3)."""
+
+    __tablename__ = "event_results"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    sport: Mapped[str] = mapped_column(String(32), index=True)
+    event_external_id: Mapped[str] = mapped_column(String(128), index=True)
+    winning_selection: Mapped[str] = mapped_column(String(200))  # e.g. "home"
+    start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+# ─── Models & predictions (M2.2 — tenant-scoped: your models are yours) ──────
+
+
+class ModelArtifact(TenantScopedModel):
+    """A trained model version + its calibration report (Brier/log-loss on holdout)."""
+
+    __tablename__ = "models"
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    sport: Mapped[str] = mapped_column(String(32), index=True)
+    market: Mapped[str] = mapped_column(String(128), default="")
+    params: Mapped[dict] = mapped_column(JSON, default=dict)  # features/coefficients/notes
+    calibration: Mapped[dict] = mapped_column(JSON, default=dict)  # {brier, log_loss, n_holdout}
+    trained_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Prediction(TenantScopedModel):
+    """One calibrated probability a model emitted for a selection (M2.2/M2.3)."""
+
+    __tablename__ = "predictions"
+    model_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("models.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(64), default="")
+    event_external_id: Mapped[str] = mapped_column(String(128), index=True)
+    market: Mapped[str] = mapped_column(String(128), default="")
+    selection: Mapped[str] = mapped_column(String(200))
+    prob: Mapped[Decimal] = mapped_column(Numeric(6, 5))  # calibrated, 0..1
+    predicted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
