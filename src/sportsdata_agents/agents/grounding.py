@@ -50,18 +50,37 @@ def extract_numbers(text: str) -> set[str]:
     return out
 
 
-def grounding_verifier(answer: str, evidence: list[str]) -> tuple[bool, str]:
-    """(ok, feedback): every number in the answer must exist in the evidence.
+# Scales accepted between claim and evidence: identity, percent (0.5 → "50%"),
+# and its inverse ("0.5%" of something stated as a ratio).
+_SCALES = (1.0, 100.0, 0.01)
 
-    A number passes if its normalized form matches an evidence number, or appears
-    verbatim in the evidence text (covers ids/dates segmented differently).
-    """
+
+def _claim_matches(claim: str, evidence_numbers: set[str], evidence_text: str) -> bool:
+    """Exact/verbatim match, else tolerance match: an evidence number rounded to the
+    CLAIM's precision (optionally percent-scaled) equals it. Models legitimately round
+    tool figures (2.0526 → "≈2.05") and percent-convert probabilities (0.5 → "50%");
+    flagging those burns the retry on honest answers. Fabrications stay caught —
+    58 cannot round to 62 at any scale."""
+    if claim in evidence_numbers or claim in evidence_text:
+        return True
+    value = float(claim)
+    decimals = len(claim.split(".")[1]) if "." in claim else 0
+    for ev in evidence_numbers:
+        for scale in _SCALES:
+            if abs(round(float(ev) * scale, decimals) - value) < 1e-9:
+                return True
+    return False
+
+
+def grounding_verifier(answer: str, evidence: list[str]) -> tuple[bool, str]:
+    """(ok, feedback): every number in the answer must exist in the evidence
+    (exactly, verbatim, or as a rounded/percent-scaled form of an evidence figure)."""
     claims = extract_numbers(answer)
     if not claims:
         return True, ""
     evidence_text = "\n".join(evidence)
     evidence_numbers = extract_numbers(evidence_text)
-    missing = sorted(n for n in claims if n not in evidence_numbers and n not in evidence_text)
+    missing = sorted(n for n in claims if not _claim_matches(n, evidence_numbers, evidence_text))
     if missing:
         return False, (
             f"these figures appear in no tool result: {missing} — state only numbers "

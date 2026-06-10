@@ -68,6 +68,28 @@ def test_no_numbers_passes_trivially() -> None:
     assert ok
 
 
+def test_percent_conversion_of_tool_probability_passes() -> None:
+    """vig_removal returns 0.5; the model writes '50%'. Honest — must not be flagged."""
+    ok, _ = grounding_verifier("a 50% fair probability", ["q", '{"probability": 0.5}'])
+    assert ok
+    ok, _ = grounding_verifier("about 52.6% implied", ["q", '{"implied": 0.526316}'])
+    assert ok
+
+
+def test_legitimate_rounding_of_tool_figure_passes() -> None:
+    """Tool says 2.0526 overround; the model writes '≈2.05'. Honest rounding."""
+    ok, _ = grounding_verifier("overround of about 2.05", ["q", '{"overround": 2.0526}'])
+    assert ok
+    ok, _ = grounding_verifier("vig of 5.26", ["q", '{"vig_pct": 5.2632}'])
+    assert ok
+
+
+def test_fabrication_not_excused_by_tolerance() -> None:
+    """58 cannot round or percent-scale to 62 — the tolerance must not launder it."""
+    ok, feedback = grounding_verifier("Judge hit 62 home runs", ["q", '{"hr": 58}'])
+    assert not ok and "62" in feedback
+
+
 def test_number_with_no_tool_evidence_fails() -> None:
     """An agent answering numerically without ANY supporting data is the core case."""
     ok, feedback = grounding_verifier("They scored 117 points", ["who won the game?"])
