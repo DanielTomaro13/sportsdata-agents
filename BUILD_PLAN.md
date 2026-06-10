@@ -332,6 +332,10 @@ non-technical path to everything that's specs+chat in P0–P3). Sub-surfaces:
 
 ## Cross-cutting tracks (continuous, every phase)
 
+### Operations — catalogue steward (decided 2026-06-10)
+- [ ] **Weekly book-catalogue refresh** — *lives in THIS repo* (the consumer owns the cache; the MCP stays a stateless proxy): `agents refresh-books`, a deterministic CLI (no LLM) that probes each book's **discovery** routes through the MCP (sportsbet classes→competitions, pointsbet sports list, tab sports tree, entain categories…) and rewrites the auto-generated section of `skills/book_navigation/SKILL.md` (verified competition ids, market names, naming conventions). Schedule weekly (cron/`/schedule`). At P3 the **ops agents** take over running it + opening a PR when ids drift; at P2 the ingestion store supersedes most of it for odds.
+- [ ] *(In `sportsdata-mcp`, done 2026-06-10)*: weekly GitHub Actions cron runs the live **contract suite** (structure drift on globally-reachable providers; AU books skip on GitHub runners and are covered by local runs).
+
 ### Testing
 - [ ] Unit (tools, gateway, harness, loader) · integration (flows vs local MCP) · contract (agent registration + typed-output shape) · eval (accuracy/calibration/CLV) · isolation (multi-tenant).
 - [ ] CI default `-m "not live and not eval"`; nightly job runs `live` + `eval`.
