@@ -43,10 +43,13 @@ def load_spec_file(path: Path) -> AgentSpec:
 
 
 def load_specs_dir(directory: Path) -> dict[str, AgentSpec]:
-    """Load every non-underscore ``*.yaml`` in a directory; duplicate ids are an error."""
+    """Load every non-underscore ``*.yaml``/``*.yml`` in a directory; duplicate ids are an error."""
+    if not directory.is_dir():
+        raise SpecError(str(directory), "spec directory does not exist")
     specs: dict[str, AgentSpec] = {}
     sources: dict[str, str] = {}
-    for path in sorted(directory.glob("*.yaml")):
+    paths = sorted(p for pattern in ("*.yaml", "*.yml") for p in directory.glob(pattern))
+    for path in paths:
         if path.name.startswith("_"):
             continue
         spec = load_spec_file(path)
@@ -80,4 +83,30 @@ def lint_specs(specs: dict[str, AgentSpec]) -> list[str]:
                 problems.append(f"{spec.id}: can_delegate_to {target!r} which is not a loaded agent")
         if spec.id in spec.can_delegate_to:
             problems.append(f"{spec.id}: an agent cannot delegate to itself")
+    problems.extend(_delegation_cycles(specs))
+    return problems
+
+
+def _delegation_cycles(specs: dict[str, AgentSpec]) -> list[str]:
+    """Detect delegation cycles (a→b→a): mutual recursion at runtime, held back only
+    by step limits — a spec-set bug, not a runtime condition."""
+    problems: list[str] = []
+    WHITE, GREY, BLACK = 0, 1, 2
+    colour = dict.fromkeys(specs, WHITE)
+
+    def visit(node: str, path: list[str]) -> None:
+        colour[node] = GREY
+        for target in specs[node].can_delegate_to:
+            if target == node or target not in specs:
+                continue  # self/dangling already reported
+            if colour[target] == GREY:
+                cycle = [*path[path.index(target) :], node, target] if target in path else [node, target]
+                problems.append(f"delegation cycle: {' -> '.join(cycle)}")
+            elif colour[target] == WHITE:
+                visit(target, [*path, target])
+        colour[node] = BLACK
+
+    for node in specs:
+        if colour[node] == WHITE:
+            visit(node, [node])
     return problems

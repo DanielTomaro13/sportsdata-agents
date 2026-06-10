@@ -45,6 +45,11 @@ def lint(
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(1) from e
 
+    if not specs:
+        # A lint that "passes" on a typo'd path or empty directory is worse than no lint.
+        typer.echo(f"error: no agent specs found in {target}", err=True)
+        raise typer.Exit(1)
+
     problems = lint_specs(specs)
     for p in problems:
         typer.echo(f"error: {p}", err=True)

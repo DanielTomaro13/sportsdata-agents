@@ -19,6 +19,20 @@ from sportsdata_agents.models.policy import TIERS
 
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+# Capability tags and MCP groups are dotted lowercase (e.g. `sport.prices`, `mlb.reference`).
+DOTTED_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+
+
+def _validate_names(kind: str, names: list[str], pattern: re.Pattern[str]) -> list[str]:
+    """Shape-check a name list and reject duplicates — typos must fail at authoring time."""
+    seen: set[str] = set()
+    for name in names:
+        if not pattern.match(name):
+            raise ValueError(f"{kind} {name!r} must match {pattern.pattern}")
+        if name in seen:
+            raise ValueError(f"duplicate {kind} {name!r}")
+        seen.add(name)
+    return names
 
 
 class ToolsSpec(BaseModel):
@@ -29,6 +43,21 @@ class ToolsSpec(BaseModel):
     mcp_capabilities: list[str] = Field(default_factory=list)
     mcp_groups: list[str] = Field(default_factory=list)
     native: list[str] = Field(default_factory=list)
+
+    @field_validator("mcp_capabilities")
+    @classmethod
+    def _caps_shape(cls, v: list[str]) -> list[str]:
+        return _validate_names("mcp capability", v, DOTTED_PATTERN)
+
+    @field_validator("mcp_groups")
+    @classmethod
+    def _groups_shape(cls, v: list[str]) -> list[str]:
+        return _validate_names("mcp group", v, DOTTED_PATTERN)
+
+    @field_validator("native")
+    @classmethod
+    def _native_shape(cls, v: list[str]) -> list[str]:
+        return _validate_names("native tool", v, ID_PATTERN)
 
 
 class ContextPolicy(BaseModel):
@@ -80,6 +109,11 @@ class AgentSpec(BaseModel):
         if not ID_PATTERN.match(v):
             raise ValueError(f"agent id {v!r} must match {ID_PATTERN.pattern}")
         return v
+
+    @field_validator("skills")
+    @classmethod
+    def _skills_shape(cls, v: list[str]) -> list[str]:
+        return _validate_names("skill", v, ID_PATTERN)
 
     @field_validator("version")
     @classmethod

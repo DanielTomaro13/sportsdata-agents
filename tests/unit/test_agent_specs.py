@@ -58,22 +58,18 @@ def test_valid_spec_parses_with_defaults() -> None:
 
 
 @pytest.mark.parametrize(
-    ("mutation", "match"),
+    ("bad", "match"),
     [
-        ("id: My-Agent", "must match"),  # bad id shape
-        ("version: v1", "semver"),  # bad version
-        ("model_tier: ultra", "model_tier"),  # unknown tier
-        ("bogus_field: 1", "bogus_field"),  # unknown field rejected
+        (VALID.replace("id: my_agent", "id: My-Agent"), "must match"),  # bad id shape
+        (VALID + "  version: v1\n", "semver"),  # bad version
+        (VALID + "  model_tier: ultra\n", "model_tier"),  # unknown tier
+        (VALID + "  bogus_field: 1\n", "bogus_field"),  # unknown field rejected
+        (VALID.replace("[sport.prices]", "[Sport Prices]"), "mcp capability"),  # cap shape
+        (VALID.replace("[sport.prices]", "[sport.prices, sport.prices]"), "duplicate"),  # dup entries
+        (VALID + "  skills: [Bad-Skill]\n", "skill"),  # skill shape
     ],
 )
-def test_malformed_specs_fail(mutation: str, match: str) -> None:
-    bad = VALID.replace("id: my_agent", mutation) if mutation.startswith(("id:", "version:", "model_tier:")) else VALID
-    if mutation.startswith("version:"):
-        bad = VALID + "  version: v1\n"
-    elif mutation.startswith("model_tier:"):
-        bad = VALID + "  model_tier: ultra\n"
-    elif mutation.startswith("bogus_field:"):
-        bad = VALID + "  bogus_field: 1\n"
+def test_malformed_specs_fail(bad: str, match: str) -> None:
     with pytest.raises(SpecError, match=match):
         load_spec_text(bad, source="bad.yaml")
 
@@ -124,6 +120,25 @@ def test_lint_catches_dangling_and_self_delegation(tmp_path: Path) -> None:
     assert any("delegate to itself" in p for p in problems)
 
 
+def test_lint_catches_delegation_cycle(tmp_path: Path) -> None:
+    a = VALID.replace("id: my_agent", "id: agent_a") + "  can_delegate_to: [agent_b]\n"
+    b = VALID.replace("id: my_agent", "id: agent_b") + "  can_delegate_to: [agent_a]\n"
+    _write(tmp_path, "a.yaml", a)
+    _write(tmp_path, "b.yaml", b)
+    problems = lint_specs(load_specs_dir(tmp_path))
+    assert any("delegation cycle" in p for p in problems)
+
+
+def test_yml_extension_also_loads(tmp_path: Path) -> None:
+    _write(tmp_path, "a.yml", VALID)
+    assert set(load_specs_dir(tmp_path)) == {"my_agent"}
+
+
+def test_nonexistent_dir_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(SpecError, match="does not exist"):
+        load_specs_dir(tmp_path / "nope")
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────
 
 
@@ -137,6 +152,14 @@ def test_cli_lint_bad_dir_fails(tmp_path: Path) -> None:
     _write(tmp_path, "a.yaml", VALID + "  can_delegate_to: [ghost]\n")
     result = CliRunner().invoke(app, ["lint", "--dir", str(tmp_path)])
     assert result.exit_code == 1
+
+
+def test_cli_lint_never_passes_on_wrong_or_empty_path(tmp_path: Path) -> None:
+    """A typo'd path or empty dir must FAIL lint, not '✓ pass with 0 specs'."""
+    missing = CliRunner().invoke(app, ["lint", "--dir", str(tmp_path / "typo")])
+    assert missing.exit_code == 1
+    empty = CliRunner().invoke(app, ["lint", "--dir", str(tmp_path)])
+    assert empty.exit_code == 1
 
 
 def test_cli_list_shows_agents() -> None:
