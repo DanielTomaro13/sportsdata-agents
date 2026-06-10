@@ -113,7 +113,7 @@ async def lookup_book_ids(args: dict[str, Any]) -> Any:
 
 
 async def run_python(args: dict[str, Any]) -> Any:
-    """{code} -> run Python in the configured sandbox; artifacts saved locally.
+    """{code, timeout_s?} -> run Python in the configured sandbox; artifacts saved locally.
 
     Only grantable to specs declaring ``sandbox: ephemeral`` (enforced at runtime
     build, §10). Network is off; stdout/stderr come back; files the code writes
@@ -125,14 +125,15 @@ async def run_python(args: dict[str, Any]) -> Any:
     from sportsdata_agents.sandboxes import get_sandbox
 
     code = str(args["code"])
-    result = await get_sandbox().run(code, network_policy="none")
+    timeout_s = min(max(float(args.get("timeout_s", 60.0)), 1.0), 300.0)
+    result = await get_sandbox().run(code, network_policy="none", timeout_s=timeout_s)
     saved: list[str] = []
     if result.artifacts:
         out_dir = _Path("artifacts")
         out_dir.mkdir(exist_ok=True)
         run_tag = uuid.uuid4().hex[:8]
         for name, content in result.artifacts.items():
-            path = out_dir / f"{run_tag}-{name}"
+            path = out_dir / f"{run_tag}-{name.replace('/', '-')}"  # flatten subdir artifacts
             path.write_bytes(content)
             saved.append(str(path))
     return {
@@ -232,7 +233,13 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
         ),
         parameters={
             "type": "object",
-            "properties": {"code": {"type": "string", "description": "Complete Python script to execute"}},
+            "properties": {
+                "code": {"type": "string", "description": "Complete Python script to execute"},
+                "timeout_s": {
+                    "type": "number",
+                    "description": "Wall-clock cap in seconds (default 60, max 300) for long computations",
+                },
+            },
             "required": ["code"],
         },
         execute=run_python,

@@ -12,6 +12,7 @@ from sportsdata_agents.interfaces.slack.app import (
     ask_gateway,
     format_answer,
     handle_question,
+    is_user_dm,
     push_notification,
 )
 
@@ -71,6 +72,30 @@ async def test_handle_question_acknowledges_then_answers(monkeypatch: pytest.Mon
     assert "on it" in say.messages[0]["text"]
     assert "answer to: best price?" in say.messages[1]["text"]
     assert all(m["thread_ts"] == "123.45" for m in say.messages)  # threaded replies
+
+
+def test_dm_filter_skips_edits_deletes_and_bots() -> None:
+    assert is_user_dm({"channel_type": "im", "text": "hi"}) is True
+    assert is_user_dm({"channel_type": "im", "subtype": "message_changed"}) is False  # edits
+    assert is_user_dm({"channel_type": "im", "subtype": "message_deleted"}) is False
+    assert is_user_dm({"channel_type": "im", "bot_id": "B1"}) is False  # our own echoes
+    assert is_user_dm({"channel_type": "channel", "text": "hi"}) is False
+
+
+async def test_slash_command_without_thread_posts_unthreaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """/ask has no thread_ts; Slack rejects thread_ts="" so it must be omitted."""
+
+    async def fake_gateway(text: str, *, thread_key: str, client: Any = None) -> dict[str, Any]:
+        assert thread_key == "slack-C1-direct"
+        return {"answer": "ok", "sources": [], "verified": True, "cost_usd": 0.0}
+
+    import sportsdata_agents.interfaces.slack.app as slack_app
+
+    monkeypatch.setattr(slack_app, "ask_gateway", fake_gateway)
+    say = FakeSay()
+    await handle_question("odds?", channel="C1", thread_ts="", say=say)
+    assert len(say.messages) == 2
+    assert all(m["thread_ts"] is None for m in say.messages)
 
 
 async def test_handle_question_gateway_down_is_graceful(monkeypatch: pytest.MonkeyPatch) -> None:

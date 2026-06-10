@@ -41,6 +41,7 @@ agent:
       - create_canvas
       - remember
       - recall
+      - forget
   context:
     retrieval: jit
     long_run: compact

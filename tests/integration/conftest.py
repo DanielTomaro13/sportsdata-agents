@@ -1,7 +1,13 @@
-"""Shared fixtures for data tests — an in-memory SQLite async session with the schema applied."""
+"""Shared fixtures for data tests — async session with the schema applied.
+
+Default: in-memory SQLite. Set ``TEST_DATABASE_URL`` to run the same suite against
+the prod dialect (the CI Postgres job does): the database NAME must contain "test"
+— the fixture drops and recreates the whole schema around every test.
+"""
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 
 import pytest
@@ -12,16 +18,31 @@ import sportsdata_agents.data.models  # noqa: F401  (register tables on Base.met
 from sportsdata_agents.data.base import Base
 
 
+def _db_url() -> str:
+    url = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite://")
+    if not url.startswith("sqlite") and "test" not in url.rsplit("/", 1)[-1]:
+        raise RuntimeError(
+            "TEST_DATABASE_URL must name a throwaway database containing 'test' — "
+            "this fixture DROPS the whole schema around every test"
+        )
+    return url
+
+
 @pytest.fixture
 async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,  # one shared connection so the in-memory DB persists
+    url = _db_url()
+    kwargs = (
+        {"connect_args": {"check_same_thread": False}, "poolclass": StaticPool}  # shared in-mem conn
+        if url.startswith("sqlite")
+        else {}
     )
+    engine = create_async_engine(url, **kwargs)
     async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)  # clean slate on shared (Postgres) DBs
         await conn.run_sync(Base.metadata.create_all)
     yield async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 

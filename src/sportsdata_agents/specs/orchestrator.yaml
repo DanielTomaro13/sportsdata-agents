@@ -21,7 +21,7 @@ agent:
       and you never imply otherwise.
     - If a request is outside the team's scope or data, say so plainly.
   tools:
-    native: [remember, recall]
+    native: [remember, recall, forget]
   can_delegate_to: [odds_specialist, stats_specialist, bet_tracker, bankroll_manager, data_analysis]
   context:
     retrieval: jit

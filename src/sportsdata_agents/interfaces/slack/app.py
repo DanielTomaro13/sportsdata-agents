@@ -72,18 +72,20 @@ async def ask_gateway(text: str, *, thread_key: str, client: httpx.AsyncClient |
 
 
 async def handle_question(text: str, *, channel: str, thread_ts: str, say: Any) -> None:
-    """Shared flow for mentions, DMs and /ask: acknowledge → run → threaded answer."""
+    """Shared flow for mentions, DMs and /ask: acknowledge → run → threaded answer.
+    An empty ``thread_ts`` (slash commands) posts unthreaded — Slack rejects ``""``."""
+    threaded: dict[str, Any] = {"thread_ts": thread_ts} if thread_ts else {}
     question = _strip_mention(text)
     if not question:
-        await say(text="Ask me something — e.g. `which team does Aaron Judge play for?`", thread_ts=thread_ts)
+        await say(text="Ask me something — e.g. `which team does Aaron Judge play for?`", **threaded)
         return
-    await say(text=THINKING, thread_ts=thread_ts)
+    await say(text=THINKING, **threaded)
     try:
-        payload = await ask_gateway(question, thread_key=f"slack-{channel}-{thread_ts}")
-        await say(text=format_answer(payload), thread_ts=thread_ts)
+        payload = await ask_gateway(question, thread_key=f"slack-{channel}-{thread_ts or 'direct'}")
+        await say(text=format_answer(payload), **threaded)
     except Exception as e:
         logger.warning("gateway call failed: %s: %s", type(e).__name__, e)
-        await say(text=f"⚠️ couldn't reach the team: {type(e).__name__}", thread_ts=thread_ts)
+        await say(text=f"⚠️ couldn't reach the team: {type(e).__name__}", **threaded)
 
 
 async def push_notification(text: str, *, channel: str | None = None, client: Any = None) -> bool:
@@ -104,6 +106,12 @@ async def push_notification(text: str, *, channel: str | None = None, client: An
     return True
 
 
+def is_user_dm(event: dict[str, Any]) -> bool:
+    """Only fresh human DMs get an answer: skip bot echoes and subtype events
+    (message_changed/_deleted would otherwise trigger a reply on every edit)."""
+    return event.get("channel_type") == "im" and not event.get("bot_id") and not event.get("subtype")
+
+
 def build_app() -> Any:
     """The Bolt AsyncApp with handlers bound (requires Slack tokens)."""
     from slack_bolt.async_app import AsyncApp
@@ -121,7 +129,7 @@ def build_app() -> Any:
 
     @app.event("message")
     async def on_dm(event: dict[str, Any], say: Any) -> None:
-        if event.get("channel_type") != "im" or event.get("bot_id"):
+        if not is_user_dm(event):
             return
         await handle_question(
             event.get("text", ""),

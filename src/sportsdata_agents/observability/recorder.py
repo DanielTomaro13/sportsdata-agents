@@ -54,6 +54,15 @@ class DbRecorder:
         self._scope = scope
         self._usage: dict[uuid.UUID | None, list[UsageEvent]] = defaultdict(list)
 
+    @property
+    def session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """For session-bound tool factories (tracking/memory) sharing this DB."""
+        return self._sf
+
+    @property
+    def scope(self) -> TenantScope:
+        return self._scope
+
     # ── gateway sink (sync; buffered per current run) ─────────────────────
 
     def usage_sink(self, event: UsageEvent) -> None:

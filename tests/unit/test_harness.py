@@ -403,3 +403,69 @@ async def test_skill_triggered_by_tool_result(tmp_path: Path) -> None:
     h = Harness(make_spec(), provider=provider, workspace=WS, tools=[tool], skills=_skillset(tmp_path))
     res = await h.run("compare these books")  # no trigger in the prompt itself
     assert any("[skill loaded: vig_removal]" in (m.get("content") or "") for m in res.messages)
+
+
+# ── per-run recorder isolation (the gateway's SSE mirror must not race) ──
+
+
+class _ListRecorder:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    async def on_run_start(self, **kw: Any) -> None:
+        self.events.append(f"start:{kw['task']}")
+
+    async def on_tool_call(self, **kw: Any) -> None:
+        self.events.append(f"tool:{kw['tool']}")
+
+    async def on_run_end(self, **kw: Any) -> None:
+        self.events.append(f"end:{kw['status']}")
+
+
+class _ToolThenDoneProvider:
+    """Per-RUN scripting (a shared call counter would interleave across concurrent
+    runs): tool call first, then 'done' once this run's messages show a tool result."""
+
+    async def complete(self, messages, *, budget=None, **kw):  # type: ignore[no-untyped-def]
+        if budget is not None:
+            budget.charge(0.01)
+        if any(m.get("role") == "tool" for m in messages):
+            return text_reply("done")
+        return tool_reply("echo")
+
+
+async def test_concurrent_runs_keep_their_own_recorders() -> None:
+    """Two simultaneous runs on ONE shared harness, each with a per-run recorder:
+    every event lands with its own run's recorder (contextvar isolation), none with
+    the harness default. This is the gateway's warm-session concurrency contract."""
+    import asyncio
+
+    base = _ListRecorder()  # the harness-default recorder (e.g. the DB recorder)
+    h = Harness(
+        make_spec(),
+        provider=_ToolThenDoneProvider(),
+        workspace=WS,
+        tools=[echo_tool()],
+        recorder=base,
+    )
+    rec_a, rec_b = _ListRecorder(), _ListRecorder()
+    res_a, res_b = await asyncio.gather(
+        h.run("task-A", recorder=rec_a),
+        h.run("task-B", recorder=rec_b),
+    )
+    assert res_a.stop_reason == "done" and res_b.stop_reason == "done"
+    assert rec_a.events == ["start:task-A", "tool:echo", "end:ok"]
+    assert rec_b.events == ["start:task-B", "tool:echo", "end:ok"]
+    assert base.events == []  # overridden runs never leak into the default recorder
+
+
+async def test_run_without_override_still_uses_default_recorder() -> None:
+    base = _ListRecorder()
+    h = Harness(
+        make_spec(),
+        provider=ScriptedProvider(text_reply("final")),
+        workspace=WS,
+        recorder=base,
+    )
+    await h.run("plain")
+    assert base.events == ["start:plain", "end:ok"]

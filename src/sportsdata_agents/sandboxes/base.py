@@ -4,11 +4,15 @@
 returns stdout/stderr/artifacts. Two backends:
 
 - **LocalSubprocessSandbox** — a separate Python process in a temp dir with CPU/
-  memory/time rlimits and output caps. *Caveat (documented, not hidden): on macOS we
-  cannot syscall-block egress without root, so ``network_policy`` is advisory
-  locally.* Fine for the local-first phase where the operator trusts their own box.
+  memory/time rlimits and output caps. *Caveats (documented, not hidden): this is
+  PROCESS isolation only. There is no chroot — the child can READ any file the
+  operator can (including ``.env``), and on macOS egress cannot be syscall-blocked
+  without root, so ``network_policy`` is advisory: file read + open network is a
+  working exfiltration path for hostile code.* Acceptable while the only code author
+  is our own model on the operator's own prompts; the moment third-party text flows
+  into prompts (P2 ingestion), prompt-injected code is a live threat — use E2B.
 - **E2BSandbox** (``e2b.py``) — true isolation + enforced egress allow-list; needs
-  ``E2B_API_KEY`` and is the production backend (P4).
+  ``E2B_API_KEY`` (the factory auto-selects it when keyed).
 
 Secrets are injected per-run via ``env`` and never persisted.
 """
@@ -53,10 +57,10 @@ class Sandbox(Protocol):
     ) -> SandboxResult: ...
 
 
-def _posix_limits(memory_mb: int) -> None:  # pragma: no cover - runs in the child
+def _posix_limits(memory_mb: int, cpu_s: int) -> None:  # pragma: no cover - runs in the child
     import resource
 
-    resource.setrlimit(resource.RLIMIT_CPU, (int(DEFAULT_TIMEOUT_S), int(DEFAULT_TIMEOUT_S)))
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s))
     try:
         cap = memory_mb * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
@@ -90,10 +94,13 @@ class LocalSubprocessSandbox:
                     raise ValueError(f"file name escapes the sandbox: {name!r}")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
-            before = {p.name for p in work.iterdir()}
+            before = {str(p.relative_to(work)) for p in work.rglob("*") if p.is_file()}
             script = work / "__main__.py"
             script.write_text(code, encoding="utf-8")
 
+            # CPU rlimit follows the caller's cap as a BACKSTOP, one second above the
+            # wall clock so the wall timeout (with its clear message) fires first.
+            cpu_s = max(1, int(timeout_s)) + 1
             proc = await asyncio.create_subprocess_exec(
                 self._python,
                 "-I",  # isolated: no user site-packages leakage beyond the interpreter env
@@ -102,7 +109,7 @@ class LocalSubprocessSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={"PATH": "/usr/bin:/bin", "HOME": workdir, **(env or {})},
-                preexec_fn=(lambda: _posix_limits(self._memory_mb)) if sys.platform != "win32" else None,
+                preexec_fn=(lambda: _posix_limits(self._memory_mb, cpu_s)) if sys.platform != "win32" else None,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
@@ -112,11 +119,14 @@ class LocalSubprocessSandbox:
                 return SandboxResult(ok=False, stdout="", stderr=f"timeout after {timeout_s:.0f}s")
 
             artifacts: dict[str, bytes] = {}
-            for path in work.iterdir():
-                if path.name in before or path.name == "__main__.py":
+            for path in work.rglob("*"):  # recursive: charts saved into subdirs count too
+                if not path.is_file():
                     continue
-                if path.is_file() and path.stat().st_size <= 5_000_000:
-                    artifacts[path.name] = path.read_bytes()
+                rel = str(path.relative_to(work))
+                if rel in before or rel == "__main__.py":
+                    continue
+                if path.stat().st_size <= 5_000_000:
+                    artifacts[rel] = path.read_bytes()
 
             return SandboxResult(
                 ok=proc.returncode == 0,

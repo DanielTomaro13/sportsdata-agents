@@ -208,10 +208,12 @@ class AgentRuntime:
             self._owns_manager = False
             self.harness = None
 
-    async def run(self, task: str, *, budget: RunBudget | None = None) -> RunResult:
+    async def run(
+        self, task: str, *, budget: RunBudget | None = None, recorder: RunRecorder | None = None
+    ) -> RunResult:
         if self.harness is None:
             raise RuntimeError("AgentRuntime is not started; use `async with AgentRuntime(...)`")
-        return await self.harness.run(task, budget=budget)
+        return await self.harness.run(task, budget=budget, recorder=recorder)
 
 
 @asynccontextmanager

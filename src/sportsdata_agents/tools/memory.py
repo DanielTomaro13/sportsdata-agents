@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.agents.harness import ToolDef
 from sportsdata_agents.data.models import Memory
 from sportsdata_agents.data.repository import TenantScope
 
-MEMORY_TOOL_NAMES = {"remember", "recall"}
+MEMORY_TOOL_NAMES = {"remember", "recall", "forget"}
 
 
 def memory_tools(session_factory: async_sessionmaker[AsyncSession], scope: TenantScope) -> list[ToolDef]:
@@ -79,6 +79,22 @@ def memory_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenan
             ],
         }
 
+    async def forget(args: dict[str, Any]) -> Any:
+        """{key} → delete a stored memory."""
+        key = str(args["key"]).strip().lower()
+        if not key:
+            raise ValueError("key must be non-empty")
+        async with session_factory() as session:
+            result = await session.execute(
+                delete(Memory).where(
+                    Memory.tenant_id == scope.tenant_id,
+                    Memory.workspace_id == scope.workspace_id,
+                    Memory.key == key,
+                )
+            )
+            await session.commit()
+        return {"forgotten": key, "existed": bool(getattr(result, "rowcount", 0))}
+
     return [
         ToolDef(
             name="remember",
@@ -104,5 +120,15 @@ def memory_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenan
                 "required": ["query"],
             },
             execute=recall,
+        ),
+        ToolDef(
+            name="forget",
+            description="Delete a stored memory by its key.",
+            parameters={
+                "type": "object",
+                "properties": {"key": {"type": "string"}},
+                "required": ["key"],
+            },
+            execute=forget,
         ),
     ]

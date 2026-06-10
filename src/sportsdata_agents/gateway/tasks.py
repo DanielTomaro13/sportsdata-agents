@@ -63,11 +63,20 @@ class TaskStore:
         return self._tasks.get(task_id)
 
     def _evict_finished(self) -> None:
-        for tid, rec in list(self._tasks.items()):
-            if rec.state in ("done", "error"):
-                self._tasks.pop(tid, None)
-                self._handles.pop(tid, None)
+        """Oldest finished first, only enough to make room — a client polling a
+        recently finished task must not 404 because the store filled up."""
+        finished = sorted(
+            (r for r in self._tasks.values() if r.state in ("done", "error")),
+            key=lambda r: r.finished_at or r.created_at,
+        )
+        for rec in finished:
+            if len(self._tasks) < self._max:
+                return
+            self._tasks.pop(rec.id, None)
+            self._handles.pop(rec.id, None)
 
     async def aclose(self) -> None:
-        for handle in self._handles.values():
+        handles = list(self._handles.values())
+        for handle in handles:
             handle.cancel()
+        await asyncio.gather(*handles, return_exceptions=True)

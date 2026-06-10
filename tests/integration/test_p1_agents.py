@@ -47,19 +47,29 @@ async def test_log_three_settle_and_report_roi_clv(db_sessionmaker: async_sessio
     assert report["staked"] == 100.0
     assert report["pnl"] == pytest.approx(11.0)
     assert report["roi_pct"] == pytest.approx(11.0)
+    # 1 win of 2 DECIDED bets — the void returns the stake and must not dilute it
+    assert report["hit_rate_pct"] == pytest.approx(50.0)
     assert report["avg_clv_pct"] == pytest.approx((7.5 - 7.39) / 2, abs=0.02)
     assert report["clv_sample"] == 2  # the void had no closing price
 
-    # the performance window row persisted (the M0.3-promised table, in use)
+    # the journal keeps the actual outcome, not a flattened "settled"
+    by_status = await tools["list_bets"].execute({"status": "void"})
+    assert [b["selection"] for b in by_status["bets"]] == ["Swans line"]
+
+    # the performance row persisted AND is upserted, not duplicated per call
+    await tools["performance_report"].execute({})
     async with db_sessionmaker() as s:
         row = (await s.execute(select(Performance))).scalar_one()
         assert row.bets_settled == 3 and float(row.pnl) == pytest.approx(11.0)
+        assert float(row.hit_rate) == pytest.approx(0.5)
         assert row.tenant_id == "t"
 
 
 async def test_settlement_guards(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     tools = _tools(db_sessionmaker)
     bet = await tools["log_bet"].execute({"selection": "X", "odds": 2.0, "amount": 10})
+    with pytest.raises(ValueError, match="closing_odds"):
+        await tools["settle_bet"].execute({"bet_id": bet["bet_id"], "result": "won", "closing_odds": 1.0})
     await tools["settle_bet"].execute({"bet_id": bet["bet_id"], "result": "won"})
     with pytest.raises(ValueError, match="already settled"):
         await tools["settle_bet"].execute({"bet_id": bet["bet_id"], "result": "lost"})
@@ -81,6 +91,20 @@ async def test_exposure_gate_caps_a_recommendation(db_sessionmaker: async_sessio
 
     ok = await tools["exposure_check"].execute({"bankroll": 1000, "proposed_amount": 30})
     assert ok["allowed"] is True and ok["capped_amount"] == 30.0
+
+
+async def test_exposure_gate_total_ceiling(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    """Open exposure must actually constrain the gate (not just be reported):
+    230 already open on a 1000 bankroll leaves 20 of headroom under the 25% total cap,
+    so even a single-cap-compliant 30 gets capped to 20."""
+    tools = _tools(db_sessionmaker)
+    await tools["log_bet"].execute({"selection": "big open", "odds": 2.0, "amount": 230})
+
+    verdict = await tools["exposure_check"].execute({"bankroll": 1000, "proposed_amount": 30})
+    assert verdict["allowed"] is False
+    assert verdict["total_exposure_headroom"] == 20.0
+    assert verdict["capped_amount"] == 20.0
+    assert verdict["max_single_recommendation"] == 50.0  # the single cap alone would have passed it
 
 
 # ── M1.5 exit gate: memory persists across sessions ─────────────────────
@@ -105,6 +129,12 @@ async def test_preference_set_in_one_session_recalled_in_the_next(
     async with db_sessionmaker() as s:
         rows = (await s.execute(select(Memory).where(Memory.key == "favourite_team"))).scalars().all()
         assert len(rows) == 1 and rows[0].value["text"] == "Sydney Swans"
+
+    # forget: deletion is durable and reports whether the key existed
+    out3 = await session2["forget"].execute({"key": "favourite_team"})
+    assert out3 == {"forgotten": "favourite_team", "existed": True}
+    assert (await session2["recall"].execute({"query": "swans"}))["memories"] == []
+    assert (await session2["forget"].execute({"key": "favourite_team"}))["existed"] is False
 
 
 async def test_memory_is_tenant_scoped(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:

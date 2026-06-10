@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from sportsdata_agents.agents.harness import RunResult
@@ -184,7 +184,13 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
             if owns_session and state["session"] is not None:
                 await state["session"].__aexit__(None, None, None)
 
-    app = FastAPI(title="sportsdata-agents gateway", version="0.2.0", lifespan=lifespan)
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        pkg_version = _pkg_version("sportsdata-agents")
+    except Exception:  # not installed (e.g. vendored) — cosmetic only
+        pkg_version = "0"
+    app = FastAPI(title="sportsdata-agents gateway", version=pkg_version, lifespan=lifespan)
     app.state.tasks = tasks
 
     def current_session() -> TeamSession:
@@ -194,9 +200,10 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
         return s
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, Any]:
+    async def healthz() -> JSONResponse:
         s = state["session"]
-        return {"ok": s is not None, "agent": s.agent_name if s else None}
+        body = {"ok": s is not None, "agent": s.agent_name if s else None}
+        return JSONResponse(body, status_code=200 if s is not None else 503)
 
     @app.get("/agents")
     async def agents() -> dict[str, Any]:
@@ -223,15 +230,11 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
         if request.query_params.get("mode") == "async":
             def factory(record: TaskRecord):
                 async def run() -> MessageOut:
-                    # mirror progress into the task's queue (and the DB recorder)
-                    runtime = session._runtime
-                    assert runtime is not None and runtime.harness is not None
-                    original = runtime.harness.recorder
-                    runtime.harness.recorder = QueueRecorder(record.events, original)
-                    try:
-                        result = await session.run(prompt)
-                    finally:
-                        runtime.harness.recorder = original
+                    # Mirror progress into the task's queue (and the DB recorder).
+                    # Per-run override — never mutate the shared session's harness:
+                    # concurrent requests would race on it.
+                    mirror = QueueRecorder(record.events, getattr(session, "recorder", None))
+                    result = await session.run(prompt, recorder=mirror)
                     return _to_message_out(result)
 
                 return run()
@@ -262,6 +265,11 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
 
         async def stream():
             while True:
+                # Late joiners (or a reconnect after the end marker was consumed)
+                # must not hang on keepalives for a task that already finished.
+                if record.events.empty() and record.state in ("done", "error"):
+                    yield f"data: {json.dumps({'event': 'end', 'state': record.state})}\n\n"
+                    return
                 try:
                     event = await asyncio.wait_for(record.events.get(), timeout=30.0)
                 except TimeoutError:
@@ -280,8 +288,9 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
         request: Request,
         tenant: Tenant = Depends(resolve_tenant),
     ) -> MessageOut | TaskOut:
-        """Channel-thread entry point (Slack threads map here). Turns are independent
-        until the memory service threads context (M1.5)."""
+        """Channel-thread entry point (Slack threads map here). Turns are currently
+        independent — the conversation key is accepted but no transcript is threaded
+        back into context yet (P2 backlog; durable facts flow via remember/recall)."""
         body.conversation_id = conversation_id
         return await message(body, request, tenant)
 

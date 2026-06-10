@@ -207,6 +207,8 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 
 - [x] **🚪 P1 EXIT GATE — CLOSED** (2026-06-11): **Slack live** ✓ — the real adapter flow (handle_question → gateway → model → threaded reply with grounded badge + §14 disclaimer) posted into #all-daniel, and a push alert delivered (`push_notification` → 🔔). Bet tracking + CLV ✓ (exact-value tests; `performance` table live). Sandboxed analysis ✓ (real pandas run; chart artifact; grounding verified the quoted number). Advisory invariants ✓ (no placement tools exist anywhere; tool-less notifier with banned-language rules; exposure gate caps stakes; deny-filter enforced at authoring + runtime). Gateway live ✓ (sync + async + SSE, verified answers). *Interactive @mention loop: run `agents serve` + `agents slack` (Socket Mode).*
 
+- [x] **P1 review fixes** (2026-06-10, full M1.1–M1.6 code review): hit-rate now counts **decided** bets only (voids excluded — was diluting the headline stat); `settle_bet` persists the outcome as status (`open → won|lost|void`) instead of flattening to "settled"; `exposure_check` actually enforces open exposure (single cap **and** `total_cap_pct` ceiling, default 25%); gateway async runs pass a **per-run recorder** (contextvar in the harness — the old harness-mutation raced under concurrency; regression-tested with two simultaneous runs); SSE late-join terminates instead of hanging; TaskStore evicts oldest-finished only + awaits cancellation on close; healthz 503s before ready; Slack DM handler ignores subtype events (edits/deletes) and `/ask` posts unthreaded (Slack rejects `thread_ts=""`); local sandbox CPU rlimit follows the caller's timeout (was pinned 60s), collects subdirectory artifacts, `run_python` takes `timeout_s` (≤300); the local sandbox docstring now states the filesystem-read + advisory-egress exfiltration risk bluntly (E2B before P2 ingestion); `performance` row upserts (one all-time row, not one per call); memory gains `forget` + a unique `(tenant, workspace, key)` constraint (migration 0004, dedupes first); Postgres CI job added (see Testing). **Known deviations carried to P2:** `conversation_id` accepted but turns stay independent (threading = P2 backlog below); chart artifacts stay on the server's disk — Slack delivery needs `files_upload_v2` (P2 backlog).
+
 ---
 
 ## Phase P2 — Quant: models, value, backtests, ingestion
@@ -232,6 +234,11 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [ ] `eval/` runner (`-m eval`): calibration, **CLV** (gold metric), routing efficiency, answer-accuracy; golden datasets; LLM-judge + deterministic source-match.
 - [ ] Dashboards/reports; gate "is this change better?".
 - [ ] **Exit gate:** eval suite runs in CI (scheduled), produces scores, fails a deliberately-worse change.
+
+### P2 backlog (carried from the P1 review)
+- [ ] **Conversation threading**: `/conversations/{id}/message` accepts the key but each turn is stateless — persist turns (the `conversations`/`messages` tables exist) and thread recent context back in, so Slack follow-ups remember the thread.
+- [ ] **Artifact delivery to Slack**: `run_python` charts land in `./artifacts/` on the server; surface artifact paths through `MessageOut` and upload via `files_upload_v2` in the adapter.
+- [ ] **E2B by default for `data_analysis`** once ingestion (M2.1) starts flowing third-party text into prompts — the local sandbox cannot contain prompt-injected exfiltration (documented in `sandboxes/base.py`).
 
 - [ ] **🚪 P2 EXIT GATE:** end-to-end quant loop (ingest → model → value → backtest → eval) green.
 
@@ -337,7 +344,7 @@ non-technical path to everything that's specs+chat in P0–P3). Sub-surfaces:
 ### Testing
 - [ ] Unit (tools, gateway, harness, loader) · integration (flows vs local MCP) · contract (agent registration + typed-output shape) · eval (accuracy/calibration/CLV) · isolation (multi-tenant).
 - [ ] CI default `-m "not live and not eval"`; nightly job runs `live` + `eval`.
-- [ ] **(P1)** Add a Postgres service container job to CI so migrations + queries are tested on the prod dialect, not just SQLite (JSON/JSONB, timezone semantics).
+- [x] **(P1)** Add a Postgres service container job to CI so migrations + queries are tested on the prod dialect, not just SQLite (JSON/JSONB, timezone semantics). *(Done 2026-06-10 with the P1 review fixes: `test-postgres` job + `TEST_DATABASE_URL` fixture — name must contain "test"; schema dropped/recreated per test.)*
 - [ ] **(P3)** Enable branch protection on `main` (PRs + CI required) before the engineering agents exist — they must be unable to push directly.
 
 ### Security & guardrails (`§13`)

@@ -4,6 +4,10 @@ The production backend: per-run cloud microVM, secrets injected per-run, network
 restricted to the allow-list. Requires ``E2B_API_KEY`` (and the ``e2b-code-
 interpreter`` package, an optional extra) — built test-driven against the documented
 API; live verification awaits a key.
+
+Known divergence from the local backend: artifacts are collected top-level only and
+filtered to .png/.csv/.json/.html (the files API gives no cheap size/stat), while the
+local backend collects ANY new file ≤5MB recursively. Align when a key lands.
 """
 
 from __future__ import annotations

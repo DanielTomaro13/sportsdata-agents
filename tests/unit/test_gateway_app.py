@@ -20,25 +20,16 @@ class FakeSession:
     """Quacks like TeamSession for the gateway."""
 
     agent_name = "orchestrator"
-    _runtime = None
+    recorder = None
 
     def __init__(self, *, delay: float = 0.0) -> None:
         self.delay = delay
         self.prompts: list[str] = []
-        # the async path reaches into the runtime's harness recorder; fake the chain
-        class _H:
-            recorder = None
 
-        class _R:
-            harness = _H()
-
-        self._runtime = _R()
-
-    async def run(self, prompt: str) -> RunResult:
+    async def run(self, prompt: str, *, recorder: Any = None) -> RunResult:
         self.prompts.append(prompt)
         if self.delay:
             await asyncio.sleep(self.delay)
-        recorder = self._runtime.harness.recorder
         if recorder is not None:  # async path: emit progress like the harness would
             await recorder.on_run_start(run_id=None, parent_run_id=None, agent="orchestrator", task=prompt)
             await recorder.on_tool_call(run_id=None, tool="stats_specialist", arguments={}, ok=True, latency_ms=5)
@@ -89,6 +80,35 @@ async def test_async_task_lifecycle_and_sse(client: httpx.AsyncClient) -> None:
     status = (await client.get(f"/tasks/{task_id}")).json()
     assert status["state"] == "done"
     assert status["result"]["answer"] == "the answer"
+
+
+async def test_sse_late_join_gets_end_not_a_hang(client: httpx.AsyncClient) -> None:
+    """Connecting after the task finished (or reconnecting after the end marker was
+    consumed) must terminate immediately, not idle on keepalives."""
+    r = await client.post("/message?mode=async", json={"text": "quick"})
+    task_id = r.json()["task_id"]
+    for _ in range(100):
+        if (await client.get(f"/tasks/{task_id}")).json()["state"] == "done":
+            break
+        await asyncio.sleep(0.01)
+
+    for _ in range(2):  # first consumer drains; second still terminates cleanly
+        events = []
+        async with client.stream("GET", f"/tasks/{task_id}/events") as stream:
+            async for line in stream.aiter_lines():
+                if line.startswith("data: "):
+                    events.append(json.loads(line[6:]))
+                    if events[-1].get("event") == "end":
+                        break
+        assert events[-1]["event"] == "end"
+
+
+async def test_healthz_503_before_session_ready() -> None:
+    app = create_app(session=None)  # no lifespan run → no session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://gw") as c:
+        r = await c.get("/healthz")
+    assert r.status_code == 503 and r.json()["ok"] is False
 
 
 async def test_unknown_task_404(client: httpx.AsyncClient) -> None:

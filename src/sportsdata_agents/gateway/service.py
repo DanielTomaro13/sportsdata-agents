@@ -155,10 +155,12 @@ class TeamSession:
             self._stack = None
             self._runtime = None
 
-    async def run(self, prompt: str) -> RunResult:
+    async def run(self, prompt: str, *, recorder: RunRecorder | None = None) -> RunResult:
+        """``recorder`` overrides recording for this run only (e.g. the gateway's SSE
+        mirror) — contextvar-scoped in the harness, so concurrent runs don't race."""
         if self._runtime is None:
             raise RuntimeError("TeamSession is not started; use `async with TeamSession(...)`")
-        return await self._runtime.run(prompt)
+        return await self._runtime.run(prompt, recorder=recorder)
 
 
 def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
@@ -175,7 +177,10 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
         from sportsdata_agents.tools.memory import memory_tools
         from sportsdata_agents.tools.tracking import tracking_tools
 
-        tools += [*tracking_tools(inner._sf, inner._scope), *memory_tools(inner._sf, inner._scope)]
+        tools += [
+            *tracking_tools(inner.session_factory, inner.scope),
+            *memory_tools(inner.session_factory, inner.scope),
+        ]
     if os.environ.get("SLACK_BOT_TOKEN"):
         from sportsdata_agents.tools.slack_admin import slack_admin_tools
 

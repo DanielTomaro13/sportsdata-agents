@@ -11,7 +11,7 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantScopedModel
@@ -153,6 +153,9 @@ class Performance(TenantScopedModel):
 
 class Memory(TenantScopedModel):
     __tablename__ = "memory"
+    # remember() is select-then-write; this constraint is what actually guarantees
+    # one row per key when writes race (migration 0004).
+    __table_args__ = (UniqueConstraint("tenant_id", "workspace_id", "key", name="uq_memory_tenant_workspace_key"),)
     scope: Mapped[str] = mapped_column(String(24), default="workspace")  # user | workspace
     key: Mapped[str] = mapped_column(String(200), index=True)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -193,7 +196,7 @@ class TrackedBet(TenantScopedModel):
     stake: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     odds: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0"))
     placed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[str] = mapped_column(String(16), default="open")  # open | won | lost | void | cashed
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open → won | lost | void (cashed: future)
     result_pnl: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     closing_odds: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)  # for CLV
 

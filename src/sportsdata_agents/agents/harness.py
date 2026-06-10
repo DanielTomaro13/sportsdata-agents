@@ -92,6 +92,12 @@ CURRENT_RUN_BUDGET: contextvars.ContextVar[RunBudget | None] = contextvars.Conte
 CURRENT_RUN_ID: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
     "current_run_id", default=None
 )
+# Per-run recorder override (async-safe). A shared warm harness serves concurrent
+# requests; mutating ``harness.recorder`` per request would race — callers pass a
+# recorder to ``run()`` instead, and delegated sub-runs inherit it via the context.
+CURRENT_RUN_RECORDER: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "current_run_recorder", default=None
+)
 
 
 class CompletionProvider(Protocol):
@@ -219,9 +225,18 @@ class Harness:
 
     # ── the loop ───────────────────────────────────────────────────────────
 
-    async def run(self, user_input: str, *, budget: RunBudget | None = None) -> RunResult:
+    async def run(
+        self,
+        user_input: str,
+        *,
+        budget: RunBudget | None = None,
+        recorder: Any | None = None,
+    ) -> RunResult:
         """Run the loop. ``budget`` shares an existing ceiling (a delegated sub-agent
-        charges its caller's budget); omitted = a fresh per-run budget."""
+        charges its caller's budget); omitted = a fresh per-run budget. ``recorder``
+        overrides the harness recorder for THIS run only (contextvar-scoped, so a
+        shared warm harness can serve concurrent requests without races); delegated
+        sub-runs in the same context inherit it."""
         system = self.spec.system_prompt
         if self.skills and len(self.skills):
             system = f"{system}\n\n{self.skills.index_text()}"
@@ -239,6 +254,7 @@ class Harness:
         spent_before = budget.spent_usd
         budget_token = CURRENT_RUN_BUDGET.set(budget)
         run_token = CURRENT_RUN_ID.set(run_id)
+        recorder_token = CURRENT_RUN_RECORDER.set(recorder) if recorder is not None else None
         started = time.monotonic()
         await self._record_start(run_id, parent_run_id, user_input)
         try:
@@ -255,7 +271,9 @@ class Harness:
         finally:
             CURRENT_RUN_BUDGET.reset(budget_token)
             CURRENT_RUN_ID.reset(run_token)
-        await self._record_end(run_id, result, int((time.monotonic() - started) * 1000))
+            if recorder_token is not None:
+                CURRENT_RUN_RECORDER.reset(recorder_token)
+        await self._record_end(run_id, result, int((time.monotonic() - started) * 1000), recorder)
         return result
 
     async def _loop(self, messages: list[dict[str, Any]], budget: RunBudget) -> RunResult:
@@ -446,17 +464,24 @@ class Harness:
 
     # ── helpers ────────────────────────────────────────────────────────────
 
+    def _active_recorder(self, override: Any | None = None) -> Any | None:
+        """The recorder for the CURRENT run: explicit override, then the per-run
+        contextvar (set by ``run(recorder=...)``, inherited by delegated sub-runs),
+        then the harness default."""
+        return override or CURRENT_RUN_RECORDER.get() or self.recorder
+
     async def _execute_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Run one tool; errors are returned to the model as content, never raised
         (the model should see the failure and adapt — the loop ceilings bound retries)."""
         started = time.monotonic()
         payload, ok = await self._execute_tool_inner(name, arguments)
         latency_ms = int((time.monotonic() - started) * 1000)
-        if self.recorder is not None:
+        recorder = self._active_recorder()
+        if recorder is not None:
             run_id = CURRENT_RUN_ID.get()
             if run_id is not None:
                 try:
-                    await self.recorder.on_tool_call(
+                    await recorder.on_tool_call(
                         run_id=run_id, tool=name, arguments=arguments, ok=ok, latency_ms=latency_ms
                     )
                 except Exception as e:  # recording must never break a run
@@ -482,31 +507,36 @@ class Harness:
             return str(output), True
 
     async def _record_start(self, run_id: uuid.UUID, parent_run_id: uuid.UUID | None, task: str) -> None:
-        if self.recorder is None:
+        recorder = self._active_recorder()
+        if recorder is None:
             return
         try:
-            await self.recorder.on_run_start(
+            await recorder.on_run_start(
                 run_id=run_id, parent_run_id=parent_run_id, agent=self.spec.id, task=task
             )
         except Exception as e:  # recording must never break a run
             logger.warning("recorder.on_run_start failed: %s: %s", type(e).__name__, e)
 
-    async def _record_end(self, run_id: uuid.UUID, result: RunResult, latency_ms: int) -> None:
-        if self.recorder is None:
+    async def _record_end(
+        self, run_id: uuid.UUID, result: RunResult, latency_ms: int, recorder: Any | None = None
+    ) -> None:
+        recorder = self._active_recorder(recorder)  # explicit: the contextvar reset already
+        if recorder is None:
             return
         status = "ok" if result.stop_reason == "done" else result.stop_reason
         try:
-            await self.recorder.on_run_end(
+            await recorder.on_run_end(
                 run_id=run_id, agent=self.spec.id, status=status, cost_usd=result.cost_usd, latency_ms=latency_ms
             )
         except Exception as e:
             logger.warning("recorder.on_run_end failed: %s: %s", type(e).__name__, e)
 
     async def _record_crash(self, run_id: uuid.UUID, *, cost_usd: float, latency_ms: int, error: str) -> None:
-        if self.recorder is None:
+        recorder = self._active_recorder()
+        if recorder is None:
             return
         try:
-            await self.recorder.on_run_end(
+            await recorder.on_run_end(
                 run_id=run_id,
                 agent=self.spec.id,
                 status="error",

@@ -48,6 +48,17 @@ async def test_input_files_and_artifacts_round_trip(tmp_path: Path) -> None:
     assert result.artifacts == {"out.txt": b"HELLO"}
 
 
+async def test_subdirectory_artifacts_are_collected() -> None:
+    code = (
+        "import os\n"
+        "os.makedirs('out', exist_ok=True)\n"
+        "open('out/chart.png', 'wb').write(b'PNG')\n"
+    )
+    result = await LocalSubprocessSandbox().run(code)
+    assert result.ok
+    assert result.artifacts == {"out/chart.png": b"PNG"}
+
+
 async def test_file_escape_rejected() -> None:
     with pytest.raises(ValueError, match="escapes"):
         await LocalSubprocessSandbox().run("print(1)", files={"../evil.txt": b"x"})
@@ -70,6 +81,12 @@ async def test_run_python_tool_saves_artifacts(tmp_path: Path, monkeypatch: pyte
     assert out["ok"] and "saved" in out["stdout"]
     assert len(out["artifacts"]) == 1
     assert Path(out["artifacts"][0]).read_text() == "fake-chart"
+
+
+async def test_run_python_honours_timeout_arg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    out = await NATIVE_TOOLS["run_python"].execute({"code": "while True: pass", "timeout_s": 1})
+    assert out["ok"] is False and "timeout" in out["stderr"]
 
 
 async def test_run_python_requires_ephemeral_sandbox_spec() -> None:
