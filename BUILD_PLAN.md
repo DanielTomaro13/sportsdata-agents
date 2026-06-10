@@ -249,7 +249,7 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [ ] **market_monitor agent** (M3.x ops): scheduled value scans (model predictions × fresh prices → `value_finder`) pushing alerts via `push_notification` — "value alerts fire" becomes push, not pull.
 - [ ] **ratings_keeper**: maintain per-team Elo/power ratings as a persistent feature store the modelling agent reads (P8: deterministic updates, LLM only narrates).
 - [ ] **Results ingestion feed**: `event_results` currently fills via `record_result`; a scheduled feed (scoreboard → winner) closes the backtest loop automatically.
-- [ ] **More odds feeds**: sportsbet/TAB/PointsBet normalizers (one pure function + one `FEEDS` row each — the AU books the MCP already speaks).
+- [x] **More odds feeds** *(sportsbet + TAB done 2026-06-11)*: `sportsbet_afl_h2h` (competition 4165, top-level-list payload, PRICED events, resultType→home/away) and `tab_afl_h2h` ("AFL Football"/"AFL", numTopMarkets=1, Head To Head propositions, position→home/away) — selections normalise to home/away across all feeds. The ingest subprocess lifts the MCP byte cap to 8MB (`INGEST_MAX_BYTES`): the 150KB default guards model contexts, ETL has none (TAB's competition payload is ~2.8MB). Live: one `agents ingest --once` captured all three providers (NBA 44 snaps/19 moves overnight, Sportsbet 14, TAB 28). PointsBet remains (same recipe).
 - [ ] **injury/news scout** (P4, after §13 prompt-injection guardrails — untrusted third-party text).
 - [ ] **Calibration-curve artifact**: modelling agent saves a reliability diagram PNG with each model version (artifacts now reach Slack).
 

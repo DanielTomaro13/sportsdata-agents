@@ -254,6 +254,7 @@ def ingest(
     from sportsdata_agents.data.db import make_engine, make_sessionmaker
     from sportsdata_agents.mcp.manager import MCPManager
     from sportsdata_agents.operations.ingestion import FEEDS, ingest_once, prune_snapshots, run_loop
+    from sportsdata_agents.operations.ingestion.worker import INGEST_MAX_BYTES
 
     console = Console()
     settings = get_settings()
@@ -266,7 +267,13 @@ def ingest(
             await conn.run_sync(Base.metadata.create_all)
         sf = make_sessionmaker(engine)
         try:
-            async with MCPManager(groups=groups, command=settings.mcp_command) as manager:
+            # ETL has no model context window to protect — lift the MCP byte cap
+            # (AU book payloads are MB-scale; see INGEST_MAX_BYTES).
+            async with MCPManager(
+                groups=groups,
+                command=settings.mcp_command,
+                extra_env={"SPORTSDATA_MCP_MAX_BYTES": str(INGEST_MAX_BYTES)},
+            ) as manager:
                 if once:
                     report = await ingest_once(manager, sf, feeds)
                     for name, stats in report.items():

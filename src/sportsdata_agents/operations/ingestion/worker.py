@@ -13,14 +13,25 @@ import datetime as dt
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sportsdata_agents.operations.ingestion.normalizers import PricePoint, normalize_nba_odds
+from sportsdata_agents.operations.ingestion.normalizers import (
+    PricePoint,
+    normalize_nba_odds,
+    normalize_sportsbet_matches,
+    normalize_tab_competition,
+)
 from sportsdata_agents.operations.ingestion.store import record_points
 
 logger = logging.getLogger(__name__)
+
+# AU book payloads are MB-scale firehoses; the MCP's 150KB default guards MODEL
+# context windows, which ingestion doesn't have — the ingest subprocess runs with
+# this cap instead (the CLI passes it as SPORTSDATA_MCP_MAX_BYTES).
+INGEST_MAX_BYTES = 8_000_000
 
 
 @dataclass(frozen=True)
@@ -28,7 +39,7 @@ class Feed:
     name: str
     tool: str  # the MCP tool to call
     mcp_groups: tuple[str, ...]  # groups the subprocess must enable
-    normalizer: Callable[[dict[str, Any]], list[PricePoint]]
+    normalizer: Callable[[Any], list[PricePoint]]  # raw payload in — each guards its own shape
     arguments: dict[str, Any] | None = None
     interval_s: int = 300  # per-provider cadence
 
@@ -40,6 +51,22 @@ FEEDS: dict[str, Feed] = {
         tool="nba_odds_today",
         mcp_groups=("nba.public.cdn",),  # the data plane's group names are dotted
         normalizer=normalize_nba_odds,
+        interval_s=300,
+    ),
+    "sportsbet_afl_h2h": Feed(
+        name="sportsbet_afl_h2h",
+        tool="sportsbet_competition_matches",
+        mcp_groups=("sportsbet.sports",),
+        normalizer=partial(normalize_sportsbet_matches, sport="afl"),
+        arguments={"competitionId": 4165},  # verified id from the book catalogue
+        interval_s=300,
+    ),
+    "tab_afl_h2h": Feed(
+        name="tab_afl_h2h",
+        tool="tab_competition",
+        mcp_groups=("tab.sports",),
+        normalizer=partial(normalize_tab_competition, sport="afl"),
+        arguments={"sport": "AFL Football", "competition": "AFL", "numTopMarkets": 1},
         interval_s=300,
     ),
 }
@@ -56,7 +83,7 @@ async def ingest_once(
     for feed in feeds:
         try:
             payload = await manager.call_tool(feed.tool, feed.arguments or {})
-            points = feed.normalizer(payload if isinstance(payload, dict) else {})
+            points = feed.normalizer(payload)  # raw: shapes differ (TAB dict, sportsbet list)
             stats = await record_points(session_factory, points)
             report[feed.name] = {"ok": True, **stats}
             if not points:  # reachable but empty (off-season, shape drift) — visible, not silent
