@@ -112,13 +112,15 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] CLI: `agents lint [--dir]` (exit 1 on problems) + `agents list`.
 - [x] **Exit gate:** bundled specs load + register (test); `agents lint` passes (3 specs); malformed specs fail loudly with the file in the error (id/semver/tier/unknown-field/money-tool/overlap/dup/dangling all tested); CLI lint/list tested. ruff/mypy clean; **77 passed**.
 
-### M0.7 — The harness (loop, loop control, context, skills) — `§8.2`
-- [ ] `agents/harness.py`: the agent loop *gather→plan→act→observe→verify→stop*.
-- [ ] **Loop control:** stop on goal+verifier / `max_steps` / budget/time/token ceiling / awaiting-human; **no-progress/thrash** detector.
-- [ ] **Context policy:** `retrieval: jit`; **compaction** hook; **context-reset/hand-off** path; budget tracking (warn as window fills).
-- [ ] **Skills loader** (`skills/`, `D29`): discover skill bundles, **progressive disclosure** (load instructions JIT when relevant), run skill scripts in the sandbox (stub until M1.x), keep context lean.
-- [ ] **Sub-agent isolation:** delegated agents run in their own context, return a condensed summary.
-- [ ] **Exit gate:** unit tests — loop stops on each condition; max_steps respected; a skill is loaded only when its trigger matches; compaction fires past a token threshold (mock).
+### M0.7 — The harness (loop, loop control, context, skills) — `§8.2` ✅
+- [x] **Runtime binding (D28 amended):** custom loop over `ModelGateway` (litellm cross-provider tool-calling — `ModelReply` gained `tool_calls` + `assistant_message`) + `MCPManager`. The spec abstraction stays runtime-neutral; Pydantic AI / Managed Agents can bind behind it later.
+- [x] `agents/harness.py`: the loop *gather→plan→act (tool)→observe→verify→stop*; `ToolDef` (JSON-schema'd, async-executed — MCP, native, or sub-agent all fit); tool errors returned to the model as content (never raised), unknown/denied tool names reported back; denied names refused **before** execution + rejected at construction (defense in depth, §13).
+- [x] **Loop control:** stop on done(+verifier) / `max_steps` / `max_tool_calls` / budget (refused *before* the next model call) / wall-clock timeout (injectable clock) / **no-progress** (3 identical consecutive tool calls); **§8.1 clamping** — every spec limit min'd with the workspace budgets.
+- [x] **Context policy:** token-budget tracking off `tokens_in`; at 70% of the (clamped) window → `compact` policy runs the compactor (deterministic stub: system + recent + marker; LLM-summary later) or `reset` policy stops with `context_exhausted` for an orchestrator hand-off.
+- [x] **Skills** (`agents/skills.py`, D29): `SKILL.md` bundles (frontmatter: name/description/triggers + body); **index-only in the system prompt; body disclosed JIT** on trigger match (user input *and* tool results), exactly once; missing/malformed skills fail loudly with the path. Scripts→sandbox lands M1.3; bundles land M0.10.
+- [x] **Verification hook (§13.1):** `verifier(answer) → (ok, feedback)`; failure feeds back to the model (1 retry) then reports `verified=False`; real grounding check lands M0.13.
+- [x] *(Sub-agent isolation: `ToolDef.execute` wraps another harness's `run()` — composed at M0.8 orchestrator.)*
+- [x] **Exit gate:** 20 unit tests — every stop condition, clamping, unknown/denied/raising tools, compaction threshold + reset hand-off, verifier retry/exhaust, skill parse/index/JIT-once/no-trigger/tool-result-trigger. ruff/mypy clean; **104 passed**.
 
 ### M0.8 — Orchestrator
 - [ ] `orchestrator/`: intent classify → plan → delegate (parallel where independent) → synthesise; agents-as-tools delegation.

@@ -17,6 +17,7 @@ parameter resolved per provider, currently left to litellm's env-based resolutio
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import time
 from collections.abc import Callable, Sequence
@@ -84,6 +85,15 @@ class UsageEvent:
 
 
 @dataclass(frozen=True)
+class ToolCallRequest:
+    """One tool invocation the model asked for."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class ModelReply:
     """The gateway's typed result."""
 
@@ -92,6 +102,22 @@ class ModelReply:
     tokens_in: int
     tokens_out: int
     cost_usd: float
+    tool_calls: tuple[ToolCallRequest, ...] = ()
+
+    @property
+    def assistant_message(self) -> dict[str, Any]:
+        """The reply as an OpenAI-format assistant message (for transcript append)."""
+        msg: dict[str, Any] = {"role": "assistant", "content": self.text or None}
+        if self.tool_calls:
+            msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                }
+                for tc in self.tool_calls
+            ]
+        return msg
 
 
 UsageSink = Callable[[UsageEvent], None]
@@ -180,7 +206,14 @@ class ModelGateway:
             )
 
         text = _text_of(response)
-        return ModelReply(text=text, model=model_used, tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd)
+        return ModelReply(
+            text=text,
+            model=model_used,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            tool_calls=_tool_calls_of(response),
+        )
 
 
 def _text_of(response: Any) -> str:
@@ -189,6 +222,31 @@ def _text_of(response: Any) -> str:
         return ""
     content = getattr(getattr(choices[0], "message", None), "content", None)
     return content or ""
+
+
+def _tool_calls_of(response: Any) -> tuple[ToolCallRequest, ...]:
+    """Parse OpenAI-format tool calls defensively (litellm normalizes providers to this)."""
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return ()
+    out: list[ToolCallRequest] = []
+    for i, tc in enumerate(getattr(getattr(choices[0], "message", None), "tool_calls", None) or []):
+        fn = getattr(tc, "function", None)
+        raw_args = getattr(fn, "arguments", "") or "{}"
+        try:
+            arguments = json.loads(raw_args)
+            if not isinstance(arguments, dict):
+                arguments = {"_raw": arguments}
+        except (json.JSONDecodeError, ValueError):
+            arguments = {"_raw": raw_args}
+        out.append(
+            ToolCallRequest(
+                id=str(getattr(tc, "id", "") or f"call_{i}"),
+                name=str(getattr(fn, "name", "") or ""),
+                arguments=arguments,
+            )
+        )
+    return tuple(out)
 
 
 def _cost_of(response: Any) -> tuple[float, bool]:
