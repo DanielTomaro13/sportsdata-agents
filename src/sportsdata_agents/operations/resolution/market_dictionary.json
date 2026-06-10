@@ -1,0 +1,30 @@
+{
+  "_doc": "The canonical market/sport dictionary — DATA, not code (maintained by the market_steward agent; local overrides merge from SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES, default ./market_dictionary.local.json). Renames only, never excludes: unmapped names flow through book-named. Qualifier markets (1st half, overtime-only, quarters, alternates) must NOT alias into base families — different settlement rules are different markets.",
+  "markets": {
+    "h2h": [
+      "head to head", "match result", "moneyline", "money line",
+      "match betting", "match winner"
+    ],
+    "spread": [
+      "line", "point spread", "handicap", "match handicap",
+      "match handicap (2-way)", "pick your own line"
+    ],
+    "total": [
+      "totals", "total points", "total points (over/under)", "over/under",
+      "total points over/under", "total match points"
+    ]
+  },
+  "sports": {
+    "australian_rules": ["afl", "aussie rules", "australian rules", "afl football"],
+    "rugby_league": ["nrl", "rugby league"],
+    "rugby_union": ["rugby union", "rugby"],
+    "basketball": ["nba", "wnba", "basket"],
+    "baseball": ["mlb"],
+    "ice_hockey": ["nhl", "ice hockey"],
+    "american_football": ["nfl", "american football"],
+    "soccer": ["football", "mls"],
+    "horse_racing": ["thoroughbred", "horses", "horse"],
+    "greyhound_racing": ["greyhound", "greyhounds"],
+    "harness_racing": ["harness", "trots"]
+  }
+}

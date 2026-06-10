@@ -376,3 +376,43 @@ def eval_cmd(
     if problems:
         raise typer.Exit(1)
     console.print("[green]✓ no regressions against baseline[/green]")
+
+
+@app.command()
+def resolve(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report what would map without writing."),
+) -> None:
+    """Map every book's event ids onto shared fixtures (deterministic, no LLM).
+
+    Run after ingests; cross-book queries (best price, cross-book CLV) join
+    through the fixtures/events tables this populates.
+    """
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.operations.resolution import resolve_events
+
+    console = Console()
+
+    async def _run() -> None:
+        engine = make_engine(get_settings().database_url)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        try:
+            stats = await resolve_events(make_sessionmaker(engine), dry_run=dry_run)
+        finally:
+            await engine.dispose()
+        mark = "[dim](dry run)[/dim] " if dry_run else ""
+        console.print(f"{mark}examined={stats['examined']} mapped={stats['mapped']} "
+                      f"created={stats['created']} ambiguous={stats['ambiguous']} "
+                      f"unnamed={stats['skipped_unnamed']}")
+
+    asyncio.run(_run())

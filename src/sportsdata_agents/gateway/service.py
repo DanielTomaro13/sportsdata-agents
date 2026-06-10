@@ -174,6 +174,7 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
     tools: list[Any] = []
     inner = getattr(recorder, "inner", recorder)
     if isinstance(inner, DbRecorder):
+        from sportsdata_agents.tools.dictionary import dictionary_tools
         from sportsdata_agents.tools.memory import memory_tools
         from sportsdata_agents.tools.quant import quant_tools
         from sportsdata_agents.tools.tracking import tracking_tools
@@ -182,6 +183,7 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
             *tracking_tools(inner.session_factory, inner.scope),
             *memory_tools(inner.session_factory, inner.scope),
             *quant_tools(inner.session_factory, inner.scope),
+            *dictionary_tools(inner.session_factory),
         ]
     if os.environ.get("SLACK_BOT_TOKEN"):
         from sportsdata_agents.tools.slack_admin import slack_admin_tools

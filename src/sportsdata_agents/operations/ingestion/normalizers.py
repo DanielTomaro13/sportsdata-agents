@@ -39,37 +39,79 @@ class PricePoint:
         return (self.provider, self.book, self.event_external_id, self.market, self.selection)
 
 
-# ─── canonical market families (normalization, NEVER exclusion) ──────────
+# ─── canonical market/sport families (normalization, NEVER exclusion) ────
 # Books name the same market differently ("Match Result" / "Moneyline" / "Head To
-# Head"); cross-book math needs one key for the big three families. Anything not
-# recognised flows through under the book's own name — a new market type needs NO
-# code change, it just arrives book-named until added here for cross-book joins.
+# Head"); cross-book math needs one key per family. The mapping is DATA — the
+# packaged market_dictionary.json seed merged with a local overrides file that the
+# market_steward agent maintains — so extending it needs no code change, and
+# anything unmapped flows through under the book's own name.
 
-_H2H_NAMES = frozenset({
-    "head to head", "match result", "moneyline", "money line",
-    "match betting", "match winner", "h2h",
-})
-_SPREAD_NAMES = frozenset({
-    "line", "point spread", "spread", "handicap", "match handicap", "match handicap (2-way)",
-    "pick your own line",
-})
-_TOTAL_NAMES = frozenset({
-    "totals", "total", "total points", "total points (over/under)", "over/under",
-    "total points over/under", "total match points",
-})
 _SIDES = ("home", "away", "draw", "over", "under")
+_alias_cache: dict[str, dict[str, str]] | None = None
+
+
+def _norm_name(name: Any) -> str:
+    return " ".join(str(name).strip().lower().replace("_", " ").split())
+
+
+def _load_dictionary() -> dict[str, dict[str, str]]:
+    """alias → family reverse maps for markets and sports (seed + local overrides)."""
+    import json
+    import os
+    from importlib import resources
+
+    seed = json.loads(
+        resources.files("sportsdata_agents.operations.resolution")
+        .joinpath("market_dictionary.json")
+        .read_text(encoding="utf-8")
+    )
+    overrides_path = os.environ.get(
+        "SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES", "market_dictionary.local.json"
+    )
+    if os.path.isfile(overrides_path):
+        try:
+            with open(overrides_path, encoding="utf-8") as fh:
+                local = json.load(fh)
+            for section in ("markets", "sports"):
+                for family, aliases in (local.get(section) or {}).items():
+                    seed.setdefault(section, {}).setdefault(family, [])
+                    seed[section][family] = list(seed[section][family]) + list(aliases)
+        except (OSError, ValueError) as e:
+            logger.warning("dictionary overrides unreadable (%s): %s", overrides_path, e)
+    out: dict[str, dict[str, str]] = {}
+    for section in ("markets", "sports"):
+        reverse: dict[str, str] = {}
+        for family, aliases in (seed.get(section) or {}).items():
+            reverse[_norm_name(family)] = family
+            for alias in aliases or []:
+                reverse[_norm_name(alias)] = family
+        out[section] = reverse
+    return out
+
+
+def _dictionary() -> dict[str, dict[str, str]]:
+    global _alias_cache
+    if _alias_cache is None:
+        _alias_cache = _load_dictionary()
+    return _alias_cache
+
+
+def reload_dictionary() -> None:
+    """Drop the cache (the steward calls this after editing the overrides file)."""
+    global _alias_cache
+    _alias_cache = None
 
 
 def canonical_market(name: str) -> str:
-    """h2h/spread/total for recognised family names; the book's own name otherwise."""
-    n = " ".join(str(name).strip().lower().replace("_", " ").split())
-    if n in _H2H_NAMES:
-        return "h2h"
-    if n in _SPREAD_NAMES:
-        return "spread"
-    if n in _TOTAL_NAMES:
-        return "total"
-    return n
+    """The family key for recognised market names; the book's own name otherwise."""
+    n = _norm_name(name)
+    return _dictionary()["markets"].get(n, n)
+
+
+def canonical_sport(name: str) -> str:
+    """The family key for recognised sport labels (event-resolution grouping)."""
+    n = _norm_name(name)
+    return _dictionary()["sports"].get(n, n).replace(" ", "_")
 
 
 def _line_suffix(line: Any) -> str:
