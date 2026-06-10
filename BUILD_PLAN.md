@@ -164,10 +164,11 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] "No data" path lives in the specs' prompts (observed live: the team declined the manager question rather than guessing) + the verifier's "say the data is unavailable" feedback; **advisory disclaimer** on every CLI answer footer; no edge/profit language (tested against the §14 banned list).
 - [x] **Exit gate:** fabricated 62-HRs answer caught → feedback → corrected 58 passes `verified=True`; persistent fabrication reported `verified=False`; echoed-user-numbers/no-numbers/no-evidence cases all covered; default wiring on/off tested. Two self-bugs caught by the gate itself: `%g` scientific-notation normalization and the feedback-poisoning loop. ruff/mypy clean; offline **193 passed**, live **3 passed with grounding active**.
 
-### M0.14 — Tests & CI hardening
-- [ ] Unit coverage for tools/gateway/loader/harness; integration test for the headline flow (local MCP).
-- [ ] First **eval** case (`-m eval`): a golden Q→A graded for factual accuracy.
-- [ ] **🚪 P0 EXIT GATE:** From a clean machine — `docker compose up`, `alembic upgrade head`, `agents run "best price + value on <real game>"` returns a sourced, grounded answer; full trace + audit + cost recorded; CI green.
+### M0.14 — Tests & CI hardening ✅ (exit-gate live demo pending a funded model key)
+- [x] Coverage: **196 offline tests** across config/secrets/data/repository/MCP manager+pool/gateway+policy/specs+loader/harness/skills/outputs/grounding/orchestration/persistence/CLI; headline-flow integration (real MCP subprocess) + 3 live tests (typed output, delegation E2E, mlb roundtrip), all previously green with grounding active.
+- [x] First **eval** cases (`tests/eval/test_golden.py`, `-m eval`): golden stats fact (live data, grounded, delegation asserted) + golden odds math (exact 0.4/40%, `verified=True`). *Deterministically graded; the seed of M2.4's harness.*
+- [x] README: full quickstart (both repos, .env incl. free-tier keys, optional compose→alembic, CLI usage), testing matrix, honest status.
+- [~] **🚪 P0 EXIT GATE:** CI green ✓ (offline suite); audit/trace/cost recording proven at M0.11–M0.12 ✓; grounded+sourced answers proven live at M0.12–M0.13 ✓. **Pending:** (a) the specific `agents run "best price + value on <real game>"` demo + the eval runs — blocked on a funded model key (OpenRouter balance exhausted mid-M0.14; free Gemini/Groq key works at $0); (b) compose→Postgres bring-up unverified on this machine (docker daemon down + 1.5 GB disk) — documented in README, systematically covered by the planned P1 Postgres CI job. Run `pytest -m eval` + the headline `agents run` once a key is in `.env`, then flip this to ✅.
 
 ---
 
