@@ -1,31 +1,35 @@
 ---
 name: build_a_totals_model
-description: Recipe for a simple, calibrated totals (over/under) model — data prep, a normal-approximation baseline, holdout evaluation.
-triggers: [totals model, over/under model, totals, build a model, model the total]
+description: Worked example of model_development for totals (over/under) markets — scoring-process baseline, pace adjustment, holdout evaluation.
+triggers: [totals model, over/under model, total points model, model the total]
 ---
-# Build a totals model (the boring, calibrated way)
+# Build a totals model — worked example
 
-A totals model predicts P(total points > line). The baseline that is hard to beat:
-model the total as Normal(μ, σ) with μ/σ estimated from recent pace-adjusted games.
+Follow `model_development` for the method; this is the totals instantiation.
 
 ## Recipe (run_python, one script)
 
-1. **Data**: per-game totals for both teams, most recent N games (N=20 is plenty).
-   Fetch via your data tools; print the rows you keep. Never fabricate games.
-2. **Estimate**: μ = weighted mean of (team_total + opp_total) with recency weights
-   (e.g. exponential, half-life ~10 games); σ = weighted std, floor it at 8 points.
-3. **Probability**: `p_over = 1 - norm.cdf(line, mu, sigma)` (scipy or a hand-rolled
-   CDF — `0.5 * (1 + math.erf((x - mu) / (sigma * 2**0.5)))`).
-4. **Holdout**: fit on games [0..k), evaluate on [k..n). Collect {prob, outcome}
-   pairs from the holdout ONLY.
-5. **Calibrate + persist**: `calibration_metrics(pairs)` → pass its exact output to
-   `save_model` (params: μ/σ method, weights, N, the line convention). Then
-   `record_predictions` for upcoming games.
+1. **Data**: per-game totals for both teams across as many seasons as the regime
+   allows — count EVENTS against the parameter budget (model_development §2: 10–20
+   outcomes per parameter; a recent-window-only model must say how little it knows).
+   Weight recency (exponential decay, half-life tuned on train) rather than
+   truncating to a tiny window.
+2. **Model the scoring process**: totals are sums of scoring events —
+   Normal(μ, σ) for high-scoring sports (basketball), Poisson for low-scoring
+   (soccer/NHL goals). μ from pace-adjusted team offense/defense; σ estimated, not
+   assumed (floor it sensibly; print it).
+3. **Probability**: `p_over = 1 - CDF(line)` — hand-rolled normal CDF
+   (`0.5 * (1 + math.erf((x - mu) / (sigma * 2**0.5)))`) keeps the sandbox
+   dependency-free.
+4. **Features beyond pace** (ask the user which they value — model_development §3):
+   rest days, altitude/venue, weather for outdoor sports. Each one is a parameter;
+   justify it.
+5. **Holdout**: train on the earlier slice, collect {prob, outcome} on the later
+   slice ONLY, `calibration_metrics` → `save_model` (params: μ/σ method, weights,
+   seasons, line convention) → `record_predictions` with honest `predicted_at`.
 
 ## Honesty rules
 
-- Print every number; quote only printed numbers.
-- A Brier ≥ 0.25 means the model is no better than a coin flip on a balanced set —
-  say so plainly rather than dressing it up.
-- Compare against the market when the warehouse has the line (`query_line_movement`):
-  beating the closing line is the bar that matters (§16.3 CLV).
+- A Brier ≥ 0.25 on a balanced set is coin-flip territory — say so plainly.
+- The bar is the closing total (`query_line_movement`), not the base rate
+  (quant_concepts: CLV) — report model vs market side by side.

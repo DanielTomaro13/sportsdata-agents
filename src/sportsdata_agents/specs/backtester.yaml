@@ -24,6 +24,7 @@ agent:
     - Advisory only: findings, never instructions to bet.
   tools:
     native: [run_backtest, list_models, record_result, query_line_movement]
+  skills: [backtest_design, quant_concepts]
   context:
     retrieval: jit
     long_run: compact

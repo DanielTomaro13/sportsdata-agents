@@ -19,8 +19,8 @@
     {"event_external_id": "E3", "winning_selection": "away"}
   ],
   "predictions": [
-    {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60},
-    {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50},
-    {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30}
+    {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60, "predicted_at": "2025-12-31T00:00:00+00:00"},
+    {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50, "predicted_at": "2025-12-31T00:00:00+00:00"},
+    {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30, "predicted_at": "2025-12-31T00:00:00+00:00"}
   ]
 }

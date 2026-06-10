@@ -63,10 +63,21 @@ def test_modelling_spec_and_skills_wire_up() -> None:
     assert spec.sandbox == "ephemeral"  # run_python gating
     assert {"run_python", "calibration_metrics", "save_model", "record_predictions"} <= set(spec.tools.native)
     assert "modelling" in specs["orchestrator"].can_delegate_to
+    # the GENERAL method + concepts lead; market recipes are worked examples
+    assert spec.skills[:2] == ["model_development", "quant_concepts"]
+    assert {"build_a_totals_model", "build_a_h2h_model"} <= set(spec.skills)
+    assert "backtest_design" in specs["backtester"].skills
+    assert "reading_line_movement" in specs["value_scout"].skills
     assert lint_specs(specs) == []
 
-    skills = load_skillset(["build_a_totals_model", "calibrate_probabilities"], None)
+    skills = load_skillset(list(spec.skills), None)
     assert {s.name for s in skills.newly_triggered("please build a totals model")} == {"build_a_totals_model"}
+    assert {s.name for s in skills.newly_triggered("can you build me a model for NRL?")} == {"model_development"}
+    # calibration question discloses the fix recipe AND the concepts explainer
     assert {s.name for s in skills.newly_triggered("is this calibrated? check the brier")} == {
-        "calibrate_probabilities"
+        "calibrate_probabilities",
+        "quant_concepts",
     }
+    assert {s.name for s in load_skillset(["build_a_h2h_model"], None).newly_triggered(
+        "build a moneyline model for the NBA"
+    )} == {"build_a_h2h_model"}

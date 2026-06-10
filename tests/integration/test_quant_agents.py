@@ -59,13 +59,17 @@ class ModellingScript:
             return ModelReply(text="", model="f", tokens_in=50, tokens_out=10, cost_usd=0.001,
                               tool_calls=(ToolCallRequest(id=f"c{self.step}", name=name, arguments=args),))
 
+        def last_tool_result(msgs: list[dict[str, Any]]) -> Any:
+            # skills may disclose AFTER a tool batch, so [-1] isn't always the result
+            return json.loads(str(next(m for m in reversed(msgs) if m.get("role") == "tool")["content"]))
+
         self.step += 1
         if self.step == 1:
             return tool("run_python", {"code": TRAIN_CODE})
         if self.step == 2:
             return tool("calibration_metrics", {"pairs": HOLDOUT_PAIRS})
         if self.step == 3:
-            calib = json.loads(str(messages[-1]["content"]))  # the metrics tool's result
+            calib = last_tool_result(messages)  # the metrics tool's result
             return tool("save_model", {
                 "name": "nba_totals_baseline",
                 "sport": "nba",
@@ -74,7 +78,7 @@ class ModellingScript:
                 "calibration": calib,
             })
         if self.step == 4:
-            saved = json.loads(str(messages[-1]["content"]))
+            saved = last_tool_result(messages)
             return tool("record_predictions", {
                 "model_id": saved["model_id"],
                 "predictions": [
@@ -190,14 +194,20 @@ async def test_backtest_clv_positive_on_holdout(db_sessionmaker: async_sessionma
     saved = await tools["save_model"].execute(
         {"name": "h2h", "calibration": {"brier": 0.2, "log_loss": 0.6, "n": 50}}
     )
+    when = "2026-05-31T00:00:00+00:00"  # backdated BEFORE the first capture → entry = opening price
     await tools["record_predictions"].execute({
         "model_id": saved["model_id"],
         "predictions": [
-            {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60},  # edge 26%
-            {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50},  # edge -2.5%
-            {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30},  # edge 8%
-            {"event_external_id": "E4", "market": "2way", "selection": "home", "prob": 0.70},  # no prices
-            {"event_external_id": "E5", "market": "2way", "selection": "home", "prob": 0.80},  # no result
+            {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60,
+             "predicted_at": when},  # edge 26%
+            {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50,
+             "predicted_at": when},  # edge -2.5%
+            {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30,
+             "predicted_at": when},  # edge 8%
+            {"event_external_id": "E4", "market": "2way", "selection": "home", "prob": 0.70,
+             "predicted_at": when},  # no prices
+            {"event_external_id": "E5", "market": "2way", "selection": "home", "prob": 0.80,
+             "predicted_at": when},  # no result
         ],
     })
 
@@ -219,3 +229,57 @@ async def test_backtest_empty_is_honest(db_sessionmaker: async_sessionmaker[Asyn
     tools = {t.name: t for t in quant_tools(db_sessionmaker, SCOPE)}
     report = await tools["run_backtest"].execute({})
     assert report["bets"] == 0 and "nothing to report" in report["note"]
+
+
+async def test_backtest_entry_has_no_lookahead(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    """A prediction made AFTER the line moved cannot claim the early price: entry is
+    the prevailing change-point at predicted_at, so the late prediction enters at the
+    close and earns zero CLV (a model that 'predicts' history gets no credit)."""
+    import datetime as dt
+
+    from sportsdata_agents.data.models import EventResult
+    from sportsdata_agents.operations.ingestion import PricePoint, record_points
+
+    t0 = dt.datetime(2026, 6, 1, 9, 0, tzinfo=dt.UTC)
+
+    def pt(odds: float) -> PricePoint:
+        return PricePoint(provider="nba_cdn", book="B", sport="nba", event_external_id="L1",
+                          market="2way", selection="home", odds=odds)
+
+    await record_points(db_sessionmaker, [pt(2.10)], captured_at=t0)
+    await record_points(db_sessionmaker, [pt(1.90)], captured_at=t0 + dt.timedelta(hours=6))
+    async with db_sessionmaker() as s:
+        s.add(EventResult(provider="nba_cdn", sport="nba", event_external_id="L1", winning_selection="home"))
+        await s.commit()
+
+    tools = {t.name: t for t in quant_tools(db_sessionmaker, SCOPE)}
+    saved = await tools["save_model"].execute(
+        {"name": "late", "calibration": {"brier": 0.2, "log_loss": 0.6, "n": 10}}
+    )
+    await tools["record_predictions"].execute({  # predicted_at AFTER both captures
+        "model_id": saved["model_id"],
+        "predictions": [{"event_external_id": "L1", "market": "2way", "selection": "home", "prob": 0.60,
+                         "predicted_at": "2026-06-02T00:00:00+00:00"}],
+    })
+    report = await tools["run_backtest"].execute({"model_id": saved["model_id"], "min_edge_pct": 2.0})
+    assert report["bets"] == 1
+    bet = report["per_bet"][0]
+    assert bet["entry_odds"] == 1.90  # the close, not the juicy opener
+    assert bet["clv_pct"] == 0.0
+
+
+async def test_record_result_upserts_and_backtest_survives_corrections(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    tools = {t.name: t for t in quant_tools(db_sessionmaker, SCOPE)}
+    await tools["record_result"].execute({"event_external_id": "R1", "winning_selection": "home"})
+    await tools["record_result"].execute({"event_external_id": "R1", "winning_selection": "away"})  # correction
+    from sqlalchemy import func
+    from sqlalchemy import select as sa_select
+
+    from sportsdata_agents.data.models import EventResult
+
+    async with db_sessionmaker() as s:
+        count = (await s.execute(sa_select(func.count()).select_from(EventResult))).scalar_one()
+        row = (await s.execute(sa_select(EventResult))).scalar_one()
+    assert count == 1 and row.winning_selection == "away"

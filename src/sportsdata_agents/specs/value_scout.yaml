@@ -26,6 +26,7 @@ agent:
   tools:
     mcp_capabilities: [sport.prices]
     native: [value_finder, list_models, query_line_movement]
+  skills: [reading_line_movement, quant_concepts]
   context:
     retrieval: jit
     long_run: compact

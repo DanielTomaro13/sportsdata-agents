@@ -59,17 +59,16 @@ class TwoCaptureManager:
 
 
 async def test_p2_quant_loop_end_to_end(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
-    # ── 1. INGEST: two real feed captures → snapshots + change-points ──────
+    # ── 1. INGEST the opening market ────────────────────────────────────────
     manager = TwoCaptureManager()
     feed = FEEDS["nba_odds"]
     r1 = await ingest_once(manager, db_sessionmaker, [feed])
-    r2 = await ingest_once(manager, db_sessionmaker, [feed])
     assert r1["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2}  # first sightings
-    assert r2["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2}  # both moved
 
     tools = {t.name: t for t in quant_tools(db_sessionmaker, SCOPE)}
 
     # ── 2. MODEL: calibrate on holdout, persist WITH the record, predict ───
+    # (prediction happens AFTER the opening capture — entry discipline is real)
     calib = calibration_report(
         [{"prob": 0.7, "outcome": 1}, {"prob": 0.7, "outcome": 1},
          {"prob": 0.7, "outcome": 0}, {"prob": 0.3, "outcome": 0}]
@@ -85,6 +84,10 @@ async def test_p2_quant_loop_end_to_end(db_sessionmaker: async_sessionmaker[Asyn
              "provider": "nba_cdn"},
         ],
     })
+
+    # ── the market moves after the prediction: the closing capture ─────────
+    r2 = await ingest_once(manager, db_sessionmaker, [feed])
+    assert r2["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2}  # both moved
 
     # ── 3. VALUE: model vs the ENTRY market → the +EV alert ───────────────
     movement = await tools["query_line_movement"].execute({"event_external_id": "G1"})

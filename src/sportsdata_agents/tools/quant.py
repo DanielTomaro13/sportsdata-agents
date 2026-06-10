@@ -71,7 +71,9 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         return {"model_id": model_id, "name": args["name"], "version": version, "calibration": calibration}
 
     async def record_predictions(args: dict[str, Any]) -> Any:
-        """{model_id, predictions: [{event_external_id, selection, prob, market?, provider?}]}"""
+        """{model_id, predictions: [{event_external_id, selection, prob, market?,
+        provider?, predicted_at?}]} — predicted_at (ISO) backdates a prediction so
+        historical scenarios backtest with honest entry prices (default: now)."""
         model_uuid = uuid.UUID(str(args["model_id"]))
         rows = args.get("predictions") or []
         if not rows:
@@ -85,6 +87,9 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 prob = float(r["prob"])
                 if not 0.0 <= prob <= 1.0:
                     raise ValueError(f"prob {prob} outside [0, 1]")
+                predicted_at = (
+                    dt.datetime.fromisoformat(str(r["predicted_at"])) if r.get("predicted_at") else now
+                )
                 session.add(
                     Prediction(
                         tenant_id=scope.tenant_id,
@@ -95,7 +100,7 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                         market=str(r.get("market", "")),
                         selection=str(r["selection"]),
                         prob=Decimal(str(round(prob, 5))),
-                        predicted_at=now,
+                        predicted_at=predicted_at,
                     )
                 )
             await session.commit()
@@ -147,19 +152,30 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
 
     async def record_result(args: dict[str, Any]) -> Any:
         """{event_external_id, winning_selection, sport?, provider?} → journal a final
-        result into the GLOBAL results table (what backtests settle against)."""
+        result into the GLOBAL results table (what backtests settle against).
+        Upserts: re-recording an event corrects the result, never duplicates it."""
+        event_id = str(args["event_external_id"])
         async with session_factory() as session:
-            session.add(
-                EventResult(
-                    provider=str(args.get("provider", "")),
-                    sport=str(args.get("sport", "")),
-                    event_external_id=str(args["event_external_id"]),
-                    winning_selection=str(args["winning_selection"]),
-                    settled_at=dt.datetime.now(dt.UTC),
-                )
+            existing = (
+                (await session.execute(select(EventResult).where(EventResult.event_external_id == event_id)))
+                .scalars()
+                .first()
             )
+            if existing is not None:
+                existing.winning_selection = str(args["winning_selection"])
+                existing.settled_at = dt.datetime.now(dt.UTC)
+            else:
+                session.add(
+                    EventResult(
+                        provider=str(args.get("provider", "")),
+                        sport=str(args.get("sport", "")),
+                        event_external_id=event_id,
+                        winning_selection=str(args["winning_selection"]),
+                        settled_at=dt.datetime.now(dt.UTC),
+                    )
+                )
             await session.commit()
-        return {"recorded": args["event_external_id"], "winner": args["winning_selection"]}
+        return {"recorded": event_id, "winner": args["winning_selection"]}
 
     async def query_line_movement(args: dict[str, Any]) -> Any:
         """{event_external_id, market?, selection?, book?} → change-point price series
@@ -212,6 +228,10 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                             "prob": {"type": "number"},
                             "market": {"type": "string"},
                             "provider": {"type": "string"},
+                            "predicted_at": {
+                                "type": "string",
+                                "description": "ISO timestamp; backdate for historical backtests",
+                            },
                         },
                         "required": ["event_external_id", "selection", "prob"],
                     },

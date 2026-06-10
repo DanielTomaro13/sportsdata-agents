@@ -1,10 +1,14 @@
 """Backtesting (M2.3, P8): replay the price series + results against predictions.
 
 Strategy under test: flat-stake 1 unit on any prediction whose edge at the ENTRY
-price (the first change-point we captured) clears ``min_edge_pct``. Settlement comes
-from ``event_results``; CLV compares entry to the CLOSING price (the last
-change-point) — the §16.3 gold metric: a strategy that beats the close has edge
-even when short-run results wobble.
+price clears ``min_edge_pct``. Settlement comes from ``event_results``; CLV compares
+entry to the CLOSING price (the last change-point) — the §16.3 gold metric: a
+strategy that beats the close has edge even when short-run results wobble.
+
+Entry discipline (no lookahead): the entry price is what you could actually GET at
+prediction time — the prevailing change-point at ``predicted_at``, or the first one
+after it when the prediction predates every capture. Taking the first-ever captured
+price regardless would credit the model with prices it never saw.
 """
 
 from __future__ import annotations
@@ -56,15 +60,26 @@ async def run_backtest(
                 skipped["no_price"] += 1
                 continue
             result = (
-                await session.execute(
-                    select(EventResult).where(EventResult.event_external_id == pred.event_external_id)
+                (
+                    await session.execute(
+                        select(EventResult)
+                        .where(EventResult.event_external_id == pred.event_external_id)
+                        .order_by(EventResult.settled_at.desc().nulls_last())
+                        .limit(1)  # duplicates must not crash the replay; newest wins
+                    )
                 )
-            ).scalar_one_or_none()
+                .scalars()
+                .first()
+            )
             if result is None:
                 skipped["no_result"] += 1
                 continue
 
-            entry, closing = float(series[0].odds), float(series[-1].odds)
+            entry_row = series[0]
+            if pred.predicted_at is not None:
+                prevailing = [r for r in series if r.changed_at <= pred.predicted_at]
+                entry_row = prevailing[-1] if prevailing else series[0]
+            entry, closing = float(entry_row.odds), float(series[-1].odds)
             prob = float(pred.prob)
             edge_pct = (prob * entry - 1.0) * 100.0
             if edge_pct < min_edge_pct:

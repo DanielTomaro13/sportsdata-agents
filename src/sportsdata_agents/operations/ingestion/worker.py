@@ -59,6 +59,8 @@ async def ingest_once(
             points = feed.normalizer(payload if isinstance(payload, dict) else {})
             stats = await record_points(session_factory, points)
             report[feed.name] = {"ok": True, **stats}
+            if not points:  # reachable but empty (off-season, shape drift) — visible, not silent
+                report[feed.name]["note"] = "feed returned no price points"
             logger.info(
                 "feed %s: %d points, %d price changes", feed.name, stats["snapshots"], stats["price_changes"]
             )
