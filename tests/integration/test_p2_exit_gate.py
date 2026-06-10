@@ -3,7 +3,6 @@ ingest → model → value → backtest → eval, every stage the real implement
 
 from __future__ import annotations
 
-import datetime as dt
 from typing import Any
 
 import pytest
@@ -98,7 +97,7 @@ async def test_p2_quant_loop_end_to_end(db_sessionmaker: async_sessionmaker[Asyn
         [{"name": "home", "prob": 0.60}, {"name": "away", "prob": 0.40}],
         min_edge_pct=5.0,
     )
-    assert value["value"] == ["home"]  # 0.6 × 2.10 − 1 = +26% edge — the computed alert
+    assert value["value"] == ["home"]  # 0.6 x 2.10 - 1 = +26% edge — the computed alert
     home_sel = next(s for s in value["selections"] if s["name"] == "home")
     assert home_sel["edge_pct"] == pytest.approx(26.0)
 
@@ -107,7 +106,7 @@ async def test_p2_quant_loop_end_to_end(db_sessionmaker: async_sessionmaker[Asyn
         {"event_external_id": "G1", "winning_selection": "home", "sport": "nba", "provider": "nba_cdn"}
     )
     report = await tools["run_backtest"].execute({"model_id": saved["model_id"], "min_edge_pct": 5.0})
-    assert report["bets"] == 1  # home qualified; away's −28% edge was skipped
+    assert report["bets"] == 1  # home qualified; away's -28% edge was skipped
     assert report["skipped"]["below_edge"] == 1
     assert report["pnl"] == pytest.approx(1.10)  # entry 2.10, home won
     assert report["avg_clv_pct"] == pytest.approx(10.53, abs=0.01)  # 2.10 vs the 1.90 close
