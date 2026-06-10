@@ -18,11 +18,20 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
-from sportsdata_agents.agents.harness import CompletionProvider, Harness, RunResult, ToolDef, Verifier
+from sportsdata_agents.agents.harness import (
+    CURRENT_RUN_BUDGET,
+    CompletionProvider,
+    Harness,
+    RunResult,
+    ToolDef,
+    Verifier,
+)
 from sportsdata_agents.agents.skills import load_skillset
 from sportsdata_agents.agents.spec import AgentSpec
 from sportsdata_agents.mcp.manager import MCPManager
+from sportsdata_agents.mcp.pool import MCPSessionPool
 from sportsdata_agents.mcp.toolset import bridge_mcp_tools
+from sportsdata_agents.models.gateway import RunBudget
 from sportsdata_agents.tools.registry import get_native_tools
 from sportsdata_agents.workspace import Workspace
 
@@ -36,7 +45,9 @@ def delegate_tool(runtime: AgentRuntime) -> ToolDef:
         task = str(args.get("task", "")).strip()
         if not task:
             return "error: delegation requires a non-empty `task`"
-        result = await runtime.run(task)
+        # Charge the CALLER's budget: a team run shares one per-run ceiling (§16.1) —
+        # otherwise "per-run" would multiply by the number of delegations.
+        result = await runtime.run(task, budget=CURRENT_RUN_BUDGET.get())
         return json.dumps(
             {
                 "agent": spec.id,
@@ -68,6 +79,7 @@ class AgentRuntime:
         provider: CompletionProvider,
         workspace: Workspace,
         mcp_command: Sequence[str] | None = None,
+        pool: MCPSessionPool | None = None,
         delegates: Sequence[AgentRuntime] = (),
         skills_root: Path | None = None,
         verifier: Verifier | None = None,
@@ -77,6 +89,8 @@ class AgentRuntime:
         self.provider = provider
         self.workspace = workspace
         self._mcp_command = mcp_command
+        self._pool = pool
+        self._owns_manager = False
         self._delegates = list(delegates)
         # The spec is the ACL: a runtime must not bind delegates the spec never declared.
         undeclared = [d.spec.id for d in self._delegates if d.spec.id not in spec.can_delegate_to]
@@ -98,8 +112,14 @@ class AgentRuntime:
             if needs_mcp:
                 # Subprocess scope: the spec's groups, else the workspace ceiling (§13).
                 groups = list(self.spec.tools.mcp_groups) or list(self.workspace.mcp_groups)
-                self._manager = MCPManager(groups=groups, command=self._mcp_command)
-                await self._manager.__aenter__()
+                if self._pool is not None:
+                    # Borrowed: the pool owns it — identical scopes share one subprocess.
+                    self._manager = await self._pool.get(groups)
+                    self._owns_manager = False
+                else:
+                    self._manager = MCPManager(groups=groups, command=self._mcp_command)
+                    await self._manager.__aenter__()
+                    self._owns_manager = True
                 tools.extend(await bridge_mcp_tools(self._manager, self.spec.tools.mcp_capabilities or None))
 
             for sub in self._delegates:
@@ -127,16 +147,17 @@ class AgentRuntime:
         tb: TracebackType | None,
     ) -> None:
         try:
-            if self._manager is not None:
+            if self._manager is not None and self._owns_manager:
                 await self._manager.__aexit__(exc_type, exc, tb)
         finally:
             self._manager = None
+            self._owns_manager = False
             self.harness = None
 
-    async def run(self, task: str) -> RunResult:
+    async def run(self, task: str, *, budget: RunBudget | None = None) -> RunResult:
         if self.harness is None:
             raise RuntimeError("AgentRuntime is not started; use `async with AgentRuntime(...)`")
-        return await self.harness.run(task)
+        return await self.harness.run(task, budget=budget)
 
 
 @asynccontextmanager
@@ -147,13 +168,17 @@ async def open_team(
     provider: CompletionProvider,
     workspace: Workspace,
     mcp_command: Sequence[str] | None = None,
+    pool: MCPSessionPool | None = None,
     skills_root: Path | None = None,
     verifier: Verifier | None = None,
 ) -> AsyncIterator[AgentRuntime]:
     """Open the root agent with its delegates bound (one level deep — the Tier-0 model:
-    the orchestrator delegates to specialists; specialists do not delegate further)."""
+    the orchestrator delegates to specialists; specialists do not delegate further).
+    Agents with identical MCP scopes share one subprocess via the session pool."""
     root_spec = specs[root_id]
     async with AsyncExitStack() as stack:
+        if pool is None:
+            pool = await stack.enter_async_context(MCPSessionPool(command=mcp_command))
         delegates: list[AgentRuntime] = []
         for target_id in root_spec.can_delegate_to:
             if target_id not in specs:
@@ -170,6 +195,7 @@ async def open_team(
                 provider=provider,
                 workspace=workspace,
                 mcp_command=mcp_command,
+                pool=pool,
                 skills_root=skills_root,
                 verifier=verifier,
             )
@@ -179,6 +205,7 @@ async def open_team(
             provider=provider,
             workspace=workspace,
             mcp_command=mcp_command,
+            pool=pool,
             delegates=delegates,
             skills_root=skills_root,
             verifier=verifier,

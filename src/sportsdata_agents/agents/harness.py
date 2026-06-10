@@ -14,6 +14,7 @@ control. The agent-spec abstraction stays runtime-neutral.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import time
@@ -67,6 +68,13 @@ def is_thrashing(
     return False
 # How many times a failed verification is fed back for another attempt.
 VERIFY_RETRIES = 1
+
+# The budget of the currently-executing run, visible to tools (async-safe). This is how
+# a delegated sub-agent charges the SAME ceiling as its caller — without it, "per-run"
+# would mean per-harness, and a team run could spend ceiling x (1 + delegations) (§16.1).
+CURRENT_RUN_BUDGET: contextvars.ContextVar[RunBudget | None] = contextvars.ContextVar(
+    "current_run_budget", default=None
+)
 
 
 class CompletionProvider(Protocol):
@@ -183,7 +191,9 @@ class Harness:
 
     # ── the loop ───────────────────────────────────────────────────────────
 
-    async def run(self, user_input: str) -> RunResult:
+    async def run(self, user_input: str, *, budget: RunBudget | None = None) -> RunResult:
+        """Run the loop. ``budget`` shares an existing ceiling (a delegated sub-agent
+        charges its caller's budget); omitted = a fresh per-run budget."""
         system = self.spec.system_prompt
         if self.skills and len(self.skills):
             system = f"{system}\n\n{self.skills.index_text()}"
@@ -193,7 +203,14 @@ class Harness:
         ]
         self._disclose_skills(messages, user_input)
 
-        budget = RunBudget(ceiling_usd=self.cost_ceiling_usd)
+        budget = budget if budget is not None else RunBudget(ceiling_usd=self.cost_ceiling_usd)
+        budget_token = CURRENT_RUN_BUDGET.set(budget)
+        try:
+            return await self._loop(messages, budget)
+        finally:
+            CURRENT_RUN_BUDGET.reset(budget_token)
+
+    async def _loop(self, messages: list[dict[str, Any]], budget: RunBudget) -> RunResult:
         deadline = self._now() + self.timeout_seconds
         tool_schemas = [t.schema for t in self.tools.values()]
         steps = 0

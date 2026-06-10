@@ -14,6 +14,7 @@ import pytest
 
 from sportsdata_agents.agents.loader import load_builtin_specs
 from sportsdata_agents.agents.runtime import AgentRuntime, open_team
+from sportsdata_agents.mcp.pool import MCPSessionPool
 from sportsdata_agents.models.gateway import ModelGateway, UsageEvent
 from sportsdata_agents.workspace import Budgets, Workspace
 
@@ -56,6 +57,17 @@ async def test_specialist_capabilities_resolve_against_real_catalogue() -> None:
         assert "mlb_teams" in names  # ref.teams
         assert "mlb_boxscore" in names  # sport.match_boxscore
         assert not any("betting" in n or n.startswith("datagolf_outrights") for n in names)
+
+
+async def test_team_shares_one_subprocess_for_identical_scopes() -> None:
+    """Both specialists are unscoped ('*') → the pool must spawn exactly ONE server."""
+    specs = load_builtin_specs()
+    async with (
+        MCPSessionPool(command=[str(MCP_BIN)]) as pool,
+        open_team(specs, "orchestrator", provider=_NeverCalledProvider(), workspace=WS, pool=pool) as team,
+    ):
+        assert team.harness is not None
+        assert len(pool) == 1, f"expected 1 shared subprocess, pool has {len(pool)}"
 
 
 # Provider-agnostic live E2E: uses whichever key is present. A FREE-tier key works —
