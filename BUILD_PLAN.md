@@ -241,7 +241,7 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [ ] **Artifact delivery to Slack**: `run_python` charts land in `./artifacts/` on the server; surface artifact paths through `MessageOut` and upload via `files_upload_v2` in the adapter.
 - [ ] **E2B by default for `data_analysis`** once ingestion (M2.1) starts flowing third-party text into prompts — the local sandbox cannot contain prompt-injected exfiltration (documented in `sandboxes/base.py`).
 
-- [ ] **🚪 P2 EXIT GATE:** end-to-end quant loop (ingest → model → value → backtest → eval) green.
+- [x] **🚪 P2 EXIT GATE — CLOSED** (2026-06-10): end-to-end quant loop green on one warehouse, every stage the real implementation (`test_p2_exit_gate.py`): two ingest captures (entry 2.10 → close 1.90) → model calibrated on holdout (Brier 0.19) + persisted + predictions recorded → value_finder flags home at **+26% edge** (the computed alert) → result settles, backtest replays: 1 qualifying bet, P&L +1.10, **avg CLV +10.53% > 0**, below-edge skip counted → offline eval gate green on baseline. Live legs verified separately: real NBA feed captured twice with dedupe (M2.1), all 4 `-m eval` cases with the real model (M2.4). **Quant caveat, stated plainly:** the exit gates prove the MACHINERY (capture→calibrate→edge→CLV→gate); profitable models are an ongoing practice, not a milestone — golden datasets pin the math, the weekly eval gate watches for regressions.
 
 ---
 
