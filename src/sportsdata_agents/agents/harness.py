@@ -222,6 +222,21 @@ class Harness:
         self.cost_ceiling_usd = min(lim.cost_ceiling_usd, b.per_run_usd)
         self.timeout_seconds = min(lim.timeout_seconds, b.timeout_seconds)
         self.context_token_limit = min(lim.max_tokens, b.max_tokens)
+        # Clamping is correct (§8.1) but must never be SILENT: a spec author reading
+        # "timeout: 600" deserves to know the workspace ceiling made it 300.
+        clamped = [
+            f"{name} {declared}→{effective}"
+            for name, declared, effective in (
+                ("max_steps", lim.max_steps, self.max_steps),
+                ("max_tool_calls", lim.max_tool_calls, self.max_tool_calls),
+                ("cost_ceiling_usd", lim.cost_ceiling_usd, self.cost_ceiling_usd),
+                ("timeout_seconds", lim.timeout_seconds, self.timeout_seconds),
+                ("max_tokens", lim.max_tokens, self.context_token_limit),
+            )
+            if effective < declared
+        ]
+        if clamped:
+            logger.info("%s: workspace budget clamps spec limits: %s", spec.id, "; ".join(clamped))
 
     # ── the loop ───────────────────────────────────────────────────────────
 

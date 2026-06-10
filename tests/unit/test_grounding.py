@@ -56,6 +56,16 @@ def test_echoed_user_number_passes() -> None:
     assert ok
 
 
+def test_digit_soup_does_not_verify_a_fabrication() -> None:
+    """The verbatim-text fallback is boundary-guarded: a fabricated 42 must not pass
+    because some longer figure/id in the evidence CONTAINS the digits '42'."""
+    ok, feedback = grounding_verifier("scored 42 points", ["q", '{"game_id": 15423, "season": 2024}'])
+    assert not ok and "42" in feedback
+    # ...but the same 42 standing alone in evidence verifies fine
+    ok, _ = grounding_verifier("scored 42 points", ["q", '{"points": 42}'])
+    assert ok
+
+
 def test_comma_and_decimal_normalization_matches() -> None:
     ok, _ = grounding_verifier("the crowd was 47,123", ["q", '{"attendance": 47123}'])
     assert ok

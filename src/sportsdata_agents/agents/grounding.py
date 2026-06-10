@@ -61,7 +61,11 @@ def _claim_matches(claim: str, evidence_numbers: set[str], evidence_text: str) -
     tool figures (2.0526 → "≈2.05") and percent-convert probabilities (0.5 → "50%");
     flagging those burns the retry on honest answers. Fabrications stay caught —
     58 cannot round to 62 at any scale."""
-    if claim in evidence_numbers or claim in evidence_text:
+    if claim in evidence_numbers:
+        return True
+    # Verbatim form in the raw text — BOUNDARY-GUARDED, never bare substring: a
+    # fabricated "42" must not verify because "15423" appears in some id/figure.
+    if re.search(rf"(?<![\d.]){re.escape(claim)}(?![\d.])", evidence_text):
         return True
     value = float(claim)
     decimals = len(claim.split(".")[1]) if "." in claim else 0

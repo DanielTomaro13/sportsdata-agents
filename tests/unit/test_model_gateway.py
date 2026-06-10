@@ -175,14 +175,18 @@ async def test_cost_failure_never_crashes_and_is_flagged(fake: _FakeLiteLLM, mon
     assert events[0].cost_known is False
 
 
-async def test_call_timeout_defaults_from_workspace_budget(fake: _FakeLiteLLM) -> None:
-    """A wedged provider can't hang the run: budget timeout rides on every call."""
-    ws = Workspace(budgets=Budgets(timeout_seconds=42))
+async def test_call_timeout_tighter_of_default_and_budget(fake: _FakeLiteLLM) -> None:
+    """A wedged provider can't hang the run — and one CALL can't eat the run's whole
+    deadline either: the per-call timeout is min(120s default, workspace budget)."""
+    ws = Workspace(budgets=Budgets(timeout_seconds=42))  # tighter than the 120s default
     await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=ws)
     assert fake.kwargs[0]["timeout"] == 42
+    roomy = Workspace(budgets=Budgets(timeout_seconds=600))  # default caps it at 120
+    await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=roomy)
+    assert fake.kwargs[1]["timeout"] == 120.0
     # caller override wins
     await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=ws, timeout=7)
-    assert fake.kwargs[1]["timeout"] == 7
+    assert fake.kwargs[2]["timeout"] == 7
 
 
 async def test_output_token_cap_defaults_and_overrides(fake: _FakeLiteLLM) -> None:

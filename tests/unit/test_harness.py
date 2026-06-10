@@ -459,6 +459,18 @@ async def test_concurrent_runs_keep_their_own_recorders() -> None:
     assert base.events == []  # overridden runs never leak into the default recorder
 
 
+def test_spec_limit_clamping_is_logged_not_silent(caplog: pytest.LogCaptureFixture) -> None:
+    """§8.1 clamping is correct but must be visible: a spec declaring 600s on a 300s
+    workspace runs at 300 — and says so in the log."""
+    spec = make_spec(limits={"timeout_seconds": 600, "cost_ceiling_usd": 1.00})
+    with caplog.at_level("INFO", logger="sportsdata_agents.agents.harness"):
+        h = Harness(spec, provider=ScriptedProvider(text_reply("x")), workspace=WS)
+    assert h.timeout_seconds == 300 and h.cost_ceiling_usd == 0.50  # defaults clamp
+    log = "\n".join(r.message for r in caplog.records)
+    assert "clamps spec limits" in log
+    assert "timeout_seconds 600→300" in log and "cost_ceiling_usd 1.0→0.5" in log
+
+
 async def test_run_without_override_still_uses_default_recorder() -> None:
     base = _ListRecorder()
     h = Harness(

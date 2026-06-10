@@ -42,6 +42,9 @@ DEFAULT_MAX_OUTPUT_TOKENS = 1500
 # (litellm's own retries don't wait long enough) up to this many attempts / seconds.
 RATE_LIMIT_RETRIES = 4
 RATE_LIMIT_MAX_WAIT_S = 20.0
+# Per-call wall clock: one wedged provider call must not eat the RUN's whole deadline
+# (the workspace timeout is the run ceiling; this leaves headroom for fallback/retry).
+DEFAULT_CALL_TIMEOUT_S = 120.0
 
 _RETRY_AFTER_RE = re.compile(r"(?:try again|retry) in ([\d.]+)s", re.IGNORECASE)
 
@@ -203,9 +206,9 @@ class ModelGateway:
         if budget is not None:
             budget.check()
 
-        # A wedged provider must not hang the run: default the call timeout from the
-        # workspace budget (callers can still override via kwargs).
-        kwargs.setdefault("timeout", workspace.budgets.timeout_seconds)
+        # A wedged provider must not hang the run: per-call timeout tighter than the
+        # run deadline so fallback/retry still get a turn (callers override via kwargs).
+        kwargs.setdefault("timeout", min(DEFAULT_CALL_TIMEOUT_S, workspace.budgets.timeout_seconds))
         kwargs.setdefault("max_tokens", DEFAULT_MAX_OUTPUT_TOKENS)
 
         primary, fallback = self.policy.models_for_tier(tier, workspace)
