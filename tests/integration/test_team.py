@@ -58,14 +58,47 @@ async def test_specialist_capabilities_resolve_against_real_catalogue() -> None:
         assert not any("betting" in n or n.startswith("datagolf_outrights") for n in names)
 
 
+# Provider-agnostic live E2E: uses whichever key is present. A FREE-tier key works —
+# e.g. Google AI Studio (GEMINI_API_KEY) or Groq (GROQ_API_KEY) cost $0.
+_LIVE_PROVIDERS: list[tuple[str, str | None]] = [
+    ("ANTHROPIC_API_KEY", None),  # None = use the policy's default tiers
+    ("GEMINI_API_KEY", "gemini/gemini-2.0-flash"),
+    ("GROQ_API_KEY", "groq/llama-3.3-70b-versatile"),
+    ("OPENAI_API_KEY", "openai/gpt-4o-mini"),
+]
+
+
+def _live_model_override() -> str | None | object:
+    for env_name, model in _LIVE_PROVIDERS:
+        if os.environ.get(env_name):
+            return model
+    return _NO_KEY
+
+
+_NO_KEY = object()
+
+
 @pytest.mark.live
-@pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="ANTHROPIC_API_KEY not set")
+@pytest.mark.skipif(
+    _live_model_override() is _NO_KEY,
+    reason="no model API key set (any of ANTHROPIC/GEMINI/GROQ/OPENAI _API_KEY; Gemini/Groq free tiers work)",
+)
 async def test_team_end_to_end_real_model() -> None:
     """P0's headline: orchestrator delegates to a specialist over the real MCP with a
     real model, and the answer comes back grounded + metered."""
     events: list[UsageEvent] = []
     gateway = ModelGateway(usage_sink=events.append)
-    ws = Workspace(tenant_id="t", workspace_id="w", budgets=Budgets(per_run_usd=0.50, timeout_seconds=180))
+
+    override = _live_model_override()
+    model_tiers: dict[str, str] = {}
+    if isinstance(override, str):  # pin every tier to the available provider's model
+        model_tiers = {"fast": override, "balanced": override, "strong": override}
+    ws = Workspace(
+        tenant_id="t",
+        workspace_id="w",
+        budgets=Budgets(per_run_usd=0.50, timeout_seconds=180),
+        model_tiers=model_tiers,
+    )
 
     specs = load_builtin_specs()
     async with open_team(
