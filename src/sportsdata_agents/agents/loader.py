@@ -15,6 +15,7 @@ import yaml
 from pydantic import ValidationError
 
 from .outputs import OUTPUT_TYPES
+from .skills import builtin_skills_dir as builtin_skills_root
 from .spec import AgentSpec, AgentSpecFile
 
 
@@ -89,6 +90,11 @@ def lint_specs(specs: dict[str, AgentSpec]) -> list[str]:
                 f"{spec.id}: output_type {spec.output_type!r} is not registered "
                 f"(known: {sorted(OUTPUT_TYPES)})"
             )
+        for skill in spec.skills:
+            # Same class of authoring error as an unknown output_type: catch it offline,
+            # not at runtime build. (Custom skills_roots are a runtime concern.)
+            if not (builtin_skills_root() / skill / "SKILL.md").is_file():
+                problems.append(f"{spec.id}: skill {skill!r} not found in the packaged skills")
     problems.extend(_delegation_cycles(specs))
     return problems
 

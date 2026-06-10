@@ -46,6 +46,25 @@ async def test_probability_bounds_enforced(tool: str) -> None:
         await NATIVE_TOOLS[tool].execute({"probability": 1.5, "odds": 2.0})
 
 
+@pytest.mark.parametrize("tool", ["expected_value", "kelly_fraction", "implied_probability"])
+async def test_malformed_odds_rejected_consistently(tool: str) -> None:
+    """All odds-taking tools share the same floor — sub-1.01 'odds' are malformed input."""
+    args: dict[str, Any] = {"probability": 0.5, "odds": 0.5} if tool != "implied_probability" else {"odds": 0.5}
+    with pytest.raises(ValueError, match="odds"):
+        await NATIVE_TOOLS[tool].execute(args)
+
+
+def test_lint_flags_unknown_skill() -> None:
+    from sportsdata_agents.agents.loader import lint_specs
+    from sportsdata_agents.agents.spec import AgentSpec
+
+    spec = AgentSpec.model_validate(
+        {"id": "a", "display_name": "a", "system_prompt": "x", "skills": ["ghost_skill"]}
+    )
+    problems = lint_specs({"a": spec})
+    assert any("ghost_skill" in p for p in problems)
+
+
 def test_kelly_name_dodges_the_deny_filter_deliberately() -> None:
     """The naming matters: 'kelly_stake' would (rightly) be denied; kelly_fraction is
     informational and passes."""
@@ -76,8 +95,10 @@ def test_builtin_skill_triggers_avoid_false_positives() -> None:
 async def test_odds_specialist_runs_with_builtin_skills_end_to_end() -> None:
     """Exit gate: the odds specialist's skills disclose JIT in a real harness run
     (scripted model; no MCP needed — native tools only for this check)."""
+    from sportsdata_agents.agents.spec import ToolsSpec
+
     spec = load_builtin_specs()["odds_specialist"].model_copy(
-        update={"tools": type(load_builtin_specs()["odds_specialist"].tools)(native=["vig_removal", "best_price"])}
+        update={"tools": ToolsSpec(native=["vig_removal", "best_price"])}
     )
 
     class P:

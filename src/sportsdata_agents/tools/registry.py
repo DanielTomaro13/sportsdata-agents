@@ -53,6 +53,8 @@ async def expected_value(args: dict[str, Any]) -> Any:
     odds = float(args["odds"])
     if not 0.0 < p < 1.0:
         raise ValueError(f"probability must be in (0, 1), got {p}")
+    if odds < 1.01:  # same floor as implied_probability — malformed odds, not a price
+        raise ValueError(f"decimal odds must be >= 1.01, got {odds}")
     ev = p * odds - 1.0
     return {"probability": p, "odds": odds, "expected_value": round(ev, 6), "is_value": ev > 0}
 
