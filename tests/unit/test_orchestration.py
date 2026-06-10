@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -197,3 +197,58 @@ async def test_runtime_unknown_native_tool_fails_loudly() -> None:
     with pytest.raises(KeyError, match="ghost_tool"):
         async with AgentRuntime(spec, provider=ScriptedProvider(_text("x")), workspace=WS):
             pass
+
+
+async def test_runtime_rejects_undeclared_delegates() -> None:
+    """The spec's can_delegate_to is the ACL — binding an undeclared delegate is refused."""
+    async with AgentRuntime(_spec("stats_agent"), provider=ScriptedProvider(_text("x")), workspace=WS) as sub:
+        with pytest.raises(ValueError, match="not declared in can_delegate_to"):
+            AgentRuntime(_spec("orch"), provider=ScriptedProvider(_text("x")), workspace=WS, delegates=[sub])
+
+
+async def test_open_team_rejects_nested_delegation() -> None:
+    """A specialist with its own delegates would be silently unbound — loud at build time."""
+    from sportsdata_agents.agents.runtime import open_team
+
+    specs = {
+        "orch": _spec("orch", can_delegate_to=["mid"]),
+        "mid": _spec("mid", can_delegate_to=["leaf"]),
+        "leaf": _spec("leaf"),
+    }
+    with pytest.raises(ValueError, match="one level only"):
+        async with open_team(specs, "orch", provider=ScriptedProvider(_text("x")), workspace=WS):
+            pass
+
+
+async def test_runtime_cleans_up_manager_when_bridge_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CapabilityResolutionError AFTER the subprocess spawned must not leak it (M0.4 lesson)."""
+    from sportsdata_agents.agents import runtime as rt
+
+    class FakeManager:
+        instances: ClassVar[list[FakeManager]] = []
+
+        def __init__(self, **kw: Any) -> None:
+            self.entered = False
+            self.exited = False
+            FakeManager.instances.append(self)
+
+        async def __aenter__(self) -> FakeManager:
+            self.entered = True
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            self.exited = True
+
+        async def list_tools(self) -> list[Any]:
+            return []
+
+        async def tools_for_capability(self, capability: str) -> list[str]:
+            return []  # → CapabilityResolutionError in the bridge
+
+    monkeypatch.setattr(rt, "MCPManager", FakeManager)
+    spec = _spec("capped", tools={"mcp_capabilities": ["sport.prices"]})
+    with pytest.raises(Exception, match=r"sport\.prices"):
+        async with AgentRuntime(spec, provider=ScriptedProvider(_text("x")), workspace=WS):
+            pass
+    mgr = FakeManager.instances[-1]
+    assert mgr.entered and mgr.exited, "spawned manager leaked after bridge failure"

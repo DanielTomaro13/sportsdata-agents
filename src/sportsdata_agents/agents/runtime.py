@@ -78,6 +78,10 @@ class AgentRuntime:
         self.workspace = workspace
         self._mcp_command = mcp_command
         self._delegates = list(delegates)
+        # The spec is the ACL: a runtime must not bind delegates the spec never declared.
+        undeclared = [d.spec.id for d in self._delegates if d.spec.id not in spec.can_delegate_to]
+        if undeclared:
+            raise ValueError(f"{spec.id}: delegates {undeclared} are not declared in can_delegate_to (§13)")
         self._skills_root = skills_root
         self._verifier = verifier
         self._now = now
@@ -154,6 +158,13 @@ async def open_team(
         for target_id in root_spec.can_delegate_to:
             if target_id not in specs:
                 raise KeyError(f"{root_id} delegates to unknown agent {target_id!r}")
+            if specs[target_id].can_delegate_to:
+                # Silently unbound delegation would surface as confusing unknown-tool
+                # errors at runtime; fail at build time instead.
+                raise ValueError(
+                    f"{target_id} declares can_delegate_to but open_team wires one level only "
+                    f"(orchestrator → specialists); nested delegation is not supported yet"
+                )
             sub = AgentRuntime(
                 specs[target_id],
                 provider=provider,
