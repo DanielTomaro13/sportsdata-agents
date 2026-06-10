@@ -129,11 +129,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] **Data-plane enabler shipped (`sportsdata-mcp` v0.2.2):** `SPORTSDATA_MCP_GROUPS="*"` wildcard — found via integration test: "no groups env" means *nothing* enabled, so capability-only specs resolved to zero tools. Manager now sets `"*"` explicitly when unscoped.
 - [x] **Exit gate:** offline — delegation flow end-to-end (orchestrator → specialist → condensed result → synthesis) with isolation assertions; bridge filter/zero-cap/execute tests; native-tool golden values. Integration (real MCP subprocess) — **both bundled specialists' capability tags resolve to real tools** through the wildcard catalogue. Live E2E (real model over real MCP, metered, delegation-asserted) written; **skips without `ANTHROPIC_API_KEY`** — run it when a key is set. ruff/mypy clean; **124 passed**. *(Parallel delegation noted as a later optimization — batch tool calls currently execute sequentially.)*
 
-### M0.9 — First specialists
-- [ ] `specs/odds_specialist.yaml` (`sport.prices`, `sport.event_markets`; native `vig_removal`, `implied_probability`; output `OddsComparison`).
-- [ ] `specs/stats_specialist.yaml` (data groups; output `StatsAnswer`).
-- [ ] `specs/orchestrator.yaml`.
-- [ ] **Exit gate:** each specialist answers a scoped question via the MCP with correct typed output.
+### M0.9 — First specialists (typed outputs) ✅
+- [x] *(Specs shipped at M0.6, live-proven at M0.8 — this milestone delivered the missing piece: typed outputs.)*
+- [x] `agents/outputs.py`: registered result schemas — `OddsComparison` (quotes/best/fair_probability/sources) + `StatsAnswer` (answer + sourced facts); `OUTPUT_TYPES` registry (loud on unknown); `parse_output` (fence/prose-tolerant JSON extraction → pydantic validation); `schema_instructions`. **Portable**: plain JSON-in-text, no vendor structured-output APIs.
+- [x] Harness enforcement: `output_type` resolved at construction (loud); schema instructions appended to the system prompt; final answers parsed with **one format-feedback retry**, then surfaced honestly (`parsed=None`, raw text kept). `RunResult.parsed` carries the validated instance.
+- [x] `odds_specialist` → `OddsComparison`; `stats_specialist` → `StatsAnswer`; orchestrator stays free-text (synthesis). Lint cross-checks `output_type` against the registry.
+- [x] **Exit gate:** offline — registry/parse formats (bare/fenced/prose)/schema-error/harness parse/feedback-retry/give-up/unknown-type/lint, 12 tests. **Live** — `stats_specialist` answered a scoped question via the real MCP with a **validated `StatsAnswer`** (Yankees, sources cited). ruff/mypy clean; offline **147 passed**, live **3 passed**.
 
 ### M0.10 — Native tools + first skills
 - [ ] `tools/`: `vig_removal`, `implied_probability`, `best_price`, DB helpers — deterministic, unit-tested.

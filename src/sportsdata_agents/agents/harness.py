@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
+from sportsdata_agents.agents.outputs import get_output_type, parse_output, schema_instructions
 from sportsdata_agents.agents.skills import SkillSet
 from sportsdata_agents.agents.spec import AgentSpec
 from sportsdata_agents.mcp.manager import is_denied
@@ -68,6 +69,8 @@ def is_thrashing(
     return False
 # How many times a failed verification is fed back for another attempt.
 VERIFY_RETRIES = 1
+# How many times a schema-invalid final answer is fed back for reformatting.
+PARSE_RETRIES = 1
 
 # The budget of the currently-executing run, visible to tools (async-safe). This is how
 # a delegated sub-agent charges the SAME ceiling as its caller — without it, "per-run"
@@ -122,6 +125,8 @@ class RunResult:
     tool_call_count: int
     cost_usd: float
     verified: bool | None = None
+    # The validated output_type instance when the spec declares one and parsing succeeded.
+    parsed: Any | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -175,6 +180,7 @@ class Harness:
         self.verifier = verifier
         self.compactor = compactor
         self._now = now
+        self.output_model = get_output_type(spec.output_type) if spec.output_type else None
 
         for name in self.tools:
             if is_denied(name):  # defense in depth — the spec validator already refuses these
@@ -197,6 +203,8 @@ class Harness:
         system = self.spec.system_prompt
         if self.skills and len(self.skills):
             system = f"{system}\n\n{self.skills.index_text()}"
+        if self.output_model is not None:
+            system += schema_instructions(self.output_model)
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user_input},
@@ -216,13 +224,16 @@ class Harness:
         steps = 0
         tool_call_count = 0
         verify_attempts = 0
+        parse_attempts = 0
         recent_signatures: list[str] = []
         # Under a SHARED budget (delegation), this run's cost is the delta — reporting
         # budget.spent_usd would double-count the caller's prior spend into sub-run
         # records (and corrupt the M0.11 ledger). Root runs start at 0 → team total.
         spent_before = budget.spent_usd
 
-        def result(reason: StopReason, output: str, verified: bool | None = None) -> RunResult:
+        def result(
+            reason: StopReason, output: str, verified: bool | None = None, parsed: Any | None = None
+        ) -> RunResult:
             return RunResult(
                 output=output,
                 stop_reason=reason,
@@ -230,6 +241,7 @@ class Harness:
                 tool_call_count=tool_call_count,
                 cost_usd=budget.spent_usd - spent_before,
                 verified=verified,
+                parsed=parsed,
                 messages=messages,
             )
 
@@ -266,7 +278,22 @@ class Harness:
                     return result("context_exhausted", last_text)
 
             if not reply.tool_calls:
-                # ── final answer: verify before accepting (§13.1) ──
+                # ── final answer: typed-output parse, then verification (§13.1) ──
+                parsed = None
+                if self.output_model is not None:
+                    parsed, parse_err = parse_output(reply.text, self.output_model)
+                    if parsed is None and parse_attempts < PARSE_RETRIES:
+                        parse_attempts += 1
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"[format] Your answer did not match the required JSON schema: {parse_err} "
+                                    f"— respond ONLY with valid JSON matching the schema."
+                                ),
+                            }
+                        )
+                        continue
                 if self.spec.context.verify and self.verifier is not None:
                     ok, feedback = self.verifier(reply.text)
                     if not ok and verify_attempts < VERIFY_RETRIES:
@@ -275,8 +302,8 @@ class Harness:
                             {"role": "user", "content": f"[verifier] Your answer failed verification: {feedback}"}
                         )
                         continue
-                    return result("done", reply.text, verified=ok)
-                return result("done", reply.text)
+                    return result("done", reply.text, verified=ok, parsed=parsed)
+                return result("done", reply.text, parsed=parsed)
 
             # ── act: execute the requested tools ──
             # Protocol: ALL of a batch's tool messages must directly follow the assistant

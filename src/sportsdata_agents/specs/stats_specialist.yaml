@@ -30,6 +30,7 @@ agent:
       - stats.leaders_season
       - ref.players
       - ref.teams
+  output_type: StatsAnswer
   context:
     retrieval: jit
     long_run: compact

@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from .outputs import OUTPUT_TYPES
 from .spec import AgentSpec, AgentSpecFile
 
 
@@ -83,6 +84,11 @@ def lint_specs(specs: dict[str, AgentSpec]) -> list[str]:
                 problems.append(f"{spec.id}: can_delegate_to {target!r} which is not a loaded agent")
         if spec.id in spec.can_delegate_to:
             problems.append(f"{spec.id}: an agent cannot delegate to itself")
+        if spec.output_type and spec.output_type not in OUTPUT_TYPES:
+            problems.append(
+                f"{spec.id}: output_type {spec.output_type!r} is not registered "
+                f"(known: {sorted(OUTPUT_TYPES)})"
+            )
     problems.extend(_delegation_cycles(specs))
     return problems
 

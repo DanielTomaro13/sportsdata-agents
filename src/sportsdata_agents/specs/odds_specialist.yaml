@@ -22,6 +22,7 @@ agent:
   tools:
     mcp_capabilities: [sport.prices, sport.event_markets, sport.competition_screen]
     native: [implied_probability, vig_removal, best_price]
+  output_type: OddsComparison
   context:
     retrieval: jit
     long_run: compact

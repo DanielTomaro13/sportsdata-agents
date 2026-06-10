@@ -91,10 +91,45 @@ def _live_model_override() -> str | None | object:
 _NO_KEY = object()
 
 
+def _live_workspace() -> Workspace:
+    override = _live_model_override()
+    model_tiers = (
+        {"fast": override, "balanced": override, "strong": override} if isinstance(override, str) else {}
+    )
+    return Workspace(
+        tenant_id="t",
+        workspace_id="w",
+        budgets=Budgets(per_run_usd=0.50, timeout_seconds=180),
+        model_tiers=model_tiers,
+    )
+
+
 @pytest.mark.live
 @pytest.mark.skipif(
     _live_model_override() is _NO_KEY,
-    reason="no model API key set (any of ANTHROPIC/GEMINI/GROQ/OPENAI _API_KEY; Gemini/Groq free tiers work)",
+    reason="no model API key set (any of ANTHROPIC/OPENROUTER/GEMINI/GROQ/OPENAI _API_KEY)",
+)
+async def test_specialist_returns_typed_output_live() -> None:
+    """M0.9 exit gate: a specialist answers a scoped question via the real MCP with a
+    VALIDATED typed output (StatsAnswer), sources included."""
+    from sportsdata_agents.agents.outputs import StatsAnswer
+
+    specs = load_builtin_specs()
+    async with AgentRuntime(
+        specs["stats_specialist"], provider=ModelGateway(), workspace=_live_workspace(), mcp_command=[str(MCP_BIN)]
+    ) as rt:
+        res = await rt.run("Using MLB data: which team does Aaron Judge play for? Cite the tool you used.")
+
+    assert res.stop_reason == "done", f"stopped early: {res.stop_reason} — {res.output[:200]}"
+    assert isinstance(res.parsed, StatsAnswer), f"typed parse failed; raw: {res.output[:300]}"
+    assert "yankee" in res.parsed.answer.lower()
+    assert res.parsed.sources, "typed answer carried no sources"
+
+
+@pytest.mark.live
+@pytest.mark.skipif(
+    _live_model_override() is _NO_KEY,
+    reason="no model API key set (any of ANTHROPIC/OPENROUTER/GEMINI/GROQ/OPENAI _API_KEY)",
 )
 async def test_team_end_to_end_real_model() -> None:
     """P0's headline: orchestrator delegates to a specialist over the real MCP with a
