@@ -146,23 +146,26 @@ class RunResult:
 
 
 def default_compactor(messages: list[dict[str, Any]], keep_last: int = 6) -> list[dict[str, Any]]:
-    """Deterministic compaction stub: keep the system message + the most recent turns,
-    replacing the middle with a marker. (An LLM-written summary can replace this later.)
+    """Deterministic compaction stub: keep the system message, **the original task**,
+    and the most recent turns, replacing the middle with a marker.
 
-    Contract for any compactor: the result must remain protocol-valid — a ``tool``
+    Contract for any compactor: (1) the result must remain protocol-valid — a ``tool``
     message may only ever directly follow its ``assistant``/``tool`` batch, so the kept
-    tail must not *start* with orphaned tool results.
+    tail must not *start* with orphaned tool results; (2) the FIRST user message (the
+    task) must survive — observed live: a compacted run lost its goal and the model
+    narrated "the original user query has been lost" while burning budget guessing.
     """
-    if len(messages) <= keep_last + 2:
+    if len(messages) <= keep_last + 3:
         return messages
+    head = messages[:2]  # system + the original task
     tail = messages[-keep_last:]
     # The slice can cut between an assistant(tool_calls) and its tool results — drop
     # orphaned tool messages at the head of the tail (their pairing was compacted away).
     while tail and tail[0].get("role") == "tool":
         tail = tail[1:]
-    dropped = len(messages) - 1 - len(tail)
+    dropped = len(messages) - len(head) - len(tail)
     return [
-        messages[0],
+        *head,
         {"role": "user", "content": f"[context compacted: {dropped} earlier messages summarised away]"},
         *tail,
     ]

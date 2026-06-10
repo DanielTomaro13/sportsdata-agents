@@ -287,11 +287,13 @@ async def test_reset_policy_stops_for_handoff() -> None:
     assert res.stop_reason == "context_exhausted"
 
 
-def test_default_compactor_keeps_system_and_recent() -> None:
+def test_default_compactor_keeps_system_task_and_recent() -> None:
     msgs = [{"role": "system", "content": "s"}] + [{"role": "user", "content": str(i)} for i in range(10)]
     out = default_compactor(msgs, keep_last=3)
     assert out[0]["role"] == "system"
-    assert "compacted" in out[1]["content"]
+    assert out[1]["content"] == "0"  # the ORIGINAL TASK survives compaction (observed live: losing
+    # it made the model burn budget guessing what was asked)
+    assert "compacted" in out[2]["content"]
     assert [m["content"] for m in out[-3:]] == ["7", "8", "9"]
 
 
@@ -306,10 +308,10 @@ def test_default_compactor_drops_orphaned_tool_heads() -> None:
         {"role": "assistant", "content": "answer"},
         {"role": "user", "content": "next"},
     ]
-    # keep_last=4 would slice starting at the two tool messages → must be dropped
-    out = default_compactor(msgs, keep_last=4)
-    kept_roles = [m["role"] for m in out[2:]]
-    assert kept_roles[0] != "tool", f"orphaned tool head survived: {kept_roles}"
+    # keep_last=3 slices starting at a tool message → orphans must be dropped
+    out = default_compactor(msgs, keep_last=3)
+    kept_roles = [m["role"] for m in out[3:]]  # after system + task + marker
+    assert kept_roles and kept_roles[0] != "tool", f"orphaned tool head survived: {kept_roles}"
 
 
 # ── verification (§13.1 hook) ────────────────────────────────────────────

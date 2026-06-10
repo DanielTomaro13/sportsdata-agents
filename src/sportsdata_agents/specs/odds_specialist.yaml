@@ -22,14 +22,14 @@ agent:
   tools:
     mcp_capabilities: [sport.prices, sport.event_markets, sport.competition_screen]
     native: [implied_probability, vig_removal, best_price, expected_value]
-  skills: [vig_removal, compare_odds]
+  skills: [vig_removal, compare_odds, book_navigation]
   output_type: OddsComparison
   context:
     retrieval: jit
     long_run: compact
     verify: true
   limits:
-    max_tool_calls: 25
+    max_tool_calls: 40
     max_steps: 40
     max_tokens: 120000
     timeout_seconds: 300

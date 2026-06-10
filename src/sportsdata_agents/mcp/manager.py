@@ -76,14 +76,22 @@ class MCPManager:
         self._session_cm: Any = None
         self._tools_cache: list[Any] | None = None
 
-    # ── lifecycle ──────────────────────────────────────────────────────────
-
-    async def __aenter__(self) -> Self:
+    def _subprocess_env(self) -> dict[str, str]:
         env = {**os.environ, **self._extra_env}
         # Empty groups = deliberately unscoped: ask the server for the FULL catalogue
         # ("*" wildcard, sportsdata-mcp >= v0.2.2). Without this, no env var would mean
         # "nothing enabled" — only the meta-tools — and capability filters resolve empty.
         env["SPORTSDATA_MCP_GROUPS"] = ",".join(self.groups) if self.groups else "*"
+        # Megabyte bookmaker feeds destroy the context budget (observed: one run burned
+        # its cost ceiling on a handful of market payloads). Cap responses unless the
+        # operator already set a cap themselves.
+        env.setdefault("SPORTSDATA_MCP_MAX_BYTES", "150000")
+        return env
+
+    # ── lifecycle ──────────────────────────────────────────────────────────
+
+    async def __aenter__(self) -> Self:
+        env = self._subprocess_env()
         params = StdioServerParameters(command=self._command[0], args=self._command[1:], env=env)
         # If anything after the spawn fails, Python will NOT call __aexit__ (CM protocol),
         # so we must tear down ourselves or the subprocess is orphaned.

@@ -23,7 +23,7 @@ class Budgets(BaseModel):
 
     per_run_usd: float = 0.50
     monthly_usd: float = 100.0
-    max_tool_calls: int = 25
+    max_tool_calls: int = 50
     max_steps: int = 40
     max_tokens: int = 120_000
     timeout_seconds: int = 300
