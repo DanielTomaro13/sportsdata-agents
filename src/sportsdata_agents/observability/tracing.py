@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 def setup_observability(settings: Settings | None = None) -> None:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # Chatty third-party loggers drown the recorder's run/tool lines at INFO.
+    for noisy in ("LiteLLM", "litellm", "httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     if settings.logfire_token is None:
         return
     try:

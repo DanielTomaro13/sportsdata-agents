@@ -68,5 +68,105 @@ def list_agents() -> None:
         typer.echo(f"{spec.id:20} v{spec.version}  tier={spec.model_tier:9} caps: {caps}")
 
 
+def _bootstrap_session(workspace_id: str, agent_id: str | None):
+    """Shared setup for run/chat: env, observability, recorder, session (unopened)."""
+    from dotenv import load_dotenv
+
+    load_dotenv()  # model keys etc. into the process env (litellm reads os.environ)
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.repository import TenantScope
+    from sportsdata_agents.gateway.service import TeamSession, detect_tier_overrides, try_db_recorder
+    from sportsdata_agents.interfaces.cli.progress import ConsoleProgressRecorder
+    from sportsdata_agents.observability.tracing import setup_observability
+    from sportsdata_agents.workspace import Workspace
+
+    settings = get_settings()
+    setup_observability(settings)
+    console = Console()
+    workspace = Workspace(
+        tenant_id=settings.default_tenant,
+        workspace_id=workspace_id,
+        model_tiers=detect_tier_overrides(),  # BYO-LLM: use whichever key is configured (§8.1)
+    )
+    recorder = ConsoleProgressRecorder(
+        console, inner=try_db_recorder(settings, TenantScope(settings.default_tenant, workspace_id))
+    )
+    session = TeamSession(settings=settings, workspace=workspace, recorder=recorder, agent_id=agent_id)
+    return console, session
+
+
+def _render_result(console, result) -> None:
+    from rich.panel import Panel
+
+    from sportsdata_agents.gateway.service import parsed_sources
+
+    answer = result.output or "(no answer)"
+    parsed = result.parsed
+    if parsed is not None and getattr(parsed, "answer", None):
+        answer = parsed.answer
+    console.print(Panel(answer, title="answer", border_style="cyan"))
+    sources = parsed_sources(result)
+    if sources:
+        console.print(f"[dim]sources: {', '.join(sources)}[/dim]")
+    verified = "" if result.verified is None else f"  verified={result.verified}"
+    console.print(
+        f"[dim]stop={result.stop_reason}  steps={result.steps}  tools={result.tool_call_count}  "
+        f"cost=${result.cost_usd:.4f}{verified}[/dim]"
+    )
+
+
+@app.command()
+def run(
+    prompt: str = typer.Argument(..., help="The question/task for the team."),
+    workspace: str = typer.Option("local", "--workspace", help="Workspace id (tenant scoping + budgets)."),
+    agent: str | None = typer.Option(None, "--agent", help="Run a single agent instead of the team."),
+) -> None:
+    """Ask the agent team one question and print the answer (with sources + cost)."""
+    import asyncio
+
+    async def _run() -> None:
+        console, session = _bootstrap_session(workspace, agent)
+        console.print(f"[dim]opening {session.agent_name}…[/dim]")
+        async with session:
+            result = await session.run(prompt)
+        _render_result(console, result)
+
+    asyncio.run(_run())
+
+
+@app.command()
+def chat(
+    workspace: str = typer.Option("local", "--workspace", help="Workspace id (tenant scoping + budgets)."),
+    agent: str | None = typer.Option(None, "--agent", help="Chat with a single agent instead of the team."),
+) -> None:
+    """Interactive REPL with the team (sessions stay warm; /exit to quit).
+
+    Turns are independent for now — cross-turn memory lands with the memory service.
+    """
+    import asyncio
+
+    async def _chat() -> None:
+        console, session = _bootstrap_session(workspace, agent)
+        console.print(f"[dim]opening {session.agent_name}… (/exit to quit)[/dim]")
+        async with session:
+            while True:
+                try:
+                    prompt = (await asyncio.to_thread(console.input, "[bold cyan]you>[/bold cyan] ")).strip()
+                except (EOFError, KeyboardInterrupt):
+                    break
+                if not prompt:
+                    continue
+                if prompt in {"/exit", "/quit", "exit", "quit"}:
+                    break
+                result = await session.run(prompt)
+                _render_result(console, result)
+        console.print("[dim]bye[/dim]")
+
+    asyncio.run(_chat())
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

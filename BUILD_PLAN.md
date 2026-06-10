@@ -150,10 +150,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] Recorder threaded through `Harness` / `AgentRuntime` / `open_team`.
 - [x] **Exit gate:** a recorded run produces run + tool + 2 usage rows with correct tenant scoping, cost (0.004), tokens, model; delegation produces the parent/child tree with delta accounting; failed tools persist `ok=False`; migration idempotent on fresh DBs. *(The "one CLI run" wording lands with M0.12, which wires this recorder into the CLI.)* ruff/mypy clean; offline **166 passed**, live **3 passed**.
 
-### M0.12 — CLI interface
-- [ ] `interfaces/cli/` (Typer): `agents chat`, `agents run "<prompt>"`, `--workspace`, streaming output via `rich`.
-- [ ] Channel-agnostic message in/out (so Slack reuses it).
-- [ ] **Exit gate:** the headline flow works from the CLI with streamed answer + sources.
+### M0.12 — CLI interface ✅
+- [x] `gateway/service.py`: **`TeamSession`** — the channel-agnostic seam (Slack reuses it at M1.2): owns specs, gateway, MCP pool, recorder, and the opened team (or one agent via `agent_id`); leak-safe open/close; `detect_tier_overrides()` (BYO-LLM §8.1 — first configured key of ANTHROPIC/OPENROUTER/GEMINI/GROQ/OPENAI pins the tiers, shared with the live tests' logic).
+- [x] `interfaces/cli/`: **`agents run "<prompt>"`** + **`agents chat`** (warm REPL; `/exit`; turns independent until the memory service) with `--workspace` + `--agent`; `.env` loaded at bootstrap; `setup_observability()` (now also quiets litellm/httpx INFO noise so the recorder's lines are readable).
+- [x] `interfaces/cli/progress.py`: `ConsoleProgressRecorder` — live delegation/tool lines (✓/✗ + latency) wrapped around the `DbRecorder` (printing additive; persistence untouched; **DB-optional** — audit degrades to a warning when Postgres is down via `try_db_recorder`).
+- [x] Rendering: typed answer preferred over raw text; sources line; stop/steps/tools/cost/verified footer.
+- [x] **Exit gate (run for real):** `agents run "...Aaron Judge..."` → opened the team, delegated, hit live MLB data, and answered "**New York Yankees**" — and *honestly declined* the manager question (outside its capability scope) instead of hallucinating. Progress lines + footer rendered. *(Token-level streaming awaits gateway `stream=` support; progress streaming shipped.)* Fixed en route: litellm's import-time `load_dotenv` polluting Settings-defaults test; CLI provider detection (the policy's Anthropic default failed with only an OpenRouter key). ruff/mypy clean; offline **179 passed**, live **3 passed** (one transient LLM-nondeterminism flake on the E2E, passed on re-run — noted).
 
 ### M0.13 — Accuracy & provenance (`§13.1`/`D26`)
 - [ ] Tool results carry `{provider, endpoint, fetched_at, snapshot_id}`; agents cite source+timestamp per figure.

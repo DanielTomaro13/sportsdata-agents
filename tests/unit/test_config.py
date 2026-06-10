@@ -15,7 +15,14 @@ pytestmark = pytest.mark.unit
 # ── Settings ──────────────────────────────────────────────────────────────
 
 
-def test_settings_defaults() -> None:
+def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    # litellm calls load_dotenv() at import time, so .env values can be sitting in
+    # os.environ by the time this runs — clear our prefix to test true defaults.
+    import os
+
+    for key in list(os.environ):
+        if key.startswith("SPORTSDATA_AGENTS_"):
+            monkeypatch.delenv(key)
     s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.env == "dev"
     assert s.default_tenant == "local"
