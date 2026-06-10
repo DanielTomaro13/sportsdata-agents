@@ -140,12 +140,12 @@ def refresh_books_cmd() -> None:
 
     from rich.console import Console
 
-    from sportsdata_agents.operations.refresh_books import refresh_books
+    from sportsdata_agents.operations.refresh_books import refresh_books, summary_lines
 
     console = Console()
-    lines = asyncio.run(refresh_books())
-    console.print("[green]book_navigation refreshed:[/green]")
-    for line in lines:
+    catalogue = asyncio.run(refresh_books())
+    console.print("[green]book catalogue refreshed:[/green]")
+    for line in summary_lines(catalogue):
         console.print(f"  {line}")
 
 

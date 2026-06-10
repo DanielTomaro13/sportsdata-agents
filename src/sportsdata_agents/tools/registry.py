@@ -77,6 +77,41 @@ async def kelly_fraction(args: dict[str, Any]) -> Any:
     return {"probability": p, "odds": odds, "kelly_fraction": round(max(fraction, 0.0), 6)}
 
 
+async def lookup_book_ids(args: dict[str, Any]) -> Any:
+    """{query, book?} -> matching (name, id) pairs from the weekly-refreshed catalogue.
+
+    Resolves ANY sport/competition/market id across bookmakers without burning tool
+    calls on discovery endpoints (or model context on their firehose payloads). The
+    catalogue is maintained by `agents refresh-books`; only matches enter context.
+    """
+    import json
+
+    from sportsdata_agents.operations.refresh_books import catalogue_path
+
+    query = str(args["query"]).strip().lower()
+    if not query:
+        raise ValueError("query must be non-empty")
+    book_filter = str(args.get("book", "")).strip().lower() or None
+    path = catalogue_path()
+    if not path.is_file():
+        raise FileNotFoundError("book catalogue missing — run `agents refresh-books` first")
+    catalogue = json.loads(path.read_text(encoding="utf-8"))
+    results: dict[str, Any] = {}
+    for book, record in catalogue.items():
+        if book_filter and book.lower() != book_filter:
+            continue
+        hits = [
+            {"name": name, "id": id_}
+            for name, id_ in record.get("entries", [])
+            if query in name.lower()
+        ][:12]
+        if hits:
+            results[book] = {"fetched_at": record.get("fetched_at"), "matches": hits}
+    if not results:
+        return {"query": args["query"], "matches": {}, "note": "no catalogue entries matched — try a broader term"}
+    return {"query": args["query"], "matches": results}
+
+
 NATIVE_TOOLS: dict[str, ToolDef] = {
     "implied_probability": ToolDef(
         name="implied_probability",
@@ -140,6 +175,23 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["probability", "odds"],
         },
         execute=expected_value,
+    ),
+    "lookup_book_ids": ToolDef(
+        name="lookup_book_ids",
+        description=(
+            "Resolve bookmaker ids for any sport/competition/market by name "
+            "(e.g. 'AFL', 'NBA', 'rugby') from the weekly-verified catalogue — use this "
+            "instead of guessing ids or calling discovery endpoints."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Name fragment to match, e.g. 'AFL' or 'NBA'"},
+                "book": {"type": "string", "description": "Optional: restrict to one bookmaker"},
+            },
+            "required": ["query"],
+        },
+        execute=lookup_book_ids,
     ),
     "kelly_fraction": ToolDef(
         name="kelly_fraction",

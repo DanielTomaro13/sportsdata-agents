@@ -1,0 +1,3500 @@
+{
+ "Sportsbet": {
+  "tool": "sportsbet_nav_hierarchy",
+  "fetched_at": "2026-06-10",
+  "entries": [
+   [
+    "Sports",
+    "-2"
+   ],
+   [
+    "American Football",
+    "17"
+   ],
+   [
+    "Futures/Outrights",
+    "0"
+   ],
+   [
+    "NFL Futures",
+    "31944"
+   ],
+   [
+    "NFL Player Awards",
+    "24470"
+   ],
+   [
+    "NFL Season Passing Props",
+    "29629"
+   ],
+   [
+    "NFL Season Rushing Props",
+    "29631"
+   ],
+   [
+    "NFL Season Receiving Props",
+    "29632"
+   ],
+   [
+    "College Football Team Futures",
+    "32187"
+   ],
+   [
+    "NCAAF Awards",
+    "18863"
+   ],
+   [
+    "NFL",
+    "3073"
+   ],
+   [
+    "College Football",
+    "6034"
+   ],
+   [
+    "United Football League",
+    "30348"
+   ],
+   [
+    "Australian Rules",
+    "50"
+   ],
+   [
+    "AFL",
+    "4165"
+   ],
+   [
+    "AFL Brownlow Medal",
+    "6136"
+   ],
+   [
+    "AFL Rising Star",
+    "27772"
+   ],
+   [
+    "AFL Coleman Medal",
+    "27930"
+   ],
+   [
+    "AFL Season Extras",
+    "30233"
+   ],
+   [
+    "Women's AFL",
+    "19943"
+   ],
+   [
+    "Baseball",
+    "18"
+   ],
+   [
+    "MLB Futures",
+    "33123"
+   ],
+   [
+    "MLB Player Awards",
+    "29130"
+   ],
+   [
+    "Home Run Futures",
+    "31654"
+   ],
+   [
+    "Major League Baseball",
+    "2549"
+   ],
+   [
+    "Japanese Baseball",
+    "2828"
+   ],
+   [
+    "Korean Baseball",
+    "10818"
+   ],
+   [
+    "Chinese Taipei Baseball",
+    "25406"
+   ],
+   [
+    "Basketball - Aus/Other",
+    "63"
+   ],
+   [
+    "PBA Commissioner's Cup",
+    "22857"
+   ],
+   [
+    "Argentinian LNB",
+    "9979"
+   ],
+   [
+    "Croatian A1",
+    "2461"
+   ],
+   [
+    "Lithuanian LKL",
+    "7487"
+   ],
+   [
+    "Indonesian NBL",
+    "9782"
+   ],
+   [
+    "Dominican Rep LNB Men",
+    "16113"
+   ],
+   [
+    "Chinese Taipei P league",
+    "26962"
+   ],
+   [
+    "BNXT League",
+    "27568"
+   ],
+   [
+    "Spanish ACB",
+    "2523"
+   ],
+   [
+    "ABA League",
+    "2446"
+   ],
+   [
+    "Greek A1",
+    "2494"
+   ],
+   [
+    "Italian Serie A",
+    "2503"
+   ],
+   [
+    "Polish PLK",
+    "2517"
+   ],
+   [
+    "Turkish Super League Men",
+    "2538"
+   ],
+   [
+    "Israeli Super League",
+    "2594"
+   ],
+   [
+    "Basketball - US",
+    "16"
+   ],
+   [
+    "NBA Futures",
+    "32295"
+   ],
+   [
+    "NBA Player Awards",
+    "21145"
+   ],
+   [
+    "WNBA Futures",
+    "32143"
+   ],
+   [
+    "WNBA Player Awards",
+    "33014"
+   ],
+   [
+    "NBA Draft Markets",
+    "18168"
+   ],
+   [
+    "College Basketball Team Futures",
+    "31817"
+   ],
+   [
+    "Women's College Basketball Team Futures",
+    "33308"
+   ],
+   [
+    "NBA",
+    "6927"
+   ],
+   [
+    "WNBA",
+    "29909"
+   ],
+   [
+    "Boxing",
+    "15"
+   ],
+   [
+    "Grade A Fights",
+    "30045"
+   ],
+   [
+    "Grade B Fights",
+    "30046"
+   ],
+   [
+    "Grade C Fights",
+    "30047"
+   ],
+   [
+    "Cricket",
+    "25"
+   ],
+   [
+    "Indian Premier League",
+    "9821"
+   ],
+   [
+    "ICC Men's T20 World Cup",
+    "30929"
+   ],
+   [
+    "ICC Women's T20 World Cup",
+    "30930"
+   ],
+   [
+    "County Championship",
+    "9351"
+   ],
+   [
+    "The Hundred - Womens",
+    "27328"
+   ],
+   [
+    "The Hundred",
+    "24690"
+   ],
+   [
+    "Caribbean Premier League",
+    "10958"
+   ],
+   [
+    "The Ashes",
+    "9608"
+   ],
+   [
+    "ICC Men's Cricket World Cup",
+    "30931"
+   ],
+   [
+    "Test Matches",
+    "9305"
+   ],
+   [
+    "One Day Internationals",
+    "4430"
+   ],
+   [
+    "ICC Cricket World Cup League 2",
+    "30245"
+   ],
+   [
+    "Cycling",
+    "40"
+   ],
+   [
+    "Tour de France",
+    "1858"
+   ],
+   [
+    "Tour Auvergne Rhone-Alpes",
+    "24223"
+   ],
+   [
+    "Darts",
+    "14"
+   ],
+   [
+    "PDC World Championship",
+    "6843"
+   ],
+   [
+    "PDC World Cup of Darts",
+    "6972"
+   ],
+   [
+    "MODUS Super Series",
+    "27499"
+   ],
+   [
+    "E-Sports",
+    "206"
+   ],
+   [
+    "CS2 - IEM Cologne",
+    "16979"
+   ],
+   [
+    "eSoccer - Adriatic League",
+    "25376"
+   ],
+   [
+    "CS2 - European Pro League",
+    "18644"
+   ],
+   [
+    "CS2 - CCT Europe",
+    "30546"
+   ],
+   [
+    "LoL - LCK Road to MSI",
+    "32391"
+   ],
+   [
+    "GAA Matches",
+    "37"
+   ],
+   [
+    "All Ireland Football",
+    "22915"
+   ],
+   [
+    "All Ireland Hurling",
+    "22950"
+   ],
+   [
+    "Tailteann Cup Football",
+    "28099"
+   ],
+   [
+    "Golf",
+    "8"
+   ],
+   [
+    "PGA RBC Canadian Open",
+    "30709"
+   ],
+   [
+    "LPGA Dow Championship",
+    "30879"
+   ],
+   [
+    "Champ Tour - Principal Charity Classic",
+    "2228"
+   ],
+   [
+    "The Ryder Cup",
+    "2265"
+   ],
+   [
+    "Presidents Cup",
+    "2227"
+   ],
+   [
+    "PGA - The Open Championship",
+    "30958"
+   ],
+   [
+    "PGA US Open",
+    "31086"
+   ],
+   [
+    "The Masters",
+    "32152"
+   ],
+   [
+    "JLPGA - Suntory Ladies Open",
+    "29521"
+   ],
+   [
+    "KFT OccuNet Classic",
+    "35833"
+   ],
+   [
+    "Ice Hockey - US",
+    "38"
+   ],
+   [
+    "NHL Playoff Series",
+    "10407"
+   ],
+   [
+    "NHL Awards",
+    "10927"
+   ],
+   [
+    "PWHL Games",
+    "31363"
+   ],
+   [
+    "NHL Games",
+    "29408"
+   ],
+   [
+    "Megabet",
+    "161"
+   ],
+   [
+    "Jockey Extras",
+    "23306"
+   ],
+   [
+    "Greyhounds Extras",
+    "29690"
+   ],
+   [
+    "Trainer Extras",
+    "23551"
+   ],
+   [
+    "UFC - MMA",
+    "71"
+   ],
+   [
+    "UFC Matches",
+    "3703"
+   ],
+   [
+    "Motor Racing",
+    "9"
+   ],
+   [
+    "Formula 1",
+    "1810"
+   ],
+   [
+    "NASCAR",
+    "25108"
+   ],
+   [
+    "Netball",
+    "135"
+   ],
+   [
+    "Suncorp Super Netball",
+    "19390"
+   ],
+   [
+    "Novelties and Entertainment",
+    "46"
+   ],
+   [
+    "Academy Awards",
+    "24795"
+   ],
+   [
+    "Triple J Hottest 100",
+    "24848"
+   ],
+   [
+    "James Bond",
+    "24796"
+   ],
+   [
+    "Box Office & Film Futures",
+    "26325"
+   ],
+   [
+    "The Doomsday Clock",
+    "29495"
+   ],
+   [
+    "Logie Awards",
+    "24784"
+   ],
+   [
+    "Taylor Swift Specials",
+    "18730"
+   ],
+   [
+    "Heated Rivalry",
+    "12232"
+   ],
+   [
+    "Christopher Nolan Specials",
+    "7413"
+   ],
+   [
+    "Saturday Night Live",
+    "8079"
+   ],
+   [
+    "The Inbetweeners",
+    "8310"
+   ],
+   [
+    "Video Game Specials",
+    "9401"
+   ],
+   [
+    "Australian TV & Radio Futures",
+    "14789"
+   ],
+   [
+    "People Magazine",
+    "15144"
+   ],
+   [
+    "TimeOut Magazine",
+    "17514"
+   ],
+   [
+    "Nobel Prizes",
+    "24790"
+   ],
+   [
+    "Music & Festival Specials",
+    "25069"
+   ],
+   [
+    "Merriam-Webster's Word of the Year",
+    "25204"
+   ],
+   [
+    "TIME Person of the Year",
+    "25205"
+   ],
+   [
+    "Gold & Greed: The Hunt for Fenn's Treasure",
+    "26400"
+   ],
+   [
+    "Awards & Prizes",
+    "27008"
+   ],
+   [
+    "Spotify Wrapped",
+    "27756"
+   ],
+   [
+    "The Game Awards",
+    "27766"
+   ],
+   [
+    "Game of Thrones",
+    "28048"
+   ],
+   [
+    "Podcast Specials",
+    "29540"
+   ],
+   [
+    "Yearly Specials",
+    "25230"
+   ],
+   [
+    "Donald Trump Hub",
+    "30255"
+   ],
+   [
+    "Book Awards",
+    "30585"
+   ],
+   [
+    "Politics",
+    "26"
+   ],
+   [
+    "Australian Federal Politics.",
+    "5787"
+   ],
+   [
+    "US Politics",
+    "5833"
+   ],
+   [
+    "UK Politics",
+    "6317"
+   ],
+   [
+    "VIC Politics",
+    "9519"
+   ],
+   [
+    "UK General Election",
+    "30927"
+   ],
+   [
+    "Irish Politics",
+    "7840"
+   ],
+   [
+    "Rugby League",
+    "23"
+   ],
+   [
+    "NRL",
+    "3436"
+   ],
+   [
+    "NRL Weekly Hub",
+    "30358"
+   ],
+   [
+    "State of Origin",
+    "3486"
+   ],
+   [
+    "NRLW",
+    "23276"
+   ],
+   [
+    "Clive Churchill Medal",
+    "14473"
+   ],
+   [
+    "NRL Futures BYO",
+    "29122"
+   ],
+   [
+    "Super League",
+    "3437"
+   ],
+   [
+    "The 50 Point Curse",
+    "11131"
+   ],
+   [
+    "Men's World Cup",
+    "28801"
+   ],
+   [
+    "Rugby Union",
+    "12"
+   ],
+   [
+    "International Matches",
+    "2324"
+   ],
+   [
+    "The Six Nations",
+    "2348"
+   ],
+   [
+    "Super Rugby Pacific",
+    "27922"
+   ],
+   [
+    "Gallagher Premiership",
+    "22903"
+   ],
+   [
+    "World Cup",
+    "2389"
+   ],
+   [
+    "French Top 14",
+    "2316"
+   ],
+   [
+    "United Rugby Championship",
+    "27398"
+   ],
+   [
+    "Snooker",
+    "11"
+   ],
+   [
+    "World Championship",
+    "7632"
+   ],
+   [
+    "China Open",
+    "3666"
+   ],
+   [
+    "Soccer",
+    "29"
+   ],
+   [
+    "World Cup",
+    "0"
+   ],
+   [
+    "Men's World Cup",
+    "23109"
+   ],
+   [
+    "Australia Hub",
+    "28835"
+   ],
+   [
+    "Groups",
+    "28830"
+   ],
+   [
+    "Teams",
+    "28829"
+   ],
+   [
+    "UEFA Competitions",
+    "0"
+   ],
+   [
+    "UEFA Champions League",
+    "727"
+   ],
+   [
+    "International Soccer",
+    "0"
+   ],
+   [
+    "International Friendlies",
+    "23055"
+   ],
+   [
+    "United Kingdom",
+    "0"
+   ],
+   [
+    "English Premier League",
+    "718"
+   ],
+   [
+    "English Championship",
+    "2609"
+   ],
+   [
+    "Scottish Premiership",
+    "728"
+   ],
+   [
+    "English League 1",
+    "2634"
+   ],
+   [
+    "English League 2",
+    "2635"
+   ],
+   [
+    "English Community Shield",
+    "2855"
+   ],
+   [
+    "Australia",
+    "0"
+   ],
+   [
+    "Australian NPL - ACT Capital",
+    "12701"
+   ],
+   [
+    "Australian NPL - NSW",
+    "3677"
+   ],
+   [
+    "Australian NPL - Queensland",
+    "10657"
+   ],
+   [
+    "Australian NPL - Western Australia",
+    "10656"
+   ],
+   [
+    "Spain",
+    "0"
+   ],
+   [
+    "Spanish La Liga",
+    "1029"
+   ],
+   [
+    "Spanish La Liga 2",
+    "1026"
+   ],
+   [
+    "Asia",
+    "0"
+   ],
+   [
+    "Chinese Super League",
+    "9298"
+   ],
+   [
+    "Vietnamese National Cup",
+    "12126"
+   ],
+   [
+    "Malaysian Presidents Cup",
+    "12140"
+   ],
+   [
+    "Kazakhstan Premier League",
+    "7302"
+   ],
+   [
+    "Rest of Europe",
+    "0"
+   ],
+   [
+    "Irish FAI Cup",
+    "865"
+   ],
+   [
+    "Estonian Esiliiga",
+    "11475"
+   ],
+   [
+    "Finnish Kakkonen",
+    "11483"
+   ],
+   [
+    "Icelandic 2. Deild",
+    "11522"
+   ],
+   [
+    "Icelandic 3. Deild",
+    "11523"
+   ],
+   [
+    "Icelandic 4. Deild",
+    "11524"
+   ],
+   [
+    "Lithuanian 1 Lyga",
+    "11572"
+   ],
+   [
+    "Swedish Ettan",
+    "11661"
+   ],
+   [
+    "Finnish Ykkosliiga",
+    "30676"
+   ],
+   [
+    "Estonian Meistriliiga",
+    "2617"
+   ],
+   [
+    "Finnish Ykkonen",
+    "871"
+   ],
+   [
+    "Finnish Cup",
+    "872"
+   ],
+   [
+    "Finnish Veikkausliiga",
+    "874"
+   ],
+   [
+    "Georgian Erovnuli Liga",
+    "7195"
+   ],
+   [
+    "Icelandic Besta Deild Karla",
+    "894"
+   ],
+   [
+    "Icelandic Cup",
+    "2902"
+   ],
+   [
+    "Norwegian 1st Division",
+    "961"
+   ],
+   [
+    "Swedish Allsvenskan",
+    "1043"
+   ],
+   [
+    "Swedish Svenska Cupen",
+    "1044"
+   ],
+   [
+    "Swedish Superettan",
+    "1046"
+   ],
+   [
+    "Americas",
+    "0"
+   ],
+   [
+    "Brazilian Serie A",
+    "2884"
+   ],
+   [
+    "CONMEBOL Copa Libertadores",
+    "823"
+   ],
+   [
+    "CONMEBOL Copa Sudamericana",
+    "23208"
+   ],
+   [
+    "Brazilian Cup",
+    "820"
+   ],
+   [
+    "Brazilian Serie B",
+    "798"
+   ],
+   [
+    "Brazilian Serie C",
+    "10890"
+   ],
+   [
+    "Bolivian Liga de Futbol Profesional",
+    "11398"
+   ],
+   [
+    "Chilean Primera Division",
+    "11414"
+   ],
+   [
+    "Aruban Division di Honor",
+    "11861"
+   ],
+   [
+    "Paraguayan Cup",
+    "23046"
+   ],
+   [
+    "Canadian Premier League",
+    "24038"
+   ],
+   [
+    "Brazilian Catarinense Matches",
+    "10634"
+   ],
+   [
+    "Argentinian Primera B Metro",
+    "11377"
+   ],
+   [
+    "Argentinian Primera B Nacional",
+    "11380"
+   ],
+   [
+    "Brazilian Carioca Matches",
+    "789"
+   ],
+   [
+    "Ecuadorian Serie A",
+    "853"
+   ],
+   [
+    "Ireland",
+    "0"
+   ],
+   [
+    "Irish Premier Division",
+    "737"
+   ],
+   [
+    "Irish Division 1",
+    "858"
+   ],
+   [
+    "South Africa",
+    "0"
+   ],
+   [
+    "South African Playoff",
+    "10681"
+   ],
+   [
+    "USA",
+    "0"
+   ],
+   [
+    "US Major League Soccer",
+    "941"
+   ],
+   [
+    "US USL League One",
+    "30964"
+   ],
+   [
+    "US USL Championship",
+    "1082"
+   ],
+   [
+    "US USL League Two",
+    "11986"
+   ],
+   [
+    "US MLS Next Pro League",
+    "32222"
+   ],
+   [
+    "Rest of World",
+    "0"
+   ],
+   [
+    "Gambian GFA League 1st Division",
+    "14050"
+   ],
+   [
+    "Moroccan Botola Pro One",
+    "6648"
+   ],
+   [
+    "Soccer Specials",
+    "0"
+   ],
+   [
+    "Manager Specials",
+    "5971"
+   ],
+   [
+    "Transfer Markets",
+    "6011"
+   ],
+   [
+    "Player Specials",
+    "6871"
+   ],
+   [
+    "Sports Novelties",
+    "33"
+   ],
+   [
+    "WrestleMania",
+    "27084"
+   ],
+   [
+    "WWE",
+    "8526"
+   ],
+   [
+    "Super Bowl Novelties",
+    "21688"
+   ],
+   [
+    "NBA & WNBA Specials",
+    "24346"
+   ],
+   [
+    "Chess",
+    "9893"
+   ],
+   [
+    "2032 Olympic Games",
+    "15504"
+   ],
+   [
+    "Poker",
+    "21857"
+   ],
+   [
+    "Donald Trump's Patriot Games",
+    "27213"
+   ],
+   [
+    "TNA Wrestling",
+    "19155"
+   ],
+   [
+    "World Cup Specials",
+    "32266"
+   ],
+   [
+    "BBC Sports Personality",
+    "3316"
+   ],
+   [
+    "Table Tennis",
+    "81"
+   ],
+   [
+    "TT Elite Series Men",
+    "28074"
+   ],
+   [
+    "TT Cup",
+    "28908"
+   ],
+   [
+    "Tennis",
+    "13"
+   ],
+   [
+    "ATP Stuttgart",
+    "1110"
+   ],
+   [
+    "ATP Hertogenbosch",
+    "2672"
+   ],
+   [
+    "WTA Queens",
+    "32378"
+   ],
+   [
+    "WTA Hertogenbosch",
+    "1276"
+   ],
+   [
+    "Ladies Australian Open",
+    "1147"
+   ],
+   [
+    "Mens Australian Open",
+    "1148"
+   ],
+   [
+    "Ladies US Open",
+    "1123"
+   ],
+   [
+    "Mens US Open",
+    "1380"
+   ],
+   [
+    "Men's Wimbledon",
+    "1451"
+   ],
+   [
+    "Ladies Wimbledon",
+    "1452"
+   ],
+   [
+    "Davis Cup",
+    "1140"
+   ],
+   [
+    "ATP Bratislava Challenger",
+    "1416"
+   ],
+   [
+    "ATP Ilkley Challenger",
+    "16072"
+   ],
+   [
+    "ATP Ilkley Challenger Doubles",
+    "16071"
+   ],
+   [
+    "ATP Bratislava Challenger Doubles",
+    "3295"
+   ],
+   [
+    "ITF Italy Futures",
+    "20139"
+   ],
+   [
+    "ITF Spain Futures",
+    "13497"
+   ],
+   [
+    "ITF Tunisia Futures",
+    "13464"
+   ],
+   [
+    "ITF Italy Futures Doubles",
+    "7375"
+   ],
+   [
+    "ITF Japan Futures Doubles",
+    "13628"
+   ],
+   [
+    "ITF Spain Futures Doubles",
+    "13871"
+   ],
+   [
+    "ITF Monastir",
+    "6593"
+   ],
+   [
+    "ATP Lyon Challenger",
+    "18512"
+   ],
+   [
+    "ITF China Futures",
+    "13629"
+   ],
+   [
+    "ITF China Futures Doubles",
+    "13630"
+   ],
+   [
+    "ITF Brazil Futures",
+    "6674"
+   ],
+   [
+    "ITF Brazil Futures Doubles",
+    "7156"
+   ],
+   [
+    "ITF Sweden Futures",
+    "5885"
+   ],
+   [
+    "ITF Sweden Futures Doubles",
+    "8892"
+   ],
+   [
+    "ITF Romania Futures",
+    "4538"
+   ],
+   [
+    "ITF Hungary Futures",
+    "11290"
+   ],
+   [
+    "ITF Romania Futures Doubles",
+    "10623"
+   ],
+   [
+    "ITF Hungary Futures Doubles",
+    "11292"
+   ],
+   [
+    "ITF Finland Futures",
+    "6197"
+   ],
+   [
+    "ITF Finland Futures Doubles",
+    "6038"
+   ],
+   [
+    "ITF Bosnia Futures",
+    "10691"
+   ],
+   [
+    "ITF Bosnia Futures Doubles",
+    "10692"
+   ],
+   [
+    "ITF USA Futures",
+    "13528"
+   ],
+   [
+    "ITF USA Futures Doubles",
+    "6877"
+   ],
+   [
+    "ATP Stuttgart Doubles",
+    "2812"
+   ],
+   [
+    "ATP Hertogenbosch Doubles",
+    "2681"
+   ],
+   [
+    "WTA Hertogenbosch Doubles",
+    "5663"
+   ],
+   [
+    "ATP Lyon Challenger Doubles",
+    "18510"
+   ],
+   [
+    "ITF Turkiye Futures",
+    "28970"
+   ],
+   [
+    "ITF Casablanca",
+    "3394"
+   ],
+   [
+    "ITF Madrid",
+    "3624"
+   ],
+   [
+    "ITF Guimaraes",
+    "9389"
+   ],
+   [
+    "ITF Madrid Doubles",
+    "10237"
+   ],
+   [
+    "ITF Tokyo Doubles",
+    "13638"
+   ],
+   [
+    "ITF Ceska Lipa",
+    "28323"
+   ],
+   [
+    "ITF Ceska Lipa Doubles",
+    "28324"
+   ],
+   [
+    "Mens UTR Pro Series, Greece",
+    "28546"
+   ],
+   [
+    "ITF Kursumlijska Banja",
+    "29184"
+   ],
+   [
+    "ITF Serbia Futures",
+    "29397"
+   ],
+   [
+    "ITF Serbia Futures Doubles",
+    "29398"
+   ],
+   [
+    "Ladies UTR Pro Series, Greece",
+    "29494"
+   ],
+   [
+    "ITF Qualifiers",
+    "30081"
+   ],
+   [
+    "ATP Tucuman Challenger",
+    "30516"
+   ],
+   [
+    "ITF Wuning",
+    "30552"
+   ],
+   [
+    "ITF Wuning Doubles",
+    "30566"
+   ],
+   [
+    "ITF Kursumlijska Banja Doubles",
+    "30628"
+   ],
+   [
+    "ITF Rolling Hills",
+    "30797"
+   ],
+   [
+    "ITF Kayseri",
+    "31206"
+   ],
+   [
+    "ITF Kayseri Doubles",
+    "31207"
+   ],
+   [
+    "WTA Ilkley 125K",
+    "32348"
+   ],
+   [
+    "WTA Ilkley 125K Doubles",
+    "32349"
+   ],
+   [
+    "ITF Cuiaba",
+    "32663"
+   ],
+   [
+    "ITF Cuiaba Doubles",
+    "32664"
+   ],
+   [
+    "ITF Hurghada",
+    "32891"
+   ],
+   [
+    "ITF Hurghada Doubles",
+    "32892"
+   ],
+   [
+    "ITF San Gregorio",
+    "33390"
+   ],
+   [
+    "ITF San Gregorio Doubles",
+    "33391"
+   ],
+   [
+    "WTA Modena 125k",
+    "35755"
+   ],
+   [
+    "ITF Guimaraes Doubles",
+    "2590"
+   ],
+   [
+    "ITF Zagreb",
+    "3834"
+   ],
+   [
+    "ITF Zagreb Doubles",
+    "6175"
+   ],
+   [
+    "Volleyball",
+    "61"
+   ],
+   [
+    "FIVB Nations League Men",
+    "22764"
+   ]
+  ]
+ },
+ "PointsBet": {
+  "tool": "pointsbet_sports_list",
+  "fetched_at": "2026-06-10",
+  "entries": [
+   [
+    "Basketball",
+    "basketball"
+   ],
+   [
+    "WNBA",
+    "126714"
+   ],
+   [
+    "NBA Futures",
+    "9237"
+   ],
+   [
+    "ABA League",
+    "128040"
+   ],
+   [
+    "BNXT League",
+    "92973"
+   ],
+   [
+    "Dominican LNB",
+    "126569"
+   ],
+   [
+    "Greek A1 League",
+    "126601"
+   ],
+   [
+    "Israeli National League",
+    "126637"
+   ],
+   [
+    "Israeli Super League",
+    "7517"
+   ],
+   [
+    "Italian LBA",
+    "156584"
+   ],
+   [
+    "Italian Serie B",
+    "126647"
+   ],
+   [
+    "Lithuanian LKL",
+    "44906"
+   ],
+   [
+    "NBA",
+    "7176"
+   ],
+   [
+    "NCAA Futures",
+    "241365"
+   ],
+   [
+    "New Zealand NBL",
+    "176105"
+   ],
+   [
+    "Polish PLK",
+    "7519"
+   ],
+   [
+    "Puerto Rican BSN",
+    "126680"
+   ],
+   [
+    "Spanish Liga ACB",
+    "126692"
+   ],
+   [
+    "Turkish BSL",
+    "126704"
+   ],
+   [
+    "Uruguayan LUB",
+    "126708"
+   ],
+   [
+    "WNBA Futures",
+    "30086"
+   ],
+   [
+    "Aussie Rules",
+    "aussie-rules"
+   ],
+   [
+    "AFL",
+    "7523"
+   ],
+   [
+    "AFL Futures",
+    "15154"
+   ],
+   [
+    "Rugby League",
+    "rugby-league"
+   ],
+   [
+    "NRL",
+    "7593"
+   ],
+   [
+    "NRL Futures",
+    "15160"
+   ],
+   [
+    "NRL Futures Multi Hub",
+    "138343"
+   ],
+   [
+    "Rugby League World Cup Futures",
+    "234379"
+   ],
+   [
+    "State of Origin",
+    "11070"
+   ],
+   [
+    "State of Origin Futures",
+    "110411"
+   ],
+   [
+    "Super League",
+    "7603"
+   ],
+   [
+    "Super League Futures",
+    "138339"
+   ],
+   [
+    "Soccer",
+    "soccer"
+   ],
+   [
+    "FIFA World Cup",
+    "130317"
+   ],
+   [
+    "FIFA World Cup Futures",
+    "12151"
+   ],
+   [
+    "FIFA International Friendlies",
+    "239971"
+   ],
+   [
+    "FIFA World Cup Futures Multi Hub",
+    "240432"
+   ],
+   [
+    "Argentine Primera Nacional",
+    "36334"
+   ],
+   [
+    "Ballon D'Or",
+    "225195"
+   ],
+   [
+    "Bolivian Premier Division",
+    "7391"
+   ],
+   [
+    "Brazilian Serie B",
+    "9156"
+   ],
+   [
+    "Canadian Premier League",
+    "38292"
+   ],
+   [
+    "Chilean Primera Division",
+    "7393"
+   ],
+   [
+    "English Premier League Futures",
+    "14094"
+   ],
+   [
+    "Estonian Esiliiga A",
+    "54755"
+   ],
+   [
+    "Estonian Meistriliiga",
+    "54440"
+   ],
+   [
+    "Finnish Cup",
+    "47710"
+   ],
+   [
+    "Finnish Veikkausliiga",
+    "8945"
+   ],
+   [
+    "Finnish Ykkonen",
+    "34482"
+   ],
+   [
+    "Georgian Erovnuli Liga",
+    "38227"
+   ],
+   [
+    "Icelandic Premier League",
+    "15643"
+   ],
+   [
+    "Irish Premier League",
+    "19259"
+   ],
+   [
+    "Kuwaiti Premier League",
+    "45025"
+   ],
+   [
+    "Maurice Revello Tournament",
+    "110325"
+   ],
+   [
+    "MLS Next Pro",
+    "122594"
+   ],
+   [
+    "Moroccan Premier League",
+    "39757"
+   ],
+   [
+    "Norwegian First Division",
+    "34485"
+   ],
+   [
+    "Premier Soccer League Promotion/Relegation Play-off",
+    "147608"
+   ],
+   [
+    "Spanish La Liga 2",
+    "11937"
+   ],
+   [
+    "Swedish Cup",
+    "49852"
+   ],
+   [
+    "Swedish Superettan",
+    "11938"
+   ],
+   [
+    "Transfer Specials",
+    "112306"
+   ],
+   [
+    "USL Championship",
+    "14893"
+   ],
+   [
+    "USL League One",
+    "63733"
+   ],
+   [
+    "USL League Two",
+    "110330"
+   ],
+   [
+    "Baseball",
+    "baseball"
+   ],
+   [
+    "MLB",
+    "112658"
+   ],
+   [
+    "College World Series",
+    "111495"
+   ],
+   [
+    "Japanese NPB",
+    "7540"
+   ],
+   [
+    "Korean KBO",
+    "8328"
+   ],
+   [
+    "MLB Futures",
+    "14723"
+   ],
+   [
+    "Taiwanese CPBL",
+    "52985"
+   ],
+   [
+    "Rugby Union",
+    "rugby-union"
+   ],
+   [
+    "Super Rugby Pacific",
+    "139299"
+   ],
+   [
+    "British & Irish Lions Tour 2029 Futures",
+    "222678"
+   ],
+   [
+    "English Premiership Rugby",
+    "7381"
+   ],
+   [
+    "French Top 14",
+    "7378"
+   ],
+   [
+    "Rugby World Cup 2027 Futures",
+    "211418"
+   ],
+   [
+    "Six Nations Futures",
+    "80169"
+   ],
+   [
+    "Super Rugby Pacific Futures",
+    "161249"
+   ],
+   [
+    "Tennis",
+    "tennis"
+   ],
+   [
+    "ATP Stuttgart",
+    "174759"
+   ],
+   [
+    "ATP S-Hertogenbosch",
+    "174761"
+   ],
+   [
+    "WTA 's-Hertogenbosch",
+    "12331"
+   ],
+   [
+    "WTA London",
+    "215731"
+   ],
+   [
+    "WTA London Doubles",
+    "215771"
+   ],
+   [
+    "2026  Wuning Open",
+    "246247"
+   ],
+   [
+    "ATP Bratislava Challenger",
+    "174813"
+   ],
+   [
+    "ATP Bratislava Challenger Doubles",
+    "174897"
+   ],
+   [
+    "ATP Challenger Cattolica, Italy Men Doubles",
+    "246133"
+   ],
+   [
+    "ATP Challenger Cattolica, Italy Men Singles",
+    "246149"
+   ],
+   [
+    "ATP Lyon Challenger",
+    "174815"
+   ],
+   [
+    "ATP Lyon Challenger Doubles",
+    "174894"
+   ],
+   [
+    "ATP S-Hertogenbosch Doubles",
+    "174839"
+   ],
+   [
+    "ATP San Miguel de Tucuman Challenger",
+    "170645"
+   ],
+   [
+    "ATP San Miguel de Tucuman Challenger Doubles",
+    "170646"
+   ],
+   [
+    "ATP Stuttgart Doubles",
+    "174835"
+   ],
+   [
+    "Australian Open Futures",
+    "18647"
+   ],
+   [
+    "Davis Cup World Group III",
+    "215945"
+   ],
+   [
+    "Davis Cup World Group III Doubles",
+    "246387"
+   ],
+   [
+    "Egypt 5 Somabay Women's Future",
+    "246252"
+   ],
+   [
+    "French Open Futures",
+    "65049"
+   ],
+   [
+    "ITF M15 Kayseri",
+    "214615"
+   ],
+   [
+    "ITF M15 Kursumlijska Banja",
+    "211423"
+   ],
+   [
+    "ITF M15 Maanshan",
+    "206028"
+   ],
+   [
+    "ITF M15 Maanshan Doubles",
+    "206038"
+   ],
+   [
+    "ITF M15 Tokyo",
+    "217712"
+   ],
+   [
+    "ITF M25 V\u00e4rnamo Qualification",
+    "215796"
+   ],
+   [
+    "ITF Monastir",
+    "198712"
+   ],
+   [
+    "ITF W15 Kayseri",
+    "214614"
+   ],
+   [
+    "ITF W15 Kursumlijska Banja",
+    "211420"
+   ],
+   [
+    "ITF W15 Otopeni",
+    "220832"
+   ],
+   [
+    "ITF W35 Mohammedia",
+    "216521"
+   ],
+   [
+    "ITF W35 San Gregorio",
+    "239327"
+   ],
+   [
+    "ITF W50 Guimaraes",
+    "215795"
+   ],
+   [
+    "ITF W75 Ceska Lipa",
+    "215748"
+   ],
+   [
+    "Jaen Paraiso Interior",
+    "215859"
+   ],
+   [
+    "Kiseljak Open 2025",
+    "215861"
+   ],
+   [
+    "Ladies Open Saar",
+    "214612"
+   ],
+   [
+    "Liljedahl Group Open",
+    "215962"
+   ],
+   [
+    "M15 Messina",
+    "215791"
+   ],
+   [
+    "MACHA LAKE OPEN BY CESKA LIPA",
+    "215866"
+   ],
+   [
+    "Marso Open",
+    "215874"
+   ],
+   [
+    "Nice LTC Open",
+    "246271"
+   ],
+   [
+    "Tokyo Ariake International Open 2026",
+    "246189"
+   ],
+   [
+    "US Open Futures",
+    "15558"
+   ],
+   [
+    "Wasa Open",
+    "215864"
+   ],
+   [
+    "Wimbledon Futures",
+    "18649"
+   ],
+   [
+    "WTA 's-Hertogenbosch Doubles",
+    "32059"
+   ],
+   [
+    "WTA Ilkley 125k",
+    "215770"
+   ],
+   [
+    "WTA Ilkley 125k Doubles",
+    "215788"
+   ],
+   [
+    "WTA Modena 125K Series",
+    "246191"
+   ],
+   [
+    "X Torneo Internacional Femenino ITF 15000$ Club de Tenis Chamart\u00edn",
+    "215860"
+   ],
+   [
+    "Zagreb Ladies Open",
+    "246266"
+   ],
+   [
+    "Ice Hockey",
+    "ice-hockey"
+   ],
+   [
+    "NHL",
+    "158858"
+   ],
+   [
+    "NHL Futures",
+    "174195"
+   ],
+   [
+    "Cricket",
+    "cricket"
+   ],
+   [
+    "One Day Internationals",
+    "7492"
+   ],
+   [
+    "ICC Women's T20 World Cup",
+    "20704"
+   ],
+   [
+    "Caribbean Premier League Futures",
+    "87484"
+   ],
+   [
+    "ICC Cricket World Cup Futures",
+    "193006"
+   ],
+   [
+    "ICC CWC League 2",
+    "91066"
+   ],
+   [
+    "ICC Women's T20 World Cup Futures",
+    "179637"
+   ],
+   [
+    "ICC World Cup Warm-up Matches Womens",
+    "225286"
+   ],
+   [
+    "India Andhra Premier League T20",
+    "221754"
+   ],
+   [
+    "India Mumbai League T20",
+    "245534"
+   ],
+   [
+    "Test Matches",
+    "7287"
+   ],
+   [
+    "The Ashes Futures",
+    "164886"
+   ],
+   [
+    "The Hundred - Womens Futures",
+    "172188"
+   ],
+   [
+    "The Hundred Futures",
+    "172185"
+   ],
+   [
+    "Golf",
+    "golf"
+   ],
+   [
+    "Dow Championship",
+    "246335"
+   ],
+   [
+    "International Series Morocco",
+    "246381"
+   ],
+   [
+    "OccuNet Classic",
+    "246331"
+   ],
+   [
+    "Presidents Cup Futures",
+    "101042"
+   ],
+   [
+    "Principal Charity Classic",
+    "246332"
+   ],
+   [
+    "RBC Canadian Open",
+    "246195"
+   ],
+   [
+    "RBC Canadian Open Multi Hub",
+    "246319"
+   ],
+   [
+    "The Open Championship Futures",
+    "101041"
+   ],
+   [
+    "US Open Futures",
+    "101038"
+   ],
+   [
+    "Darts",
+    "darts"
+   ],
+   [
+    "Modus Super Series",
+    "209279"
+   ],
+   [
+    "PDC World Darts Championship Futures",
+    "204312"
+   ],
+   [
+    "World Cup of Darts",
+    "11785"
+   ],
+   [
+    "World Cup of Darts Futures",
+    "90731"
+   ],
+   [
+    "Cycling",
+    "cycling"
+   ],
+   [
+    "Crit\u00e9rium du Dauphin\u00e9 Stages",
+    "32021"
+   ],
+   [
+    "Tour de France Futures",
+    "13642"
+   ],
+   [
+    "Motor Sports",
+    "motor-sports"
+   ],
+   [
+    "Formula One",
+    "8115"
+   ],
+   [
+    "Formula One - Barcelona/Catalunya GP Multi Hub",
+    "246259"
+   ],
+   [
+    "Formula One Futures",
+    "70332"
+   ],
+   [
+    "Formula Two Futures",
+    "209972"
+   ],
+   [
+    "IndyCar Futures",
+    "92206"
+   ],
+   [
+    "Moto GP World Championship Futures",
+    "76748"
+   ],
+   [
+    "Moto2 World Championship Futures",
+    "76752"
+   ],
+   [
+    "NASCAR Auto Parts Series Futures",
+    "237114"
+   ],
+   [
+    "NASCAR Cup Series",
+    "25573"
+   ],
+   [
+    "NASCAR Cup Series Futures",
+    "233815"
+   ],
+   [
+    "NASCAR Truck Series Futures",
+    "237116"
+   ],
+   [
+    "Supercars Futures",
+    "73650"
+   ],
+   [
+    "American Football",
+    "american-football"
+   ],
+   [
+    "CFL",
+    "12684"
+   ],
+   [
+    "CFL Futures",
+    "74105"
+   ],
+   [
+    "NCAAF",
+    "15596"
+   ],
+   [
+    "NCAAF Futures",
+    "14650"
+   ],
+   [
+    "NFL",
+    "11444"
+   ],
+   [
+    "NFL Futures",
+    "14649"
+   ],
+   [
+    "NFL Hall of Fame Game",
+    "152462"
+   ],
+   [
+    "Boxing",
+    "boxing"
+   ],
+   [
+    "Boxing Fights",
+    "7205"
+   ],
+   [
+    "MMA",
+    "mma"
+   ],
+   [
+    "UFC",
+    "7874"
+   ],
+   [
+    "Netball",
+    "netball"
+   ],
+   [
+    "Super Netball Futures",
+    "104898"
+   ],
+   [
+    "Surfing",
+    "surfing"
+   ],
+   [
+    "Surf City El Salvador Pro Men's",
+    "111091"
+   ],
+   [
+    "Surf City El Salvador Pro Women's",
+    "111093"
+   ],
+   [
+    "e-Sports",
+    "e-sports"
+   ],
+   [
+    "[CS] CCT Europe",
+    "184940"
+   ],
+   [
+    "[CS] European Pro League",
+    "158137"
+   ],
+   [
+    "[LoL] LCK Road to MSI",
+    "215397"
+   ],
+   [
+    "Entertainment",
+    "entertainment"
+   ],
+   [
+    "99th Academy Awards",
+    "242409"
+   ],
+   [
+    "Triple J Hottest 100 2026",
+    "242399"
+   ],
+   [
+    "Handball",
+    "handball"
+   ],
+   [
+    "EHF Champions League Men",
+    "62589"
+   ],
+   [
+    "Politics",
+    "politics"
+   ],
+   [
+    "Australian Federal Politics",
+    "10291"
+   ],
+   [
+    "UK Politics",
+    "10290"
+   ],
+   [
+    "USA Politics",
+    "20331"
+   ],
+   [
+    "Victorian State Politics",
+    "18944"
+   ],
+   [
+    "Snooker",
+    "snooker"
+   ],
+   [
+    "China Open Qualification",
+    "246372"
+   ],
+   [
+    "Table Tennis",
+    "table-tennis"
+   ],
+   [
+    "Czech Liga Pro",
+    "216239"
+   ],
+   [
+    "TT Cup",
+    "210302"
+   ],
+   [
+    "Volleyball",
+    "volleyball"
+   ],
+   [
+    "FIVB Men's Nations League",
+    "81940"
+   ],
+   [
+    "Racing Specials",
+    "racing-specials"
+   ],
+   [
+    "Greyhounds Specials",
+    "145281"
+   ],
+   [
+    "Racing Futures",
+    "racing-futures"
+   ],
+   [
+    "International Futures",
+    "212648"
+   ],
+   [
+    "Thoroughbred Futures",
+    "21532"
+   ],
+   [
+    "Racing 5 For 25",
+    "racing-five-for-25"
+   ]
+  ]
+ },
+ "TAB": {
+  "tool": "tab_sports",
+  "fetched_at": "2026-06-10",
+  "entries": [
+   [
+    "Rugby League",
+    "10"
+   ],
+   [
+    "NRL",
+    "601"
+   ],
+   [
+    "State of Origin",
+    "605"
+   ],
+   [
+    "Super League",
+    "610"
+   ],
+   [
+    "NRL Futures",
+    "602"
+   ],
+   [
+    "NRL Teams Futures Multi",
+    "651"
+   ],
+   [
+    "2026 State Of Origin Futures",
+    "641"
+   ],
+   [
+    "English Futures",
+    "663"
+   ],
+   [
+    "World Cup Futures",
+    "653"
+   ],
+   [
+    "AFL Football",
+    "1"
+   ],
+   [
+    "AFL",
+    "102"
+   ],
+   [
+    "AFL Futures",
+    "101"
+   ],
+   [
+    "AFL Team Futures Multi",
+    "125"
+   ],
+   [
+    "Brownlow Medal",
+    "103"
+   ],
+   [
+    "Coleman Medal",
+    "127"
+   ],
+   [
+    "AFL Rising Star",
+    "128"
+   ],
+   [
+    "AFLW Futures",
+    "139"
+   ],
+   [
+    "VFL Futures",
+    "149"
+   ],
+   [
+    "SANFL Futures",
+    "120"
+   ],
+   [
+    "Basketball",
+    "4"
+   ],
+   [
+    "NBA",
+    "1001"
+   ],
+   [
+    "WNBA",
+    "1005"
+   ],
+   [
+    "NBA Finals Series",
+    "2894"
+   ],
+   [
+    "ABA League",
+    "2890"
+   ],
+   [
+    "Argentina Liga Nacional de Basket",
+    "5166"
+   ],
+   [
+    "Italy Lega Serie A",
+    "1025"
+   ],
+   [
+    "NBA Futures",
+    "1002"
+   ],
+   [
+    "NCAA Tournament Futures",
+    "1043"
+   ],
+   [
+    "Spain ACB Liga",
+    "1019"
+   ],
+   [
+    "WNBA Futures",
+    "1006"
+   ],
+   [
+    "Soccer",
+    "3"
+   ],
+   [
+    "2026 World Cup Matches",
+    "827"
+   ],
+   [
+    "2026 World Cup Futures",
+    "7490"
+   ],
+   [
+    "2026 World Cup Group Betting",
+    "7602"
+   ],
+   [
+    "2026 World Cup Team Top Goalscorer",
+    "9972"
+   ],
+   [
+    "2026 World Cup Player Goals",
+    "9826"
+   ],
+   [
+    "2026 World Cup Australia Hub",
+    "9940"
+   ],
+   [
+    "2026 World Cup Team Futures Multi",
+    "9901"
+   ],
+   [
+    "International Friendlies",
+    "829"
+   ],
+   [
+    "English Premier League Futures",
+    "7518"
+   ],
+   [
+    "Australia NPL ACT",
+    "8405"
+   ],
+   [
+    "Australia NPL New South Wales",
+    "7097"
+   ],
+   [
+    "Australia NPL Queensland",
+    "7099"
+   ],
+   [
+    "Brazil Serie B",
+    "919"
+   ],
+   [
+    "Canada Premier League",
+    "936"
+   ],
+   [
+    "Chinese Super League Futures",
+    "9957"
+   ],
+   [
+    "Finland Cup",
+    "7610"
+   ],
+   [
+    "Iceland Cup",
+    "7779"
+   ],
+   [
+    "Iceland Division 2",
+    "7782"
+   ],
+   [
+    "Major League Soccer Futures",
+    "9015"
+   ],
+   [
+    "Portugal Campeonato Nacional",
+    "9671"
+   ],
+   [
+    "South Africa Premier Soccer League",
+    "8445"
+   ],
+   [
+    "Spain Segunda Division",
+    "889"
+   ],
+   [
+    "Sweden Superettan",
+    "8536"
+   ],
+   [
+    "Sweden Division 2",
+    "9782"
+   ],
+   [
+    "Sweden Cup",
+    "905"
+   ],
+   [
+    "USL Championship",
+    "8723"
+   ],
+   [
+    "Vietnam Cup",
+    "9754"
+   ],
+   [
+    "Soccer Novelties",
+    "9223"
+   ],
+   [
+    "Tennis",
+    "11"
+   ],
+   [
+    "ATP",
+    "302"
+   ],
+   [
+    "ATP Hertogenbosch",
+    "3020000000029"
+   ],
+   [
+    "ATP Stuttgart",
+    "3020000000075"
+   ],
+   [
+    "WTA",
+    "303"
+   ],
+   [
+    "WTA Queens",
+    "3030000000151"
+   ],
+   [
+    "WTA Hertogenbosch",
+    "3030000000024"
+   ],
+   [
+    "Challenger",
+    "309"
+   ],
+   [
+    "Challenger Bratislava 2",
+    "3090000000435"
+   ],
+   [
+    "Challenger Cattolica",
+    "3090000077701"
+   ],
+   [
+    "Challenger Ilkley",
+    "3090000000281"
+   ],
+   [
+    "Challenger Lyon",
+    "3090000000280"
+   ],
+   [
+    "Challenger San Miguel de Tucuman",
+    "3090000000446"
+   ],
+   [
+    "WTA 125 Tour",
+    "320"
+   ],
+   [
+    "WTA 125 Modena",
+    "3200000002456"
+   ],
+   [
+    "WTA 125 Ilkley",
+    "3200000000074"
+   ],
+   [
+    "ATP Doubles",
+    "3255"
+   ],
+   [
+    "ATP Stuttgart Doubles",
+    "32550000000021"
+   ],
+   [
+    "ATP Hertogenbosch Doubles",
+    "32550000000022"
+   ],
+   [
+    "WTA Doubles",
+    "3254"
+   ],
+   [
+    "WTA Queens Doubles",
+    "32540000000007"
+   ],
+   [
+    "WTA Hertogenbosch Doubles",
+    "32540000000024"
+   ],
+   [
+    "WTA 125 Doubles",
+    "321"
+   ],
+   [
+    "WTA 125 Ilkley Doubles",
+    "3210000000064"
+   ],
+   [
+    "WTA 125 Modena Doubles",
+    "3210000000095"
+   ],
+   [
+    "ITF Mens",
+    "319"
+   ],
+   [
+    "ITFM Brasilia",
+    "3190000000010"
+   ],
+   [
+    "ITFM Curtea De Arges",
+    "3190000000154"
+   ],
+   [
+    "ITFM Kayseri",
+    "3190000000533"
+   ],
+   [
+    "ITFM Kiseljak",
+    "3190000000193"
+   ],
+   [
+    "ITFM Kursumlijska Banja",
+    "3190000000068"
+   ],
+   [
+    "ITFM Martos",
+    "3190000000334"
+   ],
+   [
+    "ITFM Nyiregyhaza",
+    "3190000000550"
+   ],
+   [
+    "ITFM Monastir",
+    "3190000000252"
+   ],
+   [
+    "ITFM Vaasa",
+    "3190000000330"
+   ],
+   [
+    "ITFM Varnamo",
+    "3190000000202"
+   ],
+   [
+    "ITFM Messina",
+    "3190000000541"
+   ],
+   [
+    "ITFM Ceska Lipa",
+    "3190000000564"
+   ],
+   [
+    "ITF Womens",
+    "318"
+   ],
+   [
+    "ITFW Casablanca",
+    "3180000000330"
+   ],
+   [
+    "ITFW Ceska Lipa",
+    "3180000000433"
+   ],
+   [
+    "ITFW Guimaraes",
+    "3180000000124"
+   ],
+   [
+    "ITFW Kayseri",
+    "3180000000746"
+   ],
+   [
+    "ITFW Kursumlijska Banja",
+    "3180000000599"
+   ],
+   [
+    "ITFW Monastir",
+    "3180000000101"
+   ],
+   [
+    "ITFW Madrid",
+    "3180000000081"
+   ],
+   [
+    "ITFW Wuning",
+    "3180000000700"
+   ],
+   [
+    "ITFW Zagreb",
+    "3180000000413"
+   ],
+   [
+    "ITFW Merzig",
+    "3180000000771"
+   ],
+   [
+    "ITFW Decatur",
+    "3180000000765"
+   ],
+   [
+    "ITFW Hurghada",
+    "3180000000779"
+   ],
+   [
+    "ITFW San Gregorio Di Catania",
+    "3180000000795"
+   ],
+   [
+    "ITFW Nice",
+    "3180000000811"
+   ],
+   [
+    "ATP Futures",
+    "3263"
+   ],
+   [
+    "ATP Hertogenbosch Futures",
+    "32630000000062"
+   ],
+   [
+    "ATP Stuttgart Futures",
+    "32630000000034"
+   ],
+   [
+    "WTA Futures",
+    "3262"
+   ],
+   [
+    "WTA Queens Futures",
+    "32620000000088"
+   ],
+   [
+    "WTA Hertogenbosch Futures",
+    "32620000000059"
+   ],
+   [
+    "Wimbledon Futures",
+    "3318"
+   ],
+   [
+    "Wimbledon Mens Futures",
+    "33180000000001"
+   ],
+   [
+    "Wimbledon Womens Futures",
+    "33180000000002"
+   ],
+   [
+    "Wimbledon Championship Double",
+    "33180000000003"
+   ],
+   [
+    "US Open Futures",
+    "3316"
+   ],
+   [
+    "US Open Mens Futures",
+    "33160000000001"
+   ],
+   [
+    "US Open Womens Futures",
+    "33160000000002"
+   ],
+   [
+    "Australian Open Futures",
+    "3319"
+   ],
+   [
+    "Australian Open Mens Futures",
+    "33190000000001"
+   ],
+   [
+    "Australian Open Womens Futures",
+    "33190000000002"
+   ],
+   [
+    "Todays Offers",
+    "53"
+   ],
+   [
+    "Racing Offers",
+    "6124"
+   ],
+   [
+    "Sports Offers",
+    "6120"
+   ],
+   [
+    "American Football",
+    "13"
+   ],
+   [
+    "NFL",
+    "1301"
+   ],
+   [
+    "NFL Futures",
+    "1302"
+   ],
+   [
+    "NFL Conference Winners",
+    "1342"
+   ],
+   [
+    "NFL Division Winners",
+    "1341"
+   ],
+   [
+    "NFL Season Awards",
+    "1337"
+   ],
+   [
+    "Cricket",
+    "2"
+   ],
+   [
+    "One Day Internationals",
+    "521"
+   ],
+   [
+    "ICC Womens T20 World Cup",
+    "540"
+   ],
+   [
+    "Test Matches",
+    "522"
+   ],
+   [
+    "Womens T20 Internationals",
+    "541"
+   ],
+   [
+    "English County Championship",
+    "516"
+   ],
+   [
+    "Ireland Inter Provincial T20",
+    "5608"
+   ],
+   [
+    "ICC Cricket World Cup League 2",
+    "5632"
+   ],
+   [
+    "Chhattisgarh CPL T20",
+    "5881"
+   ],
+   [
+    "Womens ACC T20I Premier Cup",
+    "5879"
+   ],
+   [
+    "Falcons Champions Trophy T20",
+    "5812"
+   ],
+   [
+    "Andhra Premier League",
+    "5681"
+   ],
+   [
+    "T20 Mumbai League",
+    "5649"
+   ],
+   [
+    "Baroda Premier League",
+    "5659"
+   ],
+   [
+    "Bengal Pro T20 League",
+    "5656"
+   ],
+   [
+    "Madhya Pradesh T20",
+    "5658"
+   ],
+   [
+    "Womens World Cup Futures",
+    "569"
+   ],
+   [
+    "Test Futures",
+    "504"
+   ],
+   [
+    "The Hundred Futures",
+    "579"
+   ],
+   [
+    "Womens The Hundred Futures",
+    "5877"
+   ],
+   [
+    "German Super League T10",
+    "5884"
+   ],
+   [
+    "EUT20 Belgium",
+    "5885"
+   ],
+   [
+    "Boxing",
+    "5"
+   ],
+   [
+    "Olascuaga v Velazquez",
+    "1515"
+   ],
+   [
+    "Matthieu vs Falcao",
+    "1503"
+   ],
+   [
+    "Mason vs Cordina",
+    "1502"
+   ],
+   [
+    "Garner vs Magnesi",
+    "1517"
+   ],
+   [
+    "Bam vs Vargas",
+    "1516"
+   ],
+   [
+    "Alegria v Nazarena",
+    "1542"
+   ],
+   [
+    "Tszyu vs Spence Jr",
+    "1501"
+   ],
+   [
+    "Zuffa 8-Valenzuela v De Los Santos",
+    "1520"
+   ],
+   [
+    "Zayas vs Boots",
+    "1518"
+   ],
+   [
+    "Mayweather vs Pacquiao",
+    "1504"
+   ],
+   [
+    "Joshua vs Prenga: The Comeback",
+    "1519"
+   ],
+   [
+    "Boxing",
+    "1512"
+   ],
+   [
+    "UFC",
+    "51"
+   ],
+   [
+    "UFC Featured Fights",
+    "1523"
+   ],
+   [
+    "UFC Featured Fights",
+    "15230000000001"
+   ],
+   [
+    "UFC",
+    "1521"
+   ],
+   [
+    "UFC Fight Night- Kape vs Horiguchi 2",
+    "15210000000033"
+   ],
+   [
+    "UFC 250 White House - Gaethje vs Topuria",
+    "15210000000036"
+   ],
+   [
+    "UFC 329",
+    "15210000000018"
+   ],
+   [
+    "Racing Extras",
+    "49"
+   ],
+   [
+    "VIC",
+    "1125"
+   ],
+   [
+    "Entertainment",
+    "28"
+   ],
+   [
+    "Academy Awards",
+    "1801"
+   ],
+   [
+    "Nobel Prize",
+    "2264"
+   ],
+   [
+    "Novelties",
+    "56"
+   ],
+   [
+    "Game of the Year",
+    "4171"
+   ],
+   [
+    "TIMEs Person of the Year",
+    "4168"
+   ],
+   [
+    "Sports Novelties",
+    "3009"
+   ],
+   [
+    "Ballon dOr 2026",
+    "30090000000011"
+   ],
+   [
+    "Extra Terrestrial Novelties",
+    "4172"
+   ],
+   [
+    "Most Googled Person",
+    "4173"
+   ],
+   [
+    "Rotten Tomatoes Scores",
+    "4169"
+   ],
+   [
+    "Crypto Coin Novelties",
+    "4170"
+   ],
+   [
+    "Music Novelties",
+    "3006"
+   ],
+   [
+    "Top Spotify Artist",
+    "30060000000009"
+   ],
+   [
+    "Baseball",
+    "14"
+   ],
+   [
+    "Major League Baseball",
+    "1601"
+   ],
+   [
+    "Major League Baseball Futures",
+    "1602"
+   ],
+   [
+    "Japanese Baseball League",
+    "1605"
+   ],
+   [
+    "Korea Baseball Championship",
+    "1626"
+   ],
+   [
+    "Chinese Professional Baseball League",
+    "1643"
+   ],
+   [
+    "MLB Awards",
+    "1651"
+   ],
+   [
+    "Cycling",
+    "22"
+   ],
+   [
+    "Tour de France",
+    "1802"
+   ],
+   [
+    "Tour de France Femmes",
+    "2571"
+   ],
+   [
+    "Darts",
+    "25"
+   ],
+   [
+    "World Cup of Darts",
+    "1834"
+   ],
+   [
+    "Darts Futures",
+    "1869"
+   ],
+   [
+    "Ice Hockey",
+    "20"
+   ],
+   [
+    "NHL",
+    "1901"
+   ],
+   [
+    "NHL Stanley Cup",
+    "1977"
+   ],
+   [
+    "NHL Futures",
+    "1918"
+   ],
+   [
+    "Motor Sport",
+    "15"
+   ],
+   [
+    "F1 Grand Prix",
+    "1401"
+   ],
+   [
+    "Spanish F1 Grand Prix",
+    "14010000000017"
+   ],
+   [
+    "Formula 1 Same Race Multi",
+    "1416"
+   ],
+   [
+    "Spain F1 GP Same Race Multi",
+    "14160000000003"
+   ],
+   [
+    "Supercars",
+    "1403"
+   ],
+   [
+    "Darwin Supercars",
+    "14030000000013"
+   ],
+   [
+    "F1 Championship Futures",
+    "1412"
+   ],
+   [
+    "Supercars Championship Futures",
+    "1413"
+   ],
+   [
+    "NASCAR Championship Futures",
+    "1414"
+   ],
+   [
+    "NASCAR",
+    "1408"
+   ],
+   [
+    "NASCAR Pocono 400",
+    "14080000000022"
+   ],
+   [
+    "Moto GP",
+    "1402"
+   ],
+   [
+    "MotoGP World Championship",
+    "14020000000019"
+   ],
+   [
+    "Moto2",
+    "1420"
+   ],
+   [
+    "Moto2 World Championship",
+    "14200000000023"
+   ],
+   [
+    "Moto3",
+    "1421"
+   ],
+   [
+    "Moto3 World Championship",
+    "14210000000023"
+   ],
+   [
+    "Super Bikes",
+    "1405"
+   ],
+   [
+    "WorldSBK Championship",
+    "14050000000021"
+   ],
+   [
+    "Indy Car Racing",
+    "1404"
+   ],
+   [
+    "Indy Car Championship",
+    "14040000000012"
+   ],
+   [
+    "Politics",
+    "24"
+   ],
+   [
+    "Victorian Politics",
+    "5103"
+   ],
+   [
+    "US Election",
+    "5101"
+   ],
+   [
+    "US Midterms 2026",
+    "51010000000001"
+   ],
+   [
+    "US Gubernatorial",
+    "5529"
+   ],
+   [
+    "US Senate",
+    "5119"
+   ],
+   [
+    "US Politics Novelty",
+    "5528"
+   ],
+   [
+    "Brazil Election",
+    "5530"
+   ],
+   [
+    "Sweden Politics",
+    "5543"
+   ],
+   [
+    "Rugby Union",
+    "9"
+   ],
+   [
+    "Super Rugby Pacific",
+    "1263"
+   ],
+   [
+    "Super Rugby Pacific Futures",
+    "1268"
+   ],
+   [
+    "French Top 14",
+    "722"
+   ],
+   [
+    "United Rugby Championship",
+    "724"
+   ],
+   [
+    "French Top 14 Futures",
+    "1256"
+   ],
+   [
+    "Gallagher Premiership Futures",
+    "1255"
+   ],
+   [
+    "Surfing",
+    "26"
+   ],
+   [
+    "WSL Mens Championship Tour",
+    "2001"
+   ],
+   [
+    "WSL Mens El Salvador Heat Winners",
+    "20010000000041"
+   ],
+   [
+    "WSL Mens El Salvador Futures",
+    "20010000000042"
+   ],
+   [
+    "WSL Womens Championship Tour",
+    "2002"
+   ],
+   [
+    "WSL Womens El Salvador Heat Winners",
+    "20020000000043"
+   ],
+   [
+    "WSL Womens El Salvador Futures",
+    "20020000000044"
+   ],
+   [
+    "Volleyball",
+    "32"
+   ],
+   [
+    "FIVB Mens Nations League",
+    "2603"
+   ],
+   [
+    "Chess",
+    "58"
+   ],
+   [
+    "FIDE",
+    "6401"
+   ],
+   [
+    "FIDE World Championship",
+    "64010000000002"
+   ],
+   [
+    "Esports",
+    "59"
+   ],
+   [
+    "League of Legends",
+    "6201"
+   ],
+   [
+    "LoL - LCK",
+    "62010000000003"
+   ],
+   [
+    "Counter Strike 2",
+    "6202"
+   ],
+   [
+    "CS2 - IEM Cologne",
+    "62020000000021"
+   ],
+   [
+    "Golf",
+    "7"
+   ],
+   [
+    "US PGA Tour",
+    "401"
+   ],
+   [
+    "RBC Canadian",
+    "4010000000009"
+   ],
+   [
+    "RBC Canadian - Same Game Multis",
+    "4010000000096"
+   ],
+   [
+    "Korn Ferry Tour",
+    "409"
+   ],
+   [
+    "OccuNet Classic",
+    "4090000000081"
+   ],
+   [
+    "US LPGA Tour",
+    "407"
+   ],
+   [
+    "Dow Championship",
+    "4070000000082"
+   ],
+   [
+    "US Open",
+    "415"
+   ],
+   [
+    "US Open",
+    "4150000000001"
+   ],
+   [
+    "Asian Tour",
+    "411"
+   ],
+   [
+    "International Series - Morocco",
+    "4110000000049"
+   ],
+   [
+    "Golf Futures",
+    "445"
+   ],
+   [
+    "To Win a Major 2025",
+    "4450000000005"
+   ],
+   [
+    "Senior PGA Tour",
+    "410"
+   ],
+   [
+    "Principal Charity Classic",
+    "4100000000006"
+   ],
+   [
+    "South African Tour",
+    "404"
+   ],
+   [
+    "Zambia Open",
+    "4040000000068"
+   ],
+   [
+    "British Open",
+    "413"
+   ],
+   [
+    "British Open",
+    "4130000000001"
+   ],
+   [
+    "Euro Legends Tour",
+    "444"
+   ],
+   [
+    "Costa Navarino Legends Tour Trophy",
+    "4440000000042"
+   ],
+   [
+    "European Challenge Tour",
+    "442"
+   ],
+   [
+    "Interwetten Open",
+    "4420000000028"
+   ]
+  ]
+ }
+}

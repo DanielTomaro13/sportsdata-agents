@@ -8,27 +8,26 @@ triggers: [afl, australian rules, aussie rules]
 Bookmaker APIs are id-mazes; guessing ids burns tool calls. Use these VERIFIED routes
 (live-checked 2026-06-10) instead of exploring.
 
-## AFL (Australian Rules)
+## Resolving ids (any sport)
 
-**Sportsbet** — AFL competitionId = **4165** (class "Australian Rules"):
-- `sportsbet_competition_matches` with `competitionId: 4165` → this round's events
-  (id, "Western Bulldogs v Adelaide Crows", startTime). Event LISTS are small;
-  the per-event Markets feed is ~2 MB and will be size-blocked — expect that.
-
-**PointsBet** — AFL competitionKey = **7523** (NOT 37):
-- `pointsbet_competition_events` with `competitionKey: 7523`. Warning: ~1 MB feed,
-  may be size-blocked.
-
-**TAB** — names, not ids: sport **"AFL Football"**, competition **"AFL"**:
-- `tab_sport_next_to_go` / match tools with those names; match names like
-  "Adelaide v Geelong" (pass raw names — encoding is handled).
+1. `lookup_book_ids` with the sport/competition name (e.g. "AFL", "NBA", "rugby")
+   → verified ids per book from the weekly catalogue. Never guess ids.
+2. Then the book's event-list route with that id, e.g.:
+   - Sportsbet: `sportsbet_competition_matches(competitionId=<id>)` → events; per-event
+     Markets is a ~2 MB firehose and will be size-blocked — expect that.
+   - PointsBet: `pointsbet_competition_events(competitionKey=<id>)` — ~1 MB feed, may
+     be size-blocked.
+   - TAB: name-based paths — sport/competition NAMES from the lookup (e.g.
+     "AFL Football" / "AFL"), match names like "Adelaide v Geelong" (pass raw names).
 
 <!-- AUTO:BEGIN refresh-books -->
-*Auto-verified 2026-06-10 by `agents refresh-books`:*
+*Catalogue auto-verified 2026-06-10 by `agents refresh-books`:*
 
-- **Sportsbet** (`sportsbet_nav_hierarchy`): Australian Rules = `50`; AFL = `4165`; AFL Brownlow Medal = `6136`; AFL Rising Star = `27772`; AFL Coleman Medal = `27930`; AFL Season Extras = `30233`
-- **PointsBet** (`pointsbet_sports_list`): Aussie Rules = `aussie-rules`; AFL = `7523`; AFL Futures = `15154`
-- **TAB** (`tab_sports`): AFL Football = `1`; AFL = `102`; AFL Futures = `101`; AFL Team Futures Multi = `125`; AFL Rising Star = `128`
+- **Sportsbet** (`sportsbet_nav_hierarchy`): 352 named ids harvested
+- **PointsBet** (`pointsbet_sports_list`): 227 named ids harvested
+- **TAB** (`tab_sports`): 291 named ids harvested
+
+Resolve ANY sport/competition/market id with the `lookup_book_ids` tool (e.g. query "NBA", "AFL", "rugby") instead of guessing.
 <!-- AUTO:END refresh-books -->
 
 ## When a price feed is size-blocked

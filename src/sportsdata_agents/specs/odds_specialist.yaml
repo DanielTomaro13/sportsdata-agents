@@ -21,7 +21,7 @@ agent:
     - Advisory only: report and compare; you cannot and do not place bets.
   tools:
     mcp_capabilities: [sport.prices, sport.event_markets, sport.competition_screen]
-    native: [implied_probability, vig_removal, best_price, expected_value]
+    native: [implied_probability, vig_removal, best_price, expected_value, lookup_book_ids]
   skills: [vig_removal, compare_odds, book_navigation]
   output_type: OddsComparison
   context:
