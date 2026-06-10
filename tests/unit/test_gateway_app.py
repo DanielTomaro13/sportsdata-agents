@@ -120,6 +120,50 @@ async def test_conversation_route_maps_to_message(client: httpx.AsyncClient) -> 
     assert r.status_code == 200 and r.json()["answer"] == "the answer"
 
 
+class FakeConvStore:
+    def __init__(self) -> None:
+        self.appended: list[tuple[str, str, str]] = []
+
+    async def context_for(self, key: str) -> str | None:
+        return "user: earlier question\nassistant: earlier answer" if key == "slack-T1" else None
+
+    async def append_turn(self, key: str, user_text: str, answer_text: str) -> None:
+        self.appended.append((key, user_text, answer_text))
+
+
+async def test_conversation_threads_context_and_persists_turn() -> None:
+    fake = FakeSession()
+    store = FakeConvStore()
+    app = create_app(session=fake, conversation_store=store)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://gw") as c:
+        r = await c.post("/conversations/slack-T1/message", json={"text": "and away games?"})
+        assert r.status_code == 200
+        # the team saw prior turns + the new question
+        assert "earlier answer" in fake.prompts[0]
+        assert fake.prompts[0].rstrip().endswith("and away games?")
+        # the turn was stored RAW (no context prefix in the journal)
+        assert store.appended == [("slack-T1", "and away games?", "the answer")]
+
+        # a fresh thread is stateless
+        await c.post("/conversations/slack-NEW/message", json={"text": "hello"})
+        assert fake.prompts[1] == "hello"
+
+
+async def test_artifacts_ride_message_out() -> None:
+    class ArtifactSession(FakeSession):
+        async def run(self, prompt: str, *, recorder: Any = None) -> RunResult:
+            res = await super().run(prompt, recorder=recorder)
+            res.artifacts = ["artifacts/abc-chart.png"]
+            return res
+
+    app = create_app(session=ArtifactSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://gw") as c:
+        r = await c.post("/message", json={"text": "chart it"})
+    assert r.json()["artifacts"] == ["artifacts/abc-chart.png"]
+
+
 async def test_agent_mismatch_rejected(client: httpx.AsyncClient) -> None:
     r = await client.post("/message", json={"text": "x", "agent": "odds_specialist"})
     assert r.status_code == 400

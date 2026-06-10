@@ -149,6 +149,20 @@ class RunResult:
     # The validated output_type instance when the spec declares one and parsing succeeded.
     parsed: Any | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
+    # Local file paths tools reported (run_python charts etc.) — channels deliver them
+    # (the Slack adapter uploads; the CLI prints paths).
+    artifacts: list[str] = field(default_factory=list)
+
+
+def _collect_artifacts(payload: str, into: list[str]) -> None:
+    """Harvest artifact paths from a tool's JSON payload (run_python's contract:
+    a dict with an ``artifacts`` list) so channels can deliver the files."""
+    try:
+        data = json.loads(payload)
+    except (TypeError, ValueError):
+        return
+    if isinstance(data, dict) and isinstance(data.get("artifacts"), list):
+        into.extend(str(p) for p in data["artifacts"])
 
 
 def default_compactor(messages: list[dict[str, Any]], keep_last: int = 6) -> list[dict[str, Any]]:
@@ -312,6 +326,7 @@ class Harness:
         verify_attempts = 0
         parse_attempts = 0
         recent_signatures: list[str] = []
+        artifacts: list[str] = []  # file paths tools reported (delivered by the channel)
         # Under a SHARED budget (delegation), this run's cost is the delta — reporting
         # budget.spent_usd would double-count the caller's prior spend into sub-run
         # records (and corrupt the M0.11 ledger). Root runs start at 0 → team total.
@@ -329,6 +344,7 @@ class Harness:
                 verified=verified,
                 parsed=parsed,
                 messages=messages,
+                artifacts=artifacts,
             )
 
         last_text = ""
@@ -475,6 +491,7 @@ class Harness:
                 payload = await self._execute_tool(tc.name, tc.arguments)
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": payload})
                 batch_payloads.append(payload)
+                _collect_artifacts(payload, artifacts)
             self._disclose_skills(messages, "\n".join(batch_payloads))
 
     # ── helpers ────────────────────────────────────────────────────────────

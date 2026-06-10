@@ -71,8 +71,40 @@ async def ask_gateway(text: str, *, thread_key: str, client: httpx.AsyncClient |
             await client.aclose()
 
 
-async def handle_question(text: str, *, channel: str, thread_ts: str, say: Any) -> None:
-    """Shared flow for mentions, DMs and /ask: acknowledge → run → threaded answer.
+async def upload_artifacts(
+    paths: list[str], *, channel: str, thread_ts: str | None = None, client: Any = None
+) -> int:
+    """Deliver tool-produced files (charts) into the thread. Returns how many made
+    it; failures and missing files log and skip — artifacts never break an answer."""
+    import os.path
+
+    existing = [p for p in paths if os.path.isfile(p)]
+    if not existing:
+        return 0
+    if client is None:
+        from slack_sdk.web.async_client import AsyncWebClient
+
+        token = os.environ.get("SLACK_BOT_TOKEN")
+        if not token:
+            logger.warning("artifacts not uploaded: SLACK_BOT_TOKEN not set")
+            return 0
+        client = AsyncWebClient(token=token)
+    delivered = 0
+    for path in existing:
+        try:
+            kwargs: dict[str, Any] = {"channel": channel, "file": path, "title": os.path.basename(path)}
+            if thread_ts:
+                kwargs["thread_ts"] = thread_ts
+            await client.files_upload_v2(**kwargs)
+            delivered += 1
+        except Exception as e:
+            logger.warning("artifact upload failed (%s): %s: %s", path, type(e).__name__, e)
+    return delivered
+
+
+async def handle_question(text: str, *, channel: str, thread_ts: str, say: Any, client: Any = None) -> None:
+    """Shared flow for mentions, DMs and /ask: acknowledge → run → threaded answer
+    (+ any chart artifacts uploaded into the thread).
     An empty ``thread_ts`` (slash commands) posts unthreaded — Slack rejects ``""``."""
     threaded: dict[str, Any] = {"thread_ts": thread_ts} if thread_ts else {}
     question = _strip_mention(text)
@@ -83,6 +115,10 @@ async def handle_question(text: str, *, channel: str, thread_ts: str, say: Any) 
     try:
         payload = await ask_gateway(question, thread_key=f"slack-{channel}-{thread_ts or 'direct'}")
         await say(text=format_answer(payload), **threaded)
+        if payload.get("artifacts"):
+            await upload_artifacts(
+                list(payload["artifacts"]), channel=channel, thread_ts=thread_ts or None, client=client
+            )
     except Exception as e:
         logger.warning("gateway call failed: %s: %s", type(e).__name__, e)
         await say(text=f"⚠️ couldn't reach the team: {type(e).__name__}", **threaded)

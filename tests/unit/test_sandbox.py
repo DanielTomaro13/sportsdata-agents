@@ -105,3 +105,16 @@ async def test_run_python_requires_ephemeral_sandbox_spec() -> None:
     with pytest.raises(ValueError, match="ephemeral"):
         async with AgentRuntime(spec, provider=P(), workspace=Workspace()):
             pass
+
+
+def test_isolation_flag_refuses_local_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SPORTSDATA_AGENTS_REQUIRE_SANDBOX_ISOLATION: prompts carrying third-party text
+    (P2 ingestion) must not run model-written code in the permeable local sandbox."""
+    monkeypatch.delenv("E2B_API_KEY", raising=False)
+    monkeypatch.setenv("SPORTSDATA_AGENTS_REQUIRE_SANDBOX_ISOLATION", "1")
+    with pytest.raises(RuntimeError, match="isolation is required"):
+        get_sandbox()
+    monkeypatch.setenv("E2B_API_KEY", "k")  # isolation satisfied → E2B backend
+    from sportsdata_agents.sandboxes.e2b import E2BSandbox
+
+    assert isinstance(get_sandbox(), E2BSandbox)

@@ -236,10 +236,22 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] **Live evals** (`-m eval`, key-gated): routing efficiency (a stats question must delegate — the orchestrator answering alone is fabrication by construction) + value_scout answer accuracy (quotes value_finder's edge, grounding-verified) joining the M0 golden Q&A. Deterministic source-match = the grounding verifier; LLM-judge deferred until a case needs it (*deviation, recorded: scores-table CLI stands in for dashboards until the admin UI*).
 - [x] **Exit gate:** `eval.yml` scheduled workflow (Mondays + manual dispatch; offline gate always, live evals only when a key secret exists — absent key = honest skip). Suite produces scores (0.7907/0.5820/1.0000), gate passes on baseline, and a deliberately-worse change (miscalibrated model / deleted eval) FAILS — unit-tested. Live: all 4 `-m eval` cases pass with the real model + MCP (49.9s).
 
-### P2 backlog (carried from the P1 review)
-- [ ] **Conversation threading**: `/conversations/{id}/message` accepts the key but each turn is stateless — persist turns (the `conversations`/`messages` tables exist) and thread recent context back in, so Slack follow-ups remember the thread.
-- [ ] **Artifact delivery to Slack**: `run_python` charts land in `./artifacts/` on the server; surface artifact paths through `MessageOut` and upload via `files_upload_v2` in the adapter.
-- [ ] **E2B by default for `data_analysis`** once ingestion (M2.1) starts flowing third-party text into prompts — the local sandbox cannot contain prompt-injected exfiltration (documented in `sandboxes/base.py`).
+### P2 backlog (carried from the P1 review) ✅ (done 2026-06-10)
+- [x] **Conversation threading**: `gateway/conversations.py` — turns persist to `conversations`/`messages`, the most recent turns prefix the next prompt (`threaded_prompt`), storage failures degrade to a stateless turn. Explicit microsecond timestamps (server defaults are second-resolution; random UUIDs would shuffle same-second turns). Tenant-scoped; DB-less deployments stay stateless.
+- [x] **Artifact delivery to Slack**: the harness harvests `artifacts` paths from tool payloads onto `RunResult` → `MessageOut.artifacts` → the adapter uploads via `files_upload_v2` into the thread (missing files skip; upload failure never breaks the answer).
+- [x] **Sandbox isolation flag**: `SPORTSDATA_AGENTS_REQUIRE_SANDBOX_ISOLATION=1` makes `get_sandbox()` refuse the local fallback (set it when untrusted text flows into prompts); without it the local backend warns once, loudly, about its limits.
+
+### P2 review (2026-06-10) — fixed same day
+- Backtest **lookahead bias**: entry was the first-ever captured price even for later predictions; entry is now the prevailing change-point at `predicted_at` (`record_predictions` accepts backdated timestamps for historical replays; a late prediction enters at the close and earns zero CLV — regression-tested).
+- `record_result` upserts (corrections, not duplicates); the result lookup survives legacy dupes. Ingest reports empty feeds visibly. Modelling skills generalised (see below).
+
+### Quant ideas backlog (from the P2 review — future milestones)
+- [ ] **market_monitor agent** (M3.x ops): scheduled value scans (model predictions × fresh prices → `value_finder`) pushing alerts via `push_notification` — "value alerts fire" becomes push, not pull.
+- [ ] **ratings_keeper**: maintain per-team Elo/power ratings as a persistent feature store the modelling agent reads (P8: deterministic updates, LLM only narrates).
+- [ ] **Results ingestion feed**: `event_results` currently fills via `record_result`; a scheduled feed (scoreboard → winner) closes the backtest loop automatically.
+- [ ] **More odds feeds**: sportsbet/TAB/PointsBet normalizers (one pure function + one `FEEDS` row each — the AU books the MCP already speaks).
+- [ ] **injury/news scout** (P4, after §13 prompt-injection guardrails — untrusted third-party text).
+- [ ] **Calibration-curve artifact**: modelling agent saves a reliability diagram PNG with each model version (artifacts now reach Slack).
 
 - [x] **🚪 P2 EXIT GATE — CLOSED** (2026-06-10): end-to-end quant loop green on one warehouse, every stage the real implementation (`test_p2_exit_gate.py`): two ingest captures (entry 2.10 → close 1.90) → model calibrated on holdout (Brier 0.19) + persisted + predictions recorded → value_finder flags home at **+26% edge** (the computed alert) → result settles, backtest replays: 1 qualifying bet, P&L +1.10, **avg CLV +10.53% > 0**, below-edge skip counted → offline eval gate green on baseline. Live legs verified separately: real NBA feed captured twice with dedupe (M2.1), all 4 `-m eval` cases with the real model (M2.4). **Quant caveat, stated plainly:** the exit gates prove the MACHINERY (capture→calibrate→edge→CLV→gate); profitable models are an ongoing practice, not a milestone — golden datasets pin the math, the weekly eval gate watches for regressions.
 

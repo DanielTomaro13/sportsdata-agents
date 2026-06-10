@@ -125,3 +125,45 @@ async def test_push_notification_delivers_and_degrades(monkeypatch: pytest.Monke
     # no channel configured → dropped, not crashed
     monkeypatch.delenv("SLACK_ALERT_CHANNEL", raising=False)
     assert await push_notification("x", client=client) is False
+
+
+class FakeUploadClient:
+    def __init__(self) -> None:
+        self.uploads: list[dict[str, Any]] = []
+
+    async def files_upload_v2(self, **kw: Any) -> None:
+        self.uploads.append(kw)
+
+
+async def test_artifacts_upload_into_the_thread(tmp_path: Any) -> None:
+    from sportsdata_agents.interfaces.slack.app import upload_artifacts
+
+    real = tmp_path / "chart.png"
+    real.write_bytes(b"PNG")
+    client = FakeUploadClient()
+    delivered = await upload_artifacts(
+        [str(real), "/nope/missing.png"], channel="C1", thread_ts="1.2", client=client
+    )
+    assert delivered == 1  # missing files skip, never crash
+    assert client.uploads[0]["channel"] == "C1" and client.uploads[0]["thread_ts"] == "1.2"
+    assert client.uploads[0]["title"] == "chart.png"
+
+
+async def test_handle_question_uploads_gateway_artifacts(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chart = tmp_path / "c.png"
+    chart.write_bytes(b"PNG")
+
+    async def fake_gateway(text: str, *, thread_key: str, client: Any = None) -> dict[str, Any]:
+        return {"answer": "chart attached", "sources": [], "verified": True, "cost_usd": 0.01,
+                "artifacts": [str(chart)]}
+
+    import sportsdata_agents.interfaces.slack.app as slack_app
+
+    monkeypatch.setattr(slack_app, "ask_gateway", fake_gateway)
+    say = FakeSay()
+    uploader = FakeUploadClient()
+    await handle_question("chart the form", channel="C1", thread_ts="9.9", say=say, client=uploader)
+    assert "chart attached" in say.messages[-1]["text"]
+    assert len(uploader.uploads) == 1 and uploader.uploads[0]["thread_ts"] == "9.9"

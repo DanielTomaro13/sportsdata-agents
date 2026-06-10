@@ -59,6 +59,7 @@ class MessageOut(BaseModel):
     cost_usd: float
     steps: int
     tool_calls: int
+    artifacts: list[str] = []  # local file paths tools produced (charts) — channels deliver
 
 
 class TaskOut(BaseModel):
@@ -81,6 +82,7 @@ def _to_message_out(result: RunResult) -> MessageOut:
         cost_usd=round(result.cost_usd, 6),
         steps=result.steps,
         tool_calls=result.tool_call_count,
+        artifacts=list(getattr(result, "artifacts", []) or []),
     )
 
 
@@ -153,11 +155,12 @@ class RateLimiter:
 # ─── app factory ─────────────────────────────────────────────────────────
 
 
-def create_app(*, session: TeamSession | None = None) -> FastAPI:
-    """Build the gateway. ``session`` injectable for tests; production builds one
-    warm team session for the app lifetime."""
+def create_app(*, session: TeamSession | None = None, conversation_store: Any | None = None) -> FastAPI:
+    """Build the gateway. ``session``/``conversation_store`` injectable for tests;
+    production builds one warm team session (and, when the DB is live, a
+    conversation store) for the app lifetime."""
 
-    state: dict[str, Any] = {"session": session}
+    state: dict[str, Any] = {"session": session, "convstore": conversation_store}
     tasks = TaskStore()
     limiter = RateLimiter()
 
@@ -176,6 +179,10 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
             )
             state["session"] = TeamSession(settings=settings, workspace=workspace, recorder=recorder)
             await state["session"].__aenter__()
+            if state["convstore"] is None and recorder is not None:
+                from sportsdata_agents.gateway.conversations import ConversationStore
+
+                state["convstore"] = ConversationStore(recorder.session_factory, scope)
             logger.info("gateway team session open (%s)", state["session"].agent_name)
         try:
             yield
@@ -220,12 +227,30 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
     ) -> MessageOut | TaskOut:
         limiter.check(tenant.tenant_id)
         session = current_session()
-        prompt = body.text
         # Per-request agent override runs through the same warm session's team when
         # possible; a different single agent would need its own session (kept simple:
         # the shared session's root answers; body.agent is honoured when it matches).
         if body.agent and body.agent != session.agent_name:
             raise HTTPException(400, detail=f"this gateway serves {session.agent_name!r}; start one per agent")
+
+        # Conversation threading: prior turns prefix the prompt; storage failures
+        # degrade to a stateless turn, never a failed request.
+        from sportsdata_agents.gateway.conversations import threaded_prompt
+
+        convkey, store = body.conversation_id, state["convstore"]
+        prompt = body.text
+        if convkey and store is not None:
+            try:
+                prompt = threaded_prompt(await store.context_for(convkey), body.text)
+            except Exception as e:
+                logger.warning("conversation context unavailable (%s: %s)", type(e).__name__, e)
+
+        async def remember_turn(out: MessageOut) -> None:
+            if convkey and store is not None:
+                try:
+                    await store.append_turn(convkey, body.text, out.answer)
+                except Exception as e:
+                    logger.warning("conversation append failed (%s: %s)", type(e).__name__, e)
 
         if request.query_params.get("mode") == "async":
             def factory(record: TaskRecord):
@@ -235,7 +260,9 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
                     # concurrent requests would race on it.
                     mirror = QueueRecorder(record.events, getattr(session, "recorder", None))
                     result = await session.run(prompt, recorder=mirror)
-                    return _to_message_out(result)
+                    out = _to_message_out(result)
+                    await remember_turn(out)
+                    return out
 
                 return run()
 
@@ -243,7 +270,9 @@ def create_app(*, session: TeamSession | None = None) -> FastAPI:
             return TaskOut(task_id=record.id, state=record.state)
 
         result = await session.run(prompt)
-        return _to_message_out(result)
+        out = _to_message_out(result)
+        await remember_turn(out)
+        return out
 
     @app.get("/tasks/{task_id}")
     async def task_status(task_id: str) -> TaskOut:

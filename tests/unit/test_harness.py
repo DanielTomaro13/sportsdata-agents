@@ -481,3 +481,21 @@ async def test_run_without_override_still_uses_default_recorder() -> None:
     )
     await h.run("plain")
     assert base.events == ["start:plain", "end:ok"]
+
+
+async def test_artifacts_collected_from_tool_payloads() -> None:
+    """run_python's contract: a dict payload with `artifacts` paths — the harness
+    harvests them onto RunResult so channels (Slack upload, CLI) can deliver."""
+
+    async def chart_tool(args: dict[str, Any]) -> Any:
+        return {"ok": True, "stdout": "done", "artifacts": ["artifacts/x-chart.png"]}
+
+    tool = ToolDef(name="charty", description="x", parameters={"type": "object"}, execute=chart_tool)
+    h = Harness(
+        make_spec(),
+        provider=ScriptedProvider(tool_reply("charty"), text_reply("chart saved")),
+        workspace=WS,
+        tools=[tool],
+    )
+    res = await h.run("make a chart")
+    assert res.artifacts == ["artifacts/x-chart.png"]
