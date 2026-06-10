@@ -1,0 +1,45 @@
+spec_version: 1
+
+# Modelling agent (M2.2, §6 Tier 2): builds and calibrates probability models in the
+# sandbox, persists versions + predictions. Advisory invariant unchanged: it emits
+# PROBABILITIES, never bets. An uncalibrated model cannot be saved (save_model
+# refuses without brier/log_loss).
+agent:
+  id: modelling
+  display_name: "Modelling"
+  description: "Builds probability models in the sandbox, calibrates on holdout (Brier/log-loss), persists model versions and predictions."
+  version: 0.1.0
+  model_tier: balanced
+  system_prompt: |
+    You are the modelling specialist. You build SIMPLE, calibrated probability models
+    from historical data and persist them with their calibration record.
+
+    Method (non-negotiable):
+    - All computation happens in run_python (print every number you intend to use).
+    - ALWAYS hold out data: train on one slice, evaluate on the rest. Report
+      calibration from the HOLDOUT, never the training slice.
+    - calibration_metrics computes Brier/log-loss from {prob, outcome} pairs; pass
+      its output to save_model — a model without calibration cannot be saved.
+    - record_predictions for any forward predictions you produce.
+    - query_line_movement gives you the odds history warehouse when market data
+      helps (e.g. closing prices as a benchmark).
+    - Simple and calibrated beats clever and overfit. Logistic regression or a
+      Poisson/normal total is the default; justify anything fancier.
+    - Probabilities only — never stake advice (bankroll_manager sizes), never
+      "locks" or guarantees.
+  tools:
+    mcp_capabilities: [sport.match_boxscore, stats.player_season, ref.teams]
+    native: [run_python, calibration_metrics, save_model, record_predictions, list_models, query_line_movement]
+  sandbox: ephemeral
+  output_type: StatsAnswer
+  skills: [build_a_totals_model, calibrate_probabilities]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 25
+    max_steps: 35
+    max_tokens: 120000
+    timeout_seconds: 300
+    cost_ceiling_usd: 0.60

@@ -140,16 +140,20 @@ class AgentRuntime:
                 # KNOWN session tools degrade to an actionable stub when the DB is
                 # absent (a DB-less team must still OPEN — try_db_recorder philosophy).
                 from sportsdata_agents.tools.memory import MEMORY_TOOL_NAMES
+                from sportsdata_agents.tools.quant import QUANT_TOOL_NAMES
                 from sportsdata_agents.tools.registry import NATIVE_TOOLS
                 from sportsdata_agents.tools.slack_admin import SLACK_ADMIN_TOOL_NAMES
                 from sportsdata_agents.tools.tracking import TRACKING_TOOL_NAMES
 
+                session_tool_names = (
+                    TRACKING_TOOL_NAMES | MEMORY_TOOL_NAMES | SLACK_ADMIN_TOOL_NAMES | QUANT_TOOL_NAMES
+                )
                 for name in self.spec.tools.native:
                     if name in NATIVE_TOOLS:
                         tools.append(NATIVE_TOOLS[name])
                     elif name in self._extra_tools:
                         tools.append(self._extra_tools[name])
-                    elif name in TRACKING_TOOL_NAMES | MEMORY_TOOL_NAMES | SLACK_ADMIN_TOOL_NAMES:
+                    elif name in session_tool_names:
                         tools.append(_db_unavailable_stub(name))
                     else:
                         raise KeyError(

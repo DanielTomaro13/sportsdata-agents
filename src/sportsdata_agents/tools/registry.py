@@ -144,6 +144,13 @@ async def run_python(args: dict[str, Any]) -> Any:
     }
 
 
+async def calibration_metrics(args: dict[str, Any]) -> Any:
+    """{pairs: [{prob, outcome}]} -> {brier, log_loss, n} (M2.2, deterministic)."""
+    from sportsdata_agents.quant.metrics import calibration_report
+
+    return calibration_report(list(args.get("pairs") or []))
+
+
 NATIVE_TOOLS: dict[str, ToolDef] = {
     "implied_probability": ToolDef(
         name="implied_probability",
@@ -259,6 +266,29 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["probability", "odds"],
         },
         execute=kelly_fraction,
+    ),
+    "calibration_metrics": ToolDef(
+        name="calibration_metrics",
+        description=(
+            "Brier score + log-loss for predicted probabilities vs actual outcomes "
+            "(pairs of {prob, outcome 0|1}) — the calibration record a model must carry."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "pairs": {
+                    "type": "array",
+                    "description": "Holdout predictions vs outcomes",
+                    "items": {
+                        "type": "object",
+                        "properties": {"prob": {"type": "number"}, "outcome": {"type": "integer"}},
+                        "required": ["prob", "outcome"],
+                    },
+                }
+            },
+            "required": ["pairs"],
+        },
+        execute=calibration_metrics,
     ),
 }
 

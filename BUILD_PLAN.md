@@ -221,10 +221,10 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] Per-feed schedules (`run_loop` with injectable clock), per-feed failure isolation (one bad feed logs, the rest ingest), dedupe to change-points, retention via Timescale policy or `prune_snapshots`. Shipped feed: `nba_odds` (CDN, group `nba.public.cdn`); a provider = one normalizer + one registry row. `agents ingest --once/--loop [--prune N]`, `agents movement <event>`.
 - [x] **Exit gate:** offline — 3 captures/1 move → 6 snapshots, 3 change-points, movement query ordered with prev→new (7 tests). **Live** (2026-06-10, SQLite warehouse): two real captures 45s apart → 44 first-sighting change-points then 44 snapshots / **0 changes** (dedupe proven on real data); `agents movement 0042500403 --selection home` renders the 5-book series.
 
-### M2.2 — Modelling agent
-- [ ] `specs/modelling.yaml` (sandbox + history store) — build/run models; output **calibrated** probabilities; persist `models`, `predictions` with calibration metadata.
-- [ ] Skill bundles: `build-a-totals-model`, `calibrate-probabilities`.
-- [ ] **Exit gate:** a model produces calibrated probs on a holdout; calibration (Brier/log-loss) recorded.
+### M2.2 — Modelling agent ✅
+- [x] `specs/modelling.yaml` (sandbox: ephemeral + warehouse access via `query_line_movement`) — `quant/metrics.py` (Brier/log-loss, ONE definition shared with M2.4 eval), `calibration_metrics` native tool, session-bound `tools/quant.py` (`save_model` **refuses uncalibrated models**, `record_predictions` prob-validated + tenant-scoped, `list_models`); `models`/`predictions` tables (migration 0006); orchestrator delegates += modelling.
+- [x] Skill bundles: `build_a_totals_model` (normal-approximation baseline, holdout discipline, "Brier ≥ 0.25 = say so plainly"), `calibrate_probabilities` (shrinkage/Platt rescaling, before/after reporting).
+- [x] **Exit gate:** deterministic machinery run — run_python computes holdout probs in the REAL sandbox → calibration_metrics (Brier 0.19 exact) → save_model persists v1 WITH the calibration record → 2 predictions recorded → typed answer grounding-verified. Version increments, cross-tenant prediction writes refused (9 tests).
 
 ### M2.3 — Value-finder + backtesting
 - [ ] **Value-finder** — model prob vs market (vig-removed) → +EV, edge %, fair odds (deterministic math/tools).
