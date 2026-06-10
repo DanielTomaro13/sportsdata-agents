@@ -122,6 +122,34 @@ async def test_harness_gives_up_after_retry_with_parsed_none() -> None:
     assert res.output == "still junk"  # the text is still surfaced honestly
 
 
+async def test_format_feedback_is_truncated() -> None:
+    """Pydantic errors echo the invalid input — a long junk answer must not be pasted
+    back into the window wholesale (§8.2 context hygiene)."""
+    junk = "x" * 5000
+    provider = ScriptedProvider(_text(junk), _text(STATS_JSON))
+    res = await Harness(_spec(), provider=provider, workspace=WS).run("q")
+    feedback = next(m for m in res.messages if "[format]" in (m.get("content") or ""))
+    assert len(feedback["content"]) < 1000
+
+
+async def test_delegate_summary_carries_structured_typed_output() -> None:
+    """A sub-agent's typed output must reach the caller as structure, not a
+    double-encoded string."""
+    import json as _json
+
+    from sportsdata_agents.agents.runtime import AgentRuntime, delegate_tool
+
+    sub_provider = ScriptedProvider(_text(STATS_JSON))
+    async with AgentRuntime(
+        _spec(id="stats_sub"), provider=sub_provider, workspace=WS
+    ) as sub:
+        tool = delegate_tool(sub)
+        out = _json.loads(await tool.execute({"task": "who does Judge play for?"}))
+    assert out["agent"] == "stats_sub"
+    assert out["data"]["answer"].startswith("Judge")
+    assert out["data"]["facts"][0]["source"] == "mlb_player"
+
+
 def test_harness_unknown_output_type_fails_at_construction() -> None:
     spec = _spec()
     object.__setattr__(spec, "output_type", "GhostType")  # bypass spec validation deliberately

@@ -48,14 +48,17 @@ def delegate_tool(runtime: AgentRuntime) -> ToolDef:
         # Charge the CALLER's budget: a team run shares one per-run ceiling (§16.1) —
         # otherwise "per-run" would multiply by the number of delegations.
         result = await runtime.run(task, budget=CURRENT_RUN_BUDGET.get())
-        return json.dumps(
-            {
-                "agent": spec.id,
-                "answer": result.output,
-                "stop_reason": result.stop_reason,
-                "verified": result.verified,
-            }
-        )
+        summary: dict = {
+            "agent": spec.id,
+            "answer": result.output,
+            "stop_reason": result.stop_reason,
+            "verified": result.verified,
+        }
+        if result.parsed is not None:
+            # Typed outputs must survive the delegation boundary as STRUCTURE, not a
+            # double-encoded string — that's what they're for (M0.9).
+            summary["data"] = result.parsed.model_dump(mode="json")
+        return json.dumps(summary)
 
     return ToolDef(
         name=spec.id,

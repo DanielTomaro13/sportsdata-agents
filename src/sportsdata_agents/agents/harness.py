@@ -284,12 +284,14 @@ class Harness:
                     parsed, parse_err = parse_output(reply.text, self.output_model)
                     if parsed is None and parse_attempts < PARSE_RETRIES:
                         parse_attempts += 1
+                        # Pydantic errors echo the full invalid input — truncate, or a long
+                        # junk answer gets pasted straight back into the window (§8.2).
                         messages.append(
                             {
                                 "role": "user",
                                 "content": (
-                                    f"[format] Your answer did not match the required JSON schema: {parse_err} "
-                                    f"— respond ONLY with valid JSON matching the schema."
+                                    f"[format] Your answer did not match the required JSON schema: "
+                                    f"{parse_err[:400]} — respond ONLY with valid JSON matching the schema."
                                 ),
                             }
                         )
