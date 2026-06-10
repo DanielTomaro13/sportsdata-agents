@@ -126,6 +126,36 @@ async def test_no_progress_detector_stops_thrash() -> None:
     assert res.stop_reason == "no_progress"
 
 
+async def test_no_progress_detector_catches_oscillation() -> None:
+    """a,b,a,b,a,b — the classic two-tool thrash — must stop, not burn the ceilings."""
+    a, b = tool_reply("echo", {"x": "a"}), tool_reply("echo", {"x": "b"})
+    provider = ScriptedProvider(a, b, a, b, a, b, a, b)
+    h = Harness(make_spec(), provider=provider, workspace=WS, tools=[echo_tool()])
+    res = await h.run("q")
+    assert res.stop_reason == "no_progress"
+    assert res.tool_call_count == 6  # period 2 x 3 repeats, not the 25-call ceiling
+
+
+async def test_varied_calls_are_not_flagged_as_thrash() -> None:
+    """Distinct work must never trip the detector."""
+    replies = [tool_reply("echo", {"i": i}) for i in range(8)] + [text_reply("done")]
+    provider = ScriptedProvider(*replies)
+    h = Harness(make_spec(), provider=provider, workspace=WS, tools=[echo_tool()])
+    res = await h.run("q")
+    assert res.stop_reason == "done"
+
+
+def test_is_thrashing_unit() -> None:
+    from sportsdata_agents.agents.harness import is_thrashing
+
+    assert is_thrashing(["a", "a", "a"])
+    assert is_thrashing(["x", "a", "b", "a", "b", "a", "b"])  # period 2 at the tail
+    assert is_thrashing(["a", "b", "c"] * 3)  # period 3
+    assert not is_thrashing(["a", "b", "a", "b"])  # only 2 repeats of the cycle
+    assert not is_thrashing(["a", "b", "a", "c", "a", "b"])  # no clean cycle
+    assert not is_thrashing([])
+
+
 # ── §8.1 clamping ────────────────────────────────────────────────────────
 
 

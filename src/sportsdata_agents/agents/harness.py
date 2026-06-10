@@ -41,8 +41,30 @@ StopReason = Literal[
 
 # Fraction of the context-token ceiling at which compaction/reset kicks in.
 CONTEXT_THRESHOLD = 0.7
-# Identical consecutive tool calls before the thrash detector stops the run.
+# Thrash detection: a cycle of up to this period, repeated this many times, stops the
+# run. Period 1 = the same call back-to-back; period 2/3 catches a,b,a,b oscillation.
+# Safe because tools are reads: an identical repeated cycle cannot produce new info.
+NO_PROGRESS_MAX_PERIOD = 3
 NO_PROGRESS_REPEATS = 3
+
+
+def is_thrashing(
+    signatures: list[str],
+    *,
+    max_period: int = NO_PROGRESS_MAX_PERIOD,
+    repeats: int = NO_PROGRESS_REPEATS,
+) -> bool:
+    """True when the tail of ``signatures`` is one cycle (period ≤ max_period) repeated
+    ``repeats`` times — e.g. a,a,a or a,b,a,b,a,b."""
+    for period in range(1, max_period + 1):
+        n = period * repeats
+        if len(signatures) < n:
+            continue
+        window = signatures[-n:]
+        block = window[:period]
+        if all(window[i] == block[i % period] for i in range(n)):
+            return True
+    return False
 # How many times a failed verification is fed back for another attempt.
 VERIFY_RETRIES = 1
 
@@ -247,11 +269,7 @@ class Harness:
 
                 signature = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
                 recent_signatures.append(signature)
-                # Note: only *consecutive* identical calls are caught; an a,b,a,b oscillation
-                # is left to the step/tool-call ceilings.
-                if len(recent_signatures) >= NO_PROGRESS_REPEATS and (
-                    len(set(recent_signatures[-NO_PROGRESS_REPEATS:])) == 1
-                ):
+                if is_thrashing(recent_signatures):
                     return result("no_progress", last_text)
 
                 payload = await self._execute_tool(tc.name, tc.arguments)
