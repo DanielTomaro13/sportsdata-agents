@@ -164,6 +164,73 @@ async def test_recorder_failure_never_breaks_the_run() -> None:
     assert res.stop_reason == "done" and res.output == "fine"
 
 
+async def test_crashed_run_recorded_as_error_with_spend(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A provider crash must not strand a 'running' row or leak the usage buffer —
+    the run ends as status=error with its error text and the spend it incurred."""
+    recorder = DbRecorder(db_sessionmaker, SCOPE)
+
+    class CrashingProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, messages, *, tier="balanced", workspace, budget=None, **kw):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            if self.calls == 1:
+                if budget is not None:
+                    budget.charge(0.002)
+                recorder.usage_sink(
+                    UsageEvent(
+                        kind="llm", model="fake-model", tier=tier, tokens_in=50, tokens_out=10,
+                        cost_usd=0.002, latency_ms=5, tenant_id="t", workspace_id="w",
+                    )
+                )
+                return _tool_call("echo")
+            raise RuntimeError("provider melted")
+
+    h = Harness(_spec("a4"), provider=CrashingProvider(), workspace=WS, tools=[echo_tool()], recorder=recorder)
+    with pytest.raises(RuntimeError, match="provider melted"):
+        await h.run("q")
+
+    async with db_sessionmaker() as s:
+        run = (await s.execute(select(AgentRun))).scalar_one()
+        assert run.status == "error"
+        assert run.error is not None and "provider melted" in run.error
+        assert float(run.cost_usd) == pytest.approx(0.002)  # the spend before the crash
+        ledger = (await s.execute(select(UsageLedger))).scalars().all()
+        assert len(ledger) == 1  # buffer flushed, not leaked
+    assert recorder._usage == {}  # nothing left buffered
+
+
+async def test_usage_event_outside_a_run_is_dropped_not_buffered(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    recorder = DbRecorder(db_sessionmaker, SCOPE)
+    recorder.usage_sink(
+        UsageEvent(
+            kind="llm", model="m", tier="fast", tokens_in=1, tokens_out=1,
+            cost_usd=0.001, latency_ms=1, tenant_id="t", workspace_id="w",
+        )
+    )
+    assert recorder._usage == {}  # dropped (logged), not leaked under a None key
+
+
+async def test_run_end_without_start_creates_the_row(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """If on_run_start failed (DB blip), on_run_end must not orphan ledger rows —
+    it creates the run row itself (Postgres FK safety)."""
+    import uuid as _uuid
+
+    recorder = DbRecorder(db_sessionmaker, SCOPE)
+    rid = _uuid.uuid4()
+    await recorder.on_run_end(run_id=rid, agent="ghosted", status="ok", cost_usd=0.0, latency_ms=1)
+    async with db_sessionmaker() as s:
+        run = (await s.execute(select(AgentRun))).scalar_one()
+        assert run.id == rid and run.agent == "ghosted" and run.status == "ok"
+
+
 def test_migration_0002_idempotent_on_fresh_db(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Fresh DBs get parent_run_id from 0001's metadata; 0002 must not fail on them."""
     import sqlite3

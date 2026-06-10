@@ -21,6 +21,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sportsdata_agents.agents.harness import CURRENT_RUN_ID
 from sportsdata_agents.data.models import AgentRun, ToolCall, UsageLedger
 from sportsdata_agents.data.repository import TenantScope
 from sportsdata_agents.models.gateway import UsageEvent
@@ -40,7 +41,8 @@ class RunRecorder(Protocol):
     ) -> None: ...
 
     async def on_run_end(
-        self, *, run_id: uuid.UUID, agent: str, status: str, cost_usd: float, latency_ms: int
+        self, *, run_id: uuid.UUID, agent: str, status: str, cost_usd: float, latency_ms: int,
+        error: str | None = None,
     ) -> None: ...
 
 
@@ -55,9 +57,12 @@ class DbRecorder:
     # ── gateway sink (sync; buffered per current run) ─────────────────────
 
     def usage_sink(self, event: UsageEvent) -> None:
-        from sportsdata_agents.agents.harness import CURRENT_RUN_ID
-
-        self._usage[CURRENT_RUN_ID.get()].append(event)
+        run_id = CURRENT_RUN_ID.get()
+        if run_id is None:
+            # No owning run to flush under — buffering would leak unboundedly.
+            logger.warning("usage event outside any run dropped (model=%s cost=%.6f)", event.model, event.cost_usd)
+            return
+        self._usage[run_id].append(event)
 
     # ── harness hooks ──────────────────────────────────────────────────────
 
@@ -97,7 +102,8 @@ class DbRecorder:
             await session.commit()
 
     async def on_run_end(
-        self, *, run_id: uuid.UUID, agent: str, status: str, cost_usd: float, latency_ms: int
+        self, *, run_id: uuid.UUID, agent: str, status: str, cost_usd: float, latency_ms: int,
+        error: str | None = None,
     ) -> None:
         events = self._usage.pop(run_id, [])
         tokens_in = sum(e.tokens_in for e in events)
@@ -108,15 +114,25 @@ class DbRecorder:
         )
         async with self._sf() as session:
             run = await session.get(AgentRun, run_id)
-            if run is not None:
-                run.status = status
-                run.cost_usd = Decimal(str(round(cost_usd, 6)))
-                run.latency_ms = latency_ms
-                run.tokens_in = tokens_in
-                run.tokens_out = tokens_out
-                run.model = events[-1].model if events else None
-                run.tier = events[-1].tier if events else None
-                run.finished_at = dt.datetime.now(dt.UTC)
+            if run is None:
+                # on_run_start may have failed (e.g. DB blip): create the row now, or the
+                # ledger inserts below would orphan-FK on Postgres.
+                run = AgentRun(
+                    id=run_id,
+                    tenant_id=self._scope.tenant_id,
+                    workspace_id=self._scope.workspace_id,
+                    agent=agent,
+                )
+                session.add(run)
+            run.status = status
+            run.error = error
+            run.cost_usd = Decimal(str(round(cost_usd, 6)))
+            run.latency_ms = latency_ms
+            run.tokens_in = tokens_in
+            run.tokens_out = tokens_out
+            run.model = events[-1].model if events else None
+            run.tier = events[-1].tier if events else None
+            run.finished_at = dt.datetime.now(dt.UTC)
             for e in events:
                 session.add(
                     UsageLedger(

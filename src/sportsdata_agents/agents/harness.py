@@ -225,12 +225,22 @@ class Harness:
         budget = budget if budget is not None else RunBudget(ceiling_usd=self.cost_ceiling_usd)
         run_id = uuid.uuid4()
         parent_run_id = CURRENT_RUN_ID.get()
+        spent_before = budget.spent_usd
         budget_token = CURRENT_RUN_BUDGET.set(budget)
         run_token = CURRENT_RUN_ID.set(run_id)
         started = time.monotonic()
         await self._record_start(run_id, parent_run_id, user_input)
         try:
             result = await self._loop(messages, budget)
+        except BaseException as e:
+            # A crashed run must not strand a "running" row + leak its usage buffer.
+            await self._record_crash(
+                run_id,
+                cost_usd=budget.spent_usd - spent_before,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                error=f"{type(e).__name__}: {e}",
+            )
+            raise
         finally:
             CURRENT_RUN_BUDGET.reset(budget_token)
             CURRENT_RUN_ID.reset(run_token)
@@ -407,6 +417,21 @@ class Harness:
             )
         except Exception as e:
             logger.warning("recorder.on_run_end failed: %s: %s", type(e).__name__, e)
+
+    async def _record_crash(self, run_id: uuid.UUID, *, cost_usd: float, latency_ms: int, error: str) -> None:
+        if self.recorder is None:
+            return
+        try:
+            await self.recorder.on_run_end(
+                run_id=run_id,
+                agent=self.spec.id,
+                status="error",
+                cost_usd=cost_usd,
+                latency_ms=latency_ms,
+                error=error[:500],
+            )
+        except Exception as e:
+            logger.warning("recorder.on_run_end (crash path) failed: %s: %s", type(e).__name__, e)
 
     def _disclose_skills(self, messages: list[dict[str, Any]], text: str) -> None:
         """Progressive disclosure: append a skill's body the first time it becomes relevant."""
