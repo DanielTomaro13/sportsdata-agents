@@ -182,9 +182,9 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] Task queue: **in-process asyncio `TaskStore`** (submit→id→poll/stream; error surfacing; eviction). *Deviation, recorded: Redis/Arq is a deploy concern (P4) — the TaskStore interface is the seam.*
 - [x] **Exit gate:** test client drives sync/async/SSE/404/conversation routes + rate limiter + task-error surfacing (10 offline tests); live run: healthz → sync answer → async task with SSE events → done status.
 
-### M1.2 — Slack adapter (`D4`) ✅ (live pending your Slack app tokens)
+### M1.2 — Slack adapter (`D4`) ✅ (live-verified 2026-06-11)
 - [x] `interfaces/slack/app.py` (Bolt, **Socket Mode** — no public URL): @mention + DM + `/ask` → gateway `/conversations/{thread}/message` (Slack thread = conversation key) → threaded reply with sources, grounded/unverified badge and the §14 disclaimer; `push_notification()` for agent alerts (graceful when unconfigured); `agents slack` CLI. *(OAuth multi-workspace install = P4 SaaS concern.)*
-- [x] **Exit gate:** adapter logic fully tested offline (mention stripping, ack→answer threading, gateway-down grace, push delivery + degradation — 6 tests). **Live**: create a Slack app (Socket Mode, `app_mentions:read`, `chat:write`, `commands`), set `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` in `.env`, run `agents serve` + `agents slack`.
+- [x] **Exit gate:** adapter logic tested offline (6 tests) **and live**: real threaded answer + push alert delivered into #all-daniel via bot `sportsagent` (tokens in `.env`). Interactive @mention loop = `agents serve` + `agents slack`.
 
 ### M1.3 — Sandbox integration (`D5`, `§10`) ✅
 - [x] `sandboxes/base.py`: `Sandbox` protocol `run(code, files, env, network_policy, timeout)` → `SandboxResult` (stdout/stderr/artifacts). **LocalSubprocessSandbox**: temp-dir isolation, CPU+memory rlimits, wall-clock cap, output caps, path-escape guard, artifact collection. *Documented caveat: egress is advisory locally (macOS can't syscall-block without root).*
@@ -205,7 +205,7 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] `specs/data_analysis.yaml`: `sandbox: ephemeral`, `run_python` + stats capabilities + `lookup_book_ids`, typed `StatsAnswer`, plt.savefig discipline in the prompt. Orchestrator delegates += data_analysis.
 - [x] **Exit gate (machinery, deterministic):** a scripted run computes form over 10 games in the REAL sandbox, saves a chart artifact, and the typed answer quotes only computed numbers — `verified=True` because the grounding check matches the answer's 98.0 against run_python stdout. *(LLM-quality grading of live chart requests belongs to the M2.4 eval harness.)*
 
-- [~] **🚪 P1 EXIT GATE:** bet tracking + CLV reporting ✓ (exact-value tests; performance table live) · sandboxed analysis ✓ (real pandas run + chart artifact + grounded answer) · advisory invariants ✓ (no placement tools exist anywhere; notifier is tool-less with banned-language rules; risk gate caps; deny-filter still authoring+runtime-enforced) · gateway live ✓. **Pending: Slack live** — needs your Slack app (Socket Mode) tokens in `.env`; the adapter is fully built and tested offline. Flip to ✅ after one threaded Slack answer + one push alert.
+- [x] **🚪 P1 EXIT GATE — CLOSED** (2026-06-11): **Slack live** ✓ — the real adapter flow (handle_question → gateway → model → threaded reply with grounded badge + §14 disclaimer) posted into #all-daniel, and a push alert delivered (`push_notification` → 🔔). Bet tracking + CLV ✓ (exact-value tests; `performance` table live). Sandboxed analysis ✓ (real pandas run; chart artifact; grounding verified the quoted number). Advisory invariants ✓ (no placement tools exist anywhere; tool-less notifier with banned-language rules; exposure gate caps stakes; deny-filter enforced at authoring + runtime). Gateway live ✓ (sync + async + SSE, verified answers). *Interactive @mention loop: run `agents serve` + `agents slack` (Socket Mode).*
 
 ---
 
