@@ -43,7 +43,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# sandbox analysis stack (data_analysis agent; local sandbox runs in this venv)
+analysis = [
+  "pandas>=2.0",
+  "matplotlib>=3.8",
+]
 dev = [
+  "pandas>=2.0",
+  "matplotlib>=3.8",
   "ruff>=0.6",
   "mypy>=1.10",
   "pytest>=8.0",
