@@ -31,27 +31,49 @@ logger = logging.getLogger(__name__)
 AUTO_BEGIN = "<!-- AUTO:BEGIN refresh-books -->"
 AUTO_END = "<!-- AUTO:END refresh-books -->"
 
-# Key-name heuristics for walking unknown discovery shapes. These are about JSON
-# STRUCTURE (which fields mean "name"/"id"), not about which sports matter.
-_NAME_KEYS = ("name", "displayName", "competitionName", "className", "title")
-_ID_KEYS = ("id", "key", "competitionId", "competitionKey", "classId", "slug")
+# Convention-based field detection — NOT an allowlist of spellings (a book using
+# `label`/`code`/`eventTypeId`/`categoryName` must still be harvested). We match how
+# APIs *name* fields, then sanity-check the values.
+_NAME_KEY_RE = re.compile(r"name|title|label|display", re.IGNORECASE)
+_ID_KEY_RE = re.compile(r"(?:id|key|slug|code)$", re.IGNORECASE)
+
+
+def _name_field(node: dict) -> str | None:
+    """The most generic name-ish string field ('name' beats 'venueName')."""
+    candidates = [
+        k for k, v in node.items()
+        if _NAME_KEY_RE.search(k) and isinstance(v, str) and v.strip() and re.search(r"[A-Za-z]", v)
+    ]
+    return min(candidates, key=len) if candidates else None
+
+
+def _id_field(node: dict) -> str | None:
+    """The most generic id-ish scalar field — 'id' beats 'competitionId', so a node
+    pairs with its OWN id, not a foreign reference."""
+    candidates = [
+        k for k, v in node.items()
+        if _ID_KEY_RE.search(k) and isinstance(v, (str, int)) and 0 < len(str(v)) < 64
+    ]
+    return min(candidates, key=len) if candidates else None
 
 
 def find_named_ids(payload: Any, pattern: re.Pattern[str] | None = None) -> list[tuple[str, str]]:
     """Recursively collect (name, id) pairs — ALL of them unless ``pattern`` filters.
 
-    Discovery payload shapes differ per book; a tolerant walk beats per-book
-    parsers that break on cosmetic upstream changes.
+    Discovery payload shapes differ per book; a tolerant convention-based walk beats
+    per-book parsers (and per-field allowlists) that break on upstream renames.
     """
     found: list[tuple[str, str]] = []
 
     def walk(node: Any) -> None:
         if isinstance(node, dict):
-            name = next((str(node[k]) for k in _NAME_KEYS if isinstance(node.get(k), str)), None)
-            if name and (pattern is None or pattern.search(name)):
-                id_ = next((str(node[k]) for k in _ID_KEYS if node.get(k) is not None), None)
-                if id_ is not None:
-                    found.append((name, id_))
+            name_key = _name_field(node)
+            if name_key is not None:
+                name = str(node[name_key])
+                if pattern is None or pattern.search(name):
+                    id_key = _id_field(node)
+                    if id_key is not None:
+                        found.append((name, str(node[id_key])))
             for value in node.values():
                 walk(value)
         elif isinstance(node, list):

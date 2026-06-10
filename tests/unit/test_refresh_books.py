@@ -42,6 +42,31 @@ def test_find_named_ids_collects_everything() -> None:
     assert ("Basketball NBA", "basketball") in pairs
 
 
+def test_find_named_ids_matches_conventions_not_spellings() -> None:
+    """Field detection is convention-based (review finding: an allowlist of spellings
+    is the same shell one level down — `label`/`code`/`eventTypeId` must work)."""
+    payload = {
+        "items": [
+            {"label": "Greyhounds", "code": "GR"},
+            {"categoryName": "Harness", "eventTypeId": 99},
+            {"title": "Esports", "slug": "esports-lol"},
+        ]
+    }
+    pairs = find_named_ids(payload)
+    assert ("Greyhounds", "GR") in pairs
+    assert ("Harness", "99") in pairs
+    assert ("Esports", "esports-lol") in pairs
+
+
+def test_find_named_ids_prefers_own_id_and_sane_names() -> None:
+    # a node with its own `id` AND a foreign `competitionId` pairs with its OWN id
+    payload = {"x": [{"name": "Round 14", "id": 7, "competitionId": 4165}]}
+    assert find_named_ids(payload) == [("Round 14", "7")]
+    # numeric "names" are not display names; id values must be scalar and short
+    junk = {"y": [{"name": "12345", "id": 1}, {"name": "Real", "id": {"nested": True}}]}
+    assert find_named_ids(junk) == []
+
+
 def test_find_named_ids_dedupes() -> None:
     payload = {"a": [{"name": "AFL", "id": 1}, {"name": "AFL", "id": 1}]}
     assert find_named_ids(payload) == [("AFL", "1")]
