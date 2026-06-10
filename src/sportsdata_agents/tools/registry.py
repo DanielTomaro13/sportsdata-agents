@@ -47,6 +47,34 @@ async def best_price(args: dict[str, Any]) -> Any:
     return {"book": best.get("book", "?"), "odds": float(best["odds"])}
 
 
+async def expected_value(args: dict[str, Any]) -> Any:
+    """{probability, odds} -> EV per unit staked: p*odds - 1 (positive = value)."""
+    p = float(args["probability"])
+    odds = float(args["odds"])
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"probability must be in (0, 1), got {p}")
+    ev = p * odds - 1.0
+    return {"probability": p, "odds": odds, "expected_value": round(ev, 6), "is_value": ev > 0}
+
+
+async def kelly_fraction(args: dict[str, Any]) -> Any:
+    """{probability, odds} -> the Kelly-optimal fraction of bankroll: (b*p - q) / b.
+
+    Informational only (advisory, §14): a suggested sizing the USER may apply — named
+    `kelly_fraction`, not "*_stake", deliberately: it computes a fraction, takes no
+    action, and a money-verb name would (rightly) trip the no-money deny-filter.
+    """
+    p = float(args["probability"])
+    odds = float(args["odds"])
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"probability must be in (0, 1), got {p}")
+    b = odds - 1.0
+    if b <= 0:
+        raise ValueError(f"decimal odds must exceed 1.0, got {odds}")
+    fraction = (b * p - (1.0 - p)) / b
+    return {"probability": p, "odds": odds, "kelly_fraction": round(max(fraction, 0.0), 6)}
+
+
 NATIVE_TOOLS: dict[str, ToolDef] = {
     "implied_probability": ToolDef(
         name="implied_probability",
@@ -97,6 +125,35 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["prices"],
         },
         execute=best_price,
+    ),
+    "expected_value": ToolDef(
+        name="expected_value",
+        description="Expected value per unit for a price given a (fair) probability: p*odds - 1. Positive = value.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "probability": {"type": "number", "description": "Fair win probability (0-1), e.g. from vig_removal"},
+                "odds": {"type": "number", "description": "Decimal odds on offer"},
+            },
+            "required": ["probability", "odds"],
+        },
+        execute=expected_value,
+    ),
+    "kelly_fraction": ToolDef(
+        name="kelly_fraction",
+        description=(
+            "Kelly-optimal fraction of bankroll for a price given a (fair) probability — "
+            "informational sizing guidance only; the user decides and acts."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "probability": {"type": "number", "description": "Fair win probability (0-1)"},
+                "odds": {"type": "number", "description": "Decimal odds on offer"},
+            },
+            "required": ["probability", "odds"],
+        },
+        execute=kelly_fraction,
     ),
 }
 

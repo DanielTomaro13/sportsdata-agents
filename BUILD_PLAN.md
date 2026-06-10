@@ -136,10 +136,11 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] `odds_specialist` → `OddsComparison`; `stats_specialist` → `StatsAnswer`; orchestrator stays free-text (synthesis). Lint cross-checks `output_type` against the registry.
 - [x] **Exit gate:** offline — registry/parse formats (bare/fenced/prose)/schema-error/harness parse/feedback-retry/give-up/unknown-type/lint, 12 tests. **Live** — `stats_specialist` answered a scoped question via the real MCP with a **validated `StatsAnswer`** (Yankees, sources cited). ruff/mypy clean; offline **147 passed**, live **3 passed**.
 
-### M0.10 — Native tools + first skills
-- [ ] `tools/`: `vig_removal`, `implied_probability`, `best_price`, DB helpers — deterministic, unit-tested.
-- [ ] `skills/`: first 1–2 skill bundles (`vig-removal` playbook; a `compare-odds` walkthrough) with `SKILL.md` + script.
-- [ ] **Exit gate:** golden-value unit tests for each native tool; a skill runs end-to-end (script path stubbed/local).
+### M0.10 — Native tools + first skills ✅
+- [x] `tools/registry.py`: `vig_removal`, `implied_probability`, `best_price` *(shipped at M0.8)* + **`expected_value`** (p·odds−1, `is_value` flag) and **`kelly_fraction`** (Kelly-optimal bankroll fraction, clamped ≥0; deliberately named `_fraction` not `_stake` — a money-verb name would rightly trip the deny-filter; informational only, §14). Golden-tested incl. bounds. *(DB helpers belong with M0.11 persistence.)*
+- [x] `skills/`: first two bundles — **`vig_removal`** (procedure: full market → `vig_removal` → sharpest-book fair prob → `expected_value`; sanity anchors; partial-market rule) and **`compare_odds`** (identify event once → per-book quotes with fetch times → `best_price` → EV; same-line rule; advisory line). Triggers tuned against false positives ("margin" excluded — winning-margin markets; word-boundary matching from M0.7).
+- [x] `odds_specialist` granted `expected_value` + `skills: [vig_removal, compare_odds]`; lint green.
+- [x] **Exit gate:** golden values for every native tool (incl. negative-edge Kelly clamp, probability bounds, deny-filter naming test); builtin bundles load from the packaged root, trigger on the right phrases, refuse false positives; **end-to-end**: the odds specialist's skills disclose JIT in a harness run with index-in-prompt + both bodies disclosed + typed output still parsing. ruff/mypy clean; offline **157 passed**, live **3 passed**, `agents lint` ✓. *(Skill scripts run in the sandbox from M1.3.)*
 
 ### M0.11 — Observability & cost
 - [ ] `observability/`: wire **Logfire** (or OTel) — trace every agent run, delegation, tool call, model choice, tokens, latency, cost.
