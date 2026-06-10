@@ -78,7 +78,7 @@ class Limits(BaseModel):
     max_tool_calls: int = Field(default=25, gt=0)
     max_steps: int = Field(default=40, gt=0)
     max_tokens: int = Field(default=120_000, gt=0)
-    timeout_seconds: int = Field(default=120, gt=0)
+    timeout_seconds: int = Field(default=300, gt=0)
     cost_ceiling_usd: float = Field(default=0.50, gt=0)
 
 

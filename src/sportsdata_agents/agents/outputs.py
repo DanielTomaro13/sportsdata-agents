@@ -3,8 +3,9 @@
 A spec naming an `output_type` makes the harness instruct the model to answer in that
 JSON shape and validate the final answer against it (one format-feedback retry). Typed
 results make specialist answers machine-consumable — the orchestrator and (later) the
-UI chain on fields, not prose. Portable by construction: plain JSON-in-text, no
-vendor-specific structured-output APIs.
+UI chain on fields, not prose. Delivery is the `final_answer` function channel
+(tool-trained models emit structure there reliably); text-JSON parsing remains the
+fallback. Portable: plain function calling, no vendor structured-output APIs.
 """
 
 from __future__ import annotations

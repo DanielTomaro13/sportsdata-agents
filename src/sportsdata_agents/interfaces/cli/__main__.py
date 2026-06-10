@@ -173,6 +173,7 @@ def run(
 def chat(
     workspace: str = typer.Option("local", "--workspace", help="Workspace id (tenant scoping + budgets)."),
     agent: str | None = typer.Option(None, "--agent", help="Chat with a single agent instead of the team."),
+    model: str | None = typer.Option(None, "--model", help="Pin every tier to one litellm model id."),
 ) -> None:
     """Interactive REPL with the team (sessions stay warm; /exit to quit).
 
@@ -181,7 +182,7 @@ def chat(
     import asyncio
 
     async def _chat() -> None:
-        console, session = await _bootstrap_session(workspace, agent)
+        console, session = await _bootstrap_session(workspace, agent, model)
         console.print(f"[dim]opening {session.agent_name}… (/exit to quit)[/dim]")
         async with session:
             while True:

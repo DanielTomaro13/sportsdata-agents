@@ -56,6 +56,7 @@ docker compose up -d && .venv/bin/alembic upgrade head
 .venv/bin/agents chat                       # interactive REPL (/exit to quit)
 .venv/bin/agents run "..." --agent stats_specialist   # one agent instead of the team
 .venv/bin/agents list && .venv/bin/agents lint        # spec catalogue + validation
+.venv/bin/agents refresh-books                        # weekly: re-verify bookmaker ids
 ```
 
 Every answer is **grounded** (numbers must come from tool results — a deterministic
