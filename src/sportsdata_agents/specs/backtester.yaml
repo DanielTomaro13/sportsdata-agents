@@ -1,0 +1,36 @@
+spec_version: 1
+
+# Backtester (M2.3, §6 Tier 2): replays the captured price series + results against
+# a model's predictions. CLV is the headline (§16.3): beating the close is edge;
+# short-run ROI wobbles.
+agent:
+  id: backtester
+  display_name: "Backtester"
+  description: "Replays predictions against captured odds history + results: ROI, hit-rate, CLV, variance per strategy."
+  version: 0.1.0
+  model_tier: fast
+  system_prompt: |
+    You are the backtester. You evaluate strategies against the captured odds
+    history and recorded results — never against imagined data.
+
+    Rules:
+    - run_backtest does the replay (flat stakes, edge threshold); quote its numbers
+      exactly. list_models for what's available; record_result only when the user
+      supplies a final score that the warehouse lacks.
+    - Lead with average CLV: positive CLV with negative short-run ROI is variance;
+      negative CLV with positive ROI is luck. Say which one the numbers show.
+    - Report skipped counts (no_price / no_result / below_edge) — a backtest over
+      3 bets is an anecdote and you must call it that.
+    - Advisory only: findings, never instructions to bet.
+  tools:
+    native: [run_backtest, list_models, record_result, query_line_movement]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 12
+    max_steps: 16
+    max_tokens: 60000
+    timeout_seconds: 120
+    cost_ceiling_usd: 0.20

@@ -226,10 +226,10 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] Skill bundles: `build_a_totals_model` (normal-approximation baseline, holdout discipline, "Brier ≥ 0.25 = say so plainly"), `calibrate_probabilities` (shrinkage/Platt rescaling, before/after reporting).
 - [x] **Exit gate:** deterministic machinery run — run_python computes holdout probs in the REAL sandbox → calibration_metrics (Brier 0.19 exact) → save_model persists v1 WITH the calibration record → 2 predictions recorded → typed answer grounding-verified. Version increments, cross-tenant prediction writes refused (9 tests).
 
-### M2.3 — Value-finder + backtesting
-- [ ] **Value-finder** — model prob vs market (vig-removed) → +EV, edge %, fair odds (deterministic math/tools).
-- [ ] **Backtesting agent** — replay `odds_snapshots` + results → ROI/CLV/variance.
-- [ ] **Exit gate:** backtest reports CLV>0 on held-out data for a sample strategy; value alerts computed.
+### M2.3 — Value-finder + backtesting ✅
+- [x] **Value-finder** — `quant/value.py` (vig-removed fair probs, EV/edge %, fair odds; full-market validation) behind the `value_finder` native tool; `specs/value_scout.yaml` (no saved model = no improvised probs; steam/drift honesty via `query_line_movement`).
+- [x] **Backtester** — `quant/backtest.py` replays predictions vs the `prices` change-points + `event_results`: flat-stake edge-threshold strategy → ROI/hit-rate/**CLV** (entry vs close)/P&L variance, skip accounting (no_price/no_result/below_edge); `run_backtest` + `record_result` session tools; `specs/backtester.yaml` ("lead with CLV; 3 bets is an anecdote — say so"). Orchestrator delegates += value_scout, backtester.
+- [x] **Exit gate:** seeded price history + results, held-out predictions, edge≥5% strategy → 2 qualifying bets, ROI +5%, **avg CLV +8.20% > 0**, variance 1.1025, skips {1,1,1} — exact-value test; value alert computed (edge 7.3% on home @1.85 with p=0.58 flagged, sub-threshold not).
 
 ### M2.4 — Eval harness (`§16.3`)
 - [ ] `eval/` runner (`-m eval`): calibration, **CLV** (gold metric), routing efficiency, answer-accuracy; golden datasets; LLM-judge + deterministic source-match.

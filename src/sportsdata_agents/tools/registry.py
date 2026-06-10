@@ -151,6 +151,18 @@ async def calibration_metrics(args: dict[str, Any]) -> Any:
     return calibration_report(list(args.get("pairs") or []))
 
 
+async def value_finder(args: dict[str, Any]) -> Any:
+    """{market, model_probs, min_edge_pct?} -> +EV selections vs the vig-removed
+    market (M2.3, deterministic). Advisory output — probabilities and edges only."""
+    from sportsdata_agents.quant.value import find_value
+
+    return find_value(
+        list(args.get("market") or []),
+        list(args.get("model_probs") or []),
+        min_edge_pct=float(args.get("min_edge_pct", 2.0)),
+    )
+
+
 NATIVE_TOOLS: dict[str, ToolDef] = {
     "implied_probability": ToolDef(
         name="implied_probability",
@@ -266,6 +278,40 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["probability", "odds"],
         },
         execute=kelly_fraction,
+    ),
+    "value_finder": ToolDef(
+        name="value_finder",
+        description=(
+            "Compare calibrated model probabilities against a market's prices: vig-removed fair "
+            "probabilities, EV/edge per selection, fair odds, and which selections clear the edge "
+            "threshold. Pass the FULL market (every selection) or the vig removal is wrong."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "market": {
+                    "type": "array",
+                    "description": "Every selection's current price",
+                    "items": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}, "odds": {"type": "number"}},
+                        "required": ["name", "odds"],
+                    },
+                },
+                "model_probs": {
+                    "type": "array",
+                    "description": "Calibrated probabilities from a saved model",
+                    "items": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}, "prob": {"type": "number"}},
+                        "required": ["name", "prob"],
+                    },
+                },
+                "min_edge_pct": {"type": "number", "description": "Value threshold (default 2.0)"},
+            },
+            "required": ["market", "model_probs"],
+        },
+        execute=value_finder,
     ),
     "calibration_metrics": ToolDef(
         name="calibration_metrics",

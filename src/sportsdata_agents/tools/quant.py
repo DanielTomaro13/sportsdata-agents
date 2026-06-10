@@ -17,11 +17,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.agents.harness import ToolDef
-from sportsdata_agents.data.models import ModelArtifact, Prediction
+from sportsdata_agents.data.models import EventResult, ModelArtifact, Prediction
 from sportsdata_agents.data.repository import TenantScope
 from sportsdata_agents.operations.ingestion.store import line_movement
 
-QUANT_TOOL_NAMES = {"save_model", "record_predictions", "list_models", "query_line_movement"}
+QUANT_TOOL_NAMES = {
+    "save_model",
+    "record_predictions",
+    "list_models",
+    "query_line_movement",
+    "run_backtest",
+    "record_result",
+}
 
 
 def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: TenantScope) -> list[ToolDef]:
@@ -125,6 +132,35 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
             ]
         }
 
+    async def run_backtest(args: dict[str, Any]) -> Any:
+        """{model_id?, min_edge_pct?, book?} → replay predictions vs the captured price
+        series + results: ROI, hit-rate, average CLV, P&L variance (M2.3)."""
+        from sportsdata_agents.quant.backtest import run_backtest as _run
+
+        return await _run(
+            session_factory,
+            scope,
+            model_id=args.get("model_id"),
+            min_edge_pct=float(args.get("min_edge_pct", 2.0)),
+            book=args.get("book"),
+        )
+
+    async def record_result(args: dict[str, Any]) -> Any:
+        """{event_external_id, winning_selection, sport?, provider?} → journal a final
+        result into the GLOBAL results table (what backtests settle against)."""
+        async with session_factory() as session:
+            session.add(
+                EventResult(
+                    provider=str(args.get("provider", "")),
+                    sport=str(args.get("sport", "")),
+                    event_external_id=str(args["event_external_id"]),
+                    winning_selection=str(args["winning_selection"]),
+                    settled_at=dt.datetime.now(dt.UTC),
+                )
+            )
+            await session.commit()
+        return {"recorded": args["event_external_id"], "winner": args["winning_selection"]}
+
     async def query_line_movement(args: dict[str, Any]) -> Any:
         """{event_external_id, market?, selection?, book?} → change-point price series
         from the odds warehouse (M2.1)."""
@@ -184,6 +220,27 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
             ["model_id", "predictions"],
         ),
         _tool("list_models", list_models, {}, []),
+        _tool(
+            "run_backtest",
+            run_backtest,
+            {
+                "model_id": {"type": "string"},
+                "min_edge_pct": {"type": "number", "description": "Entry-edge threshold (default 2.0)"},
+                "book": {"type": "string"},
+            },
+            [],
+        ),
+        _tool(
+            "record_result",
+            record_result,
+            {
+                "event_external_id": {"type": "string"},
+                "winning_selection": {"type": "string"},
+                "sport": {"type": "string"},
+                "provider": {"type": "string"},
+            },
+            ["event_external_id", "winning_selection"],
+        ),
         _tool(
             "query_line_movement",
             query_line_movement,

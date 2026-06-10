@@ -153,3 +153,69 @@ async def test_model_versions_increment_and_predictions_scope(
 
     listed = await tools["list_models"].execute({})
     assert [m["version"] for m in listed["models"]] == [1, 2]
+
+
+# ── M2.3 exit gate: backtest reports CLV > 0 on held-out data ────────────
+
+
+async def test_backtest_clv_positive_on_holdout(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    """Seed a captured price history + results, predict on the held-out events,
+    replay the edge>=5% flat-stake strategy: 2 qualifying bets, ROI +5%, average
+    CLV +8.20% (the strategy beats the close), variance reported, skips counted."""
+    import datetime as dt
+
+    from sportsdata_agents.data.models import EventResult
+    from sportsdata_agents.operations.ingestion import PricePoint, record_points
+
+    t0 = dt.datetime(2026, 6, 1, 9, 0, tzinfo=dt.UTC)
+    t1 = t0 + dt.timedelta(hours=6)
+
+    def pt(event: str, odds: float) -> PricePoint:
+        return PricePoint(provider="nba_cdn", book="B", sport="nba", event_external_id=event,
+                          market="2way", selection="home", odds=odds)
+
+    # entry prices (first capture) → closing prices (last capture)
+    await record_points(db_sessionmaker, [pt("E1", 2.10), pt("E2", 1.95), pt("E3", 3.60), pt("E5", 2.00)],
+                        captured_at=t0)
+    await record_points(db_sessionmaker, [pt("E1", 1.90), pt("E2", 2.00), pt("E3", 3.40), pt("E5", 2.00)],
+                        captured_at=t1)
+    async with db_sessionmaker() as s:
+        s.add(EventResult(provider="nba_cdn", sport="nba", event_external_id="E1", winning_selection="home"))
+        s.add(EventResult(provider="nba_cdn", sport="nba", event_external_id="E2", winning_selection="home"))
+        s.add(EventResult(provider="nba_cdn", sport="nba", event_external_id="E3", winning_selection="away"))
+        s.add(EventResult(provider="nba_cdn", sport="nba", event_external_id="E4", winning_selection="home"))
+        await s.commit()
+
+    tools = {t.name: t for t in quant_tools(db_sessionmaker, SCOPE)}
+    saved = await tools["save_model"].execute(
+        {"name": "h2h", "calibration": {"brier": 0.2, "log_loss": 0.6, "n": 50}}
+    )
+    await tools["record_predictions"].execute({
+        "model_id": saved["model_id"],
+        "predictions": [
+            {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60},  # edge 26%
+            {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50},  # edge -2.5%
+            {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30},  # edge 8%
+            {"event_external_id": "E4", "market": "2way", "selection": "home", "prob": 0.70},  # no prices
+            {"event_external_id": "E5", "market": "2way", "selection": "home", "prob": 0.80},  # no result
+        ],
+    })
+
+    report = await tools["run_backtest"].execute({"model_id": saved["model_id"], "min_edge_pct": 5.0})
+
+    assert report["bets"] == 2  # E1 (won) + E3 (lost)
+    assert report["pnl"] == pytest.approx(0.10, abs=1e-9)  # +1.10 - 1.00
+    assert report["roi_pct"] == pytest.approx(5.0)
+    assert report["hit_rate_pct"] == pytest.approx(50.0)
+    assert report["avg_clv_pct"] == pytest.approx(8.20, abs=0.01)  # beats the close → edge
+    assert report["avg_clv_pct"] > 0  # the M2.3 exit-gate claim
+    assert report["pnl_variance"] == pytest.approx(1.1025, abs=1e-4)
+    assert report["skipped"] == {"no_price": 1, "no_result": 1, "below_edge": 1}
+    e1 = next(b for b in report["per_bet"] if b["event"] == "E1")
+    assert (e1["entry_odds"], e1["closing_odds"], e1["clv_pct"]) == (2.10, 1.90, pytest.approx(10.53, abs=0.01))
+
+
+async def test_backtest_empty_is_honest(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    tools = {t.name: t for t in quant_tools(db_sessionmaker, SCOPE)}
+    report = await tools["run_backtest"].execute({})
+    assert report["bets"] == 0 and "nothing to report" in report["note"]
