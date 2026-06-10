@@ -35,8 +35,9 @@ class Skill:
     body: str
 
     def matches(self, text: str) -> bool:
+        # Word-boundary matching: "vig" must not fire on "na·vig·ation".
         lowered = text.lower()
-        return any(t in lowered for t in self.triggers)
+        return any(re.search(rf"\b{re.escape(t)}\b", lowered) for t in self.triggers)
 
 
 def parse_skill_md(text: str, *, source: str = "<string>") -> Skill:

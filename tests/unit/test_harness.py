@@ -184,6 +184,52 @@ def test_denied_tool_in_toolset_rejected_at_construction() -> None:
         Harness(make_spec(), provider=ScriptedProvider(text_reply("x")), workspace=WS, tools=[echo_tool("place_bet")])
 
 
+def test_duplicate_tool_names_rejected_at_construction() -> None:
+    with pytest.raises(ValueError, match="duplicate tool name"):
+        Harness(
+            make_spec(),
+            provider=ScriptedProvider(text_reply("x")),
+            workspace=WS,
+            tools=[echo_tool("echo"), echo_tool("echo")],
+        )
+
+
+async def test_multi_tool_batch_keeps_protocol_order(tmp_path: Path) -> None:
+    """assistant(tool_calls=[a,b]) must be followed by tool(a), tool(b) with NOTHING
+    between — a skill triggered by result a must disclose only after the whole batch."""
+
+    async def trigger_tool(args: dict[str, Any]) -> Any:
+        return {"note": "remove the vig here"}  # triggers the skill
+
+    tools = [
+        ToolDef(name="t_a", description="", parameters={"type": "object"}, execute=trigger_tool),
+        echo_tool("t_b"),
+    ]
+    batch = ModelReply(
+        text="",
+        model="fake",
+        tokens_in=100,
+        tokens_out=10,
+        cost_usd=0.01,
+        tool_calls=(
+            ToolCallRequest(id="a", name="t_a", arguments={}),
+            ToolCallRequest(id="b", name="t_b", arguments={}),
+        ),
+    )
+    provider = ScriptedProvider(batch, text_reply("done"))
+    h = Harness(make_spec(), provider=provider, workspace=WS, tools=tools, skills=_skillset(tmp_path))
+    res = await h.run("compare books")
+
+    roles = [m["role"] for m in res.messages]
+    i = roles.index("assistant")
+    assert roles[i + 1] == "tool" and roles[i + 2] == "tool", f"batch interleaved: {roles}"
+    # the disclosure exists, but only after both tool messages
+    disclosure_idx = next(
+        idx for idx, m in enumerate(res.messages) if "[skill loaded" in (m.get("content") or "")
+    )
+    assert disclosure_idx == i + 3
+
+
 # ── context policy (§8.2) ────────────────────────────────────────────────
 
 
@@ -217,6 +263,23 @@ def test_default_compactor_keeps_system_and_recent() -> None:
     assert out[0]["role"] == "system"
     assert "compacted" in out[1]["content"]
     assert [m["content"] for m in out[-3:]] == ["7", "8", "9"]
+
+
+def test_default_compactor_drops_orphaned_tool_heads() -> None:
+    """The keep_last slice must not leave the tail starting with unpaired tool results."""
+    msgs = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "a"}]},
+        {"role": "tool", "tool_call_id": "a", "content": "r1"},
+        {"role": "tool", "tool_call_id": "b", "content": "r2"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "next"},
+    ]
+    # keep_last=4 would slice starting at the two tool messages → must be dropped
+    out = default_compactor(msgs, keep_last=4)
+    kept_roles = [m["role"] for m in out[2:]]
+    assert kept_roles[0] != "tool", f"orphaned tool head survived: {kept_roles}"
 
 
 # ── verification (§13.1 hook) ────────────────────────────────────────────
@@ -271,6 +334,13 @@ def test_skill_parses_and_matches() -> None:
     assert skill.name == "vig_removal"
     assert skill.matches("what's the FAIR PRICE here?")
     assert not skill.matches("who won the game")
+
+
+def test_skill_triggers_respect_word_boundaries() -> None:
+    """'vig' must not fire inside 'navigation'."""
+    skill = parse_skill_md(SKILL_MD)
+    assert not skill.matches("open the navigation menu")
+    assert skill.matches("the vig on this market is 5%")
 
 
 async def test_skill_disclosed_jit_on_trigger_and_only_once(tmp_path: Path) -> None:

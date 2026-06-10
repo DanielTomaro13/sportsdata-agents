@@ -97,14 +97,24 @@ class RunResult:
 
 def default_compactor(messages: list[dict[str, Any]], keep_last: int = 6) -> list[dict[str, Any]]:
     """Deterministic compaction stub: keep the system message + the most recent turns,
-    replacing the middle with a marker. (An LLM-written summary can replace this later.)"""
+    replacing the middle with a marker. (An LLM-written summary can replace this later.)
+
+    Contract for any compactor: the result must remain protocol-valid — a ``tool``
+    message may only ever directly follow its ``assistant``/``tool`` batch, so the kept
+    tail must not *start* with orphaned tool results.
+    """
     if len(messages) <= keep_last + 2:
         return messages
-    dropped = len(messages) - 1 - keep_last
+    tail = messages[-keep_last:]
+    # The slice can cut between an assistant(tool_calls) and its tool results — drop
+    # orphaned tool messages at the head of the tail (their pairing was compacted away).
+    while tail and tail[0].get("role") == "tool":
+        tail = tail[1:]
+    dropped = len(messages) - 1 - len(tail)
     return [
         messages[0],
         {"role": "user", "content": f"[context compacted: {dropped} earlier messages summarised away]"},
-        *messages[-keep_last:],
+        *tail,
     ]
 
 
@@ -126,7 +136,11 @@ class Harness:
         self.spec = spec
         self.provider = provider
         self.workspace = workspace
-        self.tools = {t.name: t for t in tools}
+        self.tools: dict[str, ToolDef] = {}
+        for t in tools:
+            if t.name in self.tools:
+                raise ValueError(f"duplicate tool name {t.name!r} in toolset")
+            self.tools[t.name] = t
         self.skills = skills
         self.verifier = verifier
         self.compactor = compactor
@@ -222,6 +236,10 @@ class Harness:
                 return result("done", reply.text)
 
             # ── act: execute the requested tools ──
+            # Protocol: ALL of a batch's tool messages must directly follow the assistant
+            # message — nothing (skill disclosures included) may interleave. Disclosure
+            # happens once, after the whole batch.
+            batch_payloads: list[str] = []
             for tc in reply.tool_calls:
                 if tool_call_count >= self.max_tool_calls:
                     return result("max_tool_calls", last_text)
@@ -229,6 +247,8 @@ class Harness:
 
                 signature = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
                 recent_signatures.append(signature)
+                # Note: only *consecutive* identical calls are caught; an a,b,a,b oscillation
+                # is left to the step/tool-call ceilings.
                 if len(recent_signatures) >= NO_PROGRESS_REPEATS and (
                     len(set(recent_signatures[-NO_PROGRESS_REPEATS:])) == 1
                 ):
@@ -236,7 +256,8 @@ class Harness:
 
                 payload = await self._execute_tool(tc.name, tc.arguments)
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": payload})
-                self._disclose_skills(messages, payload)
+                batch_payloads.append(payload)
+            self._disclose_skills(messages, "\n".join(batch_payloads))
 
     # ── helpers ────────────────────────────────────────────────────────────
 
