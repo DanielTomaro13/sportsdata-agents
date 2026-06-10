@@ -25,7 +25,7 @@ Bookmaker APIs are id-mazes; guessing ids burns tool calls. Use these VERIFIED r
 
 - **Sportsbet** (`sportsbet_nav_hierarchy`): 354 named ids harvested
 - **PointsBet** (`pointsbet_sports_list`): 228 named ids harvested
-- **TAB** (`tab_sports`): 291 named ids harvested
+- **TAB** (`tab_sports`): 290 named ids harvested
 
 Resolve ANY sport/competition/market id with the `lookup_book_ids` tool (e.g. query "NBA", "AFL", "rugby") instead of guessing.
 <!-- AUTO:END refresh-books -->

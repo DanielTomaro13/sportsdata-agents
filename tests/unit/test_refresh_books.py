@@ -67,6 +67,47 @@ def test_find_named_ids_prefers_own_id_and_sane_names() -> None:
     assert find_named_ids(junk) == []
 
 
+def test_value_inference_handles_alien_spellings() -> None:
+    """Keys OUTSIDE any convention we could list — the values themselves identify
+    the columns (ids: unique short scalars; names: letterful strings)."""
+    payload = {
+        "stuff": [
+            {"caption": "Soccer", "ref": 9, "active": True},
+            {"caption": "Basketball", "ref": 11, "active": True},
+            {"caption": "Aussie Rules", "ref": 50, "active": False},
+        ]
+    }
+    pairs = find_named_ids(payload)
+    assert ("Soccer", "9") in pairs and ("Aussie Rules", "50") in pairs
+
+
+def test_value_inference_with_uuid_and_slug_ids() -> None:
+    payload = {
+        "x": [
+            {"desc": "Racing NSW", "uuidv": "23d497e6-8aab-4309-905b-9421f42c9bc5"},
+            {"desc": "Racing VIC", "uuidv": "02e4abac-1f27-4afb-ac12-7eb470f2d941"},
+            {"desc": "Racing QLD", "uuidv": "8c5dc0e5-0b30-4a76-a97b-287c52b7d6a1"},
+        ]
+    }
+    assert ("Racing VIC", "02e4abac-1f27-4afb-ac12-7eb470f2d941") in find_named_ids(payload)
+
+
+def test_value_inference_refuses_ambiguous_arrays() -> None:
+    """No letterful column / no unique-scalar column → no fabricated pairs."""
+    measurements = {"m": [{"value": 1.2, "ts": 100}, {"value": 1.3, "ts": 101}, {"value": 1.2, "ts": 102}]}
+    assert find_named_ids(measurements) == []
+    # two name-ish columns but ids non-unique → refuse rather than guess
+    dupes = {"d": [{"caption": "A", "ref": 1}, {"caption": "B", "ref": 1}, {"caption": "C", "ref": 1}]}
+    assert find_named_ids(dupes) == []
+
+
+def test_conventions_still_win_when_present() -> None:
+    """Inference only fires where conventions are blind (no double-extraction)."""
+    payload = {"a": [{"name": "AFL", "id": 1, "extra": "x1"}, {"name": "NBA", "id": 2, "extra": "x2"},
+                     {"name": "NRL", "id": 3, "extra": "x3"}]}
+    assert find_named_ids(payload) == [("AFL", "1"), ("NBA", "2"), ("NRL", "3")]
+
+
 def test_find_named_ids_dedupes() -> None:
     payload = {"a": [{"name": "AFL", "id": 1}, {"name": "AFL", "id": 1}]}
     assert find_named_ids(payload) == [("AFL", "1")]

@@ -57,11 +57,67 @@ def _id_field(node: dict) -> str | None:
     return min(candidates, key=len) if candidates else None
 
 
+# ── Layer 2: value-based inference (NO key knowledge) ─────────────────────
+# When conventions find nothing in an array of similar objects, the columns reveal
+# themselves by their VALUES: ids are unique short scalars (ints / uuids / slugs);
+# names are letterful human-word strings. Schema inference from data, not vocabulary
+# — survives spellings nobody anticipated.
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+)+$")
+
+
+def _id_value_score(values: list[Any]) -> float:
+    scalars = [v for v in values if isinstance(v, (str, int)) and 0 < len(str(v)) < 64]
+    if len(scalars) < len(values) * 0.8:
+        return 0.0
+    uniqueness = len({str(v) for v in scalars}) / len(scalars)
+    fmt = sum(
+        1 for v in scalars
+        if isinstance(v, int) or str(v).isdigit() or _UUID_RE.match(str(v)) or _SLUG_RE.match(str(v))
+    ) / len(scalars)
+    return uniqueness * (0.5 + 0.5 * fmt)
+
+
+def _name_value_score(values: list[Any]) -> float:
+    strings = [v for v in values if isinstance(v, str) and v.strip()]
+    if len(strings) < len(values) * 0.8:
+        return 0.0
+    letterful = sum(
+        1 for v in strings
+        if sum(c.isalpha() or c.isspace() for c in v) / len(v) > 0.5 and not v.isdigit()
+    ) / len(strings)
+    uniqueness = len(set(strings)) / len(strings)
+    return letterful * (0.5 + 0.5 * uniqueness)
+
+
+def infer_pairs(rows: list[dict]) -> list[tuple[str, str]]:
+    """(name, id) pairs from an array of similar objects, by value analysis alone."""
+    if len(rows) < 3:
+        return []
+    common = [k for k in rows[0] if sum(k in r for r in rows) >= len(rows) * 0.8]
+    if len(common) < 2:
+        return []
+    id_scores = {k: _id_value_score([r[k] for r in rows if k in r]) for k in common}
+    name_scores = {k: _name_value_score([r[k] for r in rows if k in r]) for k in common}
+    id_key = max(id_scores, key=lambda k: id_scores[k])
+    name_key = max(name_scores, key=lambda k: name_scores[k])
+    if id_key == name_key or id_scores[id_key] < 0.8 or name_scores[name_key] < 0.8:
+        return []
+    return [
+        (str(r[name_key]), str(r[id_key]))
+        for r in rows
+        if name_key in r and id_key in r and isinstance(r[name_key], str) and r[name_key].strip()
+    ]
+
+
 def find_named_ids(payload: Any, pattern: re.Pattern[str] | None = None) -> list[tuple[str, str]]:
     """Recursively collect (name, id) pairs — ALL of them unless ``pattern`` filters.
 
-    Discovery payload shapes differ per book; a tolerant convention-based walk beats
-    per-book parsers (and per-field allowlists) that break on upstream renames.
+    Two layers: key-naming conventions first (free, ~95% of APIs); for arrays where
+    conventions found NOTHING, value-based inference takes over — so spellings
+    outside any list we could write still harvest. (Layer 3 — LLM schema-mapping by
+    the ops agents when both fail — is planned at P3.)
     """
     found: list[tuple[str, str]] = []
 
@@ -77,6 +133,12 @@ def find_named_ids(payload: Any, pattern: re.Pattern[str] | None = None) -> list
             for value in node.values():
                 walk(value)
         elif isinstance(node, list):
+            rows = [item for item in node if isinstance(item, dict)]
+            if rows and not any(_name_field(r) and _id_field(r) for r in rows):
+                # conventions are blind here — let the values speak
+                for name, id_ in infer_pairs(rows):
+                    if pattern is None or pattern.search(name):
+                        found.append((name, id_))
             for item in node:
                 walk(item)
 
