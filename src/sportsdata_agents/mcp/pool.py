@@ -9,6 +9,7 @@ capability filtering happens above this layer, in the bridge.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import Self
@@ -24,6 +25,9 @@ class MCPSessionPool:
     def __init__(self, command: Sequence[str] | None = None) -> None:
         self._command = list(command) if command else None
         self._managers: dict[PoolKey, MCPManager] = {}
+        # Serialises creation: a concurrent check-then-act would spawn two subprocesses
+        # for one key and silently leak the first.
+        self._lock = asyncio.Lock()
 
     def __len__(self) -> int:
         return len(self._managers)
@@ -31,11 +35,12 @@ class MCPSessionPool:
     async def get(self, groups: Sequence[str], extra_env: Mapping[str, str] | None = None) -> MCPManager:
         """A started manager for this scope — created on first use, then shared."""
         key: PoolKey = (tuple(sorted(groups)), tuple(sorted((extra_env or {}).items())))
-        if key not in self._managers:
-            manager = MCPManager(groups=list(groups), command=self._command, extra_env=dict(extra_env or {}))
-            await manager.__aenter__()
-            self._managers[key] = manager
-        return self._managers[key]
+        async with self._lock:
+            if key not in self._managers:
+                manager = MCPManager(groups=list(groups), command=self._command, extra_env=dict(extra_env or {}))
+                await manager.__aenter__()
+                self._managers[key] = manager
+            return self._managers[key]
 
     async def __aenter__(self) -> Self:
         return self

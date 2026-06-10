@@ -58,6 +58,18 @@ def _fake_manager(monkeypatch: pytest.MonkeyPatch) -> None:
 # ── pool semantics ───────────────────────────────────────────────────────
 
 
+async def test_pool_concurrent_get_spawns_exactly_one_manager() -> None:
+    """Two concurrent get()s for the same key must not race-spawn two subprocesses
+    (the loser of the dict write would leak forever)."""
+    import asyncio
+
+    async with MCPSessionPool() as pool:
+        a, b = await asyncio.gather(pool.get([]), pool.get([]))
+        assert a is b
+        assert len(FakeManager.instances) == 1
+        assert len(pool) == 1
+
+
 async def test_pool_shares_identical_scope_and_separates_different() -> None:
     async with MCPSessionPool() as pool:
         a = await pool.get([])  # unscoped → "*"
@@ -144,6 +156,61 @@ async def test_team_run_shares_one_budget() -> None:
     assert res.stop_reason == "done"
     # 2 orchestrator calls + 1 delegate call, ALL on the same budget
     assert res.cost_usd == pytest.approx(0.003)
+
+
+async def test_shared_budget_run_reports_its_own_delta_not_the_total() -> None:
+    """A run on a pre-spent shared budget must report ITS spend, not the shared total —
+    otherwise M0.11's per-run ledger rows would double-count the caller's cost."""
+    from sportsdata_agents.agents.harness import Harness
+    from sportsdata_agents.models.gateway import RunBudget
+
+    provider = ScriptedProvider(_text("answer", cost=0.001))
+    h = Harness(_spec("sub"), provider=provider, workspace=WS)
+    shared = RunBudget(ceiling_usd=1.0, spent_usd=0.5)  # the caller already spent 50c
+    res = await h.run("q", budget=shared)
+    assert res.cost_usd == pytest.approx(0.001)  # delta, not 0.501
+    assert shared.spent_usd == pytest.approx(0.501)  # the shared ledger still accumulates
+
+
+async def test_deadline_checked_inside_tool_batch() -> None:
+    """A slow tool mid-batch must stop the run at the deadline, not run the rest of
+    the batch (each entry could cost a full delegation timeout)."""
+    from sportsdata_agents.agents.harness import Harness, ToolDef
+
+    executed: list[str] = []
+
+    async def slow(args: Any) -> Any:
+        executed.append("a")
+        return "ok"
+
+    async def never(args: Any) -> Any:
+        executed.append("b")
+        return "ok"
+
+    tools = [
+        ToolDef(name="t_a", description="", parameters={"type": "object"}, execute=slow),
+        ToolDef(name="t_b", description="", parameters={"type": "object"}, execute=never),
+    ]
+    batch = ModelReply(
+        text="",
+        model="fake",
+        tokens_in=50,
+        tokens_out=10,
+        cost_usd=0.001,
+        tool_calls=(
+            ToolCallRequest(id="a", name="t_a", arguments={}),
+            ToolCallRequest(id="b", name="t_b", arguments={}),
+        ),
+    )
+    provider = ScriptedProvider(batch, _text("never"))
+    # clock: deadline calc, loop-top, batch check for t_a (still in time), then the
+    # clock jumps past the deadline before t_b's check
+    clock = iter([0.0, 0.0, 0.0, 1000.0, 1000.0, 1000.0])
+    spec = _spec("timed", limits={"timeout_seconds": 5})
+    h = Harness(spec, provider=provider, workspace=WS, tools=tools, now=lambda: next(clock))
+    res = await h.run("q")
+    assert res.stop_reason == "timeout"
+    assert executed == ["a"], f"batch continued past the deadline: {executed}"
 
 
 async def test_delegate_spend_trips_the_callers_ceiling() -> None:

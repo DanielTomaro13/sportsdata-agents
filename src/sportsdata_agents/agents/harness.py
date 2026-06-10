@@ -217,6 +217,10 @@ class Harness:
         tool_call_count = 0
         verify_attempts = 0
         recent_signatures: list[str] = []
+        # Under a SHARED budget (delegation), this run's cost is the delta — reporting
+        # budget.spent_usd would double-count the caller's prior spend into sub-run
+        # records (and corrupt the M0.11 ledger). Root runs start at 0 → team total.
+        spent_before = budget.spent_usd
 
         def result(reason: StopReason, output: str, verified: bool | None = None) -> RunResult:
             return RunResult(
@@ -224,7 +228,7 @@ class Harness:
                 stop_reason=reason,
                 steps=steps,
                 tool_call_count=tool_call_count,
-                cost_usd=budget.spent_usd,
+                cost_usd=budget.spent_usd - spent_before,
                 verified=verified,
                 messages=messages,
             )
@@ -282,6 +286,10 @@ class Harness:
             for tc in reply.tool_calls:
                 if tool_call_count >= self.max_tool_calls:
                     return result("max_tool_calls", last_text)
+                # A tool (especially a delegation) can consume real wall-clock — without
+                # this, a batch could overshoot the deadline by (batch size x tool timeout).
+                if self._now() >= deadline:
+                    return result("timeout", last_text)
                 tool_call_count += 1
 
                 signature = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
