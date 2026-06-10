@@ -26,7 +26,7 @@ class Budgets(BaseModel):
     max_tool_calls: int = 25
     max_steps: int = 40
     max_tokens: int = 120_000
-    timeout_seconds: int = 120
+    timeout_seconds: int = 300
 
 
 class Workspace(BaseModel):

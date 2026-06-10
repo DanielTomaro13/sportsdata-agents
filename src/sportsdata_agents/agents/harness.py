@@ -26,7 +26,12 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 if TYPE_CHECKING:
     from sportsdata_agents.observability.recorder import RunRecorder
 
-from sportsdata_agents.agents.outputs import get_output_type, parse_output, schema_instructions
+from sportsdata_agents.agents.outputs import (
+    FINAL_ANSWER_TOOL,
+    get_output_type,
+    parse_output,
+    schema_instructions,
+)
 from sportsdata_agents.agents.skills import SkillSet
 from sportsdata_agents.agents.spec import AgentSpec
 from sportsdata_agents.mcp.manager import is_denied
@@ -193,6 +198,8 @@ class Harness:
         self.recorder = recorder
         self._now = now
         self.output_model = get_output_type(spec.output_type) if spec.output_type else None
+        if self.output_model is not None and FINAL_ANSWER_TOOL in self.tools:
+            raise ValueError(f"toolset must not define {FINAL_ANSWER_TOOL!r} when output_type is set")
 
         for name in self.tools:
             if is_denied(name):  # defense in depth — the spec validator already refuses these
@@ -251,6 +258,19 @@ class Harness:
     async def _loop(self, messages: list[dict[str, Any]], budget: RunBudget) -> RunResult:
         deadline = self._now() + self.timeout_seconds
         tool_schemas = [t.schema for t in self.tools.values()]
+        if self.output_model is not None:
+            # The typed output rides the function channel (tool-trained models emit
+            # structure there far more reliably than as JSON-in-prose).
+            tool_schemas.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": FINAL_ANSWER_TOOL,
+                        "description": "Submit your FINAL answer in the required structure.",
+                        "parameters": self.output_model.model_json_schema(),
+                    },
+                }
+            )
         steps = 0
         tool_call_count = 0
         verify_attempts = 0
@@ -347,6 +367,55 @@ class Harness:
                         continue
                     return result("done", reply.text, verified=ok, parsed=parsed)
                 return result("done", reply.text, parsed=parsed)
+
+            # ── final answer via the function channel? ──
+            final_tc = (
+                next((tc for tc in reply.tool_calls if tc.name == FINAL_ANSWER_TOOL), None)
+                if self.output_model is not None
+                else None
+            )
+            if final_tc is not None and self.output_model is not None:
+                # Protocol: every tool_call in the batch needs a tool message.
+                for tc in reply.tool_calls:
+                    if tc.id != final_tc.id:
+                        messages.append(
+                            {"role": "tool", "tool_call_id": tc.id, "content": "skipped: final answer submitted"}
+                        )
+                answer_text = json.dumps(final_tc.arguments)
+                try:
+                    parsed = self.output_model.model_validate(final_tc.arguments)
+                    parse_err = ""
+                except Exception as e:
+                    parsed, parse_err = None, str(e)[:400]
+                if parsed is None and parse_attempts < PARSE_RETRIES:
+                    parse_attempts += 1
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": final_tc.id,
+                            "content": f"error: arguments did not match the schema: {parse_err} — call "
+                            f"{FINAL_ANSWER_TOOL} again with corrected arguments.",
+                        }
+                    )
+                    continue
+                messages.append({"role": "tool", "tool_call_id": final_tc.id, "content": "accepted"})
+                if self.spec.context.verify and self.verifier is not None:
+                    injected = ("[verifier]", "[format]", "[skill loaded:", "[context compacted")
+                    evidence = [
+                        content
+                        for m in messages
+                        if m.get("role") in ("user", "tool")
+                        and not (content := str(m.get("content") or "")).startswith(injected)
+                    ]
+                    ok, feedback = self.verifier(answer_text, evidence)
+                    if not ok and verify_attempts < VERIFY_RETRIES:
+                        verify_attempts += 1
+                        messages.append(
+                            {"role": "user", "content": f"[verifier] Your answer failed verification: {feedback}"}
+                        )
+                        continue
+                    return result("done", answer_text, verified=ok, parsed=parsed)
+                return result("done", answer_text, parsed=parsed)
 
             # ── act: execute the requested tools ──
             # Protocol: ALL of a batch's tool messages must directly follow the assistant

@@ -197,10 +197,32 @@ async def test_output_token_cap_defaults_and_overrides(fake: _FakeLiteLLM) -> No
     assert fake.kwargs[1]["max_tokens"] == 128
 
 
-async def test_rate_limit_retries_default(fake: _FakeLiteLLM) -> None:
-    """Free-tier providers 429 per minute; the gateway rides it out via litellm retries."""
-    await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=WS)
-    assert fake.kwargs[0]["num_retries"] == 3
+async def test_rate_limit_patience_honors_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    """429s wait out the provider's stated retry-after instead of dying mid-run."""
+    import sportsdata_agents.models.gateway as gwmod
+
+    class RateLimitError(Exception):
+        pass
+
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    class FlakyLiteLLM(_FakeLiteLLM):
+        async def acompletion(self, *, model, messages, **kw):  # type: ignore[no-untyped-def]
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RateLimitError("rate limit: Please try again in 0.5s")
+            return await super().acompletion(model=model, messages=messages, **kw)
+
+    async def fake_sleep(s: float) -> None:
+        sleeps.append(s)
+
+    monkeypatch.setattr(gwmod, "litellm", FlakyLiteLLM())
+    monkeypatch.setattr(gwmod.asyncio, "sleep", fake_sleep)
+    reply = await ModelGateway().complete([{"role": "user", "content": "hi"}], tier="fast", workspace=WS)
+    assert reply.text == "answer"
+    assert calls["n"] == 2
+    assert sleeps and sleeps[0] == pytest.approx(1.5)  # retry-after 0.5 + 1.0 buffer
 
 
 async def test_fallback_is_logged_and_flagged(

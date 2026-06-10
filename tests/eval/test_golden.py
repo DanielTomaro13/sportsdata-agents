@@ -31,7 +31,7 @@ def _ws() -> Workspace:
     return Workspace(
         tenant_id="t",
         workspace_id="eval",
-        budgets=Budgets(per_run_usd=0.50, timeout_seconds=180),
+        budgets=Budgets(per_run_usd=0.50, timeout_seconds=600),
         model_tiers=detect_tier_overrides(),
     )
 

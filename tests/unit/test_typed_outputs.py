@@ -101,7 +101,7 @@ async def test_harness_parses_typed_output() -> None:
     assert isinstance(res.parsed, StatsAnswer)
     assert res.parsed.answer.startswith("Judge")
     # the schema instructions reached the system prompt
-    assert "matching this schema" in provider.seen[0]["content"]
+    assert "final_answer" in provider.seen[0]["content"]
 
 
 async def test_harness_feeds_back_format_error_then_parses() -> None:
@@ -173,3 +173,71 @@ def test_lint_flags_unregistered_output_type() -> None:
     object.__setattr__(specs["a"], "output_type", "GhostType")
     problems = lint_specs(specs)
     assert any("GhostType" in p for p in problems)
+
+
+# ── the function-channel final answer (tool-trained models, M0.14 review) ──
+
+
+def _final_call(args: dict[str, Any]) -> ModelReply:
+    from sportsdata_agents.models.gateway import ToolCallRequest
+
+    return ModelReply(
+        text="", model="fake", tokens_in=50, tokens_out=10, cost_usd=0.001,
+        tool_calls=(ToolCallRequest(id="f1", name="final_answer", arguments=args),),
+    )
+
+
+STATS_ARGS: dict[str, Any] = {
+    "answer": "Judge plays for the Yankees",
+    "facts": [{"claim": "current team", "value": "New York Yankees", "source": "mlb_player"}],
+    "sources": ["mlb_player"],
+}
+
+
+async def test_final_answer_tool_accepted() -> None:
+    provider = ScriptedProvider(_final_call(STATS_ARGS))
+    res = await Harness(_spec(), provider=provider, workspace=WS).run("q")
+    assert res.stop_reason == "done"
+    assert isinstance(res.parsed, StatsAnswer)
+    assert res.parsed.answer.startswith("Judge")
+    # the final_answer tool schema was offered to the model
+    # (and the synthetic call got a protocol-valid tool response)
+    tool_msgs = [m for m in res.messages if m.get("role") == "tool"]
+    assert tool_msgs and tool_msgs[-1]["content"] == "accepted"
+
+
+async def test_final_answer_invalid_args_feedback_then_accepted() -> None:
+    provider = ScriptedProvider(_final_call({"answer": 42}), _final_call(STATS_ARGS))
+    res = await Harness(_spec(), provider=provider, workspace=WS).run("q")
+    assert res.stop_reason == "done"
+    assert isinstance(res.parsed, StatsAnswer)
+    errs = [m for m in res.messages if "did not match the schema" in (m.get("content") or "")]
+    assert errs, "schema feedback never reached the model"
+
+
+async def test_final_answer_mixed_batch_skips_other_calls() -> None:
+    from sportsdata_agents.models.gateway import ToolCallRequest
+
+    batch = ModelReply(
+        text="", model="fake", tokens_in=50, tokens_out=10, cost_usd=0.001,
+        tool_calls=(
+            ToolCallRequest(id="a", name="something_else", arguments={}),
+            ToolCallRequest(id="f1", name="final_answer", arguments=STATS_ARGS),
+        ),
+    )
+    provider = ScriptedProvider(batch)
+    res = await Harness(_spec(), provider=provider, workspace=WS).run("q")
+    assert res.stop_reason == "done" and res.parsed is not None
+    skipped = [m for m in res.messages if (m.get("content") or "").startswith("skipped")]
+    assert len(skipped) == 1  # protocol: every tool_call answered
+
+
+def test_output_type_forbids_final_answer_name_collision() -> None:
+    from sportsdata_agents.agents.harness import ToolDef
+
+    async def execute(args: dict[str, Any]) -> Any:
+        return "x"
+
+    tool = ToolDef(name="final_answer", description="", parameters={"type": "object"}, execute=execute)
+    with pytest.raises(ValueError, match="final_answer"):
+        Harness(_spec(), provider=ScriptedProvider(_text("x")), workspace=WS, tools=[tool])

@@ -20,14 +20,13 @@ agent:
     - Stick to what was asked; return compact, structured facts the orchestrator can
       synthesise.
   tools:
+    # Lean by design (§8.2): every schema rides every call. Boxscore covers match
+    # detail; season stats cover player figures; score/leaders/player-match overlap.
     mcp_capabilities:
       - sport.fixtures_by_date
       - sport.match_boxscore
-      - sport.match_score
       - stats.player_season
-      - stats.player_match
       - stats.ladder
-      - stats.leaders_season
       - ref.players
       - ref.teams
   output_type: StatsAnswer
@@ -39,5 +38,5 @@ agent:
     max_tool_calls: 25
     max_steps: 40
     max_tokens: 120000
-    timeout_seconds: 120
+    timeout_seconds: 300
     cost_ceiling_usd: 0.40

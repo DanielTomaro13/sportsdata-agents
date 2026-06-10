@@ -34,7 +34,7 @@ _PROVIDER_KEYS: list[tuple[str, str | None]] = [
     ("ANTHROPIC_API_KEY", None),
     ("OPENROUTER_API_KEY", "openrouter/openai/gpt-4o-mini"),
     ("GEMINI_API_KEY", "gemini/gemini-2.5-flash-lite"),  # free tier, tool-calling
-    ("GROQ_API_KEY", "groq/llama-3.3-70b-versatile"),
+    ("GROQ_API_KEY", "groq/openai/gpt-oss-120b"),  # free tier; strong tool-calling
     ("OPENAI_API_KEY", "openai/gpt-4o-mini"),
 ]
 

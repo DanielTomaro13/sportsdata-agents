@@ -85,9 +85,18 @@ def parse_output(text: str, model: type[BaseModel]) -> tuple[BaseModel | None, s
         return None, str(e)
 
 
+FINAL_ANSWER_TOOL = "final_answer"
+
+
 def schema_instructions(model: type[BaseModel]) -> str:
-    """The system-prompt suffix that asks for the typed shape."""
+    """The system-prompt suffix that asks for the typed shape.
+
+    Tool-trained models emit structure far more reliably through the function channel
+    than as JSON-in-prose (some literally cannot do the latter without inventing a
+    pseudo-tool) — so the contract is: call ``final_answer``. Text JSON still parses
+    as a fallback for models that answer in prose."""
     return (
-        "\n\nWhen you give your FINAL answer (not tool calls), respond ONLY with a JSON object "
-        f"matching this schema — no prose outside the JSON:\n{json.dumps(model.model_json_schema())}"
+        f"\n\nWhen you have your FINAL answer, call the `{FINAL_ANSWER_TOOL}` tool with the "
+        "answer as its arguments (matching its schema exactly). Do not present the final "
+        "answer as prose."
     )

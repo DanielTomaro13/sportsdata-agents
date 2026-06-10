@@ -32,5 +32,5 @@ agent:
     max_tool_calls: 25
     max_steps: 40
     max_tokens: 120000
-    timeout_seconds: 120
+    timeout_seconds: 300
     cost_ceiling_usd: 0.50

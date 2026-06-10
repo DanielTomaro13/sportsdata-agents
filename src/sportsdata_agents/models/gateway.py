@@ -16,9 +16,11 @@ parameter resolved per provider, currently left to litellm's env-based resolutio
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -32,9 +34,48 @@ from sportsdata_agents.workspace import Workspace
 logger = logging.getLogger(__name__)
 
 # Per-call OUTPUT token cap (the hard per-call cost bound, §16.1) — callers override
-# via kwargs when a task genuinely needs long output. Also matters for prepaid
-# providers (OpenRouter reserves max_tokens upfront against the credit balance).
-DEFAULT_MAX_OUTPUT_TOKENS = 4096
+# via kwargs when a task genuinely needs long output. Kept tight on purpose: answers
+# here are short/typed, and providers count the FULL reservation against quotas —
+# prepaid balances (OpenRouter) and tokens-per-minute limits (Groq) both charge it.
+DEFAULT_MAX_OUTPUT_TOKENS = 1500
+# Rate-limit patience: free tiers 429 routinely; honor the provider's retry-after
+# (litellm's own retries don't wait long enough) up to this many attempts / seconds.
+RATE_LIMIT_RETRIES = 4
+RATE_LIMIT_MAX_WAIT_S = 20.0
+
+_RETRY_AFTER_RE = re.compile(r"(?:try again|retry) in ([\d.]+)s", re.IGNORECASE)
+
+
+def _retry_after_seconds(error: Exception) -> float | None:
+    m = _RETRY_AFTER_RE.search(str(error))
+    return float(m.group(1)) if m else None
+
+
+async def _acompletion_with_patience(**kwargs: Any) -> Any:
+    """litellm.acompletion with two resiliences free-tier reality demands:
+
+    - 429s wait out the provider's stated retry-after (litellm's own retries don't);
+    - `tool_use_failed` 400s (Groq rejects a MALFORMED generation server-side, so the
+      model never sees its mistake) get re-rolled — generations are stochastic.
+    """
+    attempt = 0
+    bad_generations = 0
+    while True:
+        try:
+            return await litellm.acompletion(**kwargs)
+        except Exception as e:
+            name = type(e).__name__
+            if name == "RateLimitError" and attempt < RATE_LIMIT_RETRIES:
+                attempt += 1
+                wait = min((_retry_after_seconds(e) or 5.0 * attempt) + 1.0, RATE_LIMIT_MAX_WAIT_S)
+                logger.warning("rate limited (attempt %d/%d); waiting %.1fs", attempt, RATE_LIMIT_RETRIES, wait)
+                await asyncio.sleep(wait)
+                continue
+            if name == "BadRequestError" and "tool_use_failed" in str(e) and bad_generations < 2:
+                bad_generations += 1
+                logger.warning("provider rejected a malformed tool call; re-rolling (%d/2)", bad_generations)
+                continue
+            raise
 
 
 class BudgetExceededError(RuntimeError):
@@ -163,16 +204,12 @@ class ModelGateway:
         # workspace budget (callers can still override via kwargs).
         kwargs.setdefault("timeout", workspace.budgets.timeout_seconds)
         kwargs.setdefault("max_tokens", DEFAULT_MAX_OUTPUT_TOKENS)
-        # Free-tier providers rate-limit per minute (e.g. Gemini: 20 req/min); a
-        # multi-call team run must ride out transient 429s instead of dying mid-run
-        # (the per-call timeout and the run's wall-clock deadline still bound waiting).
-        kwargs.setdefault("num_retries", 3)
 
         primary, fallback = self.policy.models_for_tier(tier, workspace)
         fallback_used = False
         started = time.monotonic()
         try:
-            response = await litellm.acompletion(model=primary, messages=list(messages), **kwargs)
+            response = await _acompletion_with_patience(model=primary, messages=list(messages), **kwargs)
             model_used = primary
         except Exception as primary_err:
             if fallback is None:
@@ -186,7 +223,7 @@ class ModelGateway:
                 primary_err,
                 fallback,
             )
-            response = await litellm.acompletion(model=fallback, messages=list(messages), **kwargs)
+            response = await _acompletion_with_patience(model=fallback, messages=list(messages), **kwargs)
             model_used = fallback
             fallback_used = True
         latency_ms = int((time.monotonic() - started) * 1000)

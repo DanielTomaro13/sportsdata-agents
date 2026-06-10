@@ -14,6 +14,27 @@ from typing import Any
 from sportsdata_agents.agents.harness import ToolDef
 from sportsdata_agents.mcp.manager import MCPManager
 
+# Schema slimming (§8.2 context-lean): tool schemas ride EVERY model call, and the
+# upstream descriptions are reference-doc verbose. Truncated descriptions keep the
+# catalogue affordable (a 65-tool set drops ~40% — and fits free-tier TPM ceilings).
+TOOL_DESC_LIMIT = 140
+PARAM_DESC_LIMIT = 70
+
+
+def _slim_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+    """Copy of a JSON schema with long descriptions truncated (recursive)."""
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "description" and isinstance(value, str) and len(value) > PARAM_DESC_LIMIT:
+            out[key] = value[: PARAM_DESC_LIMIT - 1] + "…"
+        elif isinstance(value, dict):
+            out[key] = _slim_parameters(value)
+        elif isinstance(value, list):
+            out[key] = [_slim_parameters(v) if isinstance(v, dict) else v for v in value]
+        else:
+            out[key] = value
+    return out
+
 
 class CapabilityResolutionError(ValueError):
     """A granted capability matched no tools in the live catalogue."""
@@ -56,11 +77,14 @@ async def bridge_mcp_tools(manager: MCPManager, capabilities: list[str] | None =
     for tool in catalogue:
         if allowed is not None and tool.name not in allowed:
             continue
+        description = getattr(tool, "description", "") or ""
+        if len(description) > TOOL_DESC_LIMIT:
+            description = description[: TOOL_DESC_LIMIT - 1] + "…"
         defs.append(
             ToolDef(
                 name=tool.name,
-                description=getattr(tool, "description", "") or "",
-                parameters=getattr(tool, "inputSchema", None) or {"type": "object"},
+                description=description,
+                parameters=_slim_parameters(getattr(tool, "inputSchema", None) or {"type": "object"}),
                 execute=_executor(manager, tool.name),
             )
         )
