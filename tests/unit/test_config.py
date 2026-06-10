@@ -105,3 +105,21 @@ def test_workspace_resolve_secret_layers(monkeypatch: pytest.MonkeyPatch) -> Non
     # env still wins over both
     monkeypatch.setenv("WS_KEY", "from-env")
     assert ws.resolve_secret("WS_KEY", settings=s).get_secret_value() == "from-env"
+
+
+def test_mcp_command_tolerates_every_env_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sourcing .env through a shell strips the JSON quotes ([/path]) — observed
+    crashing the gateway at startup. All three arrival shapes must parse."""
+    import os
+
+    for key in list(os.environ):
+        if key.startswith("SPORTSDATA_AGENTS_"):
+            monkeypatch.delenv(key)
+    cases = {
+        '["/abs/sportsdata-mcp", "serve"]': ["/abs/sportsdata-mcp", "serve"],  # proper JSON
+        "[/abs/sportsdata-mcp]": ["/abs/sportsdata-mcp"],  # shell-mangled
+        "/abs/sportsdata-mcp serve": ["/abs/sportsdata-mcp", "serve"],  # plain command
+    }
+    for raw, expected in cases.items():
+        monkeypatch.setenv("SPORTSDATA_AGENTS_MCP_COMMAND", raw)
+        assert Settings(_env_file=None).mcp_command == expected  # type: ignore[call-arg]

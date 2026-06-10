@@ -8,10 +8,13 @@ single-process / deployment config. Secrets are referenced by name and resolved 
 
 from __future__ import annotations
 
+import json
+import shlex
 from functools import lru_cache
+from typing import Annotated
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -34,10 +37,25 @@ class Settings(BaseSettings):
     default_workspace: str = "local"
 
     # ── data plane: how to launch sportsdata-mcp (stdio subprocess; pinned v0.1.0) ──
-    mcp_command: list[str] = Field(default_factory=lambda: ["sportsdata-mcp"])
+    mcp_command: Annotated[list[str], NoDecode] = ["sportsdata-mcp"]
 
     # ── observability (D8) ──
     logfire_token: SecretStr | None = None
+
+    @field_validator("mcp_command", mode="before")
+    @classmethod
+    def _parse_mcp_command(cls, v: object) -> object:
+        """Tolerate every way the env var arrives: JSON list, shell-mangled
+        bracket form (sourcing .env strips quotes: [/path]), or a plain command."""
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                return json.loads(s)
+            except ValueError:
+                return [part.strip().strip("'\"") for part in s[1:-1].split(",") if part.strip()]
+        return shlex.split(s)
 
     # ── local-dev secret fallback (env is always preferred) ──
     # repr=False so secret values never appear in logs/reprs of Settings (§13).
