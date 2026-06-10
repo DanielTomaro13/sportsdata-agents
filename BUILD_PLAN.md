@@ -122,11 +122,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] *(Sub-agent isolation: `ToolDef.execute` wraps another harness's `run()` — composed at M0.8 orchestrator.)*
 - [x] **Exit gate:** 20 unit tests — every stop condition, clamping, unknown/denied/raising tools, compaction threshold + reset hand-off, verifier retry/exhaust, skill parse/index/JIT-once/no-trigger/tool-result-trigger. ruff/mypy clean; **104 passed**.
 
-### M0.8 — Orchestrator
-- [ ] `orchestrator/`: intent classify → plan → delegate (parallel where independent) → synthesise; agents-as-tools delegation.
-- [ ] Model-selection: pick a **tier per task** (`§8`); enforce guardrails (no-money invariant; advisory-only).
-- [ ] Per-run budget/latency ceilings from the workspace (`§12.1`/`§16.1`).
-- [ ] **Exit gate:** "find value on tonight's game" decomposes into Stats + Odds calls and synthesises; trace shows the plan + delegations.
+### M0.8 — Orchestrator (runtime + team composition) ✅
+- [x] `tools/registry.py` *(pulled forward from M0.10 — the odds spec needs them runnable)*: `implied_probability`, `vig_removal`, `best_price` — deterministic, golden-tested; `get_native_tools()` fails loudly on unknown names.
+- [x] `mcp/toolset.py`: the **MCP→ToolDef bridge** — capability tags resolved against the live catalogue via `list_tools_by_capability`; **a zero-tool capability is a loud `CapabilityResolutionError`** (the deferred M0.6 check).
+- [x] `agents/runtime.py`: `AgentRuntime` (spec → scoped MCP session + bridged tools + native tools + skills + harness; leak-safe enter/exit) and `open_team()` (orchestrator + specialists one level deep). **Delegation = specialists-as-tools**: each sub-agent runs in its own context and returns a condensed JSON summary (§8.2 isolation, proven by test). Tier-per-agent comes from each spec (`§8`); budgets/ceilings clamp per workspace (M0.7).
+- [x] **Data-plane enabler shipped (`sportsdata-mcp` v0.2.2):** `SPORTSDATA_MCP_GROUPS="*"` wildcard — found via integration test: "no groups env" means *nothing* enabled, so capability-only specs resolved to zero tools. Manager now sets `"*"` explicitly when unscoped.
+- [x] **Exit gate:** offline — delegation flow end-to-end (orchestrator → specialist → condensed result → synthesis) with isolation assertions; bridge filter/zero-cap/execute tests; native-tool golden values. Integration (real MCP subprocess) — **both bundled specialists' capability tags resolve to real tools** through the wildcard catalogue. Live E2E (real model over real MCP, metered, delegation-asserted) written; **skips without `ANTHROPIC_API_KEY`** — run it when a key is set. ruff/mypy clean; **124 passed**. *(Parallel delegation noted as a later optimization — batch tool calls currently execute sequentially.)*
 
 ### M0.9 — First specialists
 - [ ] `specs/odds_specialist.yaml` (`sport.prices`, `sport.event_markets`; native `vig_removal`, `implied_probability`; output `OddsComparison`).

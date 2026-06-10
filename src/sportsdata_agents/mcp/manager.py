@@ -80,8 +80,10 @@ class MCPManager:
 
     async def __aenter__(self) -> Self:
         env = {**os.environ, **self._extra_env}
-        if self.groups:
-            env["SPORTSDATA_MCP_GROUPS"] = ",".join(self.groups)
+        # Empty groups = deliberately unscoped: ask the server for the FULL catalogue
+        # ("*" wildcard, sportsdata-mcp >= v0.2.2). Without this, no env var would mean
+        # "nothing enabled" — only the meta-tools — and capability filters resolve empty.
+        env["SPORTSDATA_MCP_GROUPS"] = ",".join(self.groups) if self.groups else "*"
         params = StdioServerParameters(command=self._command[0], args=self._command[1:], env=env)
         # If anything after the spawn fails, Python will NOT call __aexit__ (CM protocol),
         # so we must tear down ourselves or the subprocess is orphaned.
