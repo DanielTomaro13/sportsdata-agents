@@ -87,6 +87,7 @@ class TeamSession:
         specs: dict[str, AgentSpec] | None = None,
         provider: CompletionProvider | None = None,
         recorder: RunRecorder | None = None,
+        extra_tools: Sequence[Any] | None = None,
         agent_id: str | None = None,
         root_id: str = "orchestrator",
         mcp_command: Sequence[str] | None = None,
@@ -97,6 +98,7 @@ class TeamSession:
         self.recorder = recorder
         usage_sink = getattr(recorder, "usage_sink", None) if recorder is not None else None
         self.provider = provider or ModelGateway(usage_sink=usage_sink)
+        self._extra_tools = list(extra_tools) if extra_tools is not None else _default_extra_tools(recorder)
         self.agent_id = agent_id
         self.root_id = root_id
         self._mcp_command = list(mcp_command) if mcp_command else list(self.settings.mcp_command)
@@ -120,6 +122,7 @@ class TeamSession:
                         provider=self.provider,
                         workspace=self.workspace,
                         pool=pool,
+                        extra_tools=self._extra_tools,
                         recorder=self.recorder,
                     )
                 )
@@ -131,6 +134,7 @@ class TeamSession:
                         provider=self.provider,
                         workspace=self.workspace,
                         pool=pool,
+                        extra_tools=self._extra_tools,
                         recorder=self.recorder,
                     )
                 )
@@ -155,6 +159,18 @@ class TeamSession:
         if self._runtime is None:
             raise RuntimeError("TeamSession is not started; use `async with TeamSession(...)`")
         return await self._runtime.run(prompt)
+
+
+def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
+    """Session-bound tools that need the DB: tracking/risk (M1.4) when audit is on."""
+    from sportsdata_agents.observability.recorder import DbRecorder
+
+    inner = getattr(recorder, "inner", recorder)
+    if not isinstance(inner, DbRecorder):
+        return []
+    from sportsdata_agents.tools.tracking import tracking_tools
+
+    return list(tracking_tools(inner._sf, inner._scope))
 
 
 def parsed_sources(result: RunResult) -> list[str]:

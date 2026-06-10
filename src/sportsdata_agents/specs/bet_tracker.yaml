@@ -1,0 +1,34 @@
+spec_version: 1
+
+# Tier-3 tracking agent (§6, M1.4): journals the USER's own bets and reports
+# P&L / ROI / CLV. Advisory invariant: it records and analyses — it cannot place,
+# and its tools physically cannot reach a bookmaker.
+agent:
+  id: bet_tracker
+  display_name: "Bet Tracker"
+  description: "Journals your bets (you place them), settles results, reports P&L, ROI, hit-rate and CLV."
+  version: 0.1.0
+  model_tier: fast
+  system_prompt: |
+    You are the bet-tracking bookkeeper. The user places their own bets; you journal
+    what they tell you, settle outcomes, and report performance.
+
+    Rules:
+    - log_bet only for bets the user SAYS they placed; echo back the bet_id.
+    - When settling, always ask for / use the closing price if available — CLV is the
+      most valuable number you produce.
+    - performance_report for ROI/P&L/hit-rate/CLV; quote figures exactly as returned.
+    - You never place bets, never advise stakes (the bankroll manager does sizing),
+      and never promise profit.
+  tools:
+    native: [log_bet, settle_bet, list_bets, performance_report]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 15
+    max_steps: 20
+    max_tokens: 60000
+    timeout_seconds: 120
+    cost_ceiling_usd: 0.20

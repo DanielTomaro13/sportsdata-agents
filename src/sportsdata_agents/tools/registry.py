@@ -112,6 +112,37 @@ async def lookup_book_ids(args: dict[str, Any]) -> Any:
     return {"query": args["query"], "matches": results}
 
 
+async def run_python(args: dict[str, Any]) -> Any:
+    """{code} -> run Python in the configured sandbox; artifacts saved locally.
+
+    Only grantable to specs declaring ``sandbox: ephemeral`` (enforced at runtime
+    build, §10). Network is off; stdout/stderr come back; files the code writes
+    (charts, CSVs) are saved under ./artifacts/ and returned as paths.
+    """
+    import uuid
+    from pathlib import Path as _Path
+
+    from sportsdata_agents.sandboxes import get_sandbox
+
+    code = str(args["code"])
+    result = await get_sandbox().run(code, network_policy="none")
+    saved: list[str] = []
+    if result.artifacts:
+        out_dir = _Path("artifacts")
+        out_dir.mkdir(exist_ok=True)
+        run_tag = uuid.uuid4().hex[:8]
+        for name, content in result.artifacts.items():
+            path = out_dir / f"{run_tag}-{name}"
+            path.write_bytes(content)
+            saved.append(str(path))
+    return {
+        "ok": result.ok,
+        "stdout": result.stdout[-4000:],
+        "stderr": result.stderr[-2000:],
+        "artifacts": saved,
+    }
+
+
 NATIVE_TOOLS: dict[str, ToolDef] = {
     "implied_probability": ToolDef(
         name="implied_probability",
@@ -192,6 +223,19 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["query"],
         },
         execute=lookup_book_ids,
+    ),
+    "run_python": ToolDef(
+        name="run_python",
+        description=(
+            "Run Python code in an isolated sandbox (pandas/matplotlib available; no network). "
+            "print() your findings; files you save (e.g. chart.png) are returned as artifact paths."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"code": {"type": "string", "description": "Complete Python script to execute"}},
+            "required": ["code"],
+        },
+        execute=run_python,
     ),
     "kelly_fraction": ToolDef(
         name="kelly_fraction",

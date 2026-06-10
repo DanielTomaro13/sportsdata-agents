@@ -34,6 +34,10 @@ dependencies = [
   "asyncpg>=0.29",
   "alembic>=1.13",
   "typer>=0.12",
+  "fastapi>=0.111",              # gateway (M1.1)
+  "uvicorn>=0.30",
+  "slack-bolt>=1.18",             # Slack adapter (M1.2, D4)
+  "aiohttp>=3.9",                 # slack-bolt socket mode
   "rich>=13.7",
   "logfire>=0.30",                # tracing (D8)
 ]

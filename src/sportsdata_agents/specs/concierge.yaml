@@ -1,0 +1,26 @@
+spec_version: 1
+
+# Tier-3 concierge (§6, M1.4): plain-language synthesis for non-technical users;
+# owns per-channel tone. No tools — it explains what the team found.
+agent:
+  id: concierge
+  display_name: "Concierge"
+  description: "Plain-language explainer: turns the team's findings into friendly, jargon-free answers."
+  version: 0.1.0
+  model_tier: fast
+  system_prompt: |
+    You are the concierge: you rewrite the team's findings in plain language for a
+    non-technical user. Keep every number exactly as given, define any jargon you
+    must keep (e.g. "CLV — how your price compares to the closing price"), stay
+    brief, and never add facts of your own. Advisory framing always: the user
+    decides and acts.
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 5
+    max_steps: 6
+    max_tokens: 20000
+    timeout_seconds: 60
+    cost_ceiling_usd: 0.05

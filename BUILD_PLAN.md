@@ -177,38 +177,35 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 
 **Goal:** log a user's bets, report ROI/CLV in Slack; one analysis runs in a sandbox.
 
-### M1.1 — Gateway service
-- [ ] `gateway/` FastAPI: channel-agnostic `POST /message`, auth middleware (no-op locally), tenant resolution, rate/cost limits, **sync + async (task)** runs, SSE streaming, audit.
-- [ ] Task queue (Arq/Celery + Redis) for long runs; run status + resume hooks.
-- [ ] **Exit gate:** CLI and a test client both drive the gateway; async run returns a task id + streams status.
+### M1.1 — Gateway service ✅
+- [x] `gateway/app.py` (FastAPI): `POST /message` (sync), `?mode=async` → task id, `GET /tasks/{id}` + `GET /tasks/{id}/events` (SSE progress via a QueueRecorder mirroring the run's recorder hooks), `/conversations/{id}/message` (channel threads), `/agents`, `/healthz`. No-op auth dependency resolving tenant/workspace from headers (§12 seam); per-tenant in-memory rate limiter; one warm `TeamSession` per process; audit rides the existing DbRecorder. `agents serve` CLI.
+- [x] Task queue: **in-process asyncio `TaskStore`** (submit→id→poll/stream; error surfacing; eviction). *Deviation, recorded: Redis/Arq is a deploy concern (P4) — the TaskStore interface is the seam.*
+- [x] **Exit gate:** test client drives sync/async/SSE/404/conversation routes + rate limiter + task-error surfacing (10 offline tests); live run: healthz → sync answer → async task with SSE events → done status.
 
-### M1.2 — Slack adapter (`D4`)
-- [ ] `interfaces/slack/` (Bolt): events→gateway, threaded replies, slash commands, **push notifications**, OAuth install.
-- [ ] Map a Slack thread → a conversation/session.
-- [ ] **Exit gate:** ask a question in Slack, get a streamed threaded answer; a push alert can be delivered.
+### M1.2 — Slack adapter (`D4`) ✅ (live pending your Slack app tokens)
+- [x] `interfaces/slack/app.py` (Bolt, **Socket Mode** — no public URL): @mention + DM + `/ask` → gateway `/conversations/{thread}/message` (Slack thread = conversation key) → threaded reply with sources, grounded/unverified badge and the §14 disclaimer; `push_notification()` for agent alerts (graceful when unconfigured); `agents slack` CLI. *(OAuth multi-workspace install = P4 SaaS concern.)*
+- [x] **Exit gate:** adapter logic fully tested offline (mention stripping, ack→answer threading, gateway-down grace, push delivery + degradation — 6 tests). **Live**: create a Slack app (Socket Mode, `app_mentions:read`, `chat:write`, `commands`), set `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` in `.env`, run `agents serve` + `agents slack`.
 
-### M1.3 — Sandbox integration (`D5`, `§10`)
-- [ ] `sandboxes/base.py`: `Sandbox` interface `run(code, files, network_policy) → result`.
-- [ ] E2B (or Modal) backend; per-run isolation; secret injection per-run; **allow-listed egress**; resource/time caps.
-- [ ] Wire skills' scripts + the data-analysis agent to the sandbox.
-- [ ] **Exit gate:** an agent runs Python in the sandbox (pandas) and returns a verified result; egress allow-list enforced.
+### M1.3 — Sandbox integration (`D5`, `§10`) ✅
+- [x] `sandboxes/base.py`: `Sandbox` protocol `run(code, files, env, network_policy, timeout)` → `SandboxResult` (stdout/stderr/artifacts). **LocalSubprocessSandbox**: temp-dir isolation, CPU+memory rlimits, wall-clock cap, output caps, path-escape guard, artifact collection. *Documented caveat: egress is advisory locally (macOS can't syscall-block without root).*
+- [x] **E2BSandbox** (`e2b.py`): per-run microVM, per-run env secrets, ENFORCED egress allow-list — test-driven; live needs `E2B_API_KEY` (factory auto-selects it when keyed).
+- [x] `run_python` native tool (artifacts saved under ./artifacts/), **gated**: only specs with `sandbox: ephemeral` may carry it (runtime build refuses otherwise).
+- [x] **Exit gate:** pandas computation runs in the sandbox with verified output (real subprocess test); failure/timeout reported not raised; file round-trip; escape rejected; gating tested (8 tests).
 
-### M1.4 — Reporting / tracking agents (`§6` Tier 3, advisory-only)
-- [ ] **Bet-notification agent** (`specs/bet_notifier.yaml`) — formats recommendations (selection, suggested stake, book, reasoning); `forbidden_capabilities` deny-list; **never places**.
-- [ ] **Bet-tracking / P&L agent** — log a user's placed bets (manual/confirmation), settle from results feeds, compute P&L/ROI/**CLV**, hit-rate by market/sport. Writes `tracked_bets`, `performance`.
-- [ ] **Bankroll / risk manager** — Kelly/flat staking, exposure & correlation limits; **gate before any recommendation is surfaced**.
-- [ ] **Concierge** — plain-language synthesis; owns per-channel UX.
-- [ ] **Exit gate:** log 3 bets → settle → ROI + CLV reported in Slack; risk manager caps a stake.
+### M1.4 — Reporting / tracking agents (`§6` Tier 3, advisory-only) ✅
+- [x] `tools/tracking.py` (session-bound, DB-backed via the new `extra_tools` seam through Runtime/open_team/TeamSession): `log_bet` (journals what the USER placed), `settle_bet` (P&L + closing_odds → **CLV**), `list_bets`, `performance_report` (ROI/P&L/hit-rate/avg-CLV; persists a **`performance`** row — the table M0.3 deferred here, model + guarded migration 0003), `exposure_check` (the risk gate: caps any single recommendation at cap% of bankroll given open exposure). DB-less teams still open: known session tools degrade to an actionable stub.
+- [x] Specs: `bet_tracker`, `bankroll_manager` (half-Kelly default + exposure gate), `bet_notifier` (zero tools, banned-language rules, forbidden_capabilities), `concierge` (plain-language explainer). Orchestrator delegates += tracker/bankroll.
+- [x] **Exit gate:** log 3 → settle (win/loss/void with closing odds) → report: ROI 11%, avg CLV ≈0.06%, hit-rate, persisted performance row — exact-value test; double-settle guarded; exposure gate caps 80→50 on a 1000 bankroll. *Slack delivery of the report rides M1.2's `push_notification` — live pending your Slack tokens.*
 
-### M1.5 — Memory service (`§8.2`)
-- [ ] `memory` read/write API (user prefs, long-term facts, structured notes/to-dos, artifacts); JIT recall in the harness; pgvector for semantic recall (`D11`) when needed.
-- [ ] **Exit gate:** a preference set in one session is recalled in the next; notes persist across a context reset.
+### M1.5 — Memory service (`§8.2`) ✅
+- [x] `tools/memory.py`: `remember` (upsert fact/preference/note, tenant-scoped, `memory` table) + `recall` (keyword v1 over key+value; **pgvector semantic recall (D11) deliberately deferred** behind the same tool signature). Granted to the orchestrator; session-bound like tracking.
+- [x] **Exit gate:** preference remembered in one session recalled by a NEW session; notes persist (DB, not window — survives any context reset); upsert replaces not duplicates; tenant isolation proven.
 
-### M1.6 — Data-analysis agent
-- [ ] `specs/data_analysis.yaml` (sandbox: ephemeral) — ad-hoc analysis + charts to `artifacts`/object store.
-- [ ] **Exit gate:** "chart X's form last 10 games" produces a chart + grounded commentary.
+### M1.6 — Data-analysis agent ✅
+- [x] `specs/data_analysis.yaml`: `sandbox: ephemeral`, `run_python` + stats capabilities + `lookup_book_ids`, typed `StatsAnswer`, plt.savefig discipline in the prompt. Orchestrator delegates += data_analysis.
+- [x] **Exit gate (machinery, deterministic):** a scripted run computes form over 10 games in the REAL sandbox, saves a chart artifact, and the typed answer quotes only computed numbers — `verified=True` because the grounding check matches the answer's 98.0 against run_python stdout. *(LLM-quality grading of live chart requests belongs to the M2.4 eval harness.)*
 
-- [ ] **🚪 P1 EXIT GATE:** Slack live; bet tracking + CLV reporting works; one sandboxed analysis runs; all advisory-only invariants tested.
+- [~] **🚪 P1 EXIT GATE:** bet tracking + CLV reporting ✓ (exact-value tests; performance table live) · sandboxed analysis ✓ (real pandas run + chart artifact + grounded answer) · advisory invariants ✓ (no placement tools exist anywhere; notifier is tool-less with banned-language rules; risk gate caps; deny-filter still authoring+runtime-enforced) · gateway live ✓. **Pending: Slack live** — needs your Slack app (Socket Mode) tokens in `.env`; the adapter is fully built and tested offline. Flip to ✅ after one threaded Slack answer + one push alert.
 
 ---
 

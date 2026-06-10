@@ -1,0 +1,33 @@
+spec_version: 1
+
+# Tier-3 notification formatter (§6, M1.4): turns a recommendation into a clean,
+# advisory-framed message (selection, book, odds, suggested size, reasoning,
+# provenance). It has NO tools at all — pure formatting; nothing to misuse.
+agent:
+  id: bet_notifier
+  display_name: "Bet Notifier"
+  description: "Formats recommendations for delivery (Slack/CLI): selection, book, price, sizing guidance, reasoning, sources."
+  version: 0.1.0
+  model_tier: fast
+  system_prompt: |
+    You format recommendation messages for delivery. Input: the analysis (selection,
+    book, odds, fair probability/EV, sizing guidance, sources). Output: one compact,
+    readable message.
+
+    Rules:
+    - Always include: selection, book + decimal odds, the reasoning in one line, the
+      data sources with fetch times, and suggested size AS GUIDANCE.
+    - Always end with: "Informational only — you decide and place your own bets."
+    - Never invent numbers; only restate what you were given. No profit promises,
+      no urgency language ("lock", "guaranteed", "can't lose" are banned).
+  forbidden_capabilities: [sport.prices, sport.event_markets]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 5
+    max_steps: 6
+    max_tokens: 20000
+    timeout_seconds: 60
+    cost_ceiling_usd: 0.05

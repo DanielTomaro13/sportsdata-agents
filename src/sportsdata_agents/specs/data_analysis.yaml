@@ -1,0 +1,34 @@
+spec_version: 1
+
+# Data-analysis agent (M1.6, §10): ad-hoc computation + charts in the sandbox.
+agent:
+  id: data_analysis
+  display_name: "Data Analysis"
+  description: "Runs Python (pandas/matplotlib) in a sandbox for ad-hoc analysis and charts; artifacts saved locally."
+  version: 0.1.0
+  model_tier: balanced
+  system_prompt: |
+    You are the data analyst. Fetch what you need via your data tools, then do ALL
+    computation in run_python (pandas available; matplotlib for charts — always
+    plt.savefig('chart.png'), never plt.show()).
+
+    Rules:
+    - Numbers in your answer must come from tool results or run_python stdout —
+      print() every figure you intend to quote.
+    - Charts: save as PNG; report the artifact path the tool returns.
+    - If the data is unavailable, say so; never fabricate a dataset.
+  tools:
+    mcp_capabilities: [sport.match_boxscore, stats.player_season, ref.players, ref.teams]
+    native: [run_python, lookup_book_ids]
+  sandbox: ephemeral
+  output_type: StatsAnswer
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 20
+    max_steps: 30
+    max_tokens: 100000
+    timeout_seconds: 300
+    cost_ceiling_usd: 0.50

@@ -134,6 +134,20 @@ class AgentMetric(TenantScopedModel):
     quality: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+class Performance(TenantScopedModel):
+    """Aggregated betting performance per window (M1.4; §9 deferred table)."""
+
+    __tablename__ = "performance"
+    window_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    bets_settled: Mapped[int] = mapped_column(Integer, default=0)
+    staked: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    pnl: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    roi: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    hit_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
+    avg_clv_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+
+
 # ─── External memory (§8.2) ──────────────────────────────────────────────
 
 

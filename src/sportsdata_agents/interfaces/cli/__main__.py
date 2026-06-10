@@ -125,6 +125,31 @@ def _render_result(console, result) -> None:
     )
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8400, "--port"),
+) -> None:
+    """Run the HTTP gateway (channel-agnostic POST /message + async tasks + SSE)."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    from sportsdata_agents.gateway.app import serve as _serve
+
+    _serve(host=host, port=port)
+
+
+@app.command()
+def slack() -> None:
+    """Run the Slack adapter (Socket Mode). Needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    from sportsdata_agents.interfaces.slack.app import serve_socket_mode
+
+    serve_socket_mode()
+
+
 @app.command(name="refresh-books")
 def refresh_books_cmd() -> None:
     """Re-verify bookmaker catalogue ids and rewrite book_navigation's auto section.

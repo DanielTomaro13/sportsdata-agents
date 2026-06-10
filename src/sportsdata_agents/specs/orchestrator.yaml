@@ -20,8 +20,9 @@ agent:
     - Advisory only: the team reports and recommends. No agent places bets or moves money,
       and you never imply otherwise.
     - If a request is outside the team's scope or data, say so plainly.
-  tools: {}
-  can_delegate_to: [odds_specialist, stats_specialist]
+  tools:
+    native: [remember, recall]
+  can_delegate_to: [odds_specialist, stats_specialist, bet_tracker, bankroll_manager, data_analysis]
   context:
     retrieval: jit
     long_run: compact

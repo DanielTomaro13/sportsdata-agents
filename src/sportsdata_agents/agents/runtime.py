@@ -34,8 +34,25 @@ from sportsdata_agents.mcp.pool import MCPSessionPool
 from sportsdata_agents.mcp.toolset import bridge_mcp_tools
 from sportsdata_agents.models.gateway import RunBudget
 from sportsdata_agents.observability.recorder import RunRecorder
-from sportsdata_agents.tools.registry import get_native_tools
 from sportsdata_agents.workspace import Workspace
+
+
+def _db_unavailable_stub(name: str) -> ToolDef:
+    """Stand-in for a DB-backed tool when no database is configured: the agent gets a
+    clear, actionable error instead of the team failing to open."""
+
+    async def execute(args: dict) -> str:
+        return (
+            f"error: {name} needs the database and none is configured — "
+            f"start Postgres (docker compose up -d && alembic upgrade head) and restart"
+        )
+
+    return ToolDef(
+        name=name,
+        description=f"(unavailable: requires the database) {name}",
+        parameters={"type": "object", "properties": {}},
+        execute=execute,
+    )
 
 
 def delegate_tool(runtime: AgentRuntime) -> ToolDef:
@@ -86,6 +103,7 @@ class AgentRuntime:
         mcp_command: Sequence[str] | None = None,
         pool: MCPSessionPool | None = None,
         delegates: Sequence[AgentRuntime] = (),
+        extra_tools: Sequence[ToolDef] = (),
         skills_root: Path | None = None,
         verifier: Verifier | None = None,
         recorder: RunRecorder | None = None,
@@ -102,6 +120,7 @@ class AgentRuntime:
         undeclared = [d.spec.id for d in self._delegates if d.spec.id not in spec.can_delegate_to]
         if undeclared:
             raise ValueError(f"{spec.id}: delegates {undeclared} are not declared in can_delegate_to (§13)")
+        self._extra_tools = {t.name: t for t in extra_tools}
         self._skills_root = skills_root
         self._verifier = verifier
         self._recorder = recorder
@@ -113,7 +132,29 @@ class AgentRuntime:
         try:
             tools: list[ToolDef] = []
             if self.spec.tools.native:
-                tools.extend(get_native_tools(self.spec.tools.native))
+                if "run_python" in self.spec.tools.native and self.spec.sandbox != "ephemeral":
+                    raise ValueError(
+                        f"{self.spec.id}: run_python requires `sandbox: ephemeral` in the spec (§10)"
+                    )
+                # registry first; session-bound extras (e.g. DB-backed tracking) second;
+                # KNOWN session tools degrade to an actionable stub when the DB is
+                # absent (a DB-less team must still OPEN — try_db_recorder philosophy).
+                from sportsdata_agents.tools.memory import MEMORY_TOOL_NAMES
+                from sportsdata_agents.tools.registry import NATIVE_TOOLS
+                from sportsdata_agents.tools.tracking import TRACKING_TOOL_NAMES
+
+                for name in self.spec.tools.native:
+                    if name in NATIVE_TOOLS:
+                        tools.append(NATIVE_TOOLS[name])
+                    elif name in self._extra_tools:
+                        tools.append(self._extra_tools[name])
+                    elif name in TRACKING_TOOL_NAMES | MEMORY_TOOL_NAMES:
+                        tools.append(_db_unavailable_stub(name))
+                    else:
+                        raise KeyError(
+                            f"unknown native tool {name!r}; registered: "
+                            f"{sorted(set(NATIVE_TOOLS) | set(self._extra_tools))}"
+                        )
 
             needs_mcp = bool(self.spec.tools.mcp_capabilities or self.spec.tools.mcp_groups)
             if needs_mcp:
@@ -181,6 +222,7 @@ async def open_team(
     workspace: Workspace,
     mcp_command: Sequence[str] | None = None,
     pool: MCPSessionPool | None = None,
+    extra_tools: Sequence[ToolDef] = (),
     skills_root: Path | None = None,
     verifier: Verifier | None = None,
     recorder: RunRecorder | None = None,
@@ -209,6 +251,7 @@ async def open_team(
                 workspace=workspace,
                 mcp_command=mcp_command,
                 pool=pool,
+                extra_tools=extra_tools,
                 skills_root=skills_root,
                 verifier=verifier,
                 recorder=recorder,
@@ -221,6 +264,7 @@ async def open_team(
             mcp_command=mcp_command,
             pool=pool,
             delegates=delegates,
+            extra_tools=extra_tools,
             skills_root=skills_root,
             verifier=verifier,
             recorder=recorder,

@@ -1,0 +1,33 @@
+spec_version: 1
+
+# Tier-3 risk manager (§6, M1.4): sizing guidance + exposure gate. Advisory only —
+# it caps and suggests; the user decides.
+agent:
+  id: bankroll_manager
+  display_name: "Bankroll Manager"
+  description: "Kelly/flat sizing guidance and the exposure gate — caps any recommendation against bankroll and open bets."
+  version: 0.1.0
+  model_tier: fast
+  system_prompt: |
+    You are the bankroll/risk manager. Before any stake suggestion reaches the user,
+    you gate it.
+
+    Rules:
+    - Sizing: kelly_fraction for the optimal fraction; recommend HALF Kelly by
+      default (full Kelly is too volatile for most bankrolls).
+    - Gate: exposure_check with the user's bankroll and the proposed amount; if not
+      allowed, report the capped amount and say why (cap % and open exposure).
+    - Quote the tool's numbers exactly. Sizing is guidance, not instruction; the
+      user always decides and acts.
+  tools:
+    native: [kelly_fraction, exposure_check, list_bets]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 10
+    max_steps: 15
+    max_tokens: 40000
+    timeout_seconds: 90
+    cost_ceiling_usd: 0.15
