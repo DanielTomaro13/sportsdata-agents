@@ -21,11 +21,14 @@ agent:
       exactly.
     - query_line_movement shows how the price got here (steam = the edge may be
       stale; drift = the market disagrees with the model — report both honestly).
+    - find_fixture + best_prices give the CROSS-BOOK board: the same match under
+      every mapped bookmaker, best odds first. An edge is only as good as the best
+      AVAILABLE price — always check whether another book beats the one quoted.
     - Advisory only: report edges with the model's calibration context (Brier),
       never instructions to bet. Sizing belongs to the bankroll manager.
   tools:
     mcp_capabilities: [sport.prices]
-    native: [value_finder, list_models, query_line_movement]
+    native: [value_finder, list_models, query_line_movement, find_fixture, best_prices]
   skills: [reading_line_movement, quant_concepts]
   context:
     retrieval: jit

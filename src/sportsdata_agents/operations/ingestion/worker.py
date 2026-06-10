@@ -29,15 +29,19 @@ from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_pointsbet_all,
     fetch_pointsbet_books,
     fetch_pointsbet_races,
+    fetch_pointsbet_racing_futures,
     fetch_sportsbet_all,
     fetch_sportsbet_books,
     fetch_sportsbet_races,
+    fetch_sportsbet_racing_futures,
     fetch_tab_all,
     fetch_tab_books,
     fetch_tab_races,
+    fetch_tab_racing_futures,
     fetch_unibet_all,
     fetch_unibet_books,
     fetch_unibet_races,
+    fetch_unibet_racing_futures,
 )
 from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
@@ -129,11 +133,11 @@ FEEDS: dict[str, Feed] = {
     ),
     "pointsbet_all": Feed(
         name="pointsbet_all",
-        tool="pointsbet_sports_list",  # label; full catalogue -> soonest event details
+        tool="pointsbet_sports_list",  # label; full catalogue -> competition listings
         mcp_groups=("pointsbet.sports",),
         normalizer=partial(normalize_pointsbet_events, sport="?"),  # className labels each event
         fetch=fetch_pointsbet_all,
-        interval_s=1800,  # ~5MB per event detail
+        interval_s=900,  # listings only — pointsbet_books owns the ~5MB details (B6)
     ),
     "betr_all": Feed(
         name="betr_all",
@@ -148,7 +152,7 @@ FEEDS: dict[str, Feed] = {
         tool="fanduel_sb_call",  # label; sport pages -> event pages
         mcp_groups=("fanduel.sportsbook",),
         normalizer=partial(normalize_fanduel_pages, sport="?"),  # page id labels each page
-        fetch=partial(fetch_fanduel_pages, page_ids=["nba", "mlb", "nhl", "wnba", "mls", "ufc"]),
+        fetch=fetch_fanduel_pages,  # pages discovered from the nav scaffolding (B8)
         interval_s=900,
     ),
     "fanduel_racing_win": Feed(
@@ -244,11 +248,46 @@ FEEDS: dict[str, Feed] = {
         fetch=fetch_unibet_races,
         interval_s=300,
     ),
+    # ── racing FUTURES tier (B11): ante-post Cup/carnival outrights ─────────
+    # Priced months out and slow-moving — full-book cadence, rotating windows.
+    "tab_racing_futures": Feed(
+        name="tab_racing_futures",
+        tool="tab_racing_futures_race",
+        mcp_groups=("tab.racing",),
+        normalizer=normalize_tab_races,
+        fetch=fetch_tab_racing_futures,
+        interval_s=3600,
+    ),
+    "sportsbet_racing_futures": Feed(
+        name="sportsbet_racing_futures",
+        tool="sportsbet_event_markets",
+        mcp_groups=("sportsbet.racing", "sportsbet.sports"),
+        normalizer=normalize_sportsbet_books,  # same {events:[{markets}]} packaging
+        fetch=fetch_sportsbet_racing_futures,
+        interval_s=3600,
+    ),
+    "pointsbet_racing_futures": Feed(
+        name="pointsbet_racing_futures",
+        tool="pointsbet_racing_futures",
+        mcp_groups=("pointsbet.racing", "pointsbet.sports"),
+        normalizer=partial(normalize_pointsbet_events, sport="?"),
+        fetch=fetch_pointsbet_racing_futures,
+        interval_s=3600,
+    ),
+    "unibet_racing_futures": Feed(
+        name="unibet_racing_futures",
+        tool="unibet_racing_call",
+        mcp_groups=("unibet.racing",),
+        normalizer=normalize_unibet_races,
+        fetch=fetch_unibet_racing_futures,
+        interval_s=3600,
+    ),
     # nba_cdn stays out (aggregator); Betfair stays out (no price sections via the
     # public readonly key from AU — fetcher+normalizer ready for an authed key, P4);
     # Entain RACING blocked on upstream persisted-query registration drift
-    # (RacingRaceCardScreenWeb rejected even after refresh-hashes — Entain sports
-    # feeds are unaffected, they're plain REST).
+    # (RacingRaceCardScreenWeb AND RacingFuturesScreen rejected even after
+    # refresh-hashes — Entain sports feeds incl. their outrights are unaffected,
+    # they're plain REST).
 }
 
 

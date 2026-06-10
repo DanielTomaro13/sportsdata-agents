@@ -70,25 +70,29 @@ def dictionary_tools(session_factory: async_sessionmaker[AsyncSession]) -> list[
         min_count = int(args.get("min_count", 20))
         limit = min(int(args.get("limit", 40)), 80)
         async with session_factory() as session:
+            # provider lists aggregate in Python — string aggregation differs per
+            # dialect (SQLite group_concat vs Postgres string_agg)
             rows = (
                 await session.execute(
-                    select(
-                        Price.market,
-                        func.count().label("n"),
-                        func.group_concat(Price.provider.distinct()),
-                    )
-                    .group_by(Price.market)
-                    .having(func.count() >= min_count)
-                    .order_by(func.count().desc())
+                    select(Price.market, Price.provider, func.count().label("n"))
+                    .group_by(Price.market, Price.provider)
                 )
             ).all()
+        by_market: dict[str, dict[str, Any]] = {}
+        for market, provider, n in rows:
+            entry = by_market.setdefault(market, {"rows": 0, "providers": set()})
+            entry["rows"] += n
+            entry["providers"].add(provider)
         out = []
-        for market, n, providers in rows:
+        for market, entry in sorted(by_market.items(), key=lambda kv: -kv[1]["rows"]):
+            if entry["rows"] < min_count:
+                continue
             family = canonical_market(market)
             mapped = market in _BASE_FAMILIES or family != market
             if only_unmapped and mapped:
                 continue
-            out.append({"market": market, "rows": n, "providers": str(providers),
+            out.append({"market": market, "rows": entry["rows"],
+                        "providers": ",".join(sorted(entry["providers"])),
                         "currently": family if mapped else "unmapped"})
             if len(out) >= limit:
                 break
@@ -117,13 +121,16 @@ def dictionary_tools(session_factory: async_sessionmaker[AsyncSession]) -> list[
         alias = " ".join(str(args["alias"]).strip().lower().split())
         if not family or not alias or family == alias:
             raise ValueError("family and alias must be non-empty and different")
-        if section == "markets" and family in _BASE_FAMILIES:
-            hit = next((t for t in _QUALIFIER_TOKENS if t in alias), None)
-            if hit:
+        if section == "markets":
+            # qualifier tokens in the ALIAS must appear in the FAMILY name too —
+            # "spread p1 alt" may not merge into "spread alt" (different period),
+            # let alone into "spread". Applies to steward-created families as well.
+            mismatched = [t for t in _QUALIFIER_TOKENS if t in alias and t not in family]
+            if mismatched:
                 raise ValueError(
-                    f"refused: {alias!r} carries the qualifier {hit!r} — qualifier markets "
-                    f"settle differently and must not merge into {family!r}; map it to its "
-                    f"own family (e.g. '{family} 1st half') instead"
+                    f"refused: {alias!r} carries the qualifier(s) {mismatched} that "
+                    f"{family!r} does not — qualifier markets settle differently; give "
+                    f"it a family naming the qualifier (e.g. '{family} {mismatched[0]}')"
                 )
         current = canonical_market(alias) if section == "markets" else None
         if section == "markets" and current not in (alias, family):

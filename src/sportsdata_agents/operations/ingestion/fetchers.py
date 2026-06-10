@@ -104,7 +104,8 @@ async def fetch_fanduel_event_pages(manager: Any, *, page_id: str) -> dict[str, 
             detail = await manager.call_tool(
                 "fanduel_sb_call", {"operation": "event_page", "query_params": {"eventId": int(event_id)}}
             )
-            pages.append(detail.get("attachments") or {})
+            # the page slug (nba, pga, ncaaf) is the only sport label these carry
+            pages.append({**(detail.get("attachments") or {}), "sport": page_id})
         except Exception as e:
             logger.warning("fanduel event %s page failed: %s", event_id, e)
     return {"pages": pages}
@@ -141,16 +142,21 @@ async def fetch_fanduel_races(manager: Any, *, max_races: int = 10) -> dict[str,
 # belong to the event-resolution milestone.
 
 ROTATE_CAP = 40  # markets-bearing calls per cycle for the N+1 providers
-_rotation: dict[str, int] = {}  # feed-name → round-robin offset (process-lifetime)
+# Windows derive from WALL-CLOCK time, not process state: the documented operating
+# mode is cron'd `agents ingest --once`, where every invocation is a fresh process —
+# an in-memory offset would re-fetch the same first window forever.
+ROTATION_EPOCH_S = 600  # one window step per 10 minutes
 
 
 def _take_rotating(name: str, items: list[Any], cap: int) -> list[Any]:
-    """A rotating window over a long discovery list: every cycle advances the
-    offset, so the whole board gets covered across cycles without N calls at once."""
+    """A rotating window over a long discovery list: the offset advances with wall
+    clock, so the whole board gets covered across cycles AND across processes."""
+    import time
+
     if len(items) <= cap:
         return items
-    offset = _rotation.get(name, 0) % len(items)
-    _rotation[name] = offset + cap
+    step = int(time.time() // ROTATION_EPOCH_S)
+    offset = (step * cap) % len(items)
     window = items[offset : offset + cap]
     if len(window) < cap:
         window += items[: cap - len(window)]
@@ -162,8 +168,9 @@ def _slug(name: str) -> str:
 
 
 async def fetch_unibet_all(manager: Any) -> dict[str, Any]:
-    """Kambi: group.json → every sport termKey → one listView call per sport
-    (matches + Head to Head/Line/Totals offers inline)."""
+    """Kambi: group.json → every sport termKey → TWO listView calls per sport:
+    matches.json (fixtures + inline offers) and competitions.json (outrights —
+    premiership winners and other futures live ONLY there; B9)."""
     root = await manager.call_tool("unibet_kambi_call", {"operation": "group"})
     group = root.get("group") or root
     sports: list[str] = []
@@ -173,13 +180,14 @@ async def fetch_unibet_all(manager: Any) -> dict[str, Any]:
             sports.append(str(term))
     out: list[dict[str, Any]] = []
     for term in sports:
-        try:
-            payload = await manager.call_tool(
-                "unibet_kambi_call", {"operation": "sport_matches", "path_params": {"sport": term}}
-            )
-            out.append({"sport": term, "payload": payload})
-        except Exception as e:
-            logger.warning("unibet sport %s failed: %s", term, e)
+        for operation in ("sport_matches", "sport_competitions"):
+            try:
+                payload = await manager.call_tool(
+                    "unibet_kambi_call", {"operation": operation, "path_params": {"sport": term}}
+                )
+                out.append({"sport": term, "payload": payload})
+            except Exception as e:
+                logger.warning("unibet sport %s (%s) failed: %s", term, operation, e)
     return {"sports": out}
 
 
@@ -270,21 +278,22 @@ def _walk_sportsbet_nav(node: Any, sport: str | None, found: list[tuple[int, str
 
 
 async def fetch_sportsbet_all(manager: Any) -> dict[str, Any]:
-    """Sportsbet: navigation hierarchy → every listed competition → matches for a
-    rotating window of them (the dated classes route 400s upstream; nav is live)."""
+    """Sportsbet: navigation hierarchy → every listed competition → matches AND
+    outrights for a rotating window of them (the dated classes route 400s upstream;
+    nav is live). Futures competitions (Brownlow, NFL Futures, …) list NO match-type
+    events — their priced events come only from the Outrights route (B10)."""
     nav = await manager.call_tool("sportsbet_nav_hierarchy", {})
     comps: list[tuple[int, str, str]] = []
     _walk_sportsbet_nav(nav, None, comps)
     window = _take_rotating("sportsbet_all", comps, ROTATE_CAP)
     out: list[dict[str, Any]] = []
     for comp_id, _comp_name, sport in window:
-        try:
-            payload = await manager.call_tool(
-                "sportsbet_competition_matches", {"competitionId": comp_id}
-            )
-            out.append({"sport": sport, "payload": payload})
-        except Exception as e:
-            logger.warning("sportsbet competition %s failed: %s", comp_id, e)
+        for tool in ("sportsbet_competition_matches", "sportsbet_competition_outrights"):
+            try:
+                payload = await manager.call_tool(tool, {"competitionId": comp_id})
+                out.append({"sport": sport, "payload": payload})
+            except Exception as e:
+                logger.warning("sportsbet competition %s (%s) failed: %s", comp_id, tool, e)
     return {"competitions": out}
 
 
@@ -336,10 +345,10 @@ async def fetch_betr_all(manager: Any) -> dict[str, Any]:
     return {"types": out}
 
 
-async def fetch_pointsbet_all(manager: Any, *, max_event_details: int = 12) -> dict[str, Any]:
-    """PointsBet: the sports list carries every competition; event listings are
-    cheap, but Match Result prices need ~5MB per-event details — so only the
-    soonest events board-wide get detailed each cycle."""
+async def fetch_pointsbet_all(manager: Any) -> dict[str, Any]:
+    """PointsBet hot tier: competition LISTINGS only — their inline insight/featured
+    markets capture generically, and the ~5MB per-event details belong solely to
+    pointsbet_books (they were being fetched by both feeds; B6)."""
     import datetime as _dt
 
     listing = await manager.call_tool(
@@ -352,25 +361,49 @@ async def fetch_pointsbet_all(manager: Any, *, max_event_details: int = 12) -> d
         for comp in sport.get("competitions", []) or []:  # nested directly, keys are strings
             if comp.get("key") is not None:
                 comp_keys.append(int(comp["key"]))
-    events: list[dict[str, Any]] = []
+    events: list[Any] = []
     for key in _take_rotating("pointsbet_all", comp_keys, 10):
         try:
             page = await manager.call_tool("pointsbet_competition_events", {"competitionKey": key})
             events.extend(e for e in page.get("events", []) or [] if e.get("key") is not None)
         except Exception as e:
             logger.warning("pointsbet competition %s failed: %s", key, e)
-    events.sort(key=lambda e: str(e.get("startsAt", "")))
-    details: list[Any] = []
-    for event in events[:max_event_details]:
+    return {"events": events}
+
+
+# Fallback only — used when application-context discovery returns nothing.
+_FANDUEL_FALLBACK_PAGES = ["nba", "mlb", "nhl", "wnba", "mls", "ufc"]
+
+
+async def discover_fanduel_pages(manager: Any) -> list[str]:
+    """FanDuel's nav scaffolding links every promoted sport page as
+    ``sportsbook.fanduel.com/navigation/{slug}`` — those slugs ARE the
+    content-page ids, so the page list tracks whatever FanDuel currently
+    carries instead of a hand-curated list (B8)."""
+    import json as _json
+    import re as _re
+
+    context = await manager.call_tool("fanduel_sb_call", {
+        "operation": "application_context",
+        "query_params": {"dataEntries": "AZ_BETTING,POPULAR_BETTING,QUICK_LINKS"},
+    })
+    slugs: list[str] = []
+    for slug in _re.findall(r"/navigation/([a-z0-9-]+)", _json.dumps(context)):
+        if slug not in slugs:
+            slugs.append(slug)
+    return slugs
+
+
+async def fetch_fanduel_pages(manager: Any, *, page_ids: list[str] | None = None) -> dict[str, Any]:
+    """FanDuel US: discovered sport content pages → their events' detail pages."""
+    if page_ids is None:
         try:
-            details.append(await manager.call_tool("pointsbet_event", {"eventKey": event["key"]}))
+            page_ids = await discover_fanduel_pages(manager)
         except Exception as e:
-            logger.warning("pointsbet event %s failed: %s", event.get("key"), e)
-    return {"events": details}
-
-
-async def fetch_fanduel_pages(manager: Any, *, page_ids: list[str]) -> dict[str, Any]:
-    """FanDuel US: several sport content pages → their events' detail pages."""
+            logger.warning("fanduel page discovery failed: %s", e)
+            page_ids = []
+        if not page_ids:
+            page_ids = list(_FANDUEL_FALLBACK_PAGES)
     pages: list[Any] = []
     for page_id in page_ids:
         try:
@@ -545,8 +578,15 @@ async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
             event_keys.extend(e["key"] for e in page.get("events", []) or [] if e.get("key") is not None)
         except Exception as e:
             logger.warning("pointsbet books comp %s failed: %s", key, e)
+    # soonest-first starves futures (their start dates sit months out) — reserve
+    # slots for the FURTHEST-out events so outright books refresh too (B12)
+    chosen = event_keys[:16] + event_keys[-4:] if len(event_keys) > 20 else event_keys
     details: list[Any] = []
-    for event_key in event_keys[:20]:
+    seen_keys: set[Any] = set()
+    for event_key in chosen:
+        if event_key in seen_keys:
+            continue
+        seen_keys.add(event_key)
         try:
             details.append(await manager.call_tool("pointsbet_event", {"eventKey": event_key}))
         except Exception as e:
@@ -710,4 +750,108 @@ async def fetch_unibet_races(manager: Any) -> dict[str, Any]:
             out.append({"sport": _race_sport(race_type), "eventKey": key, "card": card})
         except Exception as e:
             logger.warning("unibet race %s failed: %s", key, e)
+    return {"races": out}
+
+
+# ─── racing FUTURES tier (B11; shapes captured live 2026-06-11) ────────────
+# Ante-post markets: Cup outrights, carnival winners — priced months out, slow
+# moving, so the tier rotates a window per cycle at full-book cadence.
+
+FUTURES_PER_CYCLE = 15
+
+
+async def fetch_tab_racing_futures(manager: Any) -> dict[str, Any]:
+    """TAB: futures meetings → one futures racecard per listed market. The card
+    route puts the race NAME in the race slot (raceNumber is always 0 for
+    futures), hence the dedicated MCP op."""
+    listing = await manager.call_tool("tab_racing_futures_meetings", {})
+    wanted: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for meeting in listing.get("meetings", []) or []:
+        for race in meeting.get("races", []) or []:
+            if race.get("raceName") and race.get("meetingDate"):
+                wanted.append((meeting, race))
+    out: list[dict[str, Any]] = []
+    for meeting, race in _take_rotating("tab_racing_futures", wanted, FUTURES_PER_CYCLE):
+        try:
+            card = await manager.call_tool("tab_racing_futures_race", {
+                "date": race["meetingDate"],
+                "raceType": meeting.get("raceType"),
+                "venueMnemonic": meeting.get("meetingName"),
+                "raceName": race["raceName"],
+            })
+            summary = {
+                "meeting": {
+                    "meetingDate": race.get("meetingDate"),
+                    "raceType": meeting.get("raceType"),
+                    "venueMnemonic": meeting.get("meetingName"),
+                    "meetingName": meeting.get("meetingName"),
+                },
+                "raceNumber": 0,
+                "raceName": race.get("raceName"),
+                "raceStartTime": race.get("raceStartTime"),
+            }
+            out.append({"summary": summary, "card": card})
+        except Exception as e:
+            logger.warning("tab futures %s failed: %s", race.get("raceName"), e)
+    return {"races": out}
+
+
+async def fetch_sportsbet_racing_futures(manager: Any) -> dict[str, Any]:
+    """Sportsbet: the Futures listing is sportsbook-shaped events (classId 5) — the
+    standard ``event_markets`` route prices them (win+place per selection)."""
+    listing = await manager.call_tool("sportsbet_racing_futures", {})
+    priced = [
+        e for e in (listing if isinstance(listing, list) else [])
+        if e.get("bettingStatus") == "PRICED" and e.get("id") is not None
+    ]
+    out: list[dict[str, Any]] = []
+    for event in _take_rotating("sportsbet_racing_futures", priced, FUTURES_PER_CYCLE):
+        try:
+            markets = await manager.call_tool("sportsbet_event_markets", {"eventId": int(event["id"])})
+            out.append({
+                # className e.g. "Horse Racing: Futures - AUS/NZ" — the code before
+                # the colon names the sport
+                "sport": _race_sport(str(event.get("className", "")).split(":")[0]),
+                "event_id": str(event["id"]),
+                "event_name": str(event.get("name") or event.get("competitionName") or ""),
+                "start": event.get("startTime"),
+                "markets": markets if isinstance(markets, list) else markets.get("markets", []),
+            })
+        except Exception as e:
+            logger.warning("sportsbet racing future %s failed: %s", event.get("id"), e)
+    return {"events": out}
+
+
+async def fetch_pointsbet_racing_futures(manager: Any) -> dict[str, Any]:
+    """PointsBet: racing-futures listing → standard event details (the same
+    fixedOddsMarkets shape the sports normalizer reads)."""
+    listing = await manager.call_tool("pointsbet_racing_futures", {})
+    events = [e for e in (listing.get("events") or []) if e.get("key") is not None]
+    out: list[Any] = []
+    for event in _take_rotating("pointsbet_racing_futures", events, FUTURES_PER_CYCLE):
+        try:
+            out.append(await manager.call_tool("pointsbet_event", {"eventKey": event["key"]}))
+        except Exception as e:
+            logger.warning("pointsbet racing future %s failed: %s", event.get("key"), e)
+    return {"events": out}
+
+
+async def fetch_unibet_racing_futures(manager: Any) -> dict[str, Any]:
+    """Unibet: FuturesQuery lists ante-post eventKeys — the standard EventQuery
+    cards price them (competitor prices carry a direct price; flucs are empty
+    for ante-post)."""
+    listing = await manager.call_tool("unibet_racing_call", {"operation": "FuturesQuery", "variables": {}})
+    futures = (((listing.get("data") or {}).get("viewer") or {}).get("futures")) or []
+    wanted = [f for f in futures if f.get("eventKey") and f.get("hasFixedPrices")]
+    out: list[dict[str, Any]] = []
+    for future in _take_rotating("unibet_racing_futures", wanted, FUTURES_PER_CYCLE):
+        key = str(future["eventKey"])
+        try:
+            card = await manager.call_tool("unibet_racing_call", {
+                "operation": "EventQuery",
+                "variables": {"eventKey": key, "clientCountryCode": "AU"},
+            })
+            out.append({"sport": _race_sport(future.get("raceType")), "eventKey": key, "card": card})
+        except Exception as e:
+            logger.warning("unibet racing future %s failed: %s", key, e)
     return {"races": out}

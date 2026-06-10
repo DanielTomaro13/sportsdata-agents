@@ -29,6 +29,55 @@ selection, sandboxing, interfaces (CLI → Slack → web), multi-tenancy / SaaS-
 the self-improvement loop, the delivery roadmap, and a **decision register** with the
 pros and cons of every choice.
 
+## What's built (P0–P2 complete)
+
+**The agent team** (14 specs in `src/sportsdata_agents/specs/`): an orchestrator that
+routes and delegates; odds/stats specialists over the live data plane; a modelling agent
+(general model development — features, calibration, Brier/log-loss, logistic regression,
+XGBoost skills); a value scout (vig removal, +EV detection, cross-book best price); a
+backtester (entry-at-prediction-time discipline, CLV vs close); bankroll manager, bet
+tracker and bet notifier (advisory only); a market steward that maintains the market
+dictionary as data; Slack manager; data-analysis agent (sandboxed `run_python`); concierge.
+Every answer is **grounded** (numbers must come from tool results — a deterministic
+verifier checks), **sourced** (provenance per tool call), **budgeted** (one cost ceiling
+per team run) and **audited** (runs/tool-calls/costs land in the DB when configured).
+
+**The odds warehouse** (`agents ingest`): discovery-driven, capture-everything ingestion
+across **10 bookmakers** — Sportsbet, TAB, Unibet/Kambi, Entain (Ladbrokes/Neds),
+Pinnacle, PointsBet, BetR, FanDuel (US sportsbook + racing) — in four tiers:
+
+- **hot** (5–30 min): every provider's own discovery route → all sports, all
+  competitions, primary + inline markets — nothing hardcoded, new comps/sports appear
+  automatically;
+- **full-book** (60 min): every market of every fixture (rotating windows over the
+  megabyte-scale per-fixture firehoses);
+- **racing** (~3 min): win+place cards from TAB, Sportsbet, BetR, PointsBet, Unibet,
+  FanDuel, soonest races first;
+- **racing futures** (60 min): ante-post Cup/carnival outrights from TAB, Sportsbet,
+  PointsBet, Unibet.
+
+Sports futures (premiership winners, Brownlow, NFL/MLB futures, …) ride the hot tier:
+Kambi `competitions.json`, Sportsbet's Outrights route, Entain/BetR/TAB inline.
+Normalizers never filter by market name — `canonical_market()` only *renames* onto shared
+keys (h2h/spread/total/win/place), driven by a **market dictionary that is data**
+(packaged seed + steward-maintained local overrides; merge safety enforced in the tools:
+qualifier markets can never alias into base families). Raw observations land in
+`odds_snapshots` (prunable; carries the parsed advertised start time); the
+change-point-only `prices` series is what models and backtests read.
+
+**Event resolution** (`agents resolve`): deterministic, LLM-free mapping of every book's
+private event ids onto shared fixtures (fuzzy-subset team-token matching, swap-tolerant,
+windowed on the event's advertised start so futures join months ahead; ambiguity is
+counted and skipped, never guessed). That join powers `cross_book_prices` (best price per
+selection across every mapped book), resolution-aware backtest settlement (a result
+recorded under any book settles every book's series, with side-orientation translated
+between books' listing orders), and the `find_fixture` / `best_prices` agent tools.
+
+**The quant loop**: `save_model` refuses uncalibrated models → `record_predictions`
+(backdatable `predicted_at`) → `run_backtest` (flat-stake replay, no lookahead: entry is
+the prevailing price at prediction time; CLV vs close) → `agents eval` gates golden
+metrics (calibration, CLV backtest, grounding) against a committed baseline.
+
 ## Quickstart
 
 This is a **private repository**; you need read access to both repos.
@@ -48,21 +97,37 @@ cd sportsdata-agents && python3.12 -m venv .venv && .venv/bin/pip install -e ".[
 #    - point at the data plane binary:
 #      SPORTSDATA_AGENTS_MCP_COMMAND=["/abs/path/to/sportsdata-mcp/.venv/bin/sportsdata-mcp"]
 
-# 4) (optional) Postgres for audit rows — without it the CLI still works, just unaudited
-docker compose up -d && .venv/bin/alembic upgrade head
+# 4) Database (audit rows + the odds warehouse). SQLite works out of the box:
+#      SPORTSDATA_AGENTS_DATABASE_URL="sqlite+aiosqlite:////path/to/warehouse.db"
+#    or Postgres via docker compose up -d; then:
+.venv/bin/alembic upgrade head
 
 # 5) Talk to the team
 .venv/bin/agents run "Using MLB data: which team does Aaron Judge play for?"
 .venv/bin/agents chat                       # interactive REPL (/exit to quit)
-.venv/bin/agents run "..." --agent stats_specialist   # one agent instead of the team
+.venv/bin/agents run "..." --agent value_scout        # one agent instead of the team
 .venv/bin/agents list && .venv/bin/agents lint        # spec catalogue + validation
-.venv/bin/agents refresh-books                        # weekly: re-verify bookmaker ids
 ```
 
-Every answer is **grounded** (numbers must come from tool results — a deterministic
-verifier checks), **sourced** (provenance envelope per tool call), **budgeted** (one
-cost ceiling per team run), and **audited** (runs/tool-calls/costs land in Postgres
-when configured).
+### The data loop
+
+```bash
+.venv/bin/agents ingest --once              # one capture cycle across all due feeds
+.venv/bin/agents ingest --once --feed tab_racing_futures   # a single feed
+.venv/bin/agents ingest --loop              # scheduled loop (per-feed cadence)
+.venv/bin/agents ingest --once --prune 90   # retention for raw snapshots
+.venv/bin/agents resolve                    # map book events -> shared fixtures
+.venv/bin/agents resolve --dry-run          # count without writing
+.venv/bin/agents movement --event <id>      # change-point series for one event
+.venv/bin/agents eval --baseline src/sportsdata_agents/evals/baseline.json
+.venv/bin/agents refresh-books              # weekly: re-verify bookmaker ids
+```
+
+The ingest worker runs the MCP as a scoped subprocess per provider group and tolerates
+per-feed failures (one book down never sinks the cycle). Known exclusions, by policy or
+upstream fault: NBA CDN (aggregator — books of record only), Betfair (public key returns
+no prices from AU; code ready for an authed key), Entain racing GraphQL (upstream
+persisted-query drift; Entain *sports* REST — including its outrights — is unaffected).
 
 ## Testing
 
@@ -70,15 +135,16 @@ when configured).
 .venv/bin/pytest                  # offline suite (default: not live, not eval) — CI runs this
 .venv/bin/pytest -m live          # real MCP + real model (needs a key; ~cents or free tier)
 .venv/bin/pytest -m eval          # golden eval cases, graded for factual accuracy
+.venv/bin/ruff check . && .venv/bin/mypy src   # the other two gates
 ```
 
 ## Status
 
-**P0 complete** — orchestrator + odds/stats specialists over the live data plane
-([`sportsdata-mcp`](https://github.com/DanielTomaro13/sportsdata-mcp), 18 providers /
-342 tools), with the full harness (loop control, context policy, skills, typed
-outputs, grounding verification), cost metering + audit persistence, and the CLI.
-Next (P1): Slack interface, bet tracking + CLV, first sandbox. See
+**P2 complete** — the full quant loop over a discovery-driven, capture-everything odds
+warehouse (10 books × 40+ sports × 1,200+ distinct markets, futures included), event
+resolution with cross-book pricing and resolution-aware settlement, the market-steward
+dictionary loop, and the eval gate. Next (P3): scheduled ingestion deployment,
+Postgres/Timescale migration, market monitor agent. See
 [`BUILD_PLAN.md`](./BUILD_PLAN.md) for the milestone log.
 
 ---

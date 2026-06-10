@@ -177,6 +177,7 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
         from sportsdata_agents.tools.dictionary import dictionary_tools
         from sportsdata_agents.tools.memory import memory_tools
         from sportsdata_agents.tools.quant import quant_tools
+        from sportsdata_agents.tools.resolution import resolution_tools
         from sportsdata_agents.tools.tracking import tracking_tools
 
         tools += [
@@ -184,6 +185,7 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
             *memory_tools(inner.session_factory, inner.scope),
             *quant_tools(inner.session_factory, inner.scope),
             *dictionary_tools(inner.session_factory),
+            *resolution_tools(inner.session_factory),
         ]
     if os.environ.get("SLACK_BOT_TOKEN"):
         from sportsdata_agents.tools.slack_admin import slack_admin_tools

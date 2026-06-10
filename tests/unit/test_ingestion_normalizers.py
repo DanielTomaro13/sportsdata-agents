@@ -213,10 +213,32 @@ def test_feed_registry_is_discovery_driven() -> None:
            "pointsbet_all", "betr_all", "fanduel_us", "fanduel_racing_win"}
     books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books", "pointsbet_books"}
     racing = {"tab_racing", "sportsbet_racing", "betr_racing", "pointsbet_racing", "unibet_racing"}
-    assert set(FEEDS) == hot | books | racing  # hot tier + hourly books + racing tier
-    assert all(FEEDS[n].fetch is not None for n in hot | books | racing)  # discovery, not fixed ids
+    futures = {"tab_racing_futures", "sportsbet_racing_futures",
+               "pointsbet_racing_futures", "unibet_racing_futures"}
+    assert set(FEEDS) == hot | books | racing | futures
+    assert all(FEEDS[n].fetch is not None for n in hot | books | racing | futures)
     assert all(FEEDS[n].interval_s == 3600 for n in books)
     assert all(FEEDS[n].interval_s <= 300 for n in racing)  # racing moves near post
+    assert all(FEEDS[n].interval_s == 3600 for n in futures)  # ante-post moves slowly
+
+
+def test_rotation_window_derives_from_wall_clock(monkeypatch) -> None:
+    """Cron `--once` runs are fresh processes — a process-lifetime offset would
+    re-fetch the same first window forever (B2). The window advances with TIME."""
+    import time as _time
+
+    from sportsdata_agents.operations.ingestion import fetchers
+
+    items = list(range(10))
+    monkeypatch.setattr(_time, "time", lambda: 0.0)
+    first = fetchers._take_rotating("t", items, 4)
+    again = fetchers._take_rotating("t", items, 4)  # same epoch -> same window (restart-safe)
+    assert first == again == [0, 1, 2, 3]
+    monkeypatch.setattr(_time, "time", lambda: float(fetchers.ROTATION_EPOCH_S))
+    assert fetchers._take_rotating("t", items, 4) == [4, 5, 6, 7]
+    monkeypatch.setattr(_time, "time", lambda: float(2 * fetchers.ROTATION_EPOCH_S))
+    assert fetchers._take_rotating("t", items, 4) == [8, 9, 0, 1]  # wraps
+    assert fetchers._take_rotating("t", items, 12) == items  # under cap: everything
 
 
 # ── Unibet/Kambi (captured live 2026-06-11) ───────────────────────────────
@@ -740,3 +762,121 @@ def test_sportsbet_races_reads_prices_array_fixed_odds() -> None:
     }
     points = normalize_sportsbet_races(payload)
     assert [(p.market, p.selection, p.odds) for p in points] == [("win", "5", 6.5)]
+
+
+# ── futures (shapes captured live 2026-06-11) ──────────────────────────────
+
+
+def test_tab_racing_futures_name_keyed_events() -> None:
+    """Futures cards have raceNumber 0 and unnumbered runners — the race NAME keys
+    the event and the horse NAME keys the selection, or every Cup market collides."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_tab_races
+
+    payload = {"races": [{
+        "summary": {"raceNumber": 0, "raceName": "Queen Anne Stakes (All In)",
+                    "raceStartTime": "2026-06-16T06:00:00.000Z",
+                    "meeting": {"meetingDate": "2026-06-16", "raceType": "R",
+                                "venueMnemonic": "Racing Futures",
+                                "meetingName": "Racing Futures"}},
+        "card": {"runners": [
+            {"runnerNumber": None, "runnerName": "NOTABLE SPEECH",
+             "fixedOdds": {"returnWin": 2.5, "returnPlace": 1.3, "bettingStatus": "Open"}},
+        ]},
+    }]}
+    points = normalize_tab_races(payload)
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    assert by_key == {("win", "notable speech"): 2.5, ("place", "notable speech"): 1.3}
+    assert points[0].event_external_id == "2026-06-16:R:Racing Futures:Queen Anne Stakes (All In)"
+    assert points[0].event_name == "Racing Futures Queen Anne Stakes (All In)"
+    assert points[0].meta["post_time"] == "2026-06-16T06:00:00.000Z"
+
+
+def test_unibet_antepost_prices_without_flucs() -> None:
+    """Ante-post competitor prices carry NO flucs — the row's direct price is live."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_unibet_races
+
+    payload = {"races": [{
+        "sport": "horse_racing", "eventKey": "202606161300.T.GBR.antepost___royal_ascot.1",
+        "card": {"data": {"viewer": {"event": {
+            "name": "Queen Anne Stakes", "eventDateTimeUtc": "2026-06-16T13:30:00Z",
+            "competitors": [{
+                "name": "Notable Speech", "number": None,
+                "prices": [
+                    {"betType": "FixedWin", "price": 4.5, "flucs": []},
+                    {"betType": "FixedPlace", "price": 1.24, "flucs": []},
+                ],
+            }],
+        }}}},
+    }]}
+    points = normalize_unibet_races(payload)
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    assert by_key == {("win", "notable speech"): 4.5, ("place", "notable speech"): 1.24}
+    assert points[0].meta["post_time"] == "2026-06-16T13:30:00Z"
+
+
+def test_pinnacle_outright_named_from_special_or_league() -> None:
+    """Outright matchups have no home/away alignments — the event name must come
+    from the special description or league, never '? v ?' (B12)."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_pinnacle_league
+
+    payload = {
+        "matchups": [{
+            "id": 99, "_sport": "australian_rules",
+            "league": {"name": "AFL 2026"},
+            "special": {"description": "Brownlow Medal Winner"},
+            "participants": [{"id": 1, "name": "Marcus Bontempelli"}],
+            "startTime": "2026-09-20T09:00:00Z",
+        }],
+        "markets": {"99": [{
+            "type": "moneyline", "status": "open",
+            "prices": [{"participantId": 1, "price": 350}],
+        }]},
+    }
+    points = normalize_pinnacle_league(payload, sport="?")
+    assert points and points[0].event_name == "Brownlow Medal Winner"
+    assert points[0].selection == "marcus bontempelli"
+
+
+def test_sportsbet_outrights_flow_through_matches_normalizer() -> None:
+    """competition_outrights returns the SAME grouped shape as competition_matches —
+    one normalizer serves both routes (B10)."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_sportsbet_matches
+
+    payload = [{
+        "groupName": "2026 AFL Brownlow Medal",
+        "events": [{
+            "id": 9641792, "displayName": "2026 AFL Brownlow Medal",
+            "bettingStatus": "PRICED", "startTime": 1789983000,
+            "primaryMarket": {
+                "name": "2026 AFL Brownlow Medal", "marketSort": "--",
+                "selections": [
+                    {"name": "Marcus Bontempelli", "resultType": "-", "price": {"winPrice": 4.5}},
+                ],
+            },
+        }],
+    }]
+    points = normalize_sportsbet_matches(payload, sport="australian_rules")
+    assert [(p.market, p.selection, p.odds) for p in points] == [
+        ("2026 afl brownlow medal", "marcus bontempelli", 4.5)
+    ]
+    assert points[0].event_name == "2026 AFL Brownlow Medal"
+
+
+def test_discover_fanduel_pages_parses_navigation_slugs() -> None:
+    """The nav scaffolding's /navigation/{slug} links ARE the content-page ids (B8)."""
+    import asyncio
+
+    from sportsdata_agents.operations.ingestion.fetchers import discover_fanduel_pages
+
+    class FakeManager:
+        async def call_tool(self, name: str, arguments: dict | None = None) -> dict:
+            assert name == "fanduel_sb_call"
+            return {"QUICK_LINKS": [
+                {"url": "https://sportsbook.fanduel.com/navigation/nba"},
+                {"url": "https://sportsbook.fanduel.com/navigation/pga"},
+                {"url": "https://sportsbook.fanduel.com/navigation/nba"},  # dupe
+                {"url": "https://sportsbook.fanduel.com/promotions"},  # not a page
+            ]}
+
+    slugs = asyncio.run(discover_fanduel_pages(FakeManager()))
+    assert slugs == ["nba", "pga"]

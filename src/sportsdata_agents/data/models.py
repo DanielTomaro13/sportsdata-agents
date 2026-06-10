@@ -250,6 +250,10 @@ class OddsSnapshot(Base):
     market: Mapped[str] = mapped_column(String(128), index=True)  # 2way | spread | total | ...
     selection: Mapped[str] = mapped_column(String(200))  # home | away -1.5 | over 220.5 ...
     odds: Mapped[Decimal] = mapped_column(Numeric(10, 3))
+    # advertised start, parsed from provider meta at write time — the resolver
+    # windows fixtures on THIS, not capture day (futures are captured months out);
+    # nullable: not every payload carries one
+    start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
 
 

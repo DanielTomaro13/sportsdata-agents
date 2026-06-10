@@ -30,7 +30,11 @@ _SEPARATORS = (" vs ", " v ", " - ", " @ ")
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset({"the", "fc", "afc", "club"})
 MATCH_THRESHOLD = 0.3  # rank floor; the real gate is the per-side fuzzy-subset rule
-NAME_THRESHOLD = 0.5  # one-name events (racing) need a stronger straight Jaccard
+# One-name events (racing, outrights) gate on the same fuzzy-subset rule — plain
+# Jaccard merged "Argentina Markets 2026" with "Brazil Markets 2026" (the generic
+# tokens dominate). Jaccard then only ranks: the floor keeps one-token names from
+# subset-matching everything.
+NAME_THRESHOLD = 0.4
 
 
 def _tokens(name: str) -> frozenset[str]:
@@ -104,6 +108,7 @@ async def resolve_events(
                     func.max(OddsSnapshot.event_name),
                     func.max(OddsSnapshot.sport),
                     func.min(OddsSnapshot.captured_at),
+                    func.max(OddsSnapshot.start_time),
                 ).group_by(OddsSnapshot.provider, OddsSnapshot.event_external_id)
             )
         ).all()
@@ -125,7 +130,7 @@ async def resolve_events(
             add_to_index(fixture.id, fixture.sport, fixture_day(fixture.start_time), fixture.name)
 
         stats = {"examined": 0, "mapped": 0, "created": 0, "ambiguous": 0, "skipped_unnamed": 0}
-        for provider, external_id, event_name, sport, first_seen in seen:
+        for provider, external_id, event_name, sport, first_seen, start_time in seen:
             if (provider, external_id) in mapped_keys:
                 continue
             stats["examined"] += 1
@@ -134,7 +139,11 @@ async def resolve_events(
                 stats["skipped_unnamed"] += 1
                 continue
             family = canonical_sport(str(sport or "?"))
-            day = fixture_day(first_seen)
+            # window on the ADVERTISED start when the feed carried one — futures are
+            # captured months before they run, so capture day would scatter the same
+            # outright across fixtures-by-capture-date (B3)
+            event_time = start_time or first_seen
+            day = fixture_day(event_time)
             sides = split_sides(name)
             mine: Any = (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(name)
 
@@ -148,8 +157,11 @@ async def resolve_events(
                         score = _sides_score(mine, theirs)
                         threshold = MATCH_THRESHOLD
                     elif isinstance(mine, frozenset) and isinstance(theirs, frozenset):
-                        union = mine | theirs
-                        score = len(mine & theirs) / len(union) if union else 0.0
+                        if _side_ok(mine, theirs):  # every shorter-name token has a partner
+                            union = mine | theirs
+                            score = len(mine & theirs) / len(union) if union else 0.0
+                        else:
+                            score = 0.0
                         threshold = NAME_THRESHOLD
                     else:
                         continue  # two-sided vs one-name shapes never match
@@ -170,7 +182,7 @@ async def resolve_events(
                     sport=family,
                     external_id=f"{provider}:{external_id}",  # founding book's key
                     name=f"{sides[0]} v {sides[1]}" if sides else name,
-                    start_time=first_seen,
+                    start_time=event_time,
                 )
                 session.add(fixture)
                 await session.flush()

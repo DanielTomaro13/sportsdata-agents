@@ -9,6 +9,13 @@ Entry discipline (no lookahead): the entry price is what you could actually GET 
 prediction time — the prevailing change-point at ``predicted_at``, or the first one
 after it when the prediction predates every capture. Taking the first-ever captured
 price regardless would credit the model with prices it never saw.
+
+Settlement is resolution-aware: results land under whichever book reported them, so
+a prediction keyed on another book's event id settles through the shared fixture
+(events → fixture_id). Side-relative winners ("home"/"away") translate between the
+two books' listing orders via name-token matching — and when orientation can't be
+established, the bet stays UNSETTLED rather than guessing (a flipped side corrupts
+ROI silently).
 """
 
 from __future__ import annotations
@@ -16,11 +23,80 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sportsdata_agents.data.models import EventResult, Prediction, Price
+from sportsdata_agents.data.models import Event, EventResult, OddsSnapshot, Prediction, Price
 from sportsdata_agents.data.repository import TenantScope
+from sportsdata_agents.operations.resolution.resolver import _side_ok, _tokens, split_sides
+
+_SIDE_WINNERS = ("home", "away", "draw")
+
+
+async def _settlement_maps(
+    session: AsyncSession,
+) -> tuple[
+    dict[tuple[str, str], uuid.UUID | None],
+    dict[str, uuid.UUID | None],
+    dict[str, EventResult],
+    dict[uuid.UUID, EventResult],
+]:
+    """Fixture joins + results, loaded once per backtest instead of per prediction."""
+    events = (await session.execute(select(Event))).scalars().all()
+    fixture_by_pe = {(e.provider, e.external_id): e.fixture_id for e in events}
+    fixture_by_ext: dict[str, uuid.UUID | None] = {}
+    for e in events:  # ext-id-only fallback; collisions across providers → unusable
+        prior = fixture_by_ext.get(e.external_id, e.fixture_id)
+        fixture_by_ext[e.external_id] = e.fixture_id if prior == e.fixture_id else None
+    results = (
+        await session.execute(
+            select(EventResult).order_by(EventResult.settled_at.asc().nulls_first())
+        )
+    ).scalars().all()
+    result_by_ext: dict[str, EventResult] = {}
+    result_by_fixture: dict[uuid.UUID, EventResult] = {}
+    for res in results:  # ascending order: the newest settlement overwrites
+        result_by_ext[res.event_external_id] = res
+        fixture = fixture_by_pe.get((res.provider, res.event_external_id)) or fixture_by_ext.get(
+            res.event_external_id
+        )
+        if fixture is not None:
+            result_by_fixture[fixture] = res
+    return fixture_by_pe, fixture_by_ext, result_by_ext, result_by_fixture
+
+
+async def _event_name_for(
+    session: AsyncSession, cache: dict[tuple[str, str], str], provider: str, external_id: str
+) -> str:
+    """The event name a book published for (provider, external id) — orientation
+    evidence for translating side-relative winners between books."""
+    key = (provider, external_id)
+    if key not in cache:
+        stmt = select(func.max(OddsSnapshot.event_name)).where(
+            OddsSnapshot.event_external_id == external_id
+        )
+        if provider:
+            stmt = stmt.where(OddsSnapshot.provider == provider)
+        cache[key] = str((await session.execute(stmt)).scalar() or "")
+    return cache[key]
+
+
+def _translate_side(winner: str, pred_name: str, result_name: str) -> str | None:
+    """A side-relative winner in the RESULT book's frame → the PREDICTION book's
+    frame ("home" flips when the books list the teams in opposite order). None when
+    either name fails to split or the sides can't be aligned unambiguously."""
+    if winner == "draw":
+        return "draw"
+    pred_sides, result_sides = split_sides(pred_name), split_sides(result_name)
+    if not pred_sides or not result_sides:
+        return None
+    p_home, p_away = _tokens(pred_sides[0]), _tokens(pred_sides[1])
+    r_home, r_away = _tokens(result_sides[0]), _tokens(result_sides[1])
+    same = _side_ok(p_home, r_home) and _side_ok(p_away, r_away)
+    swapped = _side_ok(p_home, r_away) and _side_ok(p_away, r_home)
+    if same == swapped:  # neither or both — never guess
+        return None
+    return winner if same else {"home": "away", "away": "home"}[winner]
 
 
 async def run_backtest(
@@ -41,6 +117,10 @@ async def run_backtest(
             stmt = stmt.where(Prediction.model_id == uuid.UUID(model_id))
         predictions = (await session.execute(stmt)).scalars().all()
 
+        fixture_by_pe, fixture_by_ext, result_by_ext, result_by_fixture = (
+            await _settlement_maps(session)
+        )
+        name_cache: dict[tuple[str, str], str] = {}
         bets: list[dict[str, Any]] = []
         skipped = {"no_price": 0, "no_result": 0, "below_edge": 0}
         for pred in predictions:
@@ -59,19 +139,29 @@ async def run_backtest(
             if not series:
                 skipped["no_price"] += 1
                 continue
-            result = (
-                (
-                    await session.execute(
-                        select(EventResult)
-                        .where(EventResult.event_external_id == pred.event_external_id)
-                        .order_by(EventResult.settled_at.desc().nulls_last())
-                        .limit(1)  # duplicates must not crash the replay; newest wins
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            if result is None:
+            winner: str | None = None
+            result = result_by_ext.get(pred.event_external_id)
+            if result is not None:  # direct hit: same event id, same book frame
+                winner = result.winning_selection
+            else:  # settle through the shared fixture (result came from another book)
+                fixture = fixture_by_pe.get(
+                    (pred.provider, pred.event_external_id)
+                ) or fixture_by_ext.get(pred.event_external_id)
+                result = result_by_fixture.get(fixture) if fixture is not None else None
+                if result is not None:
+                    if result.winning_selection in _SIDE_WINNERS:
+                        pred_name = await _event_name_for(
+                            session, name_cache, pred.provider, pred.event_external_id
+                        )
+                        result_name = await _event_name_for(
+                            session, name_cache, result.provider, result.event_external_id
+                        )
+                        winner = _translate_side(
+                            result.winning_selection, pred_name, result_name
+                        )
+                    else:  # racing saddle numbers, team names — book-independent
+                        winner = result.winning_selection
+            if winner is None:
                 skipped["no_result"] += 1
                 continue
 
@@ -85,7 +175,7 @@ async def run_backtest(
             if edge_pct < min_edge_pct:
                 skipped["below_edge"] += 1
                 continue
-            won = pred.selection == result.winning_selection
+            won = pred.selection == winner
             pnl = (entry - 1.0) if won else -1.0
             bets.append(
                 {

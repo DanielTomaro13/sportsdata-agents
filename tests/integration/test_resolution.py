@@ -173,3 +173,160 @@ async def test_racing_results_from_placings(db_sessionmaker: async_sessionmaker[
     async with db_sessionmaker() as s:
         row = (await s.execute(select(EventResult))).scalar_one()
         assert row.event_external_id == "110085943" and row.winning_selection == "3"
+
+
+# ── fix pass (B1, B3, B4, B7) ─────────────────────────────────────────────
+
+
+async def test_list_market_names_is_dialect_safe(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """B1: provider aggregation happens in Python — the query must contain no
+    SQLite-only functions (this test runs under Postgres in CI too)."""
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl", event_external_id="1",
+                   event_name="A v B", market="weird exotic", selection="x", odds=2.0),
+        PricePoint(provider="tab", book="TAB", sport="afl", event_external_id="2",
+                   event_name="A v B", market="weird exotic", selection="y", odds=3.0),
+    ], captured_at=T0)
+    tools = {t.name: t for t in dictionary_tools(db_sessionmaker)}
+    out = await tools["list_market_names"].execute({"only_unmapped": True, "min_count": 1})
+    row = next(r for r in out["names"] if r["market"] == "weird exotic")
+    assert row["rows"] == 2
+    assert row["providers"] == "sportsbet,tab"
+    assert row["currently"] == "unmapped"
+
+
+async def test_steward_guard_covers_qualifier_families(
+    db_sessionmaker: async_sessionmaker[AsyncSession], tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B7 (live evidence): 'spread p1 alt' must NOT merge into 'spread alt' — the
+    alias's qualifiers have to appear in the family name, base family or not."""
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES", str(tmp_path / "ov.json"))
+    reload_dictionary()
+    tools = {t.name: t for t in dictionary_tools(db_sessionmaker)}
+    try:
+        with pytest.raises(ValueError, match="qualifier"):
+            await tools["add_market_alias"].execute(
+                {"family": "spread alt", "alias": "spread p1 alt"}
+            )
+        out = await tools["add_market_alias"].execute(
+            {"family": "spread p1 alt", "alias": "spread alt p1"}  # qualifiers agree
+        )
+        assert out["added"] is True
+    finally:
+        monkeypatch.delenv("SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES")
+        reload_dictionary()
+
+
+async def test_resolver_windows_futures_on_advertised_start(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """B3: two books capture the same outright WEEKS apart — the shared advertised
+    start (not the capture day) must join them onto one fixture."""
+    start = {"start_time": "2026-09-26T04:40:00Z"}
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="unibet", book="Unibet", sport="australian_rules",
+                   event_external_id="K1", event_name="AFL 2026 Premiership Winner",
+                   market="premiership winner", selection="adelaide crows", odds=5.0, meta=start),
+    ], captured_at=T0)
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl",
+                   event_external_id="S1", event_name="AFL 2026 Premiership Winner",
+                   market="premiership winner", selection="adelaide crows", odds=5.5, meta=start),
+    ], captured_at=T0 + dt.timedelta(days=30))  # a month later
+    stats = await resolve_events(db_sessionmaker)
+    assert stats["mapped"] == 2 and stats["created"] == 1  # ONE fixture despite 30d gap
+    async with db_sessionmaker() as s:
+        fixture = (await s.execute(select(Fixture))).scalar_one()
+        assert fixture.start_time is not None and fixture.start_time.month == 9
+
+
+async def test_backtest_settles_across_books_through_fixtures(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """B4: a prediction priced at TAB settles from a result recorded under
+    Sportsbet's event id — joined via the shared fixture, side-orientation checked
+    (TAB lists the teams in the OPPOSITE order here, so 'home' must flip)."""
+    from sportsdata_agents.data.models import ModelArtifact, Prediction
+    from sportsdata_agents.data.repository import TenantScope
+    from sportsdata_agents.quant.backtest import run_backtest
+
+    await record_points(db_sessionmaker, [
+        _pt("sportsbet", "Sportsbet", "SB1", "Western Bulldogs v Adelaide Crows", "afl", 1.73),
+        _pt("tab", "TAB", "T1", "Adelaide v Wst Bulldogs", "afl", 2.10),  # swapped listing
+    ], captured_at=T0)
+    assert (await resolve_events(db_sessionmaker))["created"] == 1
+
+    scope = TenantScope("t", "w")
+    async with db_sessionmaker() as s:
+        model = ModelArtifact(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                              name="m", sport="afl", calibration={"brier": 0.2})
+        s.add(model)
+        await s.flush()
+        # TAB frame: 'home' is Adelaide (they list Adelaide first)
+        s.add(Prediction(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                         model_id=model.id, provider="tab", event_external_id="T1",
+                         market="h2h", selection="home", prob=0.60,
+                         predicted_at=T0 + dt.timedelta(minutes=1)))
+        # result recorded under SPORTSBET's id and frame: Bulldogs (their home) won
+        s.add(EventResult(provider="sportsbet", sport="afl", event_external_id="SB1",
+                          winning_selection="home", settled_at=T0 + dt.timedelta(hours=3)))
+        await s.commit()
+
+    report = await run_backtest(db_sessionmaker, scope, min_edge_pct=0.0)
+    assert report["bets"] == 1
+    # Bulldogs won = TAB's AWAY side; the TAB 'home' (Adelaide) prediction LOST.
+    assert report["per_bet"][0]["won"] is False
+    assert report["hit_rate_pct"] == 0.0
+
+
+async def test_find_fixture_and_best_prices_tools(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """B4 tools: agents find the fixture by sloppy name, then get the cross-book
+    board best-first."""
+    from sportsdata_agents.tools.resolution import resolution_tools
+
+    await record_points(db_sessionmaker, [
+        _pt("sportsbet", "Sportsbet", "SB9", "Western Bulldogs v Adelaide Crows", "afl", 1.73),
+        _pt("tab", "TAB", "T9", "Wst Bulldogs v Adelaide", "afl", 1.74),
+    ], captured_at=T0)
+    await resolve_events(db_sessionmaker)
+    tools = {t.name: t for t in resolution_tools(db_sessionmaker)}
+    found = await tools["find_fixture"].execute({"query": "bulldogs adelaide"})
+    assert found["fixtures"] and found["fixtures"][0]["books"] == 2
+    board = await tools["best_prices"].execute({"fixture_id": found["fixtures"][0]["fixture_id"]})
+    homes = board["selections"]["home"]
+    assert homes[0]["book"] == "TAB" and homes[0]["odds"] == 1.74  # best first
+
+
+async def test_one_name_events_gate_on_subset_not_jaccard(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Outright names share generic tokens ('Markets', '2026') — plain Jaccard
+    merged different countries' World Cup markets. The fuzzy-subset gate keeps
+    them apart while still letting 'Queen Anne Stakes' join its longer TAB name."""
+    start = {"start_time": "2026-07-19T10:00:00Z"}
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="unibet", book="Unibet", sport="soccer", event_external_id="U1",
+                   event_name="Argentina Markets 2026", market="winner", selection="x",
+                   odds=2.0, meta=start),
+        PricePoint(provider="unibet", book="Unibet", sport="soccer", event_external_id="U2",
+                   event_name="Brazil Markets 2026", market="winner", selection="x",
+                   odds=2.0, meta=start),
+        PricePoint(provider="tab_racing", book="TAB", sport="horse_racing",
+                   event_external_id="T1", event_name="Racing Futures Queen Anne Stakes (All In)",
+                   market="win", selection="notable speech", odds=2.5,
+                   meta={"post_time": "2026-06-16T13:30:00Z"}),
+        PricePoint(provider="unibet_racing", book="Unibet", sport="horse_racing",
+                   event_external_id="UQ1", event_name="Queen Anne Stakes",
+                   market="win", selection="notable speech", odds=2.6,
+                   meta={"post_time": "2026-06-16T13:30:00Z"}),
+    ], captured_at=T0)
+    stats = await resolve_events(db_sessionmaker)
+    assert stats["mapped"] == 4
+    async with db_sessionmaker() as s:
+        names = [f.name for f in (await s.execute(select(Fixture))).scalars()]
+    assert len(names) == 3  # two country markets apart; the two Queen Annes joined
+    assert sum("Queen Anne" in n for n in names) == 1

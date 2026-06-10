@@ -131,3 +131,93 @@ async def test_run_loop_respects_per_feed_intervals(db_sessionmaker: async_sessi
     # cycle 1: both due at T0 → 2 calls; then fast every 60s, slow not due again
     # until +300s — 4 bounded cycles must call fast more often than slow.
     assert manager.calls.count("nba_odds_today") >= 5
+
+
+async def test_snapshot_start_time_parsed_from_meta(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """B3: the advertised start (ISO or epoch, sports or racing key) lands in the
+    start_time column so the resolver can window futures on their REAL day."""
+    iso = PricePoint(provider="p", book="B", sport="afl", event_external_id="E1",
+                     market="h2h", selection="home", odds=1.9,
+                     meta={"start_time": "2026-09-26T04:40:00Z"})
+    epoch = PricePoint(provider="p", book="B", sport="afl", event_external_id="E2",
+                       market="h2h", selection="home", odds=1.9,
+                       meta={"start_time": 1789983000})
+    racing = PricePoint(provider="p", book="B", sport="horse_racing", event_external_id="E3",
+                        market="win", selection="1", odds=4.5,
+                        meta={"post_time": "2026-06-16T06:00:00.000Z"})
+    unparseable = PricePoint(provider="p", book="B", sport="afl", event_external_id="E4",
+                             market="h2h", selection="home", odds=1.9,
+                             meta={"start_time": "soon-ish"})
+    await record_points(db_sessionmaker, [iso, epoch, racing, unparseable])
+    async with db_sessionmaker() as s:
+        rows = {r.event_external_id: r.start_time
+                for r in (await s.execute(select(OddsSnapshot))).scalars()}
+    assert rows["E1"] is not None and rows["E1"].year == 2026 and rows["E1"].month == 9
+    assert rows["E2"] is not None and rows["E2"].year == 2026
+    assert rows["E3"] is not None and rows["E3"].day == 16
+    assert rows["E4"] is None  # junk degrades to capture-day windowing, never crashes
+
+
+async def test_futures_fetchers_compose_listing_then_prices() -> None:
+    """B10/B11: each futures fetcher walks listing → per-event price route and
+    packages payloads in the shape its (reused) normalizer expects."""
+    from sportsdata_agents.operations.ingestion.fetchers import (
+        fetch_pointsbet_racing_futures,
+        fetch_sportsbet_all,
+        fetch_sportsbet_racing_futures,
+        fetch_tab_racing_futures,
+        fetch_unibet_all,
+    )
+
+    sb = FakeManager({
+        "sportsbet_racing_futures": [
+            {"id": 10383894, "bettingStatus": "PRICED", "name": "Tatts Tiara - Win Or Place",
+             "className": "Horse Racing: Futures - AUS/NZ", "startTime": 1782484200},
+            {"id": 2, "bettingStatus": "SUSPENDED", "name": "skip me"},
+        ],
+        "sportsbet_event_markets": [{"name": "Win or Place", "selections": []}],
+    })
+    out = await fetch_sportsbet_racing_futures(sb)
+    assert out["events"][0]["sport"] == "horse_racing"
+    assert out["events"][0]["event_name"] == "Tatts Tiara - Win Or Place"
+    assert sb.calls.count("sportsbet_event_markets") == 1  # suspended one skipped
+
+    tab = FakeManager({
+        "tab_racing_futures_meetings": {"meetings": [{
+            "meetingName": "Racing Futures", "raceType": "R",
+            "races": [{"raceName": "Queen Anne Stakes (All In)", "meetingDate": "2026-06-16",
+                       "raceStartTime": "2026-06-16T06:00:00.000Z"}],
+        }]},
+        "tab_racing_futures_race": {"raceName": "Queen Anne Stakes (All In)", "runners": []},
+    })
+    out = await fetch_tab_racing_futures(tab)
+    assert out["races"][0]["summary"]["raceName"] == "Queen Anne Stakes (All In)"
+    assert out["races"][0]["summary"]["meeting"]["venueMnemonic"] == "Racing Futures"
+
+    pb = FakeManager({
+        "pointsbet_racing_futures": {"events": [{"key": "2737847"}]},
+        "pointsbet_event": {"key": "2737847", "fixedOddsMarkets": []},
+    })
+    out = await fetch_pointsbet_racing_futures(pb)
+    assert out["events"][0]["key"] == "2737847"
+
+    # B9/B10 discovery routes call BOTH the match and outright listings
+    ub = FakeManager({
+        "unibet_kambi_call": {"group": {"groups": [{"termKey": "australian_rules", "boCount": 3}]},
+                              "events": []},
+    })
+    await fetch_unibet_all(ub)
+    assert ub.calls.count("unibet_kambi_call") == 3  # group + matches + competitions
+
+    nav = {"id": 1, "idType": "class", "name": "AFL",
+           "navItems": [{"id": 6136, "idType": "competition", "name": "AFL Brownlow Medal"}]}
+    sba = FakeManager({
+        "sportsbet_nav_hierarchy": nav,
+        "sportsbet_competition_matches": [],
+        "sportsbet_competition_outrights": [],
+    })
+    await fetch_sportsbet_all(sba)
+    assert sba.calls.count("sportsbet_competition_matches") == 1
+    assert sba.calls.count("sportsbet_competition_outrights") == 1

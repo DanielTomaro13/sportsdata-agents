@@ -490,7 +490,15 @@ def normalize_pinnacle_league(payload: Any, *, sport: str) -> list[PricePoint]:
         participants = matchup.get("participants", []) or []
         names = {str(p.get("alignment", "")): str(p.get("name", "")) for p in participants}
         by_pid = {str(p.get("id", "")): str(p.get("name", "")) for p in participants}
-        event_name = f"{names.get('home', '?')} v {names.get('away', '?')}"
+        if names.get("home") and names.get("away"):
+            event_name = f"{names['home']} v {names['away']}"
+        else:  # outright/special matchups carry no sides — name them honestly
+            special = matchup.get("special") or {}
+            event_name = str(
+                special.get("description")
+                or (matchup.get("league") or {}).get("name")
+                or "outright"
+            )
         matchup_sport = str(matchup.get("_sport") or sport)
         for market in markets_by_id.get(matchup_id, []) or []:
             if market.get("status") not in (None, "open"):
@@ -747,15 +755,22 @@ def normalize_tab_races(payload: Any) -> list[PricePoint]:
         card = entry.get("card") or {}
         meeting = summary.get("meeting") or {}
         venue = str(meeting.get("venueMnemonic") or "?")
+        # futures markets have NO race number (always 0) — the race NAME is the
+        # only distinguisher ("Racing Futures R0" would collide every Cup market)
         race_no = summary.get("raceNumber")
-        event_id = f"{meeting.get('meetingDate')}:{meeting.get('raceType')}:{venue}:R{race_no}"
-        event_name = f"{meeting.get('meetingName') or venue} R{race_no}"
+        label = f"R{race_no}" if race_no else str(
+            summary.get("raceName") or card.get("raceName") or "R?"
+        )
+        event_id = f"{meeting.get('meetingDate')}:{meeting.get('raceType')}:{venue}:{label}"
+        event_name = f"{meeting.get('meetingName') or venue} {label}"
         sport = type_sport.get(str(meeting.get("raceType")), "horse_racing")
         for runner in card.get("runners", []) or []:
             fixed = runner.get("fixedOdds") or {}
             if str(fixed.get("bettingStatus", "")) not in ("Open", "Live", ""):
                 continue
-            number = str(runner.get("runnerNumber") or "?")
+            number = runner.get("runnerNumber")
+            # futures runners carry no saddle number yet — the horse name is the selection
+            selection = str(number) if number else str(runner.get("runnerName", "?")).lower()
             for market_key, field_name in (("win", "returnWin"), ("place", "returnPlace")):
                 odds = _odds_ok(fixed.get(field_name))
                 if odds is None:
@@ -763,7 +778,7 @@ def normalize_tab_races(payload: Any) -> list[PricePoint]:
                 sink.add(PricePoint(
                     provider="tab_racing", book="TAB", sport=sport,
                     event_external_id=event_id, event_name=event_name,
-                    market=market_key, selection=number, odds=odds,
+                    market=market_key, selection=selection, odds=odds,
                     meta={"runner": runner.get("runnerName"),
                           "post_time": summary.get("raceStartTime")},
                 ))
@@ -904,13 +919,16 @@ def normalize_unibet_races(payload: Any) -> list[PricePoint]:
                                             str(price_row.get("betType", "?")).lower())
                 current = next((f for f in price_row.get("flucs", []) or []
                                 if f.get("productType") == "Current"), None)
-                odds = _odds_ok((current or {}).get("price"))
+                # ante-post (futures) cards carry NO flucs — the row's direct
+                # price is the live one there
+                odds = _odds_ok(current["price"] if current else price_row.get("price"))
                 if odds is None:
                     continue
                 sink.add(PricePoint(
                     provider="unibet_racing", book="Unibet", sport=sport,
                     event_external_id=event_key, event_name=event_name,
                     market=market_key, selection=selection, odds=odds,
-                    meta={"runner": competitor.get("name")},
+                    meta={"runner": competitor.get("name"),
+                          "post_time": event.get("eventDateTimeUtc")},
                 ))
     return sink.points

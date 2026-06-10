@@ -12,13 +12,95 @@ import logging
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.data.models import OddsSnapshot, Price
 from sportsdata_agents.operations.ingestion.normalizers import PricePoint
 
 logger = logging.getLogger(__name__)
+
+_DEDUPE_CHUNK = 500  # event ids per latest-price query (well under SQLite's var cap)
+
+
+def _parse_start(value: Any) -> dt.datetime | None:
+    """Provider start stamps → aware UTC datetime: ISO strings (any offset, Z, or
+    naive-as-UTC) and epoch numbers (seconds or milliseconds — Sportsbet sends
+    seconds). None for absent/unparseable: a null start just falls back to
+    capture-day windowing in the resolver."""
+    if value is None:
+        return None
+    if isinstance(value, int | float) or (isinstance(value, str) and value.strip().isdigit()):
+        epoch = float(value)
+        if epoch <= 0:
+            return None
+        if epoch > 1e12:  # milliseconds
+            epoch /= 1000.0
+        try:
+            return dt.datetime.fromtimestamp(epoch, tz=dt.UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(value, str):
+        text = value.strip().replace("Z", "+00:00")
+        try:
+            parsed = dt.datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.UTC)
+    return None
+
+_Key = tuple[str, str, str, str, str]
+
+
+def _price_key(provider: str, book: str, event_id: str, market: str, selection: str) -> _Key:
+    return (provider, book, event_id, market, selection)
+
+
+async def _load_latest_odds(
+    session: AsyncSession, points: list[PricePoint]
+) -> dict[_Key, Decimal]:
+    """The latest recorded odds for every key this batch touches — a handful of
+    grouped queries instead of one SELECT per point (a 66K-snapshot cycle was
+    issuing 66K lookups)."""
+    providers = sorted({p.provider for p in points})
+    event_ids = sorted({p.event_external_id for p in points})
+    latest: dict[_Key, Decimal] = {}
+    for start in range(0, len(event_ids), _DEDUPE_CHUNK):
+        chunk = event_ids[start : start + _DEDUPE_CHUNK]
+        sub = (
+            select(
+                Price.provider,
+                Price.book,
+                Price.event_external_id,
+                Price.market,
+                Price.selection,
+                func.max(Price.changed_at).label("mx"),
+            )
+            .where(Price.provider.in_(providers), Price.event_external_id.in_(chunk))
+            .group_by(
+                Price.provider, Price.book, Price.event_external_id,
+                Price.market, Price.selection,
+            )
+            .subquery()
+        )
+        rows = (
+            await session.execute(
+                select(Price).join(
+                    sub,
+                    and_(
+                        Price.provider == sub.c.provider,
+                        Price.book == sub.c.book,
+                        Price.event_external_id == sub.c.event_external_id,
+                        Price.market == sub.c.market,
+                        Price.selection == sub.c.selection,
+                        Price.changed_at == sub.c.mx,
+                    ),
+                )
+            )
+        ).scalars().all()
+        for r in rows:
+            latest[_price_key(r.provider, r.book, r.event_external_id, r.market, r.selection)] = r.odds
+    return latest
 
 
 async def record_points(
@@ -29,8 +111,11 @@ async def record_points(
 ) -> dict[str, int]:
     """Persist one capture: every point → a snapshot row; moved prices → change-points."""
     captured_at = captured_at or dt.datetime.now(dt.UTC)
+    if not points:
+        return {"snapshots": 0, "price_changes": 0}
     changes = 0
     async with session_factory() as session:
+        latest = await _load_latest_odds(session, points)
         for p in points:
             session.add(
                 OddsSnapshot(
@@ -43,25 +128,14 @@ async def record_points(
                     market=p.market,
                     selection=p.selection,
                     odds=Decimal(str(p.odds)),
+                    start_time=_parse_start(p.meta.get("start_time") or p.meta.get("post_time")),
                     meta=p.meta,
                 )
             )
-            latest = (
-                await session.execute(
-                    select(Price)
-                    .where(
-                        Price.provider == p.provider,
-                        Price.book == p.book,
-                        Price.event_external_id == p.event_external_id,
-                        Price.market == p.market,
-                        Price.selection == p.selection,
-                    )
-                    .order_by(Price.changed_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+            key = _price_key(p.provider, p.book, p.event_external_id, p.market, p.selection)
+            prev = latest.get(key)
             new_odds = Decimal(str(p.odds))
-            if latest is None or latest.odds != new_odds:
+            if prev is None or prev != new_odds:
                 session.add(
                     Price(
                         changed_at=captured_at,
@@ -72,9 +146,10 @@ async def record_points(
                         market=p.market,
                         selection=p.selection,
                         odds=new_odds,
-                        prev_odds=None if latest is None else latest.odds,
+                        prev_odds=prev,
                     )
                 )
+                latest[key] = new_odds  # defensive: keys should be unique per batch
                 changes += 1
         await session.commit()
     return {"snapshots": len(points), "price_changes": changes}
