@@ -8,6 +8,7 @@ deployment doesn't carry), not a silently tool-less agent.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 from sportsdata_agents.agents.harness import ToolDef
@@ -27,7 +28,13 @@ class CapabilityResolutionError(ValueError):
 
 def _executor(manager: MCPManager, tool_name: str) -> Any:
     async def execute(args: dict[str, Any]) -> Any:
-        return await manager.call_tool(tool_name, args)
+        payload = await manager.call_tool(tool_name, args)
+        # Provenance envelope (§13.1): the model can cite tool + fetch time per figure,
+        # and the renderer/verifier can trace every number to its source.
+        return {
+            "_source": {"tool": tool_name, "fetched_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds")},
+            "data": payload,
+        }
 
     return execute
 

@@ -322,7 +322,7 @@ async def test_verifier_failure_feeds_back_then_accepts() -> None:
         make_spec(),
         provider=provider,
         workspace=WS,
-        verifier=lambda text: next(verdicts),
+        verifier=lambda text, evidence: next(verdicts),
     )
     res = await h.run("q")
     assert res.stop_reason == "done"
@@ -334,7 +334,7 @@ async def test_verifier_failure_feeds_back_then_accepts() -> None:
 
 async def test_verifier_exhausts_retries_and_reports_unverified() -> None:
     provider = ScriptedProvider(text_reply("draft"), text_reply("still bad"))
-    h = Harness(make_spec(), provider=provider, workspace=WS, verifier=lambda text: (False, "nope"))
+    h = Harness(make_spec(), provider=provider, workspace=WS, verifier=lambda text, evidence: (False, "nope"))
     res = await h.run("q")
     assert res.stop_reason == "done"
     assert res.verified is False

@@ -18,6 +18,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
+from sportsdata_agents.agents.grounding import grounding_verifier
 from sportsdata_agents.agents.harness import (
     CURRENT_RUN_BUDGET,
     CompletionProvider,
@@ -132,13 +133,17 @@ class AgentRuntime:
                 tools.append(delegate_tool(sub))
 
             skills = load_skillset(list(self.spec.skills), self._skills_root) if self.spec.skills else None
+            # context.verify without an explicit verifier gets the grounding check (§13.1).
+            verifier = self._verifier
+            if verifier is None and self.spec.context.verify:
+                verifier = grounding_verifier
             self.harness = Harness(
                 self.spec,
                 provider=self.provider,
                 workspace=self.workspace,
                 tools=tools,
                 skills=skills,
-                verifier=self._verifier,
+                verifier=verifier,
                 recorder=self._recorder,
                 now=self._now,
             )

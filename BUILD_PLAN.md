@@ -157,11 +157,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] Rendering: typed answer preferred over raw text; sources line; stop/steps/tools/cost/verified footer.
 - [x] **Exit gate (run for real):** `agents run "...Aaron Judge..."` → opened the team, delegated, hit live MLB data, and answered "**New York Yankees**" — and *honestly declined* the manager question (outside its capability scope) instead of hallucinating. Progress lines + footer rendered. *(Token-level streaming awaits gateway `stream=` support; progress streaming shipped.)* Fixed en route: litellm's import-time `load_dotenv` polluting Settings-defaults test; CLI provider detection (the policy's Anthropic default failed with only an OpenRouter key). ruff/mypy clean; offline **179 passed**, live **3 passed** (one transient LLM-nondeterminism flake on the E2E, passed on re-run — noted).
 
-### M0.13 — Accuracy & provenance (`§13.1`/`D26`)
-- [ ] Tool results carry `{provider, endpoint, fetched_at, snapshot_id}`; agents cite source+timestamp per figure.
-- [ ] **Grounding post-check:** validator extracts numeric/factual claims from the draft and checks them against tool outputs (+ sandbox results); ungrounded → flag/regenerate.
-- [ ] Explicit "no data" path; "informational, not advice" disclaimer; **no edge/profit language** (`§14`).
-- [ ] **Exit gate:** test — an answer with a fabricated number is caught by the grounding check; a grounded answer passes.
+### M0.13 — Accuracy & provenance (`§13.1`/`D26`) ✅
+- [x] **Provenance envelope:** every bridged MCP result wrapped as `{_source: {tool, fetched_at}, data}` — citable source + timestamp per figure (`snapshot_id` arrives with the ingestion worker, M2.1).
+- [x] **Grounding post-check** (`agents/grounding.py`, deterministic — no LLM judging an LLM): numeric claims extracted from the draft (commas/decimals/leading-dot normalized, single-digit ints skipped as noise) must appear in the run's **evidence** (user input + tool results); ungrounded → one feedback retry → `verified=False` honestly. **Auto-wired** whenever `context.verify` is true (all bundled specs) — `Verifier` signature now `(answer, evidence)`.
+- [x] **Evidence hygiene** (found by the exit-gate test): harness-injected messages (verifier feedback — which *quotes* the fabricated number and would self-launder it — plus `[format]`/skill bodies/compaction markers) are **excluded** from evidence.
+- [x] "No data" path lives in the specs' prompts (observed live: the team declined the manager question rather than guessing) + the verifier's "say the data is unavailable" feedback; **advisory disclaimer** on every CLI answer footer; no edge/profit language (tested against the §14 banned list).
+- [x] **Exit gate:** fabricated 62-HRs answer caught → feedback → corrected 58 passes `verified=True`; persistent fabrication reported `verified=False`; echoed-user-numbers/no-numbers/no-evidence cases all covered; default wiring on/off tested. Two self-bugs caught by the gate itself: `%g` scientific-notation normalization and the feedback-poisoning loop. ruff/mypy clean; offline **193 passed**, live **3 passed with grounding active**.
 
 ### M0.14 — Tests & CI hardening
 - [ ] Unit coverage for tools/gateway/loader/harness; integration test for the headline flow (local MCP).

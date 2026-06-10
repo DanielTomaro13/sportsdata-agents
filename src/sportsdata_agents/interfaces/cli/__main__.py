@@ -112,9 +112,11 @@ def _render_result(console, result) -> None:
     if sources:
         console.print(f"[dim]sources: {', '.join(sources)}[/dim]")
     verified = "" if result.verified is None else f"  verified={result.verified}"
+    from sportsdata_agents.agents.grounding import ADVISORY_DISCLAIMER
+
     console.print(
         f"[dim]stop={result.stop_reason}  steps={result.steps}  tools={result.tool_call_count}  "
-        f"cost=${result.cost_usd:.4f}{verified}[/dim]"
+        f"cost=${result.cost_usd:.4f}{verified}  ·  {ADVISORY_DISCLAIMER}[/dim]"
     )
 
 

@@ -108,7 +108,9 @@ async def test_bridge_execute_routes_to_manager() -> None:
     mgr = _FakeManager(tools=[_FakeTool("mlb_teams", inputSchema={"type": "object"})])
     defs = await bridge_mcp_tools(mgr, None)  # type: ignore[arg-type]
     out = await defs[0].execute({"sportId": 1})
-    assert out == {"ok": "mlb_teams"}
+    assert out["data"] == {"ok": "mlb_teams"}  # provenance envelope (§13.1)
+    assert out["_source"]["tool"] == "mlb_teams"
+    assert "fetched_at" in out["_source"]
     assert mgr.calls == [("mlb_teams", {"sportId": 1})]
 
 

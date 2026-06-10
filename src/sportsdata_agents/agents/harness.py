@@ -122,8 +122,9 @@ class ToolDef:
 
 # messages-in → messages-out; must preserve the system message.
 Compactor = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
-# answer → (ok, feedback) — the grounding post-check plugs in here (§13.1, M0.13).
-Verifier = Callable[[str], tuple[bool, str]]
+# (answer, evidence) → (ok, feedback) — evidence is the run's user + tool message
+# contents; the grounding post-check (§13.1) validates numeric claims against it.
+Verifier = Callable[[str, list[str]], tuple[bool, str]]
 
 
 @dataclass
@@ -326,7 +327,18 @@ class Harness:
                         )
                         continue
                 if self.spec.context.verify and self.verifier is not None:
-                    ok, feedback = self.verifier(reply.text)
+                    # Evidence = the user's input + tool results. Harness-INJECTED user
+                    # messages are excluded: verifier feedback quotes the fabricated
+                    # number (which would self-launder it next round), and skill bodies
+                    # carry instructional example figures that are not run data.
+                    injected = ("[verifier]", "[format]", "[skill loaded:", "[context compacted")
+                    evidence = [
+                        content
+                        for m in messages
+                        if m.get("role") in ("user", "tool")
+                        and not (content := str(m.get("content") or "")).startswith(injected)
+                    ]
+                    ok, feedback = self.verifier(reply.text, evidence)
                     if not ok and verify_attempts < VERIFY_RETRIES:
                         verify_attempts += 1
                         messages.append(
