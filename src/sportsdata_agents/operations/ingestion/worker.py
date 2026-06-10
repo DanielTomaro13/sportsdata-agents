@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_betr_all,
+    fetch_betr_races,
     fetch_entain_all,
     fetch_fanduel_pages,
     fetch_fanduel_races,
@@ -27,27 +28,36 @@ from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_pinnacle_books,
     fetch_pointsbet_all,
     fetch_pointsbet_books,
+    fetch_pointsbet_races,
     fetch_sportsbet_all,
     fetch_sportsbet_books,
+    fetch_sportsbet_races,
     fetch_tab_all,
     fetch_tab_books,
+    fetch_tab_races,
     fetch_unibet_all,
     fetch_unibet_books,
+    fetch_unibet_races,
 )
 from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
     normalize_betr_all,
+    normalize_betr_races,
     normalize_entain_all,
     normalize_fanduel_pages,
     normalize_fanduel_races,
     normalize_pinnacle_league,
     normalize_pointsbet_events,
+    normalize_pointsbet_races,
     normalize_sportsbet_all,
     normalize_sportsbet_books,
+    normalize_sportsbet_races,
     normalize_tab_all,
     normalize_tab_books,
+    normalize_tab_races,
     normalize_unibet_all,
     normalize_unibet_books,
+    normalize_unibet_races,
 )
 from sportsdata_agents.operations.ingestion.store import record_points
 
@@ -193,8 +203,52 @@ FEEDS: dict[str, Feed] = {
         fetch=fetch_pointsbet_books,
         interval_s=3600,
     ),
+    # ── racing tier: next-to-jump cards across every book that races ───────
+    "tab_racing": Feed(
+        name="tab_racing",
+        tool="tab_racing_race",
+        mcp_groups=("tab.racing",),
+        normalizer=normalize_tab_races,
+        fetch=fetch_tab_races,
+        interval_s=180,
+    ),
+    "sportsbet_racing": Feed(
+        name="sportsbet_racing",
+        tool="sportsbet_multiple_racecards",
+        mcp_groups=("sportsbet.racing",),
+        normalizer=normalize_sportsbet_races,
+        fetch=fetch_sportsbet_races,
+        interval_s=180,
+    ),
+    "betr_racing": Feed(
+        name="betr_racing",
+        tool="betr_race",
+        mcp_groups=("betr.racing",),
+        normalizer=normalize_betr_races,
+        fetch=fetch_betr_races,
+        interval_s=180,
+    ),
+    "pointsbet_racing": Feed(
+        name="pointsbet_racing",
+        tool="pointsbet_racing_race",
+        mcp_groups=("pointsbet.racing",),
+        normalizer=normalize_pointsbet_races,
+        fetch=fetch_pointsbet_races,
+        interval_s=180,
+    ),
+    "unibet_racing": Feed(
+        name="unibet_racing",
+        tool="unibet_racing_call",
+        mcp_groups=("unibet.racing",),
+        normalizer=normalize_unibet_races,
+        fetch=fetch_unibet_races,
+        interval_s=300,
+    ),
     # nba_cdn stays out (aggregator); Betfair stays out (no price sections via the
-    # public readonly key from AU — fetcher+normalizer ready for an authed key, P4).
+    # public readonly key from AU — fetcher+normalizer ready for an authed key, P4);
+    # Entain RACING blocked on upstream persisted-query registration drift
+    # (RacingRaceCardScreenWeb rejected even after refresh-hashes — Entain sports
+    # feeds are unaffected, they're plain REST).
 }
 
 

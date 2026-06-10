@@ -686,3 +686,189 @@ def normalize_tab_all(payload: Any) -> list[PricePoint]:
 def normalize_betr_all(payload: Any) -> list[PricePoint]:
     """Every BetR event type (via fetch_betr_all — prices ride the category call)."""
     return _normalize_grouped(payload, "types", normalize_betr_category)
+
+
+# ─── AU-book racing (shapes captured live 2026-06-11) ─────────────────────
+# Conventions: race = event, runner number = selection, win/place = markets,
+# scratched runners skipped. Sports: horse_racing / greyhound_racing /
+# harness_racing (each book's code mapped in fetchers._race_sport).
+
+
+def normalize_tab_races(payload: Any) -> list[PricePoint]:
+    """TAB racecards: runners[].fixedOdds {returnWin, returnPlace, bettingStatus}."""
+    if not isinstance(payload, dict):
+        return []
+    type_sport = {"R": "horse_racing", "G": "greyhound_racing", "H": "harness_racing"}
+    sink = _Sink()
+    for entry in payload.get("races", []) or []:
+        summary = entry.get("summary") or {}
+        card = entry.get("card") or {}
+        meeting = summary.get("meeting") or {}
+        venue = str(meeting.get("venueMnemonic") or "?")
+        race_no = summary.get("raceNumber")
+        event_id = f"{meeting.get('meetingDate')}:{meeting.get('raceType')}:{venue}:R{race_no}"
+        event_name = f"{meeting.get('meetingName') or venue} R{race_no}"
+        sport = type_sport.get(str(meeting.get("raceType")), "horse_racing")
+        for runner in card.get("runners", []) or []:
+            fixed = runner.get("fixedOdds") or {}
+            if str(fixed.get("bettingStatus", "")) not in ("Open", "Live", ""):
+                continue
+            number = str(runner.get("runnerNumber") or "?")
+            for market_key, field_name in (("win", "returnWin"), ("place", "returnPlace")):
+                odds = _odds_ok(fixed.get(field_name))
+                if odds is None:
+                    continue
+                sink.add(PricePoint(
+                    provider="tab_racing", book="TAB", sport=sport,
+                    event_external_id=event_id, event_name=event_name,
+                    market=market_key, selection=number, odds=odds,
+                    meta={"runner": runner.get("runnerName"),
+                          "post_time": summary.get("raceStartTime")},
+                ))
+    return sink.points
+
+
+def normalize_sportsbet_races(payload: Any) -> list[PricePoint]:
+    """Sportsbet MultipleRacecards: full cards — every market parses through the
+    same selection shape as the sports book (capture-everything applies)."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    sports = payload.get("sports") or {}
+    meetings = payload.get("meetings") or {}
+    for event in payload.get("events", []) or []:
+        event_id = str(event.get("id", ""))
+        if not event_id:
+            continue
+        race_no = event.get("raceNumber")
+        event_name = f"{meetings.get(event_id) or event.get('competitionName') or '?'} R{race_no}"
+        sport = str(sports.get(event_id) or "horse_racing")
+        for market in event.get("markets", []) or []:
+            if not isinstance(market, dict):
+                continue
+            market_key = canonical_market(market.get("name", "?"))
+            if market_key == "win or place":
+                market_key = "win"  # Sportsbet's racing primary: win price with place option
+            for sel in market.get("selections", []) or []:
+                odds = _odds_ok((sel.get("price") or {}).get("winPrice"))
+                if odds is None:
+                    # racecards carry a prices[] array; fixed odds inline a winPrice
+                    # (tote-only entries — MID/MDP — carry none, so off fixed-odds
+                    # hours a card honestly yields nothing)
+                    for row in sel.get("prices", []) or []:
+                        odds = _odds_ok(row.get("winPrice"))
+                        if odds is not None:
+                            break
+                if odds is None:
+                    continue
+                number = sel.get("runnerNumber") or sel.get("number")
+                selection = str(number) if number is not None else str(sel.get("name", "?")).lower()
+                sink.add(PricePoint(
+                    provider="sportsbet_racing", book="Sportsbet", sport=sport,
+                    event_external_id=event_id, event_name=event_name,
+                    market=market_key, selection=selection, odds=odds,
+                    meta={"runner": sel.get("name"), "post_time": event.get("startTime")},
+                ))
+    return sink.points
+
+
+def normalize_betr_races(payload: Any) -> list[PricePoint]:
+    """BetR racecards: Outcomes[].FixedPrices[] rows keyed by MarketTypeCode
+    (WIN/PLC + whatever else the card carries — capture everything)."""
+    if not isinstance(payload, dict):
+        return []
+    code_market = {"WIN": "win", "PLC": "place"}
+    sink = _Sink()
+    for entry in payload.get("races", []) or []:
+        card = entry.get("card") or {}
+        event_id = str(card.get("EventId", ""))
+        if not event_id:
+            continue
+        event_name = str(card.get("EventName") or "")
+        sport = str(entry.get("sport") or "horse_racing")
+        for outcome in card.get("Outcomes", []) or []:
+            number = str(outcome.get("OutcomeId") or "?")
+            for row in outcome.get("FixedPrices", []) or []:
+                odds = _odds_ok(row.get("Price"))
+                if odds is None:
+                    continue
+                code = str(row.get("MarketTypeCode", "?"))
+                market_key = code_market.get(code, code.lower())
+                sink.add(PricePoint(
+                    provider="betr_racing", book="BetR", sport=sport,
+                    event_external_id=event_id, event_name=event_name,
+                    market=market_key, selection=number, odds=odds,
+                    meta={"runner": outcome.get("OutcomeName"),
+                          "post_time": card.get("AdvertisedStartTime")},
+                ))
+    return sink.points
+
+
+def normalize_pointsbet_races(payload: Any) -> list[PricePoint]:
+    """PointsBet racecards: runners[].fluctuations.current is the live fixed win
+    price; scratched runners skipped."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    for card in payload.get("races", []) or []:
+        if not isinstance(card, dict):
+            continue
+        event_id = str(card.get("raceId", ""))
+        if not event_id:
+            continue
+        event_name = f"{card.get('venue') or '?'} R{card.get('number')}"
+        sport = str(card.get("racingType") or "racing").strip().lower()
+        sport = {"thoroughbred": "horse_racing", "greyhound": "greyhound_racing",
+                 "harness": "harness_racing"}.get(sport, f"{sport}_racing" if sport else "racing")
+        for runner in card.get("runners", []) or []:
+            if runner.get("isScratched"):
+                continue
+            odds = _odds_ok((runner.get("fluctuations") or {}).get("current"))
+            if odds is None:
+                continue
+            sink.add(PricePoint(
+                provider="pointsbet_racing", book="PointsBet", sport=sport,
+                event_external_id=event_id, event_name=event_name,
+                market="win", selection=str(runner.get("number") or "?"), odds=odds,
+                meta={"runner": runner.get("runnerName"),
+                      "post_time": card.get("advertisedStartTimeUtc")},
+            ))
+    return sink.points
+
+
+def normalize_unibet_races(payload: Any) -> list[PricePoint]:
+    """Unibet racing (rsa GraphQL): competitors[].prices[] keyed by betType
+    (FixedWin/FixedPlace), each with flucs — productType "Current" is the live one."""
+    if not isinstance(payload, dict):
+        return []
+    bet_market = {"FixedWin": "win", "FixedPlace": "place"}
+    sink = _Sink()
+    for entry in payload.get("races", []) or []:
+        card = entry.get("card") or {}
+        data = card.get("data") or {}
+        event = ((data.get("viewer") or {}).get("event")) or data.get("event") or {}
+        event_key = str(entry.get("eventKey") or event.get("eventKey") or "")
+        if not event_key:
+            continue
+        sport = str(entry.get("sport") or "horse_racing")
+        event_name = str(event.get("name") or event_key)
+        for competitor in event.get("competitors", []) or []:
+            if competitor.get("scratched") or competitor.get("isScratched"):
+                continue
+            number = competitor.get("number") or competitor.get("startNumber")
+            selection = str(number) if number is not None else str(competitor.get("name", "?")).lower()
+            for price_row in competitor.get("prices", []) or []:
+                market_key = bet_market.get(str(price_row.get("betType", "")),
+                                            str(price_row.get("betType", "?")).lower())
+                current = next((f for f in price_row.get("flucs", []) or []
+                                if f.get("productType") == "Current"), None)
+                odds = _odds_ok((current or {}).get("price"))
+                if odds is None:
+                    continue
+                sink.add(PricePoint(
+                    provider="unibet_racing", book="Unibet", sport=sport,
+                    event_external_id=event_key, event_name=event_name,
+                    market=market_key, selection=selection, odds=odds,
+                    meta={"runner": competitor.get("name")},
+                ))
+    return sink.points

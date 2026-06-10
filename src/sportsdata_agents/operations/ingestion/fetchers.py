@@ -552,3 +552,162 @@ async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
         except Exception as e:
             logger.warning("pointsbet book %s failed: %s", event_key, e)
     return {"events": details}
+
+
+# ─── racing fetchers (shapes captured live 2026-06-11) ────────────────────
+# Conventions proven by fanduel_racing_win: race = event, runner number =
+# selection, win/place = markets. Soonest races first — racing prices move
+# hardest near post.
+
+RACES_PER_CYCLE = 15
+_RACE_TYPE_SPORT = {
+    "r": "horse_racing", "t": "horse_racing", "thoroughbred": "horse_racing",
+    "horse": "horse_racing", "horse racing": "horse_racing",
+    "g": "greyhound_racing", "greyhound": "greyhound_racing", "greyhounds": "greyhound_racing",
+    "h": "harness_racing", "harness": "harness_racing", "trots": "harness_racing",
+}
+
+
+def _race_sport(value: Any) -> str:
+    return _RACE_TYPE_SPORT.get(str(value or "").strip().lower(), _slug(str(value or "racing")))
+
+
+async def fetch_tab_races(manager: Any) -> dict[str, Any]:
+    """TAB: next-to-go → full racecards (runners with fixed win+place odds)."""
+    ntg = await manager.call_tool("tab_racing_next_to_go", {})
+    out: list[dict[str, Any]] = []
+    for summary in (ntg.get("races") or [])[:RACES_PER_CYCLE]:
+        meeting = summary.get("meeting") or {}
+        try:
+            card = await manager.call_tool("tab_racing_race", {
+                "date": meeting.get("meetingDate"),
+                "raceType": meeting.get("raceType"),
+                "venueMnemonic": meeting.get("venueMnemonic"),
+                "raceNumber": summary.get("raceNumber"),
+            })
+            out.append({"summary": summary, "card": card})
+        except Exception as e:
+            logger.warning("tab race %s/%s failed: %s", meeting.get("venueMnemonic"),
+                           summary.get("raceNumber"), e)
+    return {"races": out}
+
+
+async def fetch_sportsbet_races(manager: Any) -> dict[str, Any]:
+    """Sportsbet: AllRacing(today) → soonest future races → one BATCHED
+    MultipleRacecards call (full cards incl. markets)."""
+    import datetime as _dt
+
+    allr = await manager.call_tool(
+        "sportsbet_racing_allracing", {"eventDate": _dt.date.today().isoformat()}
+    )
+    now = _dt.datetime.now(_dt.UTC).timestamp()
+    pending: list[tuple[int, float, str, dict[str, Any]]] = []
+    for date_node in allr.get("dates", []) or []:
+        for section in date_node.get("sections", []) or []:
+            sport = _race_sport(section.get("raceType"))
+            for meeting in section.get("meetings", []) or []:
+                intl = 1 if meeting.get("isInternational") else 0
+                for event in meeting.get("events", []) or []:
+                    start = float(event.get("startTime") or 0)
+                    if start > now and event.get("id") is not None:
+                        event["_meeting"] = meeting.get("name")
+                        pending.append((intl, start, sport, event))
+    # domestic meetings first — internationals run SP-only until near post
+    pending.sort(key=lambda p: (p[0], p[1]))
+    chosen = [(start, sport, event) for _intl, start, sport, event in pending[:RACES_PER_CYCLE]]
+    if not chosen:
+        return {"events": [], "sports": {}}
+    cards = await manager.call_tool(
+        "sportsbet_multiple_racecards", {"eventIds": [e["id"] for _s, _sp, e in chosen]}
+    )
+    sports = {str(e["id"]): sport for _s, sport, e in chosen}
+    meetings = {str(e["id"]): str(e.get("_meeting") or "") for _s, _sp, e in chosen}
+    return {"events": cards.get("events") or [], "sports": sports, "meetings": meetings}
+
+
+async def fetch_betr_races(manager: Any) -> dict[str, Any]:
+    """BetR: Next5Races (all codes) → full racecards (Outcomes with WIN+PLC prices)."""
+    n5 = await manager.call_tool("betr_next5_races", {"EventTypeFilter": 7, "CountryFilter": 0})
+    out: list[dict[str, Any]] = []
+    for item in (n5.get("Items") or [])[:RACES_PER_CYCLE]:
+        race = item.get("Race") or {}
+        if race.get("EventId") is None:
+            continue
+        try:
+            card = await manager.call_tool("betr_race", {"eventId": race["EventId"]})
+            out.append({"sport": _race_sport(item.get("EventType")), "card": card})
+        except Exception as e:
+            logger.warning("betr race %s failed: %s", race.get("EventId"), e)
+    return {"races": out}
+
+
+async def fetch_pointsbet_races(manager: Any) -> dict[str, Any]:
+    """PointsBet: meetings window → soonest races → full racecards (runner
+    fluctuations carry the current fixed win price)."""
+    import datetime as _dt
+
+    now = _dt.datetime.now(_dt.UTC)
+    meets = await manager.call_tool("pointsbet_racing_meetings", {
+        "startDate": now.strftime("%Y-%m-%dT00:00:00.000Z"),
+        "endDate": (now + _dt.timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z"),
+    })
+    pending: list[tuple[str, Any]] = []
+    for group in meets if isinstance(meets, list) else []:
+        for meeting in group.get("meetings", []) or []:
+            for race in meeting.get("races", []) or []:
+                start = str(race.get("advertisedStartDateTimeUtc") or "")
+                if (race.get("raceId") is not None and not race.get("placing")
+                        and start >= now.strftime("%Y-%m-%dT%H:%M:%S")):
+                    pending.append((start, race["raceId"]))
+    pending.sort(key=lambda p: p[0])
+    out: list[Any] = []
+    for _start, race_id in pending[:RACES_PER_CYCLE]:
+        try:
+            out.append(await manager.call_tool("pointsbet_racing_race", {"raceId": race_id}))
+        except Exception as e:
+            logger.warning("pointsbet race %s failed: %s", race_id, e)
+    return {"races": out}
+
+
+async def fetch_unibet_races(manager: Any) -> dict[str, Any]:
+    """Unibet: MeetingsByDateRange (T/G/H, AUS) → EventQuery per race (competitor
+    prices: FixedWin/FixedPlace flucs, productType Current)."""
+    import datetime as _dt
+
+    today = _dt.date.today().isoformat()
+    mbd = await manager.call_tool("unibet_racing_call", {
+        "operation": "MeetingsByDateRange",
+        "variables": {"startDateTime": f"{today}T00:00:00Z", "endDateTime": f"{today}T23:59:59Z",
+                      "countryCodes": ["AUS"], "raceTypes": ["T", "G", "H"],
+                      "clientCountryCode": "AU"},
+    })
+    meets = (((mbd.get("data") or {}).get("viewer") or {}).get("meetingsByDateRange")) or []
+    # eventKey stamps are MEETING-day codes (all of a meeting's races share one), so
+    # race times aren't knowable from the listing — fetch candidates (skipping
+    # resulted ones) and keep cards that actually carry fixed prices.
+    keys: list[tuple[str, str]] = []
+    for meeting in meets:
+        race_type = str(meeting.get("raceType") or "")
+        for event in meeting.get("events", []) or []:
+            key = str(event.get("eventKey") or "")
+            name = str(event.get("name") or "")
+            status = str(event.get("resultStatus") or "")
+            if key and not name.endswith("Races Today") and status in ("", "Unknown", "None"):
+                keys.append((race_type, key))
+    out: list[dict[str, Any]] = []
+    for race_type, key in keys[: RACES_PER_CYCLE * 3]:
+        if len(out) >= RACES_PER_CYCLE:
+            break
+        try:
+            card = await manager.call_tool("unibet_racing_call", {
+                "operation": "EventQuery",
+                "variables": {"eventKey": key, "clientCountryCode": "AU"},
+            })
+            data = card.get("data") or {}
+            event = ((data.get("viewer") or {}).get("event")) or data.get("event") or {}
+            if not event.get("hasFixedPrices"):
+                continue  # not priced yet (or already run) — try the next race
+            out.append({"sport": _race_sport(race_type), "eventKey": key, "card": card})
+        except Exception as e:
+            logger.warning("unibet race %s failed: %s", key, e)
+    return {"races": out}

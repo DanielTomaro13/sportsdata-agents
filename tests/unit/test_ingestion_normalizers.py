@@ -212,9 +212,11 @@ def test_feed_registry_is_discovery_driven() -> None:
     hot = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
            "pointsbet_all", "betr_all", "fanduel_us", "fanduel_racing_win"}
     books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books", "pointsbet_books"}
-    assert set(FEEDS) == hot | books  # discovery hot tier + hourly full-book tier
-    assert all(FEEDS[n].fetch is not None for n in hot | books)  # discovery, not fixed ids
+    racing = {"tab_racing", "sportsbet_racing", "betr_racing", "pointsbet_racing", "unibet_racing"}
+    assert set(FEEDS) == hot | books | racing  # hot tier + hourly books + racing tier
+    assert all(FEEDS[n].fetch is not None for n in hot | books | racing)  # discovery, not fixed ids
     assert all(FEEDS[n].interval_s == 3600 for n in books)
+    assert all(FEEDS[n].interval_s <= 300 for n in racing)  # racing moves near post
 
 
 # ── Unibet/Kambi (captured live 2026-06-11) ───────────────────────────────
@@ -622,3 +624,119 @@ def test_grouped_wrappers_label_sports() -> None:
     points = normalize_betr_all(betr_payload)
     assert len(points) == 1 and points[0].sport == "australian_rules"
     assert normalize_unibet_all(None) == [] and normalize_betr_all([]) == []
+
+
+# ── AU-book racing (shapes captured live 2026-06-11) ──────────────────────
+
+
+def test_normalize_tab_races_win_and_place() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_tab_races
+
+    payload = {"races": [{
+        "summary": {"raceNumber": 8, "raceStartTime": "2026-06-10T21:47:00.000Z",
+                    "meeting": {"meetingDate": "2026-06-10", "raceType": "R",
+                                "venueMnemonic": "HSE", "meetingName": "HORSESHOE INDIANAPOLIS"}},
+        "card": {"runners": [
+            {"runnerNumber": 1, "runnerName": "SEEN YOU LATER",
+             "fixedOdds": {"returnWin": 81, "returnPlace": 6, "bettingStatus": "Open"}},
+            {"runnerNumber": 2, "runnerName": "Scratchy",
+             "fixedOdds": {"returnWin": 5, "bettingStatus": "Scratched"}},
+        ]},
+    }]}
+    points = normalize_tab_races(payload)
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    assert by_key == {("win", "1"): 81.0, ("place", "1"): 6.0}  # scratched skipped
+    assert points[0].provider == "tab_racing" and points[0].sport == "horse_racing"
+    assert points[0].event_external_id == "2026-06-10:R:HSE:R8"
+
+
+def test_normalize_betr_races_market_codes() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_betr_races
+
+    payload = {"races": [{"sport": "horse_racing", "card": {
+        "EventId": 88112233, "EventName": "Sale R1", "AdvertisedStartTime": "2026-06-11T02:00:00Z",
+        "Outcomes": [{"OutcomeId": 1, "OutcomeName": "Seen You Later", "FixedPrices": [
+            {"MarketTypeCode": "WIN", "Price": 51.0}, {"MarketTypeCode": "PLC", "Price": 4.6}]}],
+    }}]}
+    points = normalize_betr_races(payload)
+    assert {(p.market, p.selection, p.odds) for p in points} == {("win", "1", 51.0), ("place", "1", 4.6)}
+    assert points[0].provider == "betr_racing"
+
+
+def test_normalize_pointsbet_races_fluctuations() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_pointsbet_races
+
+    payload = {"races": [{
+        "raceId": "110085943", "venue": "Sale", "number": 1, "racingType": "Thoroughbred",
+        "runners": [
+            {"number": 1, "runnerName": "Bank Heist", "isScratched": False,
+             "fluctuations": {"open": 9.5, "current": 8.5}},
+            {"number": 2, "runnerName": "Gone", "isScratched": True,
+             "fluctuations": {"current": 3.0}},
+        ],
+    }]}
+    points = normalize_pointsbet_races(payload)
+    assert [(p.market, p.selection, p.odds) for p in points] == [("win", "1", 8.5)]
+    assert points[0].sport == "horse_racing" and points[0].event_name == "Sale R1"
+
+
+def test_normalize_unibet_races_current_fluc() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_unibet_races
+
+    payload = {"races": [{
+        "sport": "horse_racing", "eventKey": "202606110400.T.AUS.casino.4",
+        "card": {"data": {"viewer": {"event": {
+            "name": "Thomas Noble & Russell (Bm66)",
+            "competitors": [{
+                "name": "Raging Pixie", "number": 7,
+                "prices": [
+                    {"betType": "FixedWin", "flucs": [
+                        {"price": 12, "productType": "Current"}, {"price": 13, "productType": "Max"}]},
+                    {"betType": "FixedPlace", "flucs": [{"price": 3.2, "productType": "Current"}]},
+                ],
+            }],
+        }}}},
+    }]}
+    points = normalize_unibet_races(payload)
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    assert by_key == {("win", "7"): 12.0, ("place", "7"): 3.2}
+    assert points[0].provider == "unibet_racing"
+
+
+def test_normalize_sportsbet_races_uses_market_parser() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_sportsbet_races
+
+    payload = {
+        "sports": {"10575804": "horse_racing"},
+        "meetings": {"10575804": "Seymour"},
+        "events": [{
+            "id": 10575804, "raceNumber": 1, "startTime": 1781146800,
+            "markets": [{"name": "Win or Place", "selections": [
+                {"name": "Fast Horse", "runnerNumber": 3, "price": {"winPrice": 4.2}},
+                {"name": "No Price", "runnerNumber": 4, "price": {}},
+            ]}],
+        }],
+    }
+    points = normalize_sportsbet_races(payload)
+    assert [(p.market, p.selection, p.odds) for p in points] == [("win", "3", 4.2)]
+    assert points[0].event_name == "Seymour R1" and points[0].provider == "sportsbet_racing"
+
+
+def test_sportsbet_races_reads_prices_array_fixed_odds() -> None:
+    """Racecard selections price via a prices[] array; fixed entries carry winPrice,
+    tote-only entries (MID/MDP) don't — those races yield nothing until fixed opens."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_sportsbet_races
+
+    payload = {
+        "sports": {"7": "horse_racing"}, "meetings": {"7": "Seymour"},
+        "events": [{
+            "id": 7, "raceNumber": 2,
+            "markets": [{"name": "Win or Place", "selections": [
+                {"name": "Fixed Runner", "runnerNumber": 5,
+                 "prices": [{"priceCode": "L", "winPrice": 6.5}, {"priceCode": "MID"}]},
+                {"name": "Tote Only", "runnerNumber": 6, "prices": [{"priceCode": "MID"}]},
+            ]}],
+        }],
+    }
+    points = normalize_sportsbet_races(payload)
+    assert [(p.market, p.selection, p.odds) for p in points] == [("win", "5", 6.5)]
