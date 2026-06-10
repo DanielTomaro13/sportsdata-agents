@@ -37,6 +37,10 @@ class PricePoint:
 def normalize_nba_odds(payload: Any) -> list[PricePoint]:
     """The NBA CDN odds feed: {games:[{gameId, markets:[{name, books:[{name, outcomes}]}]}]}.
 
+    NOT REGISTERED since 2026-06-11: this is an AGGREGATOR'S affiliate view of book
+    prices (second-hand, cadence unknown) — the warehouse captures books directly.
+    Kept for fixture parity and any historical nba_cdn series already stored.
+
     - odds arrive as strings → float; unparseable outcomes are skipped, not fatal;
     - the same book repeats per country (identical prices) → first sighting wins;
     - spread/total lines are part of the selection identity ("home -1.5"), because a
@@ -208,7 +212,7 @@ def american_to_decimal(price: float) -> float:
     raise ValueError(f"not an American price: {price}")
 
 
-def normalize_unibet_matches(payload: Any, *, sport: str) -> list[PricePoint]:
+def normalize_unibet_matches(payload: Any, *, sport: str, only_group: str | None = None) -> list[PricePoint]:
     """Unibet/Kambi listView matches: {events:[{event:{id, homeName, awayName, start},
     betOffers:[{betOfferType:{name}, criterion:{lifetime}, outcomes:[{type OT_ONE|OT_TWO|
     OT_CROSS, odds <milli>, participant}]}]}]} (captured live 2026-06-11).
@@ -226,6 +230,8 @@ def normalize_unibet_matches(payload: Any, *, sport: str) -> list[PricePoint]:
         event_id = str(event.get("id", ""))
         if not event_id:
             continue
+        if only_group and str(event.get("group", "")) != only_group:
+            continue  # a Kambi sport listing spans every league it carries
         for offer in item.get("betOffers", []) or []:
             if (offer.get("betOfferType") or {}).get("name") != "Head to Head":
                 continue
@@ -307,7 +313,7 @@ def normalize_betr_category(payload: Any, *, sport: str) -> list[PricePoint]:
     return points
 
 
-def normalize_entain_events(payload: Any, *, sport: str) -> list[PricePoint]:
+def normalize_entain_events(payload: Any, *, sport: str, only_competition: str | None = None) -> list[PricePoint]:
     """Entain (Ladbrokes/Neds) event-request: parallel maps {events{}, markets{},
     entrants{}, prices{}} joined by UUIDs; prices keyed "<entrant_id>:<product>:"
     with fractional odds {numerator, denominator} (captured live 2026-06-11).
@@ -342,6 +348,8 @@ def normalize_entain_events(payload: Any, *, sport: str) -> list[PricePoint]:
         if (" v " not in event_name and " vs " not in event_name) or event.get("match_status") not in (
             None, "BettingOpen", "Open"
         ):
+            continue
+        if only_competition and str((event.get("competition") or {}).get("name", "")) != only_competition:
             continue
         for entrant_id, entrant in entrants.items():
             if str(entrant.get("market_id")) != str(market_id):
@@ -391,26 +399,32 @@ def normalize_pinnacle_league(payload: Any, *, sport: str) -> list[PricePoint]:
         }
         event_name = f"{names.get('home', '?')} v {names.get('away', '?')}"
         for market in markets_by_id.get(matchup_id, []) or []:
-            if market.get("type") != "moneyline" or market.get("period") != 0 or market.get("isAlternate"):
+            market_type = market.get("type")
+            if market_type not in ("moneyline", "spread", "total") or market.get("period") != 0:
                 continue
-            if market.get("status") not in (None, "open"):
+            if market.get("isAlternate") or market.get("status") not in (None, "open"):
                 continue
+            market_key = {"moneyline": "h2h", "spread": "spread", "total": "total"}[market_type]
             for price in market.get("prices", []) or []:
                 designation = str(price.get("designation", ""))
-                if designation not in ("home", "away", "draw"):
+                if designation not in ("home", "away", "draw", "over", "under"):
                     continue
                 try:
                     odds = american_to_decimal(float(price.get("price")))
                 except (TypeError, ValueError):
                     continue
+                line = price.get("points")
+                if market_key != "h2h" and line is None:
+                    continue  # a line market without its line is meaningless
+                selection = designation if market_key == "h2h" else f"{designation} {line}"
                 point = PricePoint(
                     provider="pinnacle",
                     book="Pinnacle",
                     sport=sport,
                     event_external_id=matchup_id,
                     event_name=event_name,
-                    market="h2h",
-                    selection=designation,
+                    market=market_key,
+                    selection=selection,
                     odds=round(odds, 3),
                     meta={"start_time": matchup.get("startTime"), "team": names.get(designation)},
                 )
@@ -521,4 +535,99 @@ def normalize_betfair_by_event(payload: Any, *, sport: str) -> list[PricePoint]:
                         continue
                     seen.add(point.key)
                     points.append(point)
+    return points
+
+
+def normalize_fanduel_pages(payload: Any, *, sport: str) -> list[PricePoint]:
+    """FanDuel US sportsbook (via fetch_fanduel_event_pages): a list of event-page
+    attachments {events:{}, markets:{}}; MONEY_LINE runners carry decimal odds
+    directly (trueOdds.decimalOdds.decimalOdds) and result.type HOME|AWAY
+    (captured live 2026-06-11)."""
+    if not isinstance(payload, dict):
+        return []
+    points: list[PricePoint] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for page in payload.get("pages", []) or []:
+        events = page.get("events") or {}
+        for market in (page.get("markets") or {}).values():
+            if market.get("marketType") != "MONEY_LINE" or market.get("marketStatus") not in (None, "OPEN"):
+                continue
+            event_id = str(market.get("eventId", ""))
+            event = events.get(event_id) or events.get(f"EVENT:{event_id}") or {}
+            for runner in market.get("runners", []) or []:
+                if runner.get("runnerStatus") not in (None, "ACTIVE"):
+                    continue
+                side = str((runner.get("result") or {}).get("type") or "").lower()
+                if side not in ("home", "away", "draw"):
+                    continue
+                odds = (
+                    ((runner.get("winRunnerOdds") or {}).get("trueOdds") or {}).get("decimalOdds") or {}
+                ).get("decimalOdds")
+                try:
+                    odds_f = float(odds or 0)
+                except (TypeError, ValueError):
+                    continue
+                if odds_f < 1.01:
+                    continue
+                point = PricePoint(
+                    provider="fanduel",
+                    book="FanDuel",
+                    sport=sport,
+                    event_external_id=event_id,
+                    event_name=str(event.get("name") or ""),
+                    market="h2h",
+                    selection=side,
+                    odds=round(odds_f, 3),
+                    meta={"start_time": market.get("marketTime"), "team": runner.get("runnerName")},
+                )
+                if point.key in seen:
+                    continue
+                seen.add(point.key)
+                points.append(point)
+    return points
+
+
+def normalize_fanduel_races(payload: Any) -> list[PricePoint]:
+    """FanDuel Racing/TVG (via fetch_fanduel_races): race cards with bettingInterests
+    {biNumber, currentOdds:{numerator, denominator|null}, runners:[{horseName,
+    scratched}]} (captured live 2026-06-11). Odds are fractional with null
+    denominator meaning /1; tvgRaceId is the globally unique race id; the win pool
+    is the market; selections are saddle numbers (stable across odds changes)."""
+    if not isinstance(payload, dict):
+        return []
+    points: list[PricePoint] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for race in payload.get("races", []) or []:
+        race_id = str(race.get("tvgRaceId", ""))
+        if not race_id:
+            continue
+        track = (race.get("track") or {}).get("name") or race.get("trackName") or "?"
+        sport = "greyhound_racing" if race.get("isGreyhound") else "horse_racing"
+        for bi in race.get("bettingInterests", []) or []:
+            runners = bi.get("runners") or []
+            if runners and all(r.get("scratched") for r in runners):
+                continue
+            odds_obj = bi.get("currentOdds") or {}
+            num, den = odds_obj.get("numerator"), odds_obj.get("denominator")
+            if not isinstance(num, int | float):
+                continue
+            odds = 1.0 + float(num) / float(den if den else 1)
+            if odds < 1.01:
+                continue
+            point = PricePoint(
+                provider="fanduel_racing",
+                book="FanDuel",
+                sport=sport,
+                event_external_id=race_id,
+                event_name=f"{track} R{race.get('raceNumber')}",
+                market="win",
+                selection=str(bi.get("biNumber")),
+                odds=round(odds, 3),
+                meta={"post_time": race.get("postTime"),
+                      "runner": (runners[0].get("horseName") if runners else None)},
+            )
+            if point.key in seen:
+                continue
+            seen.add(point.key)
+            points.append(point)
     return points

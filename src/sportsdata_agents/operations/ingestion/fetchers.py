@@ -85,3 +85,50 @@ async def fetch_betfair_event_type(manager: Any, *, event_type_id: int) -> dict[
         except Exception as e:  # one chunk failing must not sink the cycle
             logger.warning("betfair chunk %s failed: %s", chunk, e)
     return merged
+
+
+async def fetch_fanduel_event_pages(manager: Any, *, page_id: str) -> dict[str, Any]:
+    """FanDuel US sportsbook: a content page's markets reference event ids, but
+    MONEY_LINE lives on the per-event page — fetch those."""
+    page = await manager.call_tool(
+        "fanduel_sb_call", {"operation": "content_page", "query_params": {"customPageId": page_id}}
+    )
+    event_ids: list[str] = []
+    for market in ((page.get("attachments") or {}).get("markets") or {}).values():
+        event_id = str(market.get("eventId", ""))
+        if event_id and event_id not in event_ids:
+            event_ids.append(event_id)
+    pages: list[Any] = []
+    for event_id in event_ids[:MAX_EVENTS_PER_CYCLE]:
+        try:
+            detail = await manager.call_tool(
+                "fanduel_sb_call", {"operation": "event_page", "query_params": {"eventId": int(event_id)}}
+            )
+            pages.append(detail.get("attachments") or {})
+        except Exception as e:
+            logger.warning("fanduel event %s page failed: %s", event_id, e)
+    return {"pages": pages}
+
+
+async def fetch_fanduel_races(manager: Any, *, max_races: int = 10) -> dict[str, Any]:
+    """FanDuel Racing/TVG: featured races (curated, near post) → full race cards
+    with current odds."""
+    featured = await manager.call_tool("fanduel_racing_call", {"operation": "getFeaturedRaces"})
+    races_meta = ((featured.get("data") or {}).get("races")) or []
+    races: list[Any] = []
+    for meta in races_meta[:max_races]:
+        track, number = meta.get("trackCode"), meta.get("raceNumber")
+        if not track or number is None:
+            continue
+        try:
+            card = await manager.call_tool(
+                "fanduel_racing_call",
+                {"operation": "getRace", "variables": {"trackCode": str(track), "raceNumber": str(number)}},
+            )
+            race = (card.get("data") or {}).get("race")
+            if race:
+                race.setdefault("trackName", meta.get("trackName"))
+                races.append(race)
+        except Exception as e:
+            logger.warning("fanduel race %s-%s failed: %s", track, number, e)
+    return {"races": races}

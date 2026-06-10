@@ -206,7 +206,18 @@ def test_normalize_tab_h2h() -> None:
 def test_feed_registry_covers_all_providers() -> None:
     from sportsdata_agents.operations.ingestion import FEEDS
 
-    assert {"nba_odds", "sportsbet_afl_h2h", "tab_afl_h2h"} <= set(FEEDS)
+    assert "nba_odds" not in FEEDS  # the CDN aggregator is out: books of record only
+    expected = {
+        "sportsbet_afl_h2h", "sportsbet_nrl_h2h", "sportsbet_nba_h2h",
+        "tab_afl_h2h", "tab_nrl_h2h", "tab_nba_h2h",
+        "unibet_afl_h2h", "unibet_nrl_h2h", "unibet_nba_h2h",
+        "betr_afl_h2h", "betr_nba_h2h",
+        "entain_afl_h2h", "entain_nrl_h2h", "entain_nba_h2h",
+        "pinnacle_afl_h2h", "pinnacle_nrl_h2h", "pinnacle_nba_h2h",
+        "pointsbet_afl_h2h", "pointsbet_nrl_h2h", "pointsbet_nba_h2h",
+        "fanduel_nba_h2h", "fanduel_racing_win",
+    }
+    assert expected <= set(FEEDS)
     assert FEEDS["sportsbet_afl_h2h"].mcp_groups == ("sportsbet.sports",)
     assert FEEDS["tab_afl_h2h"].mcp_groups == ("tab.sports",)
     assert FEEDS["tab_afl_h2h"].arguments == {"sport": "AFL Football", "competition": "AFL",
@@ -426,3 +437,120 @@ def test_unibet_nrl_overtime_lifetime_and_entain_vs_separator() -> None:
 
     assert _side_from_event_name("Gold Coast Suns", "Gold Coast Suns vs Hawthorn") == "home"
     assert _side_from_event_name("Hawthorn", "Gold Coast Suns vs Hawthorn") == "away"
+
+
+# ── FanDuel sportsbook + racing, filters, Pinnacle lines (live 2026-06-11) ──
+
+
+def test_normalize_fanduel_moneyline() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_fanduel_pages
+
+    payload = {
+        "pages": [{
+            "events": {"35676888": {"eventId": 35676888, "name": "San Antonio Spurs @ New York Knicks"}},
+            "markets": {
+                "734.171306686": {
+                    "marketType": "MONEY_LINE", "marketStatus": "OPEN", "eventId": 35676888,
+                    "marketTime": "2026-06-11T00:40:00.000Z",
+                    "runners": [
+                        {"runnerName": "San Antonio Spurs", "runnerStatus": "ACTIVE",
+                         "result": {"type": "AWAY"},
+                         "winRunnerOdds": {"trueOdds": {"decimalOdds": {"decimalOdds": 2.08}}}},
+                        {"runnerName": "New York Knicks", "runnerStatus": "ACTIVE",
+                         "result": {"type": "HOME"},
+                         "winRunnerOdds": {"trueOdds": {"decimalOdds": {"decimalOdds": 1.8}}}},
+                    ],
+                },
+                "x": {"marketType": "TOTAL_POINTS_(OVER/UNDER)", "eventId": 35676888, "runners": []},
+            },
+        }]
+    }
+    points = normalize_fanduel_pages(payload, sport="nba")
+    by_sel = {p.selection: p.odds for p in points}
+    assert by_sel == {"away": 2.08, "home": 1.8}
+    assert points[0].book == "FanDuel" and points[0].event_external_id == "35676888"
+
+
+def test_normalize_fanduel_races() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_fanduel_races
+
+    payload = {
+        "races": [{
+            "tvgRaceId": 3989534, "raceNumber": "8", "isGreyhound": False,
+            "postTime": "2026-06-10T20:33:00Z", "track": {"name": "Finger Lakes"},
+            "bettingInterests": [
+                {"biNumber": 3, "currentOdds": {"numerator": 1, "denominator": None},
+                 "runners": [{"horseName": "Observer", "scratched": False}]},
+                {"biNumber": 7, "currentOdds": {"numerator": 5, "denominator": 2},
+                 "runners": [{"horseName": "Runner B", "scratched": False}]},
+                {"biNumber": 9, "currentOdds": {"numerator": 4, "denominator": None},
+                 "runners": [{"horseName": "Scratchy", "scratched": True}]},  # scratched → skip
+            ],
+        }]
+    }
+    points = normalize_fanduel_races(payload)
+    assert [(p.selection, p.odds) for p in points] == [("3", 2.0), ("7", 3.5)]
+    assert points[0].sport == "horse_racing" and points[0].market == "win"
+    assert points[0].event_external_id == "3989534"
+    assert points[0].event_name == "Finger Lakes R8"
+    assert points[0].meta["runner"] == "Observer"
+
+
+def test_unibet_group_and_entain_competition_filters() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import (
+        normalize_entain_events,
+        normalize_unibet_matches,
+    )
+
+    kambi = {
+        "events": [
+            {"event": {"id": 1, "name": "A - B", "group": "NBA"},
+             "betOffers": [{"betOfferType": {"name": "Head to Head"}, "criterion": {},
+                            "outcomes": [{"type": "OT_ONE", "odds": 1500}]}]},
+            {"event": {"id": 2, "name": "C - D", "group": "WNBA"},
+             "betOffers": [{"betOfferType": {"name": "Head to Head"}, "criterion": {},
+                            "outcomes": [{"type": "OT_ONE", "odds": 1500}]}]},
+        ]
+    }
+    points = normalize_unibet_matches(kambi, sport="nba", only_group="NBA")
+    assert [p.event_external_id for p in points] == ["1"]
+
+    entain = {
+        "events": {
+            "E1": {"name": "Spurs vs Knicks", "match_status": "BettingOpen", "competition": {"name": "NBA"}},
+            "E2": {"name": "Lynx vs Sky", "match_status": "BettingOpen", "competition": {"name": "WNBA"}},
+        },
+        "markets": {"M1": {"event_id": "E1", "name": "Match Betting"},
+                    "M2": {"event_id": "E2", "name": "Match Betting"}},
+        "entrants": {"N1": {"name": "Spurs", "market_id": "M1"},
+                     "N2": {"name": "Lynx", "market_id": "M2"}},
+        "prices": {"N1:p:": {"odds": {"numerator": 1, "denominator": 1}},
+                   "N2:p:": {"odds": {"numerator": 1, "denominator": 1}}},
+    }
+    points = normalize_entain_events(entain, sport="nba", only_competition="NBA")
+    assert [p.event_external_id for p in points] == ["E1"]
+
+
+def test_pinnacle_captures_spread_and_total_lines() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_pinnacle_league
+
+    payload = {
+        "matchups": [{"id": 1, "participants": [{"name": "X", "alignment": "home"},
+                                                {"name": "Y", "alignment": "away"}]}],
+        "markets": {"1": [
+            {"type": "spread", "period": 0, "status": "open",
+             "prices": [{"designation": "home", "price": -110, "points": -1.5},
+                        {"designation": "away", "price": -110, "points": 1.5}]},
+            {"type": "total", "period": 0, "status": "open",
+             "prices": [{"designation": "over", "price": -105, "points": 220.5},
+                        {"designation": "under", "price": -115, "points": 220.5}]},
+            {"type": "total", "period": 0, "status": "open",
+             "prices": [{"designation": "over", "price": -105}]},  # no line → skipped
+        ]},
+    }
+    points = normalize_pinnacle_league(payload, sport="nba")
+    sels = {(p.market, p.selection) for p in points}
+    assert sels == {("spread", "home -1.5"), ("spread", "away 1.5"),
+                    ("total", "over 220.5"), ("total", "under 220.5")}
+    over = next(p for p in points if p.selection == "over 220.5")
+    assert over.odds == pytest.approx(1.952, abs=1e-3)  # -105 American

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.data.repository import TenantScope
 from sportsdata_agents.evals import gate_against_baseline, load_baseline, run_offline_evals
-from sportsdata_agents.operations.ingestion import FEEDS, ingest_once
+from sportsdata_agents.operations.ingestion import ingest_once
 from sportsdata_agents.quant.metrics import calibration_report
 from sportsdata_agents.quant.value import find_value
 from sportsdata_agents.tools.quant import quant_tools
@@ -60,8 +60,13 @@ class TwoCaptureManager:
 
 async def test_p2_quant_loop_end_to_end(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     # ── 1. INGEST the opening market ────────────────────────────────────────
+    # (an inline feed: the registry no longer carries the CDN aggregator, but its
+    # normalizer remains the simplest fixture-friendly shape for the loop test)
+    from sportsdata_agents.operations.ingestion import Feed, normalize_nba_odds
+
     manager = TwoCaptureManager()
-    feed = FEEDS["nba_odds"]
+    feed = Feed(name="nba_odds", tool="nba_odds_today", mcp_groups=("nba.public.cdn",),
+                normalizer=normalize_nba_odds)
     r1 = await ingest_once(manager, db_sessionmaker, [feed])
     assert r1["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2}  # first sightings
 

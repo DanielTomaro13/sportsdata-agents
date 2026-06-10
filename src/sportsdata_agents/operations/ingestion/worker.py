@@ -19,6 +19,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.operations.ingestion.fetchers import (
+    fetch_fanduel_event_pages,
+    fetch_fanduel_races,
     fetch_pinnacle_league,
     fetch_pointsbet_competition,
 )
@@ -26,7 +28,8 @@ from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
     normalize_betr_category,
     normalize_entain_events,
-    normalize_nba_odds,
+    normalize_fanduel_pages,
+    normalize_fanduel_races,
     normalize_pinnacle_league,
     normalize_pointsbet_events,
     normalize_sportsbet_matches,
@@ -58,13 +61,8 @@ class Feed:
 
 # The shipped feeds. Adding a provider = one normalizer + one row here.
 FEEDS: dict[str, Feed] = {
-    "nba_odds": Feed(
-        name="nba_odds",
-        tool="nba_odds_today",
-        mcp_groups=("nba.public.cdn",),  # the data plane's group names are dotted
-        normalizer=normalize_nba_odds,
-        interval_s=300,
-    ),
+    # nba_cdn is deliberately ABSENT: it aggregates affiliate prices second-hand —
+    # the warehouse records books directly (their NBA feeds are below).
     "sportsbet_afl_h2h": Feed(
         name="sportsbet_afl_h2h",
         tool="sportsbet_competition_matches",
@@ -168,6 +166,78 @@ FEEDS: dict[str, Feed] = {
         normalizer=partial(normalize_pointsbet_events, sport="nrl"),
         fetch=partial(fetch_pointsbet_competition, competition_key=7593),
         interval_s=900,
+    ),
+    "sportsbet_nba_h2h": Feed(
+        name="sportsbet_nba_h2h",
+        tool="sportsbet_competition_matches",
+        mcp_groups=("sportsbet.sports",),
+        normalizer=partial(normalize_sportsbet_matches, sport="nba"),
+        arguments={"competitionId": 6927},
+        interval_s=300,
+    ),
+    "tab_nba_h2h": Feed(
+        name="tab_nba_h2h",
+        tool="tab_competition",
+        mcp_groups=("tab.sports",),
+        normalizer=partial(normalize_tab_competition, sport="nba"),
+        arguments={"sport": "Basketball", "competition": "NBA", "numTopMarkets": 1},
+        interval_s=300,
+    ),
+    "pointsbet_nba_h2h": Feed(
+        name="pointsbet_nba_h2h",
+        tool="pointsbet_competition_events",
+        mcp_groups=("pointsbet.sports",),
+        normalizer=partial(normalize_pointsbet_events, sport="nba"),
+        fetch=partial(fetch_pointsbet_competition, competition_key=7176),
+        interval_s=900,
+    ),
+    "pinnacle_nba_h2h": Feed(
+        name="pinnacle_nba_h2h",
+        tool="pinnacle_league_matchups",
+        mcp_groups=("pinnacle.sports",),
+        normalizer=partial(normalize_pinnacle_league, sport="nba"),
+        fetch=partial(fetch_pinnacle_league, league_id=487),
+        interval_s=300,
+    ),
+    "unibet_nba_h2h": Feed(
+        name="unibet_nba_h2h",
+        tool="unibet_kambi_call",
+        mcp_groups=("unibet.sport",),
+        normalizer=partial(normalize_unibet_matches, sport="nba", only_group="NBA"),
+        arguments={"operation": "sport_matches", "path_params": {"sport": "basketball"}},
+        interval_s=300,
+    ),
+    "entain_nba_h2h": Feed(
+        name="entain_nba_h2h",
+        tool="entain_sport_event_request",
+        mcp_groups=("entain.rest",),
+        normalizer=partial(normalize_entain_events, sport="nba", only_competition="NBA"),
+        arguments={"category_ids": ["3c34d075-dc14-436d-bfc4-9272a49c2b39"]},  # Basketball
+        interval_s=300,
+    ),
+    "betr_nba_h2h": Feed(
+        name="betr_nba_h2h",
+        tool="betr_sports_category",
+        mcp_groups=("betr.sport",),
+        normalizer=partial(normalize_betr_category, sport="nba"),
+        arguments={"CategoryId": 39251},
+        interval_s=300,
+    ),
+    "fanduel_nba_h2h": Feed(
+        name="fanduel_nba_h2h",
+        tool="fanduel_sb_call",  # label; the fetcher walks content page -> event pages
+        mcp_groups=("fanduel.sportsbook",),
+        normalizer=partial(normalize_fanduel_pages, sport="nba"),
+        fetch=partial(fetch_fanduel_event_pages, page_id="nba"),
+        interval_s=600,
+    ),
+    "fanduel_racing_win": Feed(
+        name="fanduel_racing_win",
+        tool="fanduel_racing_call",  # label; featured races -> race cards
+        mcp_groups=("fanduel.racing",),
+        normalizer=normalize_fanduel_races,
+        fetch=fetch_fanduel_races,
+        interval_s=120,  # racing prices move fast near post
     ),
     # Betfair is NOT registered: the public readonly key serves market/runner data
     # but returns no RUNNER_EXCHANGE_PRICES_BEST sections from AU (delayed-data key;
