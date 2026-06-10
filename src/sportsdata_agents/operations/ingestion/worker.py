@@ -19,22 +19,27 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.operations.ingestion.fetchers import (
-    fetch_fanduel_event_pages,
+    fetch_betr_all,
+    fetch_entain_all,
+    fetch_fanduel_pages,
     fetch_fanduel_races,
-    fetch_pinnacle_league,
-    fetch_pointsbet_competition,
+    fetch_pinnacle_all,
+    fetch_pointsbet_all,
+    fetch_sportsbet_all,
+    fetch_tab_all,
+    fetch_unibet_all,
 )
 from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
-    normalize_betr_category,
-    normalize_entain_events,
+    normalize_betr_all,
+    normalize_entain_all,
     normalize_fanduel_pages,
     normalize_fanduel_races,
     normalize_pinnacle_league,
     normalize_pointsbet_events,
-    normalize_sportsbet_matches,
-    normalize_tab_competition,
-    normalize_unibet_matches,
+    normalize_sportsbet_all,
+    normalize_tab_all,
+    normalize_unibet_all,
 )
 from sportsdata_agents.operations.ingestion.store import record_points
 
@@ -59,177 +64,74 @@ class Feed:
     fetch: Callable[[Any], Awaitable[Any]] | None = None
 
 
-# The shipped feeds. Adding a provider = one normalizer + one row here.
+# The shipped feeds: ONE discovery-driven feed per provider — each walks the
+# book's own discovery route every cycle, so coverage tracks whatever the book
+# currently prices (all sports), not a hand-curated id list. Cadence and rotation
+# caps reflect each book's payload economics (see fetchers.py).
 FEEDS: dict[str, Feed] = {
-    # nba_cdn is deliberately ABSENT: it aggregates affiliate prices second-hand —
-    # the warehouse records books directly (their NBA feeds are below).
-    "sportsbet_afl_h2h": Feed(
-        name="sportsbet_afl_h2h",
-        tool="sportsbet_competition_matches",
+    "sportsbet_all": Feed(
+        name="sportsbet_all",
+        tool="sportsbet_nav_hierarchy",  # label; discovery walks nav -> competitions
         mcp_groups=("sportsbet.sports",),
-        normalizer=partial(normalize_sportsbet_matches, sport="afl"),
-        arguments={"competitionId": 4165},  # verified id from the book catalogue
-        interval_s=300,
-    ),
-    "tab_afl_h2h": Feed(
-        name="tab_afl_h2h",
-        tool="tab_competition",
-        mcp_groups=("tab.sports",),
-        normalizer=partial(normalize_tab_competition, sport="afl"),
-        arguments={"sport": "AFL Football", "competition": "AFL", "numTopMarkets": 1},
-        interval_s=300,
-    ),
-    "sportsbet_nrl_h2h": Feed(
-        name="sportsbet_nrl_h2h",
-        tool="sportsbet_competition_matches",
-        mcp_groups=("sportsbet.sports",),
-        normalizer=partial(normalize_sportsbet_matches, sport="nrl"),
-        arguments={"competitionId": 3436},
-        interval_s=300,
-    ),
-    "tab_nrl_h2h": Feed(
-        name="tab_nrl_h2h",
-        tool="tab_competition",
-        mcp_groups=("tab.sports",),
-        normalizer=partial(normalize_tab_competition, sport="nrl"),
-        arguments={"sport": "Rugby League", "competition": "NRL", "numTopMarkets": 1},
-        interval_s=300,
-    ),
-    "unibet_afl_h2h": Feed(
-        name="unibet_afl_h2h",
-        tool="unibet_kambi_call",
-        mcp_groups=("unibet.sport",),
-        normalizer=partial(normalize_unibet_matches, sport="afl"),
-        arguments={"operation": "sport_matches", "path_params": {"sport": "australian_rules"}},
-        interval_s=300,
-    ),
-    "unibet_nrl_h2h": Feed(
-        name="unibet_nrl_h2h",
-        tool="unibet_kambi_call",
-        mcp_groups=("unibet.sport",),
-        normalizer=partial(normalize_unibet_matches, sport="nrl"),
-        arguments={"operation": "sport_matches", "path_params": {"sport": "rugby_league"}},
-        interval_s=300,
-    ),
-    "betr_afl_h2h": Feed(
-        name="betr_afl_h2h",
-        tool="betr_sports_category",
-        mcp_groups=("betr.sport",),
-        normalizer=partial(normalize_betr_category, sport="afl"),
-        arguments={"CategoryId": 43735},  # AFL Premiership (discovered live via betr_master_category)
-        interval_s=300,
-    ),
-    "entain_afl_h2h": Feed(
-        name="entain_afl_h2h",
-        tool="entain_sport_event_request",
-        mcp_groups=("entain.rest",),
-        normalizer=partial(normalize_entain_events, sport="afl"),
-        arguments={"category_ids": ["23d497e6-8aab-4309-905b-9421f42c9bc5"]},  # Australian Rules
-        interval_s=300,
-    ),
-    "entain_nrl_h2h": Feed(
-        name="entain_nrl_h2h",
-        tool="entain_sport_event_request",
-        mcp_groups=("entain.rest",),
-        normalizer=partial(normalize_entain_events, sport="nrl"),
-        arguments={"category_ids": ["608a1803-45bc-465a-8471-c89dcb68a27d"]},  # Rugby League
-        interval_s=300,
-    ),
-    "pinnacle_afl_h2h": Feed(
-        name="pinnacle_afl_h2h",
-        tool="pinnacle_league_matchups",  # label; the fetcher composes matchups + markets
-        mcp_groups=("pinnacle.sports",),
-        normalizer=partial(normalize_pinnacle_league, sport="afl"),
-        fetch=partial(fetch_pinnacle_league, league_id=5448),
-        interval_s=300,
-    ),
-    "pinnacle_nrl_h2h": Feed(
-        name="pinnacle_nrl_h2h",
-        tool="pinnacle_league_matchups",
-        mcp_groups=("pinnacle.sports",),
-        normalizer=partial(normalize_pinnacle_league, sport="nrl"),
-        fetch=partial(fetch_pinnacle_league, league_id=1654),
-        interval_s=300,
-    ),
-    "pointsbet_afl_h2h": Feed(
-        name="pointsbet_afl_h2h",
-        tool="pointsbet_competition_events",  # label; per-event details are ~5MB each
-        mcp_groups=("pointsbet.sports",),
-        normalizer=partial(normalize_pointsbet_events, sport="afl"),
-        fetch=partial(fetch_pointsbet_competition, competition_key=7523),
-        interval_s=900,  # heavy payloads — slower cadence on purpose
-    ),
-    "pointsbet_nrl_h2h": Feed(
-        name="pointsbet_nrl_h2h",
-        tool="pointsbet_competition_events",
-        mcp_groups=("pointsbet.sports",),
-        normalizer=partial(normalize_pointsbet_events, sport="nrl"),
-        fetch=partial(fetch_pointsbet_competition, competition_key=7593),
-        interval_s=900,
-    ),
-    "sportsbet_nba_h2h": Feed(
-        name="sportsbet_nba_h2h",
-        tool="sportsbet_competition_matches",
-        mcp_groups=("sportsbet.sports",),
-        normalizer=partial(normalize_sportsbet_matches, sport="nba"),
-        arguments={"competitionId": 6927},
-        interval_s=300,
-    ),
-    "tab_nba_h2h": Feed(
-        name="tab_nba_h2h",
-        tool="tab_competition",
-        mcp_groups=("tab.sports",),
-        normalizer=partial(normalize_tab_competition, sport="nba"),
-        arguments={"sport": "Basketball", "competition": "NBA", "numTopMarkets": 1},
-        interval_s=300,
-    ),
-    "pointsbet_nba_h2h": Feed(
-        name="pointsbet_nba_h2h",
-        tool="pointsbet_competition_events",
-        mcp_groups=("pointsbet.sports",),
-        normalizer=partial(normalize_pointsbet_events, sport="nba"),
-        fetch=partial(fetch_pointsbet_competition, competition_key=7176),
-        interval_s=900,
-    ),
-    "pinnacle_nba_h2h": Feed(
-        name="pinnacle_nba_h2h",
-        tool="pinnacle_league_matchups",
-        mcp_groups=("pinnacle.sports",),
-        normalizer=partial(normalize_pinnacle_league, sport="nba"),
-        fetch=partial(fetch_pinnacle_league, league_id=487),
-        interval_s=300,
-    ),
-    "unibet_nba_h2h": Feed(
-        name="unibet_nba_h2h",
-        tool="unibet_kambi_call",
-        mcp_groups=("unibet.sport",),
-        normalizer=partial(normalize_unibet_matches, sport="nba", only_group="NBA"),
-        arguments={"operation": "sport_matches", "path_params": {"sport": "basketball"}},
-        interval_s=300,
-    ),
-    "entain_nba_h2h": Feed(
-        name="entain_nba_h2h",
-        tool="entain_sport_event_request",
-        mcp_groups=("entain.rest",),
-        normalizer=partial(normalize_entain_events, sport="nba", only_competition="NBA"),
-        arguments={"category_ids": ["3c34d075-dc14-436d-bfc4-9272a49c2b39"]},  # Basketball
-        interval_s=300,
-    ),
-    "betr_nba_h2h": Feed(
-        name="betr_nba_h2h",
-        tool="betr_sports_category",
-        mcp_groups=("betr.sport",),
-        normalizer=partial(normalize_betr_category, sport="nba"),
-        arguments={"CategoryId": 39251},
-        interval_s=300,
-    ),
-    "fanduel_nba_h2h": Feed(
-        name="fanduel_nba_h2h",
-        tool="fanduel_sb_call",  # label; the fetcher walks content page -> event pages
-        mcp_groups=("fanduel.sportsbook",),
-        normalizer=partial(normalize_fanduel_pages, sport="nba"),
-        fetch=partial(fetch_fanduel_event_pages, page_id="nba"),
+        normalizer=normalize_sportsbet_all,
+        fetch=fetch_sportsbet_all,
         interval_s=600,
+    ),
+    "tab_all": Feed(
+        name="tab_all",
+        tool="tab_sports",  # label; sports tree -> rotating competition pages
+        mcp_groups=("tab.sports",),
+        normalizer=normalize_tab_all,
+        fetch=fetch_tab_all,
+        interval_s=900,  # competition pages are MB-scale
+    ),
+    "unibet_all": Feed(
+        name="unibet_all",
+        tool="unibet_kambi_call",  # label; group.json -> one listView per sport
+        mcp_groups=("unibet.sport",),
+        normalizer=normalize_unibet_all,
+        fetch=fetch_unibet_all,
+        interval_s=300,
+    ),
+    "entain_all": Feed(
+        name="entain_all",
+        tool="entain_sport_event_request",  # label; one bulk call per sport category
+        mcp_groups=("entain.rest",),
+        normalizer=normalize_entain_all,
+        fetch=fetch_entain_all,
+        interval_s=300,
+    ),
+    "pinnacle_all": Feed(
+        name="pinnacle_all",
+        tool="pinnacle_sport_matchups_all",  # label; all sports, soonest matchups detailed
+        mcp_groups=("pinnacle.sports",),
+        normalizer=partial(normalize_pinnacle_league, sport="?"),  # _sport rides each matchup
+        fetch=fetch_pinnacle_all,
+        interval_s=300,
+    ),
+    "pointsbet_all": Feed(
+        name="pointsbet_all",
+        tool="pointsbet_sports_list",  # label; full catalogue -> soonest event details
+        mcp_groups=("pointsbet.sports",),
+        normalizer=partial(normalize_pointsbet_events, sport="?"),  # className labels each event
+        fetch=fetch_pointsbet_all,
+        interval_s=1800,  # ~5MB per event detail
+    ),
+    "betr_all": Feed(
+        name="betr_all",
+        tool="betr_master_category",  # label; one category call per event type
+        mcp_groups=("betr.sport",),
+        normalizer=normalize_betr_all,
+        fetch=fetch_betr_all,
+        interval_s=600,
+    ),
+    "fanduel_us": Feed(
+        name="fanduel_us",
+        tool="fanduel_sb_call",  # label; sport pages -> event pages
+        mcp_groups=("fanduel.sportsbook",),
+        normalizer=partial(normalize_fanduel_pages, sport="?"),  # page id labels each page
+        fetch=partial(fetch_fanduel_pages, page_ids=["nba", "mlb", "nhl", "wnba", "mls", "ufc"]),
+        interval_s=900,
     ),
     "fanduel_racing_win": Feed(
         name="fanduel_racing_win",
@@ -239,11 +141,8 @@ FEEDS: dict[str, Feed] = {
         fetch=fetch_fanduel_races,
         interval_s=120,  # racing prices move fast near post
     ),
-    # Betfair is NOT registered: the public readonly key serves market/runner data
-    # but returns no RUNNER_EXCHANGE_PRICES_BEST sections from AU (delayed-data key;
-    # verified live 2026-06-11 incl. on a $26K-matched market). The fetcher +
-    # normalizer are ready — add the row back when an authenticated Exchange API
-    # key lands (P4).
+    # nba_cdn stays out (aggregator); Betfair stays out (no price sections via the
+    # public readonly key from AU — fetcher+normalizer ready for an authed key, P4).
 }
 
 

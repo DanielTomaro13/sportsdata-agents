@@ -233,9 +233,10 @@ def normalize_unibet_matches(payload: Any, *, sport: str, only_group: str | None
         if only_group and str(event.get("group", "")) != only_group:
             continue  # a Kambi sport listing spans every league it carries
         for offer in item.get("betOffers", []) or []:
-            if (offer.get("betOfferType") or {}).get("name") != "Head to Head":
+            bo_name = (offer.get("betOfferType") or {}).get("name")
+            if bo_name not in ("Head to Head", "Line", "Totals"):
                 continue
-            # AFL quotes regular time; NRL quotes including overtime — both ARE the h2h
+            # AFL quotes regular time; NRL quotes including overtime — both ARE the market
             if (offer.get("criterion") or {}).get("lifetime") not in (None, "FULL_TIME", "FULL_TIME_OVERTIME"):
                 continue
             for outcome in offer.get("outcomes", []) or []:
@@ -244,7 +245,18 @@ def normalize_unibet_matches(payload: Any, *, sport: str, only_group: str | None
                 raw = outcome.get("odds")
                 if not isinstance(raw, int | float) or raw < 1010:
                     continue
-                selection = side_by_type.get(str(outcome.get("type", "")))
+                side = side_by_type.get(str(outcome.get("type", "")))
+                label = str(outcome.get("label", "")).lower()
+                line_raw = outcome.get("line")
+                line = (line_raw / 1000.0) if isinstance(line_raw, int | float) else None
+                if bo_name == "Head to Head":
+                    market_key, selection = "h2h", side
+                elif bo_name == "Line":
+                    market_key = "spread"
+                    selection = f"{side} {line}" if side and line is not None else None
+                else:  # Totals
+                    market_key = "total"
+                    selection = f"{label} {line}" if label in ("over", "under") and line is not None else None
                 if selection is None:
                     continue
                 point = PricePoint(
@@ -253,7 +265,7 @@ def normalize_unibet_matches(payload: Any, *, sport: str, only_group: str | None
                     sport=sport,
                     event_external_id=event_id,
                     event_name=str(event.get("name") or ""),
-                    market="h2h",
+                    market=market_key,
                     selection=selection,
                     odds=round(raw / 1000.0, 3),
                     meta={"start_time": event.get("start"), "team": outcome.get("participant")},
@@ -398,6 +410,7 @@ def normalize_pinnacle_league(payload: Any, *, sport: str) -> list[PricePoint]:
             for p in matchup.get("participants", []) or []
         }
         event_name = f"{names.get('home', '?')} v {names.get('away', '?')}"
+        matchup_sport = str(matchup.get("_sport") or sport)
         for market in markets_by_id.get(matchup_id, []) or []:
             market_type = market.get("type")
             if market_type not in ("moneyline", "spread", "total") or market.get("period") != 0:
@@ -420,7 +433,7 @@ def normalize_pinnacle_league(payload: Any, *, sport: str) -> list[PricePoint]:
                 point = PricePoint(
                     provider="pinnacle",
                     book="Pinnacle",
-                    sport=sport,
+                    sport=matchup_sport,
                     event_external_id=matchup_id,
                     event_name=event_name,
                     market=market_key,
@@ -450,8 +463,10 @@ def normalize_pointsbet_events(payload: Any, *, sport: str) -> list[PricePoint]:
         home, away = str(event.get("homeTeam") or ""), str(event.get("awayTeam") or "")
         if not event_id:
             continue
+        event_sport = "_".join(str(event.get("sportName") or event.get("className") or sport).strip().lower().split())
         for market in event.get("fixedOddsMarkets", []) or []:
-            if str(market.get("eventClass", "")) != "Match Result":
+            # AU sports name the h2h "Match Result"; US sports "Moneyline"
+            if str(market.get("eventClass", "")).lower() not in ("match result", "moneyline"):
                 continue
             for outcome in market.get("outcomes", []) or []:
                 try:
@@ -470,7 +485,7 @@ def normalize_pointsbet_events(payload: Any, *, sport: str) -> list[PricePoint]:
                 point = PricePoint(
                     provider="pointsbet",
                     book="PointsBet",
-                    sport=sport,
+                    sport=event_sport,
                     event_external_id=event_id,
                     event_name=str(event.get("name") or f"{home} v {away}"),
                     market="h2h",
@@ -549,6 +564,7 @@ def normalize_fanduel_pages(payload: Any, *, sport: str) -> list[PricePoint]:
     seen: set[tuple[str, str, str, str, str]] = set()
     for page in payload.get("pages", []) or []:
         events = page.get("events") or {}
+        page_sport = str(page.get("sport") or sport)
         for market in (page.get("markets") or {}).values():
             if market.get("marketType") != "MONEY_LINE" or market.get("marketStatus") not in (None, "OPEN"):
                 continue
@@ -572,7 +588,7 @@ def normalize_fanduel_pages(payload: Any, *, sport: str) -> list[PricePoint]:
                 point = PricePoint(
                     provider="fanduel",
                     book="FanDuel",
-                    sport=sport,
+                    sport=page_sport,
                     event_external_id=event_id,
                     event_name=str(event.get("name") or ""),
                     market="h2h",
@@ -631,3 +647,43 @@ def normalize_fanduel_races(payload: Any) -> list[PricePoint]:
             seen.add(point.key)
             points.append(point)
     return points
+
+
+# ─── discovery-feed wrappers: one combined payload → per-sport delegation ──
+
+
+def _normalize_grouped(
+    payload: Any, key: str, inner: Any, **kwargs: Any
+) -> list[PricePoint]:
+    if not isinstance(payload, dict):
+        return []
+    points: list[PricePoint] = []
+    for item in payload.get(key, []) or []:
+        sport = str(item.get("sport") or "?")
+        points.extend(inner(item.get("payload"), sport=sport, **kwargs))
+    return points
+
+
+def normalize_unibet_all(payload: Any) -> list[PricePoint]:
+    """Every Kambi sport (via fetch_unibet_all): h2h + spread + total per match."""
+    return _normalize_grouped(payload, "sports", normalize_unibet_matches)
+
+
+def normalize_entain_all(payload: Any) -> list[PricePoint]:
+    """Every Entain sport category (via fetch_entain_all)."""
+    return _normalize_grouped(payload, "categories", normalize_entain_events)
+
+
+def normalize_sportsbet_all(payload: Any) -> list[PricePoint]:
+    """Every Sportsbet competition in the rotating window (via fetch_sportsbet_all)."""
+    return _normalize_grouped(payload, "competitions", normalize_sportsbet_matches)
+
+
+def normalize_tab_all(payload: Any) -> list[PricePoint]:
+    """Every TAB competition in the rotating window (via fetch_tab_all)."""
+    return _normalize_grouped(payload, "competitions", normalize_tab_competition)
+
+
+def normalize_betr_all(payload: Any) -> list[PricePoint]:
+    """Every BetR event type (via fetch_betr_all — prices ride the category call)."""
+    return _normalize_grouped(payload, "types", normalize_betr_category)

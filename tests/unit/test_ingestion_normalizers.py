@@ -203,25 +203,14 @@ def test_normalize_tab_h2h() -> None:
     assert normalize_tab_competition({}, sport="afl") == []
 
 
-def test_feed_registry_covers_all_providers() -> None:
+def test_feed_registry_is_discovery_driven() -> None:
     from sportsdata_agents.operations.ingestion import FEEDS
 
-    assert "nba_odds" not in FEEDS  # the CDN aggregator is out: books of record only
-    expected = {
-        "sportsbet_afl_h2h", "sportsbet_nrl_h2h", "sportsbet_nba_h2h",
-        "tab_afl_h2h", "tab_nrl_h2h", "tab_nba_h2h",
-        "unibet_afl_h2h", "unibet_nrl_h2h", "unibet_nba_h2h",
-        "betr_afl_h2h", "betr_nba_h2h",
-        "entain_afl_h2h", "entain_nrl_h2h", "entain_nba_h2h",
-        "pinnacle_afl_h2h", "pinnacle_nrl_h2h", "pinnacle_nba_h2h",
-        "pointsbet_afl_h2h", "pointsbet_nrl_h2h", "pointsbet_nba_h2h",
-        "fanduel_nba_h2h", "fanduel_racing_win",
-    }
-    assert expected <= set(FEEDS)
-    assert FEEDS["sportsbet_afl_h2h"].mcp_groups == ("sportsbet.sports",)
-    assert FEEDS["tab_afl_h2h"].mcp_groups == ("tab.sports",)
-    assert FEEDS["tab_afl_h2h"].arguments == {"sport": "AFL Football", "competition": "AFL",
-                                              "numTopMarkets": 1}
+    assert "nba_odds" not in FEEDS  # the CDN aggregator stays out: books of record only
+    expected = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
+                "pointsbet_all", "betr_all", "fanduel_us", "fanduel_racing_win"}
+    assert set(FEEDS) == expected  # one self-discovering feed per provider
+    assert all(FEEDS[n].fetch is not None for n in expected)  # discovery, not fixed ids
 
 
 # ── Unibet/Kambi (captured live 2026-06-11) ───────────────────────────────
@@ -554,3 +543,65 @@ def test_pinnacle_captures_spread_and_total_lines() -> None:
                     ("total", "over 220.5"), ("total", "under 220.5")}
     over = next(p for p in points if p.selection == "over 220.5")
     assert over.odds == pytest.approx(1.952, abs=1e-3)  # -105 American
+
+
+def test_unibet_captures_line_and_totals_with_lines() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_unibet_matches
+
+    payload = {
+        "events": [{
+            "event": {"id": 5, "name": "A - B"},
+            "betOffers": [
+                {"betOfferType": {"name": "Line"}, "criterion": {},
+                 "outcomes": [
+                     {"type": "OT_ONE", "odds": 1880, "line": -4500, "label": "A"},
+                     {"type": "OT_TWO", "odds": 1920, "line": 4500, "label": "B"},
+                 ]},
+                {"betOfferType": {"name": "Totals"}, "criterion": {},
+                 "outcomes": [
+                     {"type": "OT_OVER", "odds": 1900, "line": 165500, "label": "Over"},
+                     {"type": "OT_UNDER", "odds": 1900, "line": 165500, "label": "Under"},
+                 ]},
+            ],
+        }]
+    }
+    points = normalize_unibet_matches(payload, sport="afl")
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    assert by_key == {
+        ("spread", "home -4.5"): 1.88,
+        ("spread", "away 4.5"): 1.92,
+        ("total", "over 165.5"): 1.9,
+        ("total", "under 165.5"): 1.9,
+    }
+
+
+def test_grouped_wrappers_label_sports() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import (
+        normalize_betr_all,
+        normalize_unibet_all,
+    )
+
+    kambi_payload = {
+        "sports": [
+            {"sport": "australian_rules", "payload": {
+                "events": [{"event": {"id": 1, "name": "A - B"},
+                            "betOffers": [{"betOfferType": {"name": "Head to Head"}, "criterion": {},
+                                           "outcomes": [{"type": "OT_ONE", "odds": 1500}]}]}]}},
+            {"sport": "tennis", "payload": {
+                "events": [{"event": {"id": 2, "name": "C - D"},
+                            "betOffers": [{"betOfferType": {"name": "Head to Head"}, "criterion": {},
+                                           "outcomes": [{"type": "OT_TWO", "odds": 2500}]}]}]}},
+        ]
+    }
+    points = normalize_unibet_all(kambi_payload)
+    assert {(p.sport, p.event_external_id) for p in points} == {("australian_rules", "1"), ("tennis", "2")}
+
+    betr_payload = {"types": [{"sport": "australian_rules", "payload": {
+        "MasterCategories": [{"Categories": [{"MasterEvents": [{
+            "MasterEventId": 9, "MasterEventName": "X v Y",
+            "Markets": [{"EventName": "Match Result (X v Y)", "OutcomeName": "X",
+                         "Price": 1.5, "MarketDesc": "Win"}],
+        }]}]}]}}]}
+    points = normalize_betr_all(betr_payload)
+    assert len(points) == 1 and points[0].sport == "australian_rules"
+    assert normalize_unibet_all(None) == [] and normalize_betr_all([]) == []
