@@ -162,15 +162,25 @@ class TeamSession:
 
 
 def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
-    """Session-bound tools that need the DB: tracking/risk (M1.4) when audit is on."""
+    """Session-bound tools: tracking/memory when the DB is up (M1.4/M1.5),
+    slack admin when SLACK_BOT_TOKEN is configured (slack_manager). Anything
+    absent degrades to the actionable config stub in the runtime."""
+    import os
+
     from sportsdata_agents.observability.recorder import DbRecorder
 
+    tools: list[Any] = []
     inner = getattr(recorder, "inner", recorder)
-    if not isinstance(inner, DbRecorder):
-        return []
-    from sportsdata_agents.tools.tracking import tracking_tools
+    if isinstance(inner, DbRecorder):
+        from sportsdata_agents.tools.memory import memory_tools
+        from sportsdata_agents.tools.tracking import tracking_tools
 
-    return list(tracking_tools(inner._sf, inner._scope))
+        tools += [*tracking_tools(inner._sf, inner._scope), *memory_tools(inner._sf, inner._scope)]
+    if os.environ.get("SLACK_BOT_TOKEN"):
+        from sportsdata_agents.tools.slack_admin import slack_admin_tools
+
+        tools += slack_admin_tools()
+    return tools
 
 
 def parsed_sources(result: RunResult) -> list[str]:

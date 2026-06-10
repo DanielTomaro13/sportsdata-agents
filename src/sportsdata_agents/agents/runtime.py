@@ -43,8 +43,8 @@ def _db_unavailable_stub(name: str) -> ToolDef:
 
     async def execute(args: dict) -> str:
         return (
-            f"error: {name} needs the database and none is configured — "
-            f"start Postgres (docker compose up -d && alembic upgrade head) and restart"
+            f"error: {name} is not configured in this session — it needs the database "
+            f"(docker compose up -d && alembic upgrade head) or, for Slack tools, SLACK_BOT_TOKEN"
         )
 
     return ToolDef(
@@ -141,6 +141,7 @@ class AgentRuntime:
                 # absent (a DB-less team must still OPEN — try_db_recorder philosophy).
                 from sportsdata_agents.tools.memory import MEMORY_TOOL_NAMES
                 from sportsdata_agents.tools.registry import NATIVE_TOOLS
+                from sportsdata_agents.tools.slack_admin import SLACK_ADMIN_TOOL_NAMES
                 from sportsdata_agents.tools.tracking import TRACKING_TOOL_NAMES
 
                 for name in self.spec.tools.native:
@@ -148,7 +149,7 @@ class AgentRuntime:
                         tools.append(NATIVE_TOOLS[name])
                     elif name in self._extra_tools:
                         tools.append(self._extra_tools[name])
-                    elif name in TRACKING_TOOL_NAMES | MEMORY_TOOL_NAMES:
+                    elif name in TRACKING_TOOL_NAMES | MEMORY_TOOL_NAMES | SLACK_ADMIN_TOOL_NAMES:
                         tools.append(_db_unavailable_stub(name))
                     else:
                         raise KeyError(
