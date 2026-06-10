@@ -193,7 +193,9 @@ def test_normalize_tab_h2h() -> None:
     from sportsdata_agents.operations.ingestion.normalizers import normalize_tab_competition
 
     points = normalize_tab_competition(TAB_PAYLOAD, sport="afl")
-    assert len(points) == 2  # suspended proposition + non-H2H market skipped
+    # EVERYTHING is captured: h2h pair + the Line market's outcome (suspended skipped)
+    by_key = {(p.market, p.selection) for p in points}
+    assert by_key == {("h2h", "home"), ("h2h", "away"), ("spread", "x")}
     home = next(p for p in points if p.selection == "home")
     assert (home.provider, home.book) == ("tab", "TAB")
     assert home.event_external_id == "WBdvAdl"
@@ -207,10 +209,12 @@ def test_feed_registry_is_discovery_driven() -> None:
     from sportsdata_agents.operations.ingestion import FEEDS
 
     assert "nba_odds" not in FEEDS  # the CDN aggregator stays out: books of record only
-    expected = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
-                "pointsbet_all", "betr_all", "fanduel_us", "fanduel_racing_win"}
-    assert set(FEEDS) == expected  # one self-discovering feed per provider
-    assert all(FEEDS[n].fetch is not None for n in expected)  # discovery, not fixed ids
+    hot = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
+           "pointsbet_all", "betr_all", "fanduel_us", "fanduel_racing_win"}
+    books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books", "pointsbet_books"}
+    assert set(FEEDS) == hot | books  # discovery hot tier + hourly full-book tier
+    assert all(FEEDS[n].fetch is not None for n in hot | books)  # discovery, not fixed ids
+    assert all(FEEDS[n].interval_s == 3600 for n in books)
 
 
 # ── Unibet/Kambi (captured live 2026-06-11) ───────────────────────────────
@@ -242,7 +246,9 @@ def test_normalize_unibet_h2h() -> None:
         ]
     }
     points = normalize_unibet_matches(payload, sport="afl")
-    assert [(p.selection, p.odds) for p in points] == [("home", 1.73), ("away", 2.15)]
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    # h2h pair + the Handicap offer (canonical: handicap → spread) — nothing dropped
+    assert by_key == {("h2h", "home"): 1.73, ("h2h", "away"): 2.15, ("spread", "home"): 1.9}
     assert points[0].provider == "unibet" and points[0].event_external_id == "1025627732"
     assert normalize_unibet_matches([], sport="afl") == []
 
@@ -273,7 +279,9 @@ def test_normalize_betr_h2h() -> None:
         }]
     }
     points = normalize_betr_category(payload, sport="afl")
-    assert [(p.selection, p.odds) for p in points] == [("home", 1.74), ("away", 2.1)]
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    # the Over/Under row is captured too (canonical: total), not skipped
+    assert by_key == {("h2h", "home"): 1.74, ("h2h", "away"): 2.1, ("total", "over"): 1.9}
     assert points[0].event_external_id == "2094343" and points[0].book == "BetR"
 
 
@@ -301,8 +309,9 @@ def test_normalize_entain_h2h() -> None:
         },
     }
     points = normalize_entain_events(payload, sport="afl")
-    by_sel = {p.selection: p.odds for p in points}
-    assert by_sel == {"home": 1.75, "away": 3.1}
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    # the Most Goals prop is captured under its own name — normalization, not exclusion
+    assert by_key == {("h2h", "home"): 1.75, ("h2h", "away"): 3.1, ("most goals", "someone"): 1.5}
     assert all(p.provider == "entain" and p.event_external_id == "EV1" for p in points)
 
 
@@ -338,9 +347,13 @@ def test_normalize_pinnacle_h2h_converts_american() -> None:
         },
     }
     points = normalize_pinnacle_league(payload, sport="afl")
-    by_sel = {p.selection: p.odds for p in points}
-    assert by_sel["home"] == pytest.approx(2.94)
-    assert by_sel["away"] == pytest.approx(1.389, abs=1e-3)
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    assert by_key[("h2h", "home")] == pytest.approx(2.94)
+    assert by_key[("h2h", "away")] == pytest.approx(1.389, abs=1e-3)
+    # the first-half moneyline is captured with its period suffix, not dropped
+    assert by_key[("h2h p1", "home")] == pytest.approx(2.5)
+    # the spread rides too (capture-everything; this fixture's spread has no points)
+    assert by_key[("spread", "home")] == pytest.approx(1.952, abs=1e-3)
     assert points[0].book == "Pinnacle" and points[0].event_name == "St Kilda v GWS"
 
 
@@ -365,7 +378,10 @@ def test_normalize_pointsbet_h2h() -> None:
         }]
     }
     points = normalize_pointsbet_events(payload, sport="afl")
-    assert [(p.selection, p.odds) for p in points] == [("home", 1.74), ("away", 2.1)]
+    by_key = {(p.market, p.selection): p.odds for p in points}
+    assert by_key[("h2h", "home")] == 1.74 and by_key[("h2h", "away")] == 2.1
+    # the prop market is captured under its own name with its line
+    assert by_key[("to kick goals", "someone 1+")] == 3.6
     assert points[0].provider == "pointsbet" and points[0].event_external_id == "2765418"
 
 
@@ -539,8 +555,9 @@ def test_pinnacle_captures_spread_and_total_lines() -> None:
     }
     points = normalize_pinnacle_league(payload, sport="nba")
     sels = {(p.market, p.selection) for p in points}
+    # the line-less total is ALSO captured now (selection without a suffix)
     assert sels == {("spread", "home -1.5"), ("spread", "away 1.5"),
-                    ("total", "over 220.5"), ("total", "under 220.5")}
+                    ("total", "over 220.5"), ("total", "under 220.5"), ("total", "over")}
     over = next(p for p in points if p.selection == "over 220.5")
     assert over.odds == pytest.approx(1.952, abs=1e-3)  # -105 American
 

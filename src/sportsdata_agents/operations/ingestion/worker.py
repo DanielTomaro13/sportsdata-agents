@@ -24,10 +24,15 @@ from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_fanduel_pages,
     fetch_fanduel_races,
     fetch_pinnacle_all,
+    fetch_pinnacle_books,
     fetch_pointsbet_all,
+    fetch_pointsbet_books,
     fetch_sportsbet_all,
+    fetch_sportsbet_books,
     fetch_tab_all,
+    fetch_tab_books,
     fetch_unibet_all,
+    fetch_unibet_books,
 )
 from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
@@ -38,8 +43,11 @@ from sportsdata_agents.operations.ingestion.normalizers import (
     normalize_pinnacle_league,
     normalize_pointsbet_events,
     normalize_sportsbet_all,
+    normalize_sportsbet_books,
     normalize_tab_all,
+    normalize_tab_books,
     normalize_unibet_all,
+    normalize_unibet_books,
 )
 from sportsdata_agents.operations.ingestion.store import record_points
 
@@ -140,6 +148,50 @@ FEEDS: dict[str, Feed] = {
         normalizer=normalize_fanduel_races,
         fetch=fetch_fanduel_races,
         interval_s=120,  # racing prices move fast near post
+    ),
+    # ── full-book tier (60min): EVERY market of every fixture ──────────────
+    # Entain/BetR/FanDuel/racing already deliver their full books through the hot
+    # tier above; these five need (or deserve) a second pass: per-fixture firehoses
+    # for Sportsbet/TAB/Unibet, full-board rotation for Pinnacle/PointsBet.
+    "sportsbet_books": Feed(
+        name="sportsbet_books",
+        tool="sportsbet_event_markets",
+        mcp_groups=("sportsbet.sports",),
+        normalizer=normalize_sportsbet_books,
+        fetch=fetch_sportsbet_books,
+        interval_s=3600,
+    ),
+    "tab_books": Feed(
+        name="tab_books",
+        tool="tab_match",
+        mcp_groups=("tab.sports",),
+        normalizer=normalize_tab_books,
+        fetch=fetch_tab_books,
+        interval_s=3600,
+    ),
+    "unibet_books": Feed(
+        name="unibet_books",
+        tool="unibet_kambi_call",
+        mcp_groups=("unibet.sport",),
+        normalizer=normalize_unibet_books,
+        fetch=fetch_unibet_books,
+        interval_s=3600,
+    ),
+    "pinnacle_books": Feed(
+        name="pinnacle_books",
+        tool="pinnacle_matchup_markets",
+        mcp_groups=("pinnacle.sports",),
+        normalizer=partial(normalize_pinnacle_league, sport="?"),
+        fetch=fetch_pinnacle_books,
+        interval_s=3600,
+    ),
+    "pointsbet_books": Feed(
+        name="pointsbet_books",
+        tool="pointsbet_event",
+        mcp_groups=("pointsbet.sports",),
+        normalizer=partial(normalize_pointsbet_events, sport="?"),
+        fetch=fetch_pointsbet_books,
+        interval_s=3600,
     ),
     # nba_cdn stays out (aggregator); Betfair stays out (no price sections via the
     # public readonly key from AU — fetcher+normalizer ready for an authed key, P4).

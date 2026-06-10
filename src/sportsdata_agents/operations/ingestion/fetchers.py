@@ -379,3 +379,176 @@ async def fetch_fanduel_pages(manager: Any, *, page_ids: list[str]) -> dict[str,
         except Exception as e:
             logger.warning("fanduel page %s failed: %s", page_id, e)
     return {"pages": pages}
+
+
+# ─── full-book tier (60min cadence): EVERY market of every fixture ───────
+# The hot tier keeps primary markets fresh; these walk the same discovery routes
+# and pull each fixture's COMPLETE market book — soonest fixtures first, capped per
+# cycle so the call economics stay bounded (books fill out near start time anyway).
+
+BOOKS_PER_CYCLE = 25
+
+
+async def fetch_sportsbet_books(manager: Any) -> dict[str, Any]:
+    """Sportsbet full books: nav → rotating competitions → events → ``Markets``
+    firehose per event (~2.5MB / ~293 markets each)."""
+    nav = await manager.call_tool("sportsbet_nav_hierarchy", {})
+    comps: list[tuple[int, str, str]] = []
+    _walk_sportsbet_nav(nav, None, comps)
+    events: list[dict[str, Any]] = []
+    for comp_id, _comp_name, sport in _take_rotating("sportsbet_books_comps", comps, 15):
+        try:
+            payload = await manager.call_tool("sportsbet_competition_matches", {"competitionId": comp_id})
+            for group in payload if isinstance(payload, list) else []:
+                for event in group.get("events", []) or []:
+                    if event.get("bettingStatus") == "PRICED" and event.get("id") is not None:
+                        events.append({
+                            "sport": sport, "event_id": str(event["id"]),
+                            "event_name": str(event.get("displayName") or ""),
+                            "start": event.get("startTime"),
+                        })
+        except Exception as e:
+            logger.warning("sportsbet books comp %s failed: %s", comp_id, e)
+    events.sort(key=lambda e: e.get("start") or 0)
+    out: list[dict[str, Any]] = []
+    for entry in events[:BOOKS_PER_CYCLE]:
+        try:
+            markets = await manager.call_tool(
+                "sportsbet_event_markets", {"eventId": int(entry["event_id"])}
+            )
+            entry["markets"] = markets if isinstance(markets, list) else markets.get("markets", [])
+            out.append(entry)
+        except Exception as e:
+            logger.warning("sportsbet book %s failed: %s", entry["event_id"], e)
+    return {"events": out}
+
+
+async def fetch_tab_books(manager: Any) -> dict[str, Any]:
+    """TAB full books: sports tree → rotating competitions → ``tab_match`` per
+    fixture (~0.8MB / ~238 markets each)."""
+    sports = await manager.call_tool("tab_sports", {})
+    pairs: list[tuple[str, str]] = []
+    for sport in sports.get("sports", []) or []:
+        name = str(sport.get("name", ""))
+        if not name:
+            continue
+        try:
+            detail = await manager.call_tool("tab_sport", {"sport": name})
+            for comp in detail.get("competitions", []) or []:
+                if comp.get("name"):
+                    pairs.append((name, str(comp["name"])))
+        except Exception as e:
+            logger.warning("tab books sport %s failed: %s", name, e)
+    matches: list[tuple[str, str, str]] = []  # (sport, comp, match name)
+    for sport_name, comp_name in _take_rotating("tab_books_comps", pairs, 10):
+        try:
+            page = await manager.call_tool(
+                "tab_competition", {"sport": sport_name, "competition": comp_name, "numTopMarkets": 0}
+            )
+            for match in page.get("matches", []) or []:
+                if match.get("name"):
+                    matches.append((sport_name, comp_name, str(match["name"])))
+        except Exception as e:
+            logger.warning("tab books comp %s/%s failed: %s", sport_name, comp_name, e)
+    out: list[dict[str, Any]] = []
+    for sport_name, comp_name, match_name in matches[:BOOKS_PER_CYCLE]:
+        try:
+            book = await manager.call_tool(
+                "tab_match", {"sport": sport_name, "competition": comp_name, "match": match_name}
+            )
+            out.append({"sport": _slug(sport_name), "payload": book})
+        except Exception as e:
+            logger.warning("tab book %s failed: %s", match_name, e)
+    return {"matches": out}
+
+
+async def fetch_unibet_books(manager: Any) -> dict[str, Any]:
+    """Kambi full books: every sport's listView (cheap) → soonest events →
+    ``betoffer/event/{id}`` per fixture (~0.6MB / ~512 offers each)."""
+    root = await manager.call_tool("unibet_kambi_call", {"operation": "group"})
+    group = root.get("group") or root
+    candidates: list[tuple[str, str, dict[str, Any]]] = []  # (start, sport, event)
+    for g in group.get("groups", []) or []:
+        term = g.get("termKey")
+        if not term or not (g.get("boCount") or 0):
+            continue
+        try:
+            page = await manager.call_tool(
+                "unibet_kambi_call", {"operation": "sport_matches", "path_params": {"sport": str(term)}}
+            )
+            for item in page.get("events", []) or []:
+                event = item.get("event") or {}
+                if event.get("id") is not None:
+                    candidates.append((str(event.get("start", "")), str(term), event))
+        except Exception as e:
+            logger.warning("unibet books sport %s failed: %s", term, e)
+    candidates.sort(key=lambda c: c[0])
+    out: list[dict[str, Any]] = []
+    for _start, sport, event in candidates[:BOOKS_PER_CYCLE]:
+        try:
+            book = await manager.call_tool(
+                "unibet_kambi_call",
+                {"operation": "event_betoffer", "path_params": {"eventId": int(event["id"])}},
+            )
+            out.append({"sport": sport, "event": event, "betOffers": book.get("betOffers") or []})
+        except Exception as e:
+            logger.warning("unibet book %s failed: %s", event.get("id"), e)
+    return {"events": out}
+
+
+async def fetch_pinnacle_books(manager: Any) -> dict[str, Any]:
+    """Pinnacle full board: rotation over ALL active matchups (not just the soonest —
+    the hot tier covers those) so every fixture's straight markets refresh hourly."""
+    sports = await manager.call_tool("pinnacle_sports", {})
+    matchups: list[dict[str, Any]] = []
+    for sport in sports or []:
+        if not sport.get("matchupCount"):
+            continue
+        try:
+            rows = await manager.call_tool("pinnacle_sport_matchups_all", {"sportId": sport["id"]})
+        except Exception as e:
+            logger.warning("pinnacle books sport %s failed: %s", sport.get("name"), e)
+            continue
+        for matchup in rows or []:
+            if isinstance(matchup, dict) and matchup.get("hasMarkets"):
+                matchup["_sport"] = _slug(sport.get("name", "?"))
+                matchups.append(matchup)
+    chosen = _take_rotating("pinnacle_books", matchups, 120)
+    markets: dict[str, Any] = {}
+    for matchup in chosen:
+        try:
+            markets[str(matchup["id"])] = await manager.call_tool(
+                "pinnacle_matchup_markets", {"matchupId": matchup["id"]}
+            )
+        except Exception as e:
+            logger.warning("pinnacle book %s failed: %s", matchup.get("id"), e)
+    return {"matchups": chosen, "markets": markets}
+
+
+async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
+    """PointsBet full board: rotation over ALL competitions' events → ~5MB details.
+    Bandwidth-bound by design; the rotation covers the board across cycles."""
+    import datetime as _dt
+
+    listing = await manager.call_tool("pointsbet_sports_list", {"date": _dt.date.today().isoformat()})
+    comp_keys: list[int] = []
+    for sport in listing.get("sports", []) or []:
+        if sport.get("disabled"):
+            continue
+        for comp in sport.get("competitions", []) or []:
+            if comp.get("key") is not None:
+                comp_keys.append(int(comp["key"]))
+    event_keys: list[Any] = []
+    for key in _take_rotating("pointsbet_books_comps", comp_keys, 12):
+        try:
+            page = await manager.call_tool("pointsbet_competition_events", {"competitionKey": key})
+            event_keys.extend(e["key"] for e in page.get("events", []) or [] if e.get("key") is not None)
+        except Exception as e:
+            logger.warning("pointsbet books comp %s failed: %s", key, e)
+    details: list[Any] = []
+    for event_key in event_keys[:20]:
+        try:
+            details.append(await manager.call_tool("pointsbet_event", {"eventKey": event_key}))
+        except Exception as e:
+            logger.warning("pointsbet book %s failed: %s", event_key, e)
+    return {"events": details}
