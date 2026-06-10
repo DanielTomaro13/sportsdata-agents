@@ -1,0 +1,26 @@
+{
+  "description": "Golden price history + results + predictions for the CLV eval (M2.4): the edge>=5% flat-stake strategy must keep beating the close on this scenario.",
+  "min_edge_pct": 5.0,
+  "captures": [
+    [
+      {"book": "B", "event_external_id": "E1", "market": "2way", "selection": "home", "odds": 2.10},
+      {"book": "B", "event_external_id": "E2", "market": "2way", "selection": "home", "odds": 1.95},
+      {"book": "B", "event_external_id": "E3", "market": "2way", "selection": "home", "odds": 3.60}
+    ],
+    [
+      {"book": "B", "event_external_id": "E1", "market": "2way", "selection": "home", "odds": 1.90},
+      {"book": "B", "event_external_id": "E2", "market": "2way", "selection": "home", "odds": 2.00},
+      {"book": "B", "event_external_id": "E3", "market": "2way", "selection": "home", "odds": 3.40}
+    ]
+  ],
+  "results": [
+    {"event_external_id": "E1", "winning_selection": "home"},
+    {"event_external_id": "E2", "winning_selection": "home"},
+    {"event_external_id": "E3", "winning_selection": "away"}
+  ],
+  "predictions": [
+    {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60},
+    {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50},
+    {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30}
+  ]
+}

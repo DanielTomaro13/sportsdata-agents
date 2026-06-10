@@ -1,0 +1,53 @@
+{
+  "description": "Golden verifier cases (M2.4): the grounding check must catch fabrications AND avoid false 'grounded' badges. Each case names the behaviour it pins.",
+  "cases": [
+    {
+      "name": "fabricated_number_caught",
+      "answer": "Judge hit 62 home runs this season",
+      "evidence": ["which team is Judge on?", "{\"team\": \"Yankees\", \"hr\": 58}"],
+      "expect_verified": false
+    },
+    {
+      "name": "grounded_numbers_pass",
+      "answer": "Judge hit 58 home runs at odds of 2.50",
+      "evidence": ["question", "{\"hr\": 58, \"price\": 2.50}"],
+      "expect_verified": true
+    },
+    {
+      "name": "digit_soup_rejected",
+      "answer": "scored 42 points",
+      "evidence": ["q", "{\"game_id\": 15423, \"season\": 2024}"],
+      "expect_verified": false
+    },
+    {
+      "name": "percent_conversion_allowed",
+      "answer": "that is a 50% chance",
+      "evidence": ["q", "{\"prob\": 0.5}"],
+      "expect_verified": true
+    },
+    {
+      "name": "honest_rounding_allowed",
+      "answer": "priced at about 2.05",
+      "evidence": ["q", "{\"odds\": 2.0526}"],
+      "expect_verified": true
+    },
+    {
+      "name": "no_numbers_trivially_true",
+      "answer": "the team looks strong but the data is unavailable",
+      "evidence": ["q"],
+      "expect_verified": true
+    },
+    {
+      "name": "comma_normalisation",
+      "answer": "the crowd was 47,123",
+      "evidence": ["q", "{\"attendance\": 47123}"],
+      "expect_verified": true
+    },
+    {
+      "name": "tolerance_does_not_excuse_fabrication",
+      "answer": "he scored 58",
+      "evidence": ["q", "{\"points\": 62}"],
+      "expect_verified": false
+    }
+  ]
+}

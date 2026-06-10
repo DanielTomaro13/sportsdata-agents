@@ -231,10 +231,10 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 - [x] **Backtester** — `quant/backtest.py` replays predictions vs the `prices` change-points + `event_results`: flat-stake edge-threshold strategy → ROI/hit-rate/**CLV** (entry vs close)/P&L variance, skip accounting (no_price/no_result/below_edge); `run_backtest` + `record_result` session tools; `specs/backtester.yaml` ("lead with CLV; 3 bets is an anecdote — say so"). Orchestrator delegates += value_scout, backtester.
 - [x] **Exit gate:** seeded price history + results, held-out predictions, edge≥5% strategy → 2 qualifying bets, ROI +5%, **avg CLV +8.20% > 0**, variance 1.1025, skips {1,1,1} — exact-value test; value alert computed (edge 7.3% on home @1.85 with p=0.58 flagged, sub-threshold not).
 
-### M2.4 — Eval harness (`§16.3`)
-- [ ] `eval/` runner (`-m eval`): calibration, **CLV** (gold metric), routing efficiency, answer-accuracy; golden datasets; LLM-judge + deterministic source-match.
-- [ ] Dashboards/reports; gate "is this change better?".
-- [ ] **Exit gate:** eval suite runs in CI (scheduled), produces scores, fails a deliberately-worse change.
+### M2.4 — Eval harness (`§16.3`) ✅
+- [x] `evals/` runner: **offline deterministic** scores from committed goldens — calibration (1−Brier over golden holdout), **CLV** (real backtest replay over a golden in-memory warehouse — the gold metric), grounding (8 verifier cases incl. digit-soup false-positive and fabrication-tolerance pins). Every score higher-is-better; one gate rule (`baseline − tolerance`), and a silently DROPPED eval trips the gate too. `agents eval [--baseline|--write-baseline]`, baseline committed.
+- [x] **Live evals** (`-m eval`, key-gated): routing efficiency (a stats question must delegate — the orchestrator answering alone is fabrication by construction) + value_scout answer accuracy (quotes value_finder's edge, grounding-verified) joining the M0 golden Q&A. Deterministic source-match = the grounding verifier; LLM-judge deferred until a case needs it (*deviation, recorded: scores-table CLI stands in for dashboards until the admin UI*).
+- [x] **Exit gate:** `eval.yml` scheduled workflow (Mondays + manual dispatch; offline gate always, live evals only when a key secret exists — absent key = honest skip). Suite produces scores (0.7907/0.5820/1.0000), gate passes on baseline, and a deliberately-worse change (miscalibrated model / deleted eval) FAILS — unit-tested. Live: all 4 `-m eval` cases pass with the real model + MCP (49.9s).
 
 ### P2 backlog (carried from the P1 review)
 - [ ] **Conversation threading**: `/conversations/{id}/message` accepts the key but each turn is stateless — persist turns (the `conversations`/`messages` tables exist) and thread recent context back in, so Slack follow-ups remember the thread.

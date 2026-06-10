@@ -1,0 +1,15 @@
+{
+  "description": "Golden holdout predictions for the calibration eval (M2.4). Fixed forever; a model-pipeline change that scores worse against these is a regression.",
+  "pairs": [
+    {"prob": 0.8, "outcome": 1},
+    {"prob": 0.75, "outcome": 1},
+    {"prob": 0.7, "outcome": 1},
+    {"prob": 0.65, "outcome": 0},
+    {"prob": 0.6, "outcome": 1},
+    {"prob": 0.55, "outcome": 0},
+    {"prob": 0.45, "outcome": 0},
+    {"prob": 0.4, "outcome": 0},
+    {"prob": 0.3, "outcome": 0},
+    {"prob": 0.25, "outcome": 1}
+  ]
+}

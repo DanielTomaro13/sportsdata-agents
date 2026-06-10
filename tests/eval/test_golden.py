@@ -62,3 +62,56 @@ async def test_golden_odds_math_exact() -> None:
     assert res.stop_reason == "done", f"stopped early: {res.stop_reason}"
     assert "40" in res.output or "0.4" in res.output, f"wrong math: {res.output[:200]}"
     assert res.verified is True, f"grounding did not verify: {res.output[:200]}"
+
+
+# ── M2.4: routing efficiency + quant answer accuracy (live, scheduled) ───
+
+
+async def test_routing_efficiency_stats_question_goes_to_stats() -> None:
+    """Routing eval: a stats question must be delegated to a stats-capable
+    specialist, not answered from the orchestrator's imagination (it has no data
+    tools, so a non-delegated answer is either a refusal or a fabrication)."""
+
+    class RouteRecorder:
+        def __init__(self) -> None:
+            self.agents: list[str] = []
+
+        async def on_run_start(self, **kw: object) -> None:
+            self.agents.append(str(kw.get("agent")))
+
+        async def on_tool_call(self, **kw: object) -> None: ...
+
+        async def on_run_end(self, **kw: object) -> None: ...
+
+    recorder = RouteRecorder()
+    specs = load_builtin_specs()
+    async with open_team(
+        specs, "orchestrator", provider=ModelGateway(), workspace=_ws(),
+        mcp_command=[str(MCP_BIN)], recorder=recorder,
+    ) as team:
+        res = await team.run("How many home runs has Aaron Judge hit this MLB season?")
+
+    assert res.stop_reason == "done", f"stopped early: {res.stop_reason}"
+    delegated = [a for a in recorder.agents if a != "orchestrator"]
+    assert delegated, "no delegation happened — the orchestrator answered a data question alone"
+    assert any(a in ("stats_specialist", "data_analysis") for a in delegated), (
+        f"routed to {delegated} instead of a stats-capable specialist"
+    )
+
+
+async def test_value_finder_agent_math_grounded() -> None:
+    """Quant answer accuracy: value_scout must run value_finder and quote ITS edge
+    numbers (deterministic math), grounding-verified."""
+    specs = load_builtin_specs()
+    async with AgentRuntime(
+        specs["value_scout"], provider=ModelGateway(), workspace=_ws(), mcp_command=[str(MCP_BIN)]
+    ) as rt:
+        res = await rt.run(
+            "Market: home 1.85, away 2.05 (the full market). My calibrated model says "
+            "home 0.58, away 0.42. Which selections are value at a 2% edge threshold?"
+        )
+
+    assert res.stop_reason == "done", f"stopped early: {res.stop_reason}"
+    assert "home" in res.output.lower(), f"missed the +EV selection: {res.output[:200]}"
+    assert "7.3" in res.output, f"edge % not quoted from value_finder: {res.output[:200]}"
+    assert res.verified is True, "quant numbers failed grounding"

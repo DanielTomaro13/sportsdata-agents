@@ -1,0 +1,40 @@
+name: Evals
+
+# M2.4 (§16.3): scheduled quality gate. The offline suite is deterministic (no model
+# key) and fails the run on any regression vs the committed baseline. The pytest -m
+# eval cases (live LLM judging: routing efficiency, answer accuracy) run only when a
+# model key secret is configured — absent key = honest skip, not a green lie.
+
+on:
+  schedule:
+    - cron: "0 18 * * 1" # Mondays 18:00 UTC
+  workflow_dispatch:
+
+jobs:
+  offline-evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Offline eval suite (gates on baseline)
+        run: agents eval
+
+      - name: Live evals (only when a model key is configured)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            pytest -m eval -q
+          else
+            echo "no model key secret — live evals skipped (offline gate above still ran)"
+          fi

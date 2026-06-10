@@ -326,3 +326,46 @@ def movement(
         console.print(table)
 
     asyncio.run(_run())
+
+
+@app.command(name="eval")
+def eval_cmd(
+    baseline: str | None = typer.Option(None, "--baseline", help="Baseline JSON (default: the committed one)."),
+    write_baseline: bool = typer.Option(False, "--write-baseline", help="Overwrite the baseline with these scores."),
+) -> None:
+    """Run the offline eval suite (M2.4) and gate against the baseline.
+
+    Deterministic — no model key, no network. Exit 1 on any regression, so CI can
+    answer "did this change make the platform worse?" on every scheduled run.
+    """
+    import asyncio
+    import json
+    from pathlib import Path
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from sportsdata_agents.evals import gate_against_baseline, load_baseline, run_offline_evals
+    from sportsdata_agents.evals.runner import DEFAULT_BASELINE
+
+    console = Console()
+    scores = asyncio.run(run_offline_evals())
+
+    table = Table(title="offline evals (higher is better)")
+    for col in ("eval", "score", "details"):
+        table.add_column(col)
+    for s in scores:
+        table.add_row(s.name, f"{s.score:.4f}", json.dumps(s.details))
+    console.print(table)
+
+    baseline_path = Path(baseline) if baseline else DEFAULT_BASELINE
+    if write_baseline:
+        baseline_path.write_text(json.dumps({s.name: s.score for s in scores}, indent=2) + "\n")
+        console.print(f"[green]baseline written:[/green] {baseline_path}")
+        return
+    problems = gate_against_baseline(scores, load_baseline(baseline_path))
+    for p in problems:
+        console.print(f"[red]regression:[/red] {p}")
+    if problems:
+        raise typer.Exit(1)
+    console.print("[green]✓ no regressions against baseline[/green]")
