@@ -256,6 +256,11 @@ def ingest(
              "crossed in the last N seconds (invoke every N seconds from cron).",
     ),
     prune_days: int | None = typer.Option(None, "--prune", help="Also prune snapshots older than N days."),
+    pace: int | None = typer.Option(
+        None, "--pace",
+        help="Event-proximity floor in seconds: feeds re-capture at least this often "
+             "(only ever SPEEDS a feed up; the scheduler sets it as matches approach).",
+    ),
 ) -> None:
     """Capture odds into the history warehouse (M2.1). Deterministic — no LLM.
 
@@ -292,6 +297,11 @@ def ingest(
     if skip:
         feeds = [f for f in feeds if f.name not in skip]
         console.print(f"[dim]skipping ops-disabled feeds: {', '.join(sorted(skip))}[/dim]")
+    if pace is not None and feed is None:
+        from dataclasses import replace as _replace
+
+        feeds = [_replace(f, interval_s=min(f.interval_s, pace)) for f in feeds]
+        console.print(f"[dim]proximity pace: feeds floored to {pace}s[/dim]")
     if cron_period is not None:
         import time as _time
 
@@ -594,6 +604,65 @@ def monitor(
             await engine.dispose()
 
     asyncio.run(_run())
+
+
+@app.command()
+def schedule(
+    cron_period: int = typer.Option(60, "--cron", help="Tick window in seconds (cron this every N seconds)."),
+    show_status: bool = typer.Option(False, "--status", help="Show per-job state and exit."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print what this tick WOULD run and exit."),
+) -> None:
+    """The conductor: one cron line drives every scheduled job (ingest with
+    event-proximity pacing, monitor, nightly settle, weekly ops) and hands
+    persistent failures to the incident_triage error agent. Deterministic."""
+    import asyncio
+    import datetime as _dt
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.operations.scheduler import (
+        due_jobs,
+        pace_for,
+        render_json,
+        run_tick,
+        seconds_to_nearest_start,
+        status,
+    )
+
+    console = Console()
+    if show_status:
+        console.print(render_json(status()))
+        return
+
+    async def _pace() -> int | None:
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+
+        engine = make_engine(get_settings().database_url)
+        try:
+            return pace_for(await seconds_to_nearest_start(make_sessionmaker(engine)))
+        except Exception:  # pacing is an optimisation — a DB hiccup must not stop the tick
+            return None
+        finally:
+            await engine.dispose()
+
+    now = _dt.datetime.now()
+    pace = asyncio.run(_pace())
+    if dry_run:
+        names = [j.name for j in due_jobs(now, float(cron_period))]
+        console.print(f"would run: {', '.join(names) or '(nothing due)'}  pace={pace}")
+        return
+    report = run_tick(now=now, period_s=float(cron_period), pace=pace)
+    console.print(
+        f"✓ tick: ran={report.ran or '[]'} failed={report.failed or '[]'} "
+        f"locked={report.skipped_locked or '[]'} pace={report.pace}"
+        + (" health!" if report.health_triggered else "")
+        + (f" triage!{report.triage_triggered}" if report.triage_triggered else "")
+    )
 
 
 @app.command()

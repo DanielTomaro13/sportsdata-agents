@@ -94,6 +94,11 @@ def arbs_for_fixture(
     # canonicalize, split into per-line boards
     boards: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in rows:
+        try:
+            if float(row["odds"]) < 1.01:  # junk/placeholder quotes never arb
+                continue
+        except (TypeError, ValueError):
+            continue
         outcome = _canonical_outcome(str(row["selection"]), str(row["event_name"]), fixture_name)
         if outcome is None:
             continue
@@ -199,12 +204,26 @@ async def scan_arbs(
             by_fixture.setdefault(m.fixture_id, []).append(m)
     candidates = {
         fid: ms
-        for fid, ms in list(by_fixture.items())
+        for fid, ms in by_fixture.items()
         if len({m.provider for m in ms}) >= 2
     }
-    candidates = dict(list(candidates.items())[:max_fixtures])
     if not candidates:
         return []
+    fixtures = {
+        f.id: f
+        for f in (
+            await session.execute(select(Fixture).where(Fixture.id.in_(list(candidates))))
+        ).scalars().all()
+    }
+    if len(candidates) > max_fixtures:
+        # deterministic cap BEFORE the bulk queries: soonest-starting boards are
+        # the actionable ones (an arbitrary dict-order cut also drifts run-to-run)
+        def _start_key(fid: uuid.UUID) -> str:
+            fx = fixtures.get(fid)
+            return fx.start_time.isoformat() if fx is not None and fx.start_time else "9999"
+
+        keep = sorted(candidates, key=_start_key)[:max_fixtures]
+        candidates = {fid: candidates[fid] for fid in keep}
     pair_to_fixture = {
         (m.provider, m.external_id): fid for fid, ms in candidates.items() for m in ms
     }
@@ -217,12 +236,16 @@ async def scan_arbs(
     # written every capture (prices only on change), so a row inside the window
     # proves the book still lists the selection — change-points can be stale for
     # delisted markets and would manufacture monster "arbs"
-    latest: dict[tuple[str, str, str, str], OddsSnapshot] = {}
+    latest: dict[tuple[str, str, str, str], tuple[str, float]] = {}
     names: dict[tuple[str, str], str] = {}
     for chunk in _chunks(external_ids):
         snap_rows = (
             await session.execute(
-                select(OddsSnapshot)
+                select(
+                    OddsSnapshot.provider, OddsSnapshot.book,
+                    OddsSnapshot.event_external_id, OddsSnapshot.selection,
+                    OddsSnapshot.market, OddsSnapshot.odds, OddsSnapshot.event_name,
+                )
                 .where(
                     OddsSnapshot.event_external_id.in_(chunk),
                     OddsSnapshot.captured_at >= cutoff,
@@ -230,26 +253,20 @@ async def scan_arbs(
                 )
                 .order_by(OddsSnapshot.captured_at)
             )
-        ).scalars().all()
-        for snap in snap_rows:  # ascending — last write per key wins
-            if (snap.provider, snap.event_external_id) in pair_to_fixture:
-                latest[(snap.provider, snap.book, snap.event_external_id, snap.selection)] = snap
-                names[(snap.provider, snap.event_external_id)] = str(snap.event_name or "")
-
-    fixtures = {
-        f.id: f
-        for f in (
-            await session.execute(select(Fixture).where(Fixture.id.in_(list(candidates))))
-        ).scalars().all()
-    }
+        ).all()
+        for provider, book, external_id, selection, market, odds, event_name in snap_rows:
+            # ascending — last write per key wins
+            if (provider, external_id) in pair_to_fixture:
+                latest[(provider, book, external_id, selection)] = (market, float(odds))
+                names[(provider, external_id)] = str(event_name or "")
 
     grouped: dict[tuple[uuid.UUID, str], list[dict[str, Any]]] = {}
-    for p in latest.values():
-        fixture_id = pair_to_fixture[(p.provider, p.event_external_id)]
-        grouped.setdefault((fixture_id, p.market), []).append({
-            "provider": p.provider, "book": p.book, "selection": p.selection,
-            "odds": float(p.odds),
-            "event_name": names.get((p.provider, p.event_external_id), ""),
+    for (provider, book, external_id, selection), (market, odds) in latest.items():
+        fixture_id = pair_to_fixture[(provider, external_id)]
+        grouped.setdefault((fixture_id, market), []).append({
+            "provider": provider, "book": book, "selection": selection,
+            "odds": odds,
+            "event_name": names.get((provider, external_id), ""),
         })
 
     found: list[dict[str, Any]] = []

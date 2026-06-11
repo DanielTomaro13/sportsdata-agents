@@ -26,10 +26,10 @@ def arbitrage_tools(session_factory: async_sessionmaker[AsyncSession]) -> list[T
         markets = args.get("markets") or list(DEFAULT_MARKETS)
         return await find_arbs(
             session_factory,
-            hours=float(args.get("hours", 6.0)),
-            threshold_pct=float(args.get("threshold_pct", 1.0)),
+            hours=max(float(args.get("hours", 6.0)), 0.1),
+            threshold_pct=max(float(args.get("threshold_pct", 1.0)), 0.0),
             markets=tuple(str(m) for m in markets),
-            limit=min(int(args.get("limit", 20)), 50),
+            limit=max(min(int(args.get("limit", 20)), 50), 1),
         )
 
     return [
