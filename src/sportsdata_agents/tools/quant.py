@@ -162,27 +162,36 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         )
 
     async def record_result(args: dict[str, Any]) -> Any:
-        """{event_external_id, winning_selection, sport?, provider?} → journal a final
-        result into the GLOBAL results table (what backtests settle against).
-        Upserts: re-recording an event corrects the result, never duplicates it."""
+        """{event_external_id, winning_selection, sport?, provider?, event_name?} →
+        journal a final result into the GLOBAL results table (what backtests settle
+        against). Upserts per (provider, event id). For home/away winners, pass
+        event_name ("X v Y" as that book lists it) so cross-book settlement can
+        translate the side into other books' listing orders."""
         event_id = str(args["event_external_id"])
+        provider = str(args.get("provider", ""))
         async with session_factory() as session:
             existing = (
-                (await session.execute(select(EventResult).where(EventResult.event_external_id == event_id)))
+                (await session.execute(select(EventResult).where(
+                    EventResult.event_external_id == event_id,
+                    EventResult.provider == provider,
+                )))
                 .scalars()
                 .first()
             )
             if existing is not None:
                 existing.winning_selection = str(args["winning_selection"])
                 existing.settled_at = dt.datetime.now(dt.UTC)
+                if args.get("event_name"):
+                    existing.meta = {**(existing.meta or {}), "event_name": str(args["event_name"])}
             else:
                 session.add(
                     EventResult(
-                        provider=str(args.get("provider", "")),
+                        provider=provider,
                         sport=str(args.get("sport", "")),
                         event_external_id=event_id,
                         winning_selection=str(args["winning_selection"]),
                         settled_at=dt.datetime.now(dt.UTC),
+                        meta={"event_name": str(args["event_name"])} if args.get("event_name") else {},
                     )
                 )
             await session.commit()
@@ -271,6 +280,9 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 "winning_selection": {"type": "string"},
                 "sport": {"type": "string"},
                 "provider": {"type": "string"},
+                "event_name": {"type": "string",
+                               "description": '"X v Y" as the recording book lists it '
+                                              "(lets home/away results settle other books)"},
             },
             ["event_external_id", "winning_selection"],
         ),

@@ -472,3 +472,27 @@ async def test_clv_book_benchmarks_against_sharp_close(
     assert sharp["clv_benchmarked_bets"] == 1
     assert sharp["per_bet"][0]["closing_odds"] == 1.60  # entered 2.00 vs sharp close 1.60
     assert sharp["per_bet"][0]["clv_pct"] == 25.0
+
+
+async def test_result_ids_never_collide_across_providers(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Five result providers share one numeric id namespace: upserts key on
+    (provider, id) so neither overwrites the other, and the backtest's direct
+    ext-only lookup refuses a collided id (falls to the fixture join)."""
+    from sportsdata_agents.operations.ingestion.results import record_results
+    from sportsdata_agents.quant.backtest import _settlement_maps
+
+    await record_results(db_sessionmaker, [
+        {"provider": "espn", "sport": "basketball", "event_external_id": "400123",
+         "winning_selection": "home"},
+        {"provider": "pointsbet_racing", "sport": "racing", "event_external_id": "400123",
+         "winning_selection": "7"},
+    ])
+    async with db_sessionmaker() as s:
+        rows = (await s.execute(select(EventResult))).scalars().all()
+        assert len(rows) == 2  # both survive — no overwrite
+        maps = await _settlement_maps(s)
+    assert maps.result_by_pe[("espn", "400123")].winning_selection == "home"
+    assert maps.result_by_pe[("pointsbet_racing", "400123")].winning_selection == "7"
+    assert maps.result_by_ext["400123"] is None  # collided -> direct lookup refuses

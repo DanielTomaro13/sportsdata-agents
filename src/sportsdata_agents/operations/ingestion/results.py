@@ -27,13 +27,18 @@ async def record_results(
     session_factory: async_sessionmaker[AsyncSession], results: list[dict[str, Any]]
 ) -> int:
     """Upsert winners: [{provider, sport, event_external_id, winning_selection,
-    start_time?, meta?}] — re-recording corrects, never duplicates."""
+    start_time?, meta?}] — re-recording corrects, never duplicates. Keyed on
+    (provider, event id): five providers share one numeric id namespace, and a
+    cross-provider collision must never overwrite someone else's result."""
     written = 0
     async with session_factory() as session:
         for row in results:
             event_id = str(row["event_external_id"])
             existing = (
-                (await session.execute(select(EventResult).where(EventResult.event_external_id == event_id)))
+                (await session.execute(select(EventResult).where(
+                    EventResult.event_external_id == event_id,
+                    EventResult.provider == str(row.get("provider", "")),
+                )))
                 .scalars()
                 .first()
             )
@@ -146,29 +151,38 @@ async def _nba_results(manager: Any) -> list[dict[str, Any]]:
 
 
 async def _afl_results(manager: Any, *, days_back: int = 8) -> list[dict[str, Any]]:
-    """afl_matches_list over a trailing window; CONCLUDED matches carry totalScore."""
+    """afl_matches_list over a trailing window, ALL pages — a busy week (AFL +
+    AFLW + state/junior comps) overflows one page of 50; CONCLUDED matches carry
+    totalScore."""
     now = dt.datetime.now(dt.UTC)
-    page = await manager.call_tool("afl_matches_list", {
-        "startDate": (now - dt.timedelta(days=days_back)).date().isoformat(),
-        "endDate": now.date().isoformat(),
-        "pageSize": 50,
-    })
     rows: list[dict[str, Any]] = []
-    for match in page.get("matches") or []:
-        if match.get("status") != "CONCLUDED":
-            continue
-        home, away = match.get("home") or {}, match.get("away") or {}
-        row = _result_row(
-            provider="afl_api", sport="australian_rules",
-            external_id=str(match.get("providerId") or match.get("id") or ""),
-            home=str((home.get("team") or {}).get("name") or ""),
-            away=str((away.get("team") or {}).get("name") or ""),
-            home_score=(home.get("score") or {}).get("totalScore"),
-            away_score=(away.get("score") or {}).get("totalScore"),
-            start=match.get("utcStartTime"),
-        )
-        if row:
-            rows.append(row)
+    page_no = 0
+    while True:
+        page = await manager.call_tool("afl_matches_list", {
+            "startDate": (now - dt.timedelta(days=days_back)).date().isoformat(),
+            "endDate": now.date().isoformat(),
+            "pageSize": 50,
+            "page": page_no,
+        })
+        for match in page.get("matches") or []:
+            if match.get("status") != "CONCLUDED":
+                continue
+            home, away = match.get("home") or {}, match.get("away") or {}
+            row = _result_row(
+                provider="afl_api", sport="australian_rules",
+                external_id=str(match.get("providerId") or match.get("id") or ""),
+                home=str((home.get("team") or {}).get("name") or ""),
+                away=str((away.get("team") or {}).get("name") or ""),
+                home_score=(home.get("score") or {}).get("totalScore"),
+                away_score=(away.get("score") or {}).get("totalScore"),
+                start=match.get("utcStartTime"),
+            )
+            if row:
+                rows.append(row)
+        num_pages = int((((page.get("meta") or {}).get("pagination")) or {}).get("numPages") or 1)
+        page_no += 1
+        if page_no >= num_pages or page_no >= 6:  # safety cap
+            break
     return rows
 
 

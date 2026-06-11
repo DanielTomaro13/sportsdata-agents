@@ -36,7 +36,8 @@ _SIDE_WINNERS = ("home", "away", "draw")
 class _Maps(NamedTuple):
     fixture_by_pe: dict[tuple[str, str], uuid.UUID | None]
     fixture_by_ext: dict[str, uuid.UUID | None]
-    result_by_ext: dict[str, EventResult]
+    result_by_pe: dict[tuple[str, str], EventResult]
+    result_by_ext: dict[str, EventResult | None]  # None = ext id collides across providers
     result_by_fixture: dict[uuid.UUID, EventResult]
     events_by_fixture: dict[uuid.UUID, list[tuple[str, str]]]
 
@@ -59,16 +60,25 @@ async def _settlement_maps(session: AsyncSession) -> _Maps:
             select(EventResult).order_by(EventResult.settled_at.asc().nulls_first())
         )
     ).scalars().all()
-    result_by_ext: dict[str, EventResult] = {}
+    result_by_pe: dict[tuple[str, str], EventResult] = {}
+    result_by_ext: dict[str, EventResult | None] = {}
     result_by_fixture: dict[uuid.UUID, EventResult] = {}
     for res in results:  # ascending order: the newest settlement overwrites
-        result_by_ext[res.event_external_id] = res
+        result_by_pe[(res.provider, res.event_external_id)] = res
+        # ext-only is a fallback for agent-recorded results (provider "") — five
+        # providers share one numeric id namespace, so a cross-provider collision
+        # poisons the ext key and settlement falls through to the fixture join
+        known = result_by_ext.get(res.event_external_id, res)
+        result_by_ext[res.event_external_id] = (
+            res if known is not None and known.provider == res.provider else None
+        )
         fixture = fixture_by_pe.get((res.provider, res.event_external_id)) or fixture_by_ext.get(
             res.event_external_id
         )
         if fixture is not None:
             result_by_fixture[fixture] = res
-    return _Maps(fixture_by_pe, fixture_by_ext, result_by_ext, result_by_fixture, events_by_fixture)
+    return _Maps(fixture_by_pe, fixture_by_ext, result_by_pe, result_by_ext,
+                 result_by_fixture, events_by_fixture)
 
 
 async def _event_name_for(
@@ -199,7 +209,9 @@ async def run_backtest(
                 skipped["no_price"] += 1
                 continue
             winner: str | None = None
-            result = result_by_ext.get(pred.event_external_id)
+            result = maps.result_by_pe.get(
+                (pred.provider, pred.event_external_id)
+            ) or result_by_ext.get(pred.event_external_id)
             if result is not None:  # direct hit: same event id, same book frame
                 winner = result.winning_selection
             else:  # settle through the shared fixture (result came from another book)
