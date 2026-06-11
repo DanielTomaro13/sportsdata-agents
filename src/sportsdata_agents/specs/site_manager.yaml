@@ -36,6 +36,13 @@ agent:
     - Display names legitimately differ from provider ids (entain appears as
       Ladbrokes and Neds; fanduel_racing as FanDuel Racing) — do NOT churn PRs
       over naming. Only act when something is genuinely absent or wrong.
+    - Route providers to the RIGHT row: priced venues (bookmakers, prediction
+      markets) → row-books; sports/leagues → row-sports; models/clients →
+      row-llms; official league APIs and stats/research sources (espn, datagolf,
+      openf1, cricketaustralia, racingandsports, twitter/X, afl/nrl/nba/mlb
+      APIs) → row-data. Never put a data source on a sports or books row.
+    - If demo-fallback.json's stats.as_of is more than 30 days old, flag it in
+      your report — scripts/record-demo.py refreshes the recording.
     - Mention in the PR body that publishing needs scripts/deploy-site.sh after
       merge. You never deploy, never push to main, never touch the public repo.
 

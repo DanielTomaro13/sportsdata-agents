@@ -956,6 +956,12 @@ def _prob_to_odds(value: Any) -> float | None:
 _KALSHI_MATCHUP = re.compile(
     r"(?:^|:\s)\s*([A-Za-z0-9 .,'&()-]+?)\s+(?:at|vs\.?|v)\s+([A-Za-z0-9 .,'&()-]+?)\s*(?=[:?(]|$)"
 )
+# a *GAME series ticker names its league (KXNBAGAME) — the sport family the
+# resolver buckets by; the generic "Sports" category never matches any book
+_KALSHI_GAME_SERIES = re.compile(r"^KX([A-Z0-9]+?)GAME$")
+# qualifier words that ride a side when the title has no colon before them
+# ("Pacers at Thunder Winner?") — they would block fixture token matching
+_KALSHI_QUALIFIER_TAIL = re.compile(r"\s+(?:winner|to win|game \d+)\s*$", re.IGNORECASE)
 
 
 def _kalshi_event_name(title: str) -> str:
@@ -965,7 +971,9 @@ def _kalshi_event_name(title: str) -> str:
     m = _KALSHI_MATCHUP.search(title)
     if not m:
         return title
-    return f"{m.group(1).strip()} vs {m.group(2).strip()}"
+    a = _KALSHI_QUALIFIER_TAIL.sub("", m.group(1).strip())
+    b = _KALSHI_QUALIFIER_TAIL.sub("", m.group(2).strip())
+    return f"{a} vs {b}"
 
 
 def _kalshi_prob(market: dict[str, Any], side: str) -> Any:
@@ -998,7 +1006,11 @@ def normalize_kalshi_all(payload: Any) -> list[PricePoint]:
             event_name = _kalshi_event_name(str(event.get("title") or ""))
             if not event_ticker:
                 continue
-            sport = canonical_sport(str(event.get("category") or "prediction"))
+            series_ticker = str(event.get("series_ticker") or "")
+            game = _KALSHI_GAME_SERIES.match(series_ticker)
+            sport = canonical_sport(
+                game.group(1) if game else str(event.get("category") or "prediction")
+            )
             # the SERIES ticker is the stable product line ("KXNBAGAME") — one
             # steward alias maps a whole series onto a family; event titles would
             # mint a unique market name per event and flood the dictionary queue

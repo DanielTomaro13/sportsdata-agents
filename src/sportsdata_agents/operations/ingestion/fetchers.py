@@ -889,7 +889,8 @@ async def fetch_unibet_racing_futures(manager: Any) -> dict[str, Any]:
 # ─── prediction markets (Kalshi / Polymarket) ──────────────────────────────
 
 KALSHI_PAGES_PER_CYCLE = 10  # cursor pages of open events (nested markets ride along)
-KALSHI_SPORTS_SERIES_PER_CYCLE = 25  # rotating window over the Sports series catalogue
+KALSHI_SPORTS_SERIES_PER_CYCLE = 25  # long-tail Sports series rotation (~14h sweep)
+KALSHI_GAME_SERIES_PER_CYCLE = 60  # *GAME product lines revisit fast (~45min) — game lines move
 POLYMARKET_PAGES_PER_CYCLE = 10  # offset pages, volume-ordered (the liquid board first)
 
 
@@ -921,7 +922,15 @@ async def fetch_kalshi_all(manager: Any) -> dict[str, Any]:
     except Exception as e:
         logger.warning("kalshi sports series list failed: %s", e)
         tickers = []
-    for ticker in _take_rotating("kalshi_sports_series", tickers, KALSHI_SPORTS_SERIES_PER_CYCLE):
+    # two tiers by Kalshi's own product naming: *GAME series are the per-game
+    # winner lines (the exchange-vs-book signal) and rotate fast; everything
+    # else (futures, awards, novelty) rides the long tail. The `frequency`
+    # field is no help — GAME series are almost all "custom" (probed live).
+    game = [t for t in tickers if t.endswith("GAME")]
+    tail = [t for t in tickers if not t.endswith("GAME")]
+    window = (_take_rotating("kalshi_game_series", game, KALSHI_GAME_SERIES_PER_CYCLE)
+              + _take_rotating("kalshi_sports_series", tail, KALSHI_SPORTS_SERIES_PER_CYCLE))
+    for ticker in window:
         try:
             payload = await manager.call_tool("kalshi_events", {
                 "limit": 200, "status": "open", "with_nested_markets": True,

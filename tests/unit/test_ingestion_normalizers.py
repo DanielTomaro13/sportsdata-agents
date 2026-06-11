@@ -958,7 +958,8 @@ def test_normalize_kalshi_events() -> None:
     # YES and NO per open contract; the settled one stays out
     assert set(by_sel) == {"thunder", "no thunder", "pacers", "no pacers"}
     thunder = by_sel["thunder"]
-    assert (thunder.provider, thunder.book, thunder.sport) == ("kalshi", "Kalshi", "sports")
+    # the GAME series ticker names the league -> the cross-book sport family
+    assert (thunder.provider, thunder.book, thunder.sport) == ("kalshi", "Kalshi", "basketball")
     assert thunder.event_external_id == "KXNBAGAME-26JUN11OKCIND"
     # the title's "X vs Y" core becomes the event name (resolver-splittable);
     # the trailing ": Game 4 Winner?" qualifier is stripped
@@ -980,6 +981,7 @@ def test_kalshi_event_name_extracts_the_matchup() -> None:
     assert _kalshi_event_name("Game 5: New York at San Antonio") == "New York vs San Antonio"
     assert _kalshi_event_name("Thunder vs Pacers: Game 4 Winner?") == "Thunder vs Pacers"
     assert _kalshi_event_name("Liverpool v Everton") == "Liverpool vs Everton"
+    assert _kalshi_event_name("Pacers at Thunder Winner?") == "Pacers vs Thunder"
     # non-matchup titles pass through untouched — never mangled
     assert _kalshi_event_name("Matthew Stafford: Retirement") == "Matthew Stafford: Retirement"
     assert _kalshi_event_name("New York J: To Break Playoff Drought") == (
