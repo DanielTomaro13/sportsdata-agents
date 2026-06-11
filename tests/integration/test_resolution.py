@@ -498,3 +498,22 @@ async def test_result_ids_never_collide_across_providers(
     assert maps.result_by_pe[("espn", "400123")].winning_selection == "home"
     assert maps.result_by_pe[("pointsbet_racing", "400123")].winning_selection == "7"
     assert maps.result_by_ext["400123"] is None  # collided -> direct lookup refuses
+
+
+def test_variant_teams_never_merge() -> None:
+    """A women's / age-grade variant is a DIFFERENT team: the subset rule alone
+    can't tell "Blues Women" from "Blues" (both ride the longer name, like
+    nicknames do) — found live when a Super Rugby Women's match fixture-merged
+    with the men's game and manufactured a 74% "arb"."""
+    from sportsdata_agents.operations.resolution.resolver import _side_ok, _tokens
+
+    assert not _side_ok(_tokens("Blues"), _tokens("Blues Women"))
+    assert not _side_ok(_tokens("Hurricanes"), _tokens("Hurricanes Women"))
+    assert not _side_ok(_tokens("Australia"), _tokens("Australia U20"))
+    assert not _side_ok(_tokens("Arsenal"), _tokens("Arsenal Reserves"))
+    # both carrying the marker is the SAME (women's) team — still merges
+    assert _side_ok(_tokens("Blues Women"), _tokens("Blues Women"))
+    assert _side_ok(_tokens("Australia U20"), _tokens("Australia U20"))
+    # nicknames and abbreviations still merge (the rule this guard must not break)
+    assert _side_ok(_tokens("Adelaide"), _tokens("Adelaide Crows"))
+    assert _side_ok(_tokens("Wst Bulldogs"), _tokens("Western Bulldogs"))

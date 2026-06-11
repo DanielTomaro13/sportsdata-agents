@@ -476,3 +476,96 @@ async def test_digest_watch_batches_pushes(
     # within the digest window: nothing new pushes
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2 + dt.timedelta(hours=1))
     assert len(pushed) == 1
+
+
+async def test_arb_watch_fires_on_cross_book_board(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """An arb watch detects a complete two-way board priced under 1 across two
+    books (orientation-flipped), pushes one alert with the stake split, and
+    dedupes the same board next cycle."""
+    from sportsdata_agents.data.models import Alert, Subscription
+    from sportsdata_agents.operations.ingestion.normalizers import PricePoint
+    from sportsdata_agents.operations.monitoring import run_watches
+    from sportsdata_agents.operations.resolution import resolve_events
+
+    start = {"start_time": "2026-06-10T09:30:00Z"}
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl", event_external_id="SB9",
+                   event_name="Western Bulldogs v Adelaide Crows", market="h2h",
+                   selection="home", odds=2.10, meta=start),
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl", event_external_id="SB9",
+                   event_name="Western Bulldogs v Adelaide Crows", market="h2h",
+                   selection="away", odds=1.70, meta=start),
+        # TAB lists the teams reversed: its "home" is the fixture's away
+        PricePoint(provider="tab", book="TAB", sport="afl", event_external_id="T9",
+                   event_name="Adelaide v Wst Bulldogs", market="h2h",
+                   selection="home", odds=2.05, meta=start),
+        PricePoint(provider="tab", book="TAB", sport="afl", event_external_id="T9",
+                   event_name="Adelaide v Wst Bulldogs", market="h2h",
+                   selection="away", odds=1.75, meta=start),
+    ], captured_at=T0)
+    assert (await resolve_events(db_sessionmaker))["created"] == 1
+
+    pushed: list[str] = []
+
+    async def pusher(sub: Any, message: str) -> bool:
+        pushed.append(message)
+        return True
+
+    async with db_sessionmaker() as s:
+        # hours generous: the seeded captures sit at a fixed test instant
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="arbs", kind="arb",
+                           params={"threshold_pct": 1.0, "hours": 24 * 365 * 10},
+                           channel="log"))
+        await s.commit()
+
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    # best home 2.10 (Sportsbet) + best away 2.05 (TAB flipped) → 1/2.10+1/2.05 ≈ 0.964
+    assert report["alerts"] == 1 and len(pushed) == 1
+    assert "ARB" in pushed[0] and "Western Bulldogs v Adelaide Crows" in pushed[0]
+    assert "Sportsbet 2.10" in pushed[0] and "TAB 2.05" in pushed[0]
+    assert "verify every leg" in pushed[0]
+    async with db_sessionmaker() as s:
+        alert = (await s.execute(select(Alert))).scalar_one()
+        assert alert.kind == "arb" and alert.payload["margin_pct"] > 3
+
+    # same board, next cycle: deduped, no refire
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2 + dt.timedelta(minutes=5))
+    assert report["alerts"] == 0 and len(pushed) == 1
+
+
+async def test_arb_watch_skips_started_events(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """One pre-game leg + one in-play leg fakes a monster margin no one can take —
+    started fixtures never alert."""
+    from sportsdata_agents.data.models import Subscription
+    from sportsdata_agents.operations.ingestion.normalizers import PricePoint
+    from sportsdata_agents.operations.monitoring import run_watches
+    from sportsdata_agents.operations.resolution import resolve_events
+
+    start = {"start_time": "2026-06-10T08:00:00Z"}  # before `now` (T2 = 09:10)
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl", event_external_id="SB10",
+                   event_name="Geelong Cats v Hawthorn", market="h2h",
+                   selection="home", odds=9.0, meta=start),  # in-play crash
+        PricePoint(provider="tab", book="TAB", sport="afl", event_external_id="T10",
+                   event_name="Geelong Cats v Hawthorn", market="h2h",
+                   selection="away", odds=2.0, meta=start),  # pre-game capture
+    ], captured_at=T0)
+    assert (await resolve_events(db_sessionmaker))["created"] == 1
+
+    pushed: list[str] = []
+
+    async def pusher(sub: Any, message: str) -> bool:
+        pushed.append(message)
+        return True
+
+    async with db_sessionmaker() as s:
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="arbs", kind="arb",
+                           params={"threshold_pct": 1.0, "hours": 24 * 365 * 10},
+                           channel="log"))
+        await s.commit()
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    assert report["alerts"] == 0 and pushed == []

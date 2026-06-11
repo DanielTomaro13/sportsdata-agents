@@ -579,7 +579,8 @@ def monitor(
 
                 name, kind, threshold = [*watch.split(":"), "5"][:3]
                 params_key = {"line_move": "threshold_pct", "steam": "min_moves",
-                              "value": "min_edge_pct", "scratching": "stale_minutes"}[kind]
+                              "value": "min_edge_pct", "scratching": "stale_minutes",
+                              "arb": "threshold_pct"}[kind]
                 async with sf() as session:
                     session.add(Subscription(
                         tenant_id="local", workspace_id="local", name=name, kind=kind,

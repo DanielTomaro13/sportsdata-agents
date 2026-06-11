@@ -15,14 +15,14 @@ from sportsdata_agents.data.repository import TenantScope
 
 MONITOR_TOOL_NAMES = {"create_watch", "list_watches", "delete_watch", "list_alerts"}
 
-_KINDS = ("line_move", "steam", "value", "scratching")
+_KINDS = ("line_move", "steam", "value", "scratching", "arb")
 
 
 def monitoring_tools(
     session_factory: async_sessionmaker[AsyncSession], scope: TenantScope
 ) -> list[ToolDef]:
     async def create_watch(args: dict[str, Any]) -> Any:
-        """{name, kind: line_move|steam|value|scratching, params?, channel?} → a
+        """{name, kind: line_move|steam|value|scratching|arb, params?, channel?} → a
         standing watch the monitor engine evaluates each cycle. params per kind:
         line_move {threshold_pct, sport?, market?, selection?, book?}; steam
         {min_moves, ...same filters}; value {min_edge_pct}; scratching

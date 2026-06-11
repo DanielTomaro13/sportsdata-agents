@@ -209,6 +209,7 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
     tools: list[Any] = []
     inner = getattr(recorder, "inner", recorder)
     if isinstance(inner, DbRecorder):
+        from sportsdata_agents.tools.arbitrage import arbitrage_tools
         from sportsdata_agents.tools.dictionary import dictionary_tools
         from sportsdata_agents.tools.memory import memory_tools
         from sportsdata_agents.tools.monitoring import monitoring_tools
@@ -223,6 +224,7 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
             *dictionary_tools(inner.session_factory),
             *resolution_tools(inner.session_factory),
             *monitoring_tools(inner.session_factory, inner.scope),
+            *arbitrage_tools(inner.session_factory),
         ]
     if os.environ.get("SLACK_BOT_TOKEN"):
         from sportsdata_agents.tools.slack_admin import slack_admin_tools
