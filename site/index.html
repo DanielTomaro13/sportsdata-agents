@@ -86,23 +86,25 @@
   Informational only — not betting or financial advice.</footer>
 </main>
 <script>
-const GW = window.GATEWAY_URL || "http://127.0.0.1:8400";
+// null = PLAYBACK MODE (GitHub Pages, no gateway): baked counters, recorded
+// demo runs, lead form hidden. Set to a gateway URL to go live.
+const GW = ("GATEWAY_URL" in window) ? window.GATEWAY_URL : "http://127.0.0.1:8400";
 
 async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
 
 async function loadCounters() {
-  try {
-    const s = await j(`${GW}/demo/stats`);
-    for (const [k, id] of [["providers","c-providers"],["tools","c-tools"],["groups","c-groups"]])
-      document.getElementById(id).textContent = s[k];
-  } catch { /* counters stay em-dash when the gateway is offline */ }
+  let s = null;
+  if (GW) { try { s = await j(`${GW}/demo/stats`); } catch { /* fall through */ } }
+  if (!s) { try { s = (await j("demo-fallback.json")).stats; } catch { return; } }
+  for (const [k, id] of [["providers","c-providers"],["tools","c-tools"],["groups","c-groups"]])
+    document.getElementById(id).textContent = s[k];
 }
 
 async function loadPrompts() {
   const box = document.getElementById("prompts");
   let prompts;
-  try { prompts = (await j(`${GW}/demo/prompts`)).prompts; }
-  catch { prompts = (await j("demo-fallback.json")).prompts; }
+  if (GW) { try { prompts = (await j(`${GW}/demo/prompts`)).prompts; } catch {} }
+  if (!prompts) prompts = (await j("demo-fallback.json")).prompts;
   for (const p of prompts) {
     const b = document.createElement("button");
     b.textContent = p.title;
@@ -114,7 +116,8 @@ async function loadPrompts() {
 async function playFallback(id) {
   const data = await j("demo-fallback.json");
   const run = data.runs[id] || Object.values(data.runs)[0];
-  document.getElementById("demo-note").textContent = "gateway offline — recorded playback";
+  document.getElementById("demo-note").textContent = GW ? "gateway offline — recorded playback"
+                                                         : "recorded playback";
   await animate(run);
 }
 
@@ -136,6 +139,7 @@ async function runDemo(id) {
   const trace = document.getElementById("trace"), ans = document.getElementById("answer");
   document.getElementById("demo-note").textContent = "";
   trace.textContent = "running…"; ans.textContent = "";
+  if (!GW) { await playFallback(id); return; }
   try {
     const run = await j(`${GW}/demo/run`, {method:"POST", headers:{"Content-Type":"application/json"},
                                            body: JSON.stringify({prompt_id:id})});
@@ -148,6 +152,12 @@ async function runDemo(id) {
   }
 }
 
+if (!GW) {
+  const form = document.getElementById("lead-form");
+  form.style.display = "none";
+  document.getElementById("lead-note-out").textContent =
+    "Private beta — sign-ups open when the live demo does.";
+}
 document.getElementById("lead-form").onsubmit = async (ev) => {
   ev.preventDefault();
   const email = document.getElementById("lead-email").value;
