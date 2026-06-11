@@ -413,3 +413,66 @@ async def test_migrate_warehouse_roundtrip(
         await migrate_warehouse(source_url, target_url)
     report = await migrate_warehouse(source_url, target_url, allow_nonempty=True)
     assert report["odds_snapshots"] == 3
+
+
+async def test_feed_health_exact_provider_matching(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Audit fix: a dead tab_racing must NOT hide behind fresh `tab` sports
+    captures — staleness matches the feed's exact provider string."""
+    from sportsdata_agents.operations.ingestion import FEEDS
+    from sportsdata_agents.operations.ingestion.normalizers import PricePoint
+    from sportsdata_agents.tools.ops import ops_tools
+
+    assert all(f.provider for f in FEEDS.values())  # every feed declares one
+    now = dt.datetime.now(dt.UTC)
+    await record_points(db_sessionmaker, [  # tab SPORTS fresh, tab RACING old
+        PricePoint(provider="tab", book="TAB", sport="afl", event_external_id="T1",
+                   event_name="A v B", market="h2h", selection="home", odds=1.9),
+    ], captured_at=now)
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="tab_racing", book="TAB", sport="horse_racing",
+                   event_external_id="R1", event_name="X R1", market="win",
+                   selection="1", odds=3.0),
+    ], captured_at=now - dt.timedelta(hours=2))
+
+    tools = {t.name: t for t in ops_tools(db_sessionmaker)}
+    health = await tools["feed_health"].execute({"hours": 6})
+    stale_feeds = {s["feed"] for s in health["stale_feeds"]}
+    assert "tab_racing" in stale_feeds  # 2h silent > 3x180s — caught now
+    assert "tab_all" not in stale_feeds and "tab_books" not in stale_feeds
+
+
+async def test_digest_watch_batches_pushes(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A digest watch writes alert rows silently and pushes ONE summary when
+    digest_hours elapse."""
+    from sportsdata_agents.data.models import Alert, Subscription
+    from sportsdata_agents.operations.monitoring import run_watches
+
+    await record_points(db_sessionmaker, [_point(2.00), _point(3.00, "away")], captured_at=T0)
+    await record_points(db_sessionmaker, [_point(1.60), _point(4.00, "away")], captured_at=T1)
+
+    pushed: list[str] = []
+
+    async def pusher(sub: Any, message: str) -> bool:
+        pushed.append(message)
+        return True
+
+    async with db_sessionmaker() as s:
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="quiet",
+                           kind="line_move",
+                           params={"threshold_pct": 10, "digest_hours": 24}, channel="log"))
+        await s.commit()
+
+    # first pass: alerts recorded, the digest fires once with both, nothing per-alert
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    assert report["alerts"] == 2 and report.get("digests") == 1
+    assert len(pushed) == 1 and "digest — quiet: 2 alerts" in pushed[0]
+    async with db_sessionmaker() as s:
+        assert all(a.pushed for a in (await s.execute(select(Alert))).scalars())
+
+    # within the digest window: nothing new pushes
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2 + dt.timedelta(hours=1))
+    assert len(pushed) == 1

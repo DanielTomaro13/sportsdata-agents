@@ -79,6 +79,7 @@ class Feed:
     tool: str  # the MCP tool to call (label only when `fetch` is set)
     mcp_groups: tuple[str, ...]  # groups the subprocess must enable
     normalizer: Callable[[Any], list[PricePoint]]  # raw payload in — each guards its own shape
+    provider: str = ""  # the provider string this feed's points carry (feed_health matches EXACTLY)
     arguments: dict[str, Any] | None = None
     interval_s: int = 300  # per-provider cadence
     # Multi-call providers (Pinnacle, PointsBet, Betfair): a fetcher composes the
@@ -93,6 +94,7 @@ class Feed:
 FEEDS: dict[str, Feed] = {
     "sportsbet_all": Feed(
         name="sportsbet_all",
+        provider="sportsbet",
         tool="sportsbet_nav_hierarchy",  # label; discovery walks nav -> competitions
         mcp_groups=("sportsbet.sports",),
         normalizer=normalize_sportsbet_all,
@@ -101,6 +103,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "tab_all": Feed(
         name="tab_all",
+        provider="tab",
         tool="tab_sports",  # label; sports tree -> rotating competition pages
         mcp_groups=("tab.sports",),
         normalizer=normalize_tab_all,
@@ -109,6 +112,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "unibet_all": Feed(
         name="unibet_all",
+        provider="unibet",
         tool="unibet_kambi_call",  # label; group.json -> one listView per sport
         mcp_groups=("unibet.sport",),
         normalizer=normalize_unibet_all,
@@ -117,6 +121,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "entain_all": Feed(
         name="entain_all",
+        provider="entain",
         tool="entain_sport_event_request",  # label; discovered categories -> bulk calls
         mcp_groups=("entain.rest", "entain.graphql"),  # graphql: SportingCategories discovery
         normalizer=normalize_entain_all,
@@ -125,6 +130,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "pinnacle_all": Feed(
         name="pinnacle_all",
+        provider="pinnacle",
         tool="pinnacle_sport_matchups_all",  # label; all sports, soonest matchups detailed
         mcp_groups=("pinnacle.sports",),
         normalizer=partial(normalize_pinnacle_league, sport="?"),  # _sport rides each matchup
@@ -133,6 +139,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "pointsbet_all": Feed(
         name="pointsbet_all",
+        provider="pointsbet",
         tool="pointsbet_sports_list",  # label; full catalogue -> competition listings
         mcp_groups=("pointsbet.sports",),
         normalizer=partial(normalize_pointsbet_events, sport="?"),  # className labels each event
@@ -141,6 +148,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "betr_all": Feed(
         name="betr_all",
+        provider="betr",
         tool="betr_master_category",  # label; one category call per event type
         mcp_groups=("betr.sport",),
         normalizer=normalize_betr_all,
@@ -149,6 +157,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "fanduel_us": Feed(
         name="fanduel_us",
+        provider="fanduel",
         tool="fanduel_sb_call",  # label; sport pages -> event pages
         mcp_groups=("fanduel.sportsbook",),
         normalizer=partial(normalize_fanduel_pages, sport="?"),  # page id labels each page
@@ -157,6 +166,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "fanduel_racing_win": Feed(
         name="fanduel_racing_win",
+        provider="fanduel_racing",
         tool="fanduel_racing_call",  # label; featured races -> race cards
         mcp_groups=("fanduel.racing",),
         normalizer=normalize_fanduel_races,
@@ -169,6 +179,7 @@ FEEDS: dict[str, Feed] = {
     # for Sportsbet/TAB/Unibet, full-board rotation for Pinnacle/PointsBet.
     "sportsbet_books": Feed(
         name="sportsbet_books",
+        provider="sportsbet",
         tool="sportsbet_event_markets",
         mcp_groups=("sportsbet.sports",),
         normalizer=normalize_sportsbet_books,
@@ -177,6 +188,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "tab_books": Feed(
         name="tab_books",
+        provider="tab",
         tool="tab_match",
         mcp_groups=("tab.sports",),
         normalizer=normalize_tab_books,
@@ -185,6 +197,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "unibet_books": Feed(
         name="unibet_books",
+        provider="unibet",
         tool="unibet_kambi_call",
         mcp_groups=("unibet.sport",),
         normalizer=normalize_unibet_books,
@@ -193,6 +206,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "pinnacle_books": Feed(
         name="pinnacle_books",
+        provider="pinnacle",
         tool="pinnacle_matchup_markets",
         mcp_groups=("pinnacle.sports",),
         normalizer=partial(normalize_pinnacle_league, sport="?"),
@@ -201,6 +215,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "pointsbet_books": Feed(
         name="pointsbet_books",
+        provider="pointsbet",
         tool="pointsbet_event",
         mcp_groups=("pointsbet.sports",),
         normalizer=partial(normalize_pointsbet_events, sport="?"),
@@ -210,6 +225,7 @@ FEEDS: dict[str, Feed] = {
     # ── racing tier: next-to-jump cards across every book that races ───────
     "tab_racing": Feed(
         name="tab_racing",
+        provider="tab_racing",
         tool="tab_racing_race",
         mcp_groups=("tab.racing",),
         normalizer=normalize_tab_races,
@@ -218,6 +234,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "sportsbet_racing": Feed(
         name="sportsbet_racing",
+        provider="sportsbet_racing",
         tool="sportsbet_multiple_racecards",
         mcp_groups=("sportsbet.racing",),
         normalizer=normalize_sportsbet_races,
@@ -226,6 +243,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "betr_racing": Feed(
         name="betr_racing",
+        provider="betr_racing",
         tool="betr_race",
         mcp_groups=("betr.racing",),
         normalizer=normalize_betr_races,
@@ -234,6 +252,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "pointsbet_racing": Feed(
         name="pointsbet_racing",
+        provider="pointsbet_racing",
         tool="pointsbet_racing_race",
         mcp_groups=("pointsbet.racing",),
         normalizer=normalize_pointsbet_races,
@@ -242,6 +261,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "unibet_racing": Feed(
         name="unibet_racing",
+        provider="unibet_racing",
         tool="unibet_racing_call",
         mcp_groups=("unibet.racing",),
         normalizer=normalize_unibet_races,
@@ -252,6 +272,7 @@ FEEDS: dict[str, Feed] = {
     # Priced months out and slow-moving — full-book cadence, rotating windows.
     "tab_racing_futures": Feed(
         name="tab_racing_futures",
+        provider="tab_racing",
         tool="tab_racing_futures_race",
         mcp_groups=("tab.racing",),
         normalizer=normalize_tab_races,
@@ -260,6 +281,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "sportsbet_racing_futures": Feed(
         name="sportsbet_racing_futures",
+        provider="sportsbet",
         tool="sportsbet_event_markets",
         mcp_groups=("sportsbet.racing", "sportsbet.sports"),
         normalizer=normalize_sportsbet_books,  # same {events:[{markets}]} packaging
@@ -268,6 +290,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "pointsbet_racing_futures": Feed(
         name="pointsbet_racing_futures",
+        provider="pointsbet",
         tool="pointsbet_racing_futures",
         mcp_groups=("pointsbet.racing", "pointsbet.sports"),
         normalizer=partial(normalize_pointsbet_events, sport="?"),
@@ -276,6 +299,7 @@ FEEDS: dict[str, Feed] = {
     ),
     "unibet_racing_futures": Feed(
         name="unibet_racing_futures",
+        provider="unibet_racing",
         tool="unibet_racing_call",
         mcp_groups=("unibet.racing",),
         normalizer=normalize_unibet_races,

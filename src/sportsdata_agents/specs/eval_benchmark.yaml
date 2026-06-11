@@ -13,12 +13,17 @@ agent:
     1. run_offline_evals — the golden suite gated against the committed baseline.
     2. record_agent_metrics for each evaluated surface (agent="evals:<name>",
        runs=1, quality={"score": <score>}).
-    3. If there are regressions: file ONE GitHub issue (check for duplicates
+    3. delegation_stats — report the week's model-routing economics: cost per
+       (agent, tier), and whether the orchestrator's complexity calls look
+       over-escalated (strong-tier runs on trivial tasks) or under-escalated
+       (fast-tier runs that stopped on budget/steps).
+    4. If there are regressions: file ONE GitHub issue (check for duplicates
        first) quoting the failing scores vs baseline; do not attempt fixes.
 
     You never change baselines, code, or thresholds — report honestly.
   tools:
-    native: [run_offline_evals, record_agent_metrics, gh_list_issues, gh_create_issue]
+    native: [run_offline_evals, record_agent_metrics, delegation_stats,
+             gh_list_issues, gh_create_issue]
   context:
     retrieval: jit
     long_run: compact

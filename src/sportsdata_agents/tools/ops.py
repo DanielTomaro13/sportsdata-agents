@@ -36,7 +36,7 @@ OPS_TOOL_NAMES = {
     "gh_create_issue", "gh_list_issues", "gh_list_prs", "gh_pr_diff",
     "gh_review_pr", "list_repo_files", "read_repo_file", "propose_change",
     "run_doctor", "run_contract_suite", "feed_health", "remediate_feed",
-    "run_offline_evals", "record_agent_metrics", "escalate",
+    "run_offline_evals", "record_agent_metrics", "delegation_stats", "escalate",
 }
 
 REMEDIATION_ALLOW_LIST = ("retry", "disable", "enable")
@@ -243,6 +243,8 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
             raise RuntimeError(f"git status failed: {out}")
         if out.strip():
             raise RuntimeError("refused: the working tree has uncommitted changes — operator must resolve first")
+        rc, original_branch = _run(["git", "-C", str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"])
+        original_branch = original_branch.strip() or "main"
         for step in (
             ["git", "-C", str(repo_path), "fetch", "origin", "main"],
             ["git", "-C", str(repo_path), "checkout", "-B", branch, "origin/main"],
@@ -286,8 +288,8 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
                 "head": branch, "base": "main",
             })
             return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch}
-        finally:  # the operator's checkout goes back to main regardless
-            _run(["git", "-C", str(repo_path), "checkout", "main"])
+        finally:  # the operator's checkout goes back to WHERE IT WAS (audit fix)
+            _run(["git", "-C", str(repo_path), "checkout", original_branch])
 
     async def run_doctor(args: dict[str, Any]) -> Any:
         """Run the data plane's `doctor` (provider config + connectivity probes)."""
@@ -330,18 +332,22 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         stale = []
         now = dt.datetime.now(dt.UTC)
         for feed in FEEDS.values():
-            provider_rows = [v for k, v in seen.items() if k.startswith(feed.name.split("_")[0])]
+            # EXACT provider match — prefix matching let a dead tab_racing hide
+            # behind fresh tab sports captures (audit finding)
+            row = seen.get(feed.provider)
             grace = dt.timedelta(seconds=feed.interval_s * 3)
             if feed.name in disabled_feeds():
                 continue
-            if not provider_rows:
-                stale.append({"feed": feed.name, "reason": f"no snapshots in {hours}h"})
+            if row is None:
+                stale.append({"feed": feed.name, "provider": feed.provider,
+                              "reason": f"no snapshots in {hours}h"})
                 continue
-            latest = max(dt.datetime.fromisoformat(r["latest"]) for r in provider_rows)
+            latest = dt.datetime.fromisoformat(row["latest"])
             if latest.tzinfo is None:
                 latest = latest.replace(tzinfo=dt.UTC)
             if now - latest > grace:
-                stale.append({"feed": feed.name, "reason": f"silent since {latest.isoformat()}"})
+                stale.append({"feed": feed.name, "provider": feed.provider,
+                              "reason": f"silent since {latest.isoformat()}"})
         return {"providers": seen, "stale_feeds": stale, "disabled_feeds": sorted(disabled_feeds())}
 
     async def remediate_feed(args: dict[str, Any]) -> Any:
@@ -384,6 +390,36 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
                 report = await ingest_once(manager, session_factory, [target])
             return {"action": "retry", "feed": feed, "report": report.get(feed)}
         return {"action": action, "feed": feed, "disabled_feeds": state["disabled_feeds"]}
+
+    async def delegation_stats(args: dict[str, Any]) -> Any:
+        """{days?: 7} → how the orchestrator's complexity routing behaved: runs,
+        cost and avg latency per (agent, tier) — is it over- or under-escalating?
+        Aggregates only (§3.1)."""
+        if session_factory is None:
+            raise RuntimeError("delegation_stats needs the database configured")
+        from sportsdata_agents.data.models import AgentRun
+
+        days = float(args.get("days", 7))
+        cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AgentRun.agent, AgentRun.tier,
+                           func.count(), func.sum(AgentRun.cost_usd),
+                           func.avg(AgentRun.latency_ms))
+                    .where(AgentRun.created_at >= cutoff)
+                    .group_by(AgentRun.agent, AgentRun.tier)
+                )
+            ).all()
+        out = [
+            {"agent": agent, "tier": tier or "?", "runs": n,
+             "cost_usd": round(float(cost or 0), 4),
+             "avg_latency_ms": int(latency or 0)}
+            for agent, tier, n, cost, latency in rows
+        ]
+        out.sort(key=lambda r: -r["cost_usd"])
+        return {"days": days, "by_agent_tier": out,
+                "total_cost_usd": round(sum(r["cost_usd"] for r in out), 4)}
 
     async def run_offline_evals(args: dict[str, Any]) -> Any:
         """Run the offline eval suite and gate it against the committed baseline."""
@@ -439,6 +475,7 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
             "summary": summary,
             "details": str(args.get("details", ""))[:2000],
         })
+        state["escalations"] = state["escalations"][-100:]  # bounded — it's a log, not a DB
         write_ops_state(state)
         pushed = False
         token = os.environ.get("SLACK_BOT_TOKEN")
@@ -502,6 +539,7 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
               {"feed": {"type": "string"},
                "action": {"type": "string", "enum": list(REMEDIATION_ALLOW_LIST)}},
               ["feed", "action"]),
+        _tool("delegation_stats", delegation_stats, {"days": {"type": "number"}}, []),
         _tool("run_offline_evals", run_offline_evals, {}, []),
         _tool("record_agent_metrics", record_agent_metrics,
               {"agent": {"type": "string"}, "runs": {"type": "integer"},
