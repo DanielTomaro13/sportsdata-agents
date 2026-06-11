@@ -25,7 +25,7 @@ agent:
     - Quote the diff for every claim; no speculation about code you didn't read.
     - A truncated diff means review what you saw and SAY it was truncated.
   tools:
-    native: [gh_list_prs, gh_pr_diff, gh_review_pr]
+    native: [gh_list_prs, gh_pr_diff, read_repo_file, gh_review_pr]
   context:
     retrieval: jit
     long_run: compact

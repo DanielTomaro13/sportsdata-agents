@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 OPS_TOOL_NAMES = {
     "gh_create_issue", "gh_list_issues", "gh_list_prs", "gh_pr_diff",
-    "gh_review_pr", "propose_change", "run_doctor", "run_contract_suite",
-    "feed_health", "remediate_feed", "run_offline_evals", "record_agent_metrics",
-    "escalate",
+    "gh_review_pr", "list_repo_files", "read_repo_file", "propose_change",
+    "run_doctor", "run_contract_suite", "feed_health", "remediate_feed",
+    "run_offline_evals", "record_agent_metrics", "escalate",
 }
 
 REMEDIATION_ALLOW_LIST = ("retry", "disable", "enable")
@@ -183,6 +183,32 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         if response.status_code >= 400:
             raise RuntimeError(f"GitHub diff -> {response.status_code}")
         return {"diff": response.text[:_OUTPUT_CAP], "truncated": len(response.text) > _OUTPUT_CAP}
+
+    async def list_repo_files(args: dict[str, Any]) -> Any:
+        """{repo, pattern?: glob} → tracked files (git ls-files) so the improver can
+        find what to change without shelling out."""
+        repo = str(args["repo"])
+        if repo not in repos:
+            raise ValueError(f"unknown repo {repo!r}; operator repos: {sorted(repos)}")
+        rc, out = _run(["git", "-C", str(repos[repo]), "ls-files", str(args.get("pattern", ""))])
+        if rc != 0:
+            raise RuntimeError(out)
+        files = [line for line in out.splitlines() if line]
+        return {"files": files[:400], "truncated": len(files) > 400}
+
+    async def read_repo_file(args: dict[str, Any]) -> Any:
+        """{repo, path} → the file's current content (read-only, repo-confined,
+        capped) — what propose_change edits must be based on."""
+        repo = str(args["repo"])
+        if repo not in repos:
+            raise ValueError(f"unknown repo {repo!r}; operator repos: {sorted(repos)}")
+        target = (repos[repo] / str(args["path"])).resolve()
+        if not str(target).startswith(str(repos[repo].resolve())):
+            raise ValueError(f"refused: {args['path']!r} escapes the repo")
+        if not target.is_file():
+            raise FileNotFoundError(str(args["path"]))
+        text = target.read_text(encoding="utf-8")
+        return {"content": text[:_OUTPUT_CAP * 4], "truncated": len(text) > _OUTPUT_CAP * 4}
 
     async def gh_review_pr(args: dict[str, Any]) -> Any:
         """{repo, number, verdict: approve|request_changes|comment, body} → submit a
@@ -436,6 +462,10 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
               {"repo": {"type": "string"}, "state": {"type": "string"}}, ["repo"]),
         _tool("gh_pr_diff", gh_pr_diff,
               {"repo": {"type": "string"}, "number": {"type": "integer"}}, ["repo", "number"]),
+        _tool("list_repo_files", list_repo_files,
+              {"repo": {"type": "string"}, "pattern": {"type": "string"}}, ["repo"]),
+        _tool("read_repo_file", read_repo_file,
+              {"repo": {"type": "string"}, "path": {"type": "string"}}, ["repo", "path"]),
         _tool("gh_review_pr", gh_review_pr,
               {"repo": {"type": "string"}, "number": {"type": "integer"},
                "verdict": {"type": "string", "enum": ["approve", "request_changes", "comment"]},

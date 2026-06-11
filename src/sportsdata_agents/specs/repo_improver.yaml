@@ -24,7 +24,8 @@ agent:
       verified. If you could not verify, say so plainly.
     - If the requested change is ambiguous or risky, escalate instead of guessing.
   tools:
-    native: [gh_list_issues, gh_list_prs, propose_change, escalate]
+    native: [gh_list_issues, gh_list_prs, list_repo_files, read_repo_file,
+             propose_change, escalate]
   context:
     retrieval: jit
     long_run: compact
