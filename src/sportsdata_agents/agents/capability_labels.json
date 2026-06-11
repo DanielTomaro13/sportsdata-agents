@@ -19,6 +19,30 @@
     "description": "Editorial video content (highlights, replays, press conferences).",
     "label": "Video"
   },
+  "prediction.events_list": {
+    "label": "Prediction events",
+    "description": "Prediction-market events/series grouping related markets."
+  },
+  "prediction.market_detail": {
+    "label": "Market detail",
+    "description": "One prediction market's full detail — question, rules, quotes, volume, expiry."
+  },
+  "prediction.market_prices": {
+    "label": "Market quotes",
+    "description": "Order book / best bid-ask quotes for one prediction market."
+  },
+  "prediction.markets_list": {
+    "label": "Prediction markets",
+    "description": "Catalogue of prediction markets (binary/event contracts) with current quotes."
+  },
+  "prediction.price_history": {
+    "label": "Price history",
+    "description": "Historical price series for one prediction market."
+  },
+  "prediction.trades": {
+    "label": "Market trades",
+    "description": "Recent public trades on a prediction market."
+  },
   "racing.futures": {
     "description": "Long-running futures markets (Cup outrights, season-long props).",
     "label": "Racing futures (Cup outrights)"
@@ -62,6 +86,26 @@
   "ref.venues": {
     "description": "Venue catalogue (id, name, location, timezone).",
     "label": "Venues"
+  },
+  "social.post_detail": {
+    "label": "Post detail",
+    "description": "One or more social posts by id, with engagement metrics."
+  },
+  "social.post_search": {
+    "label": "Post search",
+    "description": "Search public social posts by query (teams, players, breaking news)."
+  },
+  "social.trends": {
+    "label": "Trends",
+    "description": "Trending topics by location."
+  },
+  "social.user_profile": {
+    "label": "Social profile",
+    "description": "A social account's public profile and follower metrics."
+  },
+  "social.user_timeline": {
+    "label": "User timeline",
+    "description": "A social account's recent posts (club news, insider feeds)."
   },
   "sport.commentary": {
     "description": "Text or play-by-play commentary for a match.",

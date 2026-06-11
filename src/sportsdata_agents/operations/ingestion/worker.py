@@ -24,12 +24,14 @@ from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_entain_all,
     fetch_fanduel_pages,
     fetch_fanduel_races,
+    fetch_kalshi_all,
     fetch_pinnacle_all,
     fetch_pinnacle_books,
     fetch_pointsbet_all,
     fetch_pointsbet_books,
     fetch_pointsbet_races,
     fetch_pointsbet_racing_futures,
+    fetch_polymarket_all,
     fetch_sportsbet_all,
     fetch_sportsbet_books,
     fetch_sportsbet_races,
@@ -50,9 +52,11 @@ from sportsdata_agents.operations.ingestion.normalizers import (
     normalize_entain_all,
     normalize_fanduel_pages,
     normalize_fanduel_races,
+    normalize_kalshi_all,
     normalize_pinnacle_league,
     normalize_pointsbet_events,
     normalize_pointsbet_races,
+    normalize_polymarket_all,
     normalize_sportsbet_all,
     normalize_sportsbet_books,
     normalize_sportsbet_races,
@@ -306,12 +310,35 @@ FEEDS: dict[str, Feed] = {
         fetch=fetch_unibet_racing_futures,
         interval_s=3600,
     ),
+    # ── prediction markets tier (15min): probability venues ────────────────
+    # Exchange quotes are probabilities captured as decimal odds (1/price) —
+    # the warehouse, monitor and cross-book math read Kalshi/Polymarket like
+    # any book. Slower cadence: these boards move on news, not on the clock.
+    "kalshi_all": Feed(
+        name="kalshi_all",
+        provider="kalshi",
+        tool="kalshi_events",  # label; open events with nested markets, cursor-paged
+        mcp_groups=("kalshi.events",),
+        normalizer=normalize_kalshi_all,
+        fetch=fetch_kalshi_all,
+        interval_s=900,
+    ),
+    "polymarket_all": Feed(
+        name="polymarket_all",
+        provider="polymarket",
+        tool="polymarket_events",  # label; active Gamma events, volume-ordered pages
+        mcp_groups=("polymarket.gamma",),
+        normalizer=normalize_polymarket_all,
+        fetch=fetch_polymarket_all,
+        interval_s=900,
+    ),
     # nba_cdn stays out (aggregator); Betfair stays out (no price sections via the
     # public readonly key from AU — fetcher+normalizer ready for an authed key, P4);
     # Entain RACING blocked on upstream persisted-query registration drift
     # (RacingRaceCardScreenWeb AND RacingFuturesScreen rejected even after
     # refresh-hashes — Entain sports feeds incl. their outrights are unaffected,
-    # they're plain REST).
+    # they're plain REST). X (Twitter) is a research surface, not a priced book —
+    # its social.* capabilities serve agents directly, nothing to warehouse.
 }
 
 

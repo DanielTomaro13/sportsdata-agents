@@ -1,10 +1,27 @@
 {
-  "stats": { "providers": 19, "groups": 62, "tools": 356, "as_of": "2026-06-11" },
+  "stats": {
+    "providers": 21,
+    "groups": 68,
+    "tools": 393,
+    "as_of": "2026-06-11"
+  },
   "prompts": [
-    { "id": "compare-books", "title": "⚖️ Compare the books" },
-    { "id": "find-value", "title": "💎 Find me value" },
-    { "id": "nba-finals", "title": "🏀 NBA Finals snapshot" },
-    { "id": "platform-tour", "title": "✨ What can it do?" }
+    {
+      "id": "compare-books",
+      "title": "⚖️ Compare the books"
+    },
+    {
+      "id": "find-value",
+      "title": "💎 Find me value"
+    },
+    {
+      "id": "nba-finals",
+      "title": "🏀 NBA Finals snapshot"
+    },
+    {
+      "id": "platform-tour",
+      "title": "✨ What can it do?"
+    }
   ],
   "prompt_text": {
     "compare-books": "Compare head-to-head odds for tonight's AFL game across the bookmakers.",
@@ -15,41 +32,113 @@
   "runs": {
     "compare-books": {
       "tool_calls": [
-        { "tool": "odds_specialist", "ok": true, "latency_ms": 1620 },
-        { "tool": "sportsbet_competition_matches", "ok": true, "latency_ms": 633 },
-        { "tool": "tab_competition", "ok": true, "latency_ms": 541 },
-        { "tool": "pinnacle_matchup_markets", "ok": true, "latency_ms": 488 },
-        { "tool": "best_prices", "ok": true, "latency_ms": 37 }
+        {
+          "tool": "odds_specialist",
+          "ok": true,
+          "latency_ms": 1620
+        },
+        {
+          "tool": "sportsbet_competition_matches",
+          "ok": true,
+          "latency_ms": 633
+        },
+        {
+          "tool": "tab_competition",
+          "ok": true,
+          "latency_ms": 541
+        },
+        {
+          "tool": "pinnacle_matchup_markets",
+          "ok": true,
+          "latency_ms": 488
+        },
+        {
+          "tool": "best_prices",
+          "ok": true,
+          "latency_ms": 37
+        }
       ],
       "answer": "### Western Bulldogs v Adelaide — head to head, 7 books\n\n| Book | Bulldogs | Adelaide |\n|---|---|---|\n| Pinnacle | 1.73 | **2.12** |\n| Sportsbet | 1.73 | **2.12** |\n| TAB | **1.74** | 2.10 |\n| Unibet | 1.78 | 2.06 |\n\nBest available: **Bulldogs 1.78 at Unibet**, **Adelaide 2.12 at Pinnacle** — a 2.9% spread between best and worst on the away side. Line's been stable for 6 hours.\n\n_sources: 7 mapped bookmakers via fixture resolution, fetched just now_"
     },
     "find-value": {
       "tool_calls": [
-        { "tool": "value_scout", "ok": true, "latency_ms": 1740 },
-        { "tool": "list_models", "ok": true, "latency_ms": 64 },
-        { "tool": "value_finder", "ok": true, "latency_ms": 41 },
-        { "tool": "best_prices", "ok": true, "latency_ms": 38 },
-        { "tool": "create_watch", "ok": true, "latency_ms": 52 }
+        {
+          "tool": "value_scout",
+          "ok": true,
+          "latency_ms": 1740
+        },
+        {
+          "tool": "list_models",
+          "ok": true,
+          "latency_ms": 64
+        },
+        {
+          "tool": "value_finder",
+          "ok": true,
+          "latency_ms": 41
+        },
+        {
+          "tool": "best_prices",
+          "ok": true,
+          "latency_ms": 38
+        },
+        {
+          "tool": "create_watch",
+          "ok": true,
+          "latency_ms": 52
+        }
       ],
       "answer": "### One edge worth your attention\n\n**Bulldogs v Adelaide — total under 165.5 at 1.96 (TAB)**\n- Model **afl-totals v3** (calibrated, Brier 0.187) makes it **55.8%** → fair odds 1.79\n- That's a **+9.4% edge** at TAB's price; best alternative 1.92 elsewhere\n- Line has drifted 2 points since open — the market is moving *toward* the model\n\nSet a standing watch: you'll get pinged if the edge grows past 12% or vanishes.\n\n_model: your calibrated holdout, not a hunch · edges decay — verify before acting_"
     },
     "nba-finals": {
       "tool_calls": [
-        { "tool": "stats_specialist", "ok": true, "latency_ms": 1840 },
-        { "tool": "nba_scoreboard_today", "ok": true, "latency_ms": 412 },
-        { "tool": "nba_boxscore", "ok": true, "latency_ms": 655 }
+        {
+          "tool": "stats_specialist",
+          "ok": true,
+          "latency_ms": 1840
+        },
+        {
+          "tool": "nba_scoreboard_today",
+          "ok": true,
+          "latency_ms": 412
+        },
+        {
+          "tool": "nba_boxscore",
+          "ok": true,
+          "latency_ms": 655
+        }
       ],
       "answer": "### NBA Finals — Game 4 tonight at MSG\n\n| | Score | Series |\n|---|---|---|\n| Spurs | 121 | 1–2 |\n| **Knicks** | 118 | **2–1** |\n\nNew York leads the Finals 2–1 after a three-point Game 3 win. Game 4 tips off tonight at Madison Square Garden.\n\n_sources: NBA live scoreboard + box score, fetched just now_"
     },
     "platform-tour": {
       "tool_calls": [
-        { "tool": "odds_specialist", "ok": true, "latency_ms": 980 },
-        { "tool": "value_scout", "ok": true, "latency_ms": 1120 },
-        { "tool": "modelling", "ok": true, "latency_ms": 1310 },
-        { "tool": "fantasy_advisor", "ok": true, "latency_ms": 890 },
-        { "tool": "agent_builder", "ok": true, "latency_ms": 760 }
+        {
+          "tool": "odds_specialist",
+          "ok": true,
+          "latency_ms": 980
+        },
+        {
+          "tool": "value_scout",
+          "ok": true,
+          "latency_ms": 1120
+        },
+        {
+          "tool": "modelling",
+          "ok": true,
+          "latency_ms": 1310
+        },
+        {
+          "tool": "fantasy_advisor",
+          "ok": true,
+          "latency_ms": 890
+        },
+        {
+          "tool": "agent_builder",
+          "ok": true,
+          "latency_ms": 760
+        }
       ],
-      "answer": "### The whole desk, in one place\n\n- **Cross-book pricing** — the same match under every bookmaker, best price first, with full line-movement history\n- **Standing watches** — line moves, steam, and value alerts pushed to Slack or Discord the moment they fire\n- **Models & backtests** — train calibrated models on captured prices, then replay them honestly: entry at prediction time, CLV measured against the sharp close\n- **Fantasy optimiser** — projections plus a deterministic salary-cap solver, cash or GPP\n- **Build your own agents** — describe what you want in plain English; it wires the data, skills and budgets, versioned so upgrades never break you\n\nEvery answer is grounded in live tool results, with sources attached — across **19 providers, 40+ sports, 1,200+ markets**.\n\n_pick any other prompt above to see one of these in action_"
+      "answer": "### The whole desk, in one place\n\n- **Cross-book pricing** — the same match under every bookmaker and prediction market (Kalshi, Polymarket), best price first, with full line-movement history\n- **Standing watches** — line moves, steam, and value alerts pushed to Slack or Discord the moment they fire\n- **Models & backtests** — train calibrated models on captured prices, then replay them honestly: entry at prediction time, CLV measured against the sharp close\n- **Fantasy optimiser** — projections plus a deterministic salary-cap solver, cash or GPP\n- **Build your own agents** — describe what you want in plain English; it wires the data, skills and budgets, versioned so upgrades never break you\n\nEvery answer is grounded in live tool results, with sources attached — across **21 providers, 40+ sports, 1,200+ markets**.\n\n_pick any other prompt above to see one of these in action_"
     }
   }
 }

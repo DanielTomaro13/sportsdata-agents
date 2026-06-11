@@ -29,7 +29,7 @@ selection, sandboxing, interfaces (CLI → Slack → web), multi-tenancy / SaaS-
 the self-improvement loop, the delivery roadmap, and a **decision register** with the
 pros and cons of every choice.
 
-## What's built (P0–P2 complete)
+## What's built (P0–P3 complete)
 
 **The agent team** (14 specs in `src/sportsdata_agents/specs/`): an orchestrator that
 routes and delegates; odds/stats specialists over the live data plane; a modelling agent
@@ -44,7 +44,8 @@ per team run) and **audited** (runs/tool-calls/costs land in the DB when configu
 
 **The odds warehouse** (`agents ingest`): discovery-driven, capture-everything ingestion
 across **10 bookmakers** — Sportsbet, TAB, Unibet/Kambi, Entain (Ladbrokes/Neds),
-Pinnacle, PointsBet, BetR, FanDuel (US sportsbook + racing) — in four tiers:
+Pinnacle, PointsBet, BetR, FanDuel (US sportsbook + racing) — plus **two prediction
+markets** (Kalshi, Polymarket) — in five tiers:
 
 - **hot** (5–30 min): every provider's own discovery route → all sports, all
   competitions, primary + inline markets — nothing hardcoded, new comps/sports appear
@@ -54,7 +55,10 @@ Pinnacle, PointsBet, BetR, FanDuel (US sportsbook + racing) — in four tiers:
 - **racing** (~3 min): win+place cards from TAB, Sportsbet, BetR, PointsBet, Unibet,
   FanDuel, soonest races first;
 - **racing futures** (60 min): ante-post Cup/carnival outrights from TAB, Sportsbet,
-  PointsBet, Unibet.
+  PointsBet, Unibet;
+- **prediction markets** (15 min): Kalshi and Polymarket exchange quotes captured as
+  decimal odds (1/price) — event contracts read like any book's board (Polymarket's
+  Gamma edge is geo-gated; the feed runs wherever the edge answers).
 
 Sports futures (premiership winners, Brownlow, NFL/MLB futures, …) ride the hot tier:
 Kambi `competitions.json`, Sportsbet's Outrights route, Entain/BetR/TAB inline.

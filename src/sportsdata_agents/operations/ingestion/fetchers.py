@@ -884,3 +884,55 @@ async def fetch_unibet_racing_futures(manager: Any) -> dict[str, Any]:
         except Exception as e:
             logger.warning("unibet racing future %s failed: %s", key, e)
     return {"races": out}
+
+
+# ─── prediction markets (Kalshi / Polymarket) ──────────────────────────────
+
+KALSHI_PAGES_PER_CYCLE = 10  # cursor pages of open events (nested markets ride along)
+POLYMARKET_PAGES_PER_CYCLE = 10  # offset pages, volume-ordered (the liquid board first)
+
+
+async def fetch_kalshi_all(manager: Any) -> dict[str, Any]:
+    """Kalshi: open events WITH nested markets — one paginated walk delivers titles,
+    categories and live yes/no quotes together. Cursors are opaque (no stateless
+    rotation), so each cycle re-reads from the top; the page cap bounds the cycle."""
+    pages: list[dict[str, Any]] = []
+    cursor: str | None = None
+    for _ in range(KALSHI_PAGES_PER_CYCLE):
+        args: dict[str, Any] = {"limit": 100, "status": "open", "with_nested_markets": True}
+        if cursor:
+            args["cursor"] = cursor
+        try:
+            payload = await manager.call_tool("kalshi_events", args)
+        except Exception as e:
+            logger.warning("kalshi events page failed: %s", e)
+            break
+        pages.append(payload)
+        cursor = payload.get("cursor") if isinstance(payload, dict) else None
+        if not cursor:
+            break
+    return {"pages": pages}
+
+
+async def fetch_polymarket_all(manager: Any) -> dict[str, Any]:
+    """Polymarket: active Gamma events (markets ride nested), volume-ordered so the
+    liquid board lands first; offset pages, capped per cycle. NOTE: the Gamma edge
+    geo-blocks some regions — failures surface in feed_health, the feed is ready
+    wherever the edge answers."""
+    pages: list[Any] = []
+    for page in range(POLYMARKET_PAGES_PER_CYCLE):
+        try:
+            payload = await manager.call_tool("polymarket_events", {
+                "limit": 100, "offset": page * 100,
+                "active": True, "closed": False, "order": "volume24hr",
+            })
+        except Exception as e:
+            logger.warning("polymarket events page %s failed: %s", page, e)
+            break
+        rows = payload if isinstance(payload, list) else []
+        if not rows:
+            break
+        pages.append(rows)
+        if len(rows) < 100:
+            break
+    return {"pages": pages}
