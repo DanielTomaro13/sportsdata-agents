@@ -33,7 +33,14 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sportsdata_agents.data.models import Alert, OddsSnapshot, Prediction, Price, Subscription
+from sportsdata_agents.data.models import (
+    Alert,
+    Event,
+    OddsSnapshot,
+    Prediction,
+    Price,
+    Subscription,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +69,69 @@ async def slack_pusher(subscription: Subscription, message: str) -> bool:
 
 def _pct_move(prev: float, new: float) -> float:
     return abs(new - prev) / prev * 100.0 if prev else 0.0
+
+
+async def _cross_book_line(session: AsyncSession, row: Price) -> str:
+    """The same market at every OTHER book mapped to this event's fixture —
+    best price first. Side-relative selections (home/away) translate between
+    books' listing orders with the settlement-grade name matching; when the
+    event isn't resolved onto a fixture yet, the line is simply omitted."""
+    from sportsdata_agents.quant.backtest import _event_name_for, _translate_side
+
+    mapping = (
+        await session.execute(
+            select(Event).where(
+                Event.provider == row.provider,
+                Event.external_id == row.event_external_id,
+            )
+        )
+    ).scalars().first()
+    if mapping is None or mapping.fixture_id is None:
+        return ""
+    siblings = (
+        await session.execute(
+            select(Event).where(
+                Event.fixture_id == mapping.fixture_id,
+                Event.id != mapping.id,
+            )
+        )
+    ).scalars().all()
+    if not siblings:
+        return ""
+    side_relative = row.selection in ("home", "away", "draw")
+    name_cache: dict[tuple[str, str], str] = {}
+    own_name = ""
+    if side_relative:
+        own_name = await _event_name_for(session, name_cache, row.provider, row.event_external_id)
+    quotes: dict[str, float] = {}
+    for sibling in siblings:
+        selection = row.selection
+        if side_relative:
+            sibling_name = await _event_name_for(session, name_cache, sibling.provider, sibling.external_id)
+            translated = _translate_side(row.selection, sibling_name, own_name)
+            if translated is None:
+                continue  # orientation unknown — never show a possibly-flipped price
+            selection = translated
+        latest = (
+            await session.execute(
+                select(Price)
+                .where(
+                    Price.provider == sibling.provider,
+                    Price.event_external_id == sibling.external_id,
+                    Price.market == row.market,
+                    Price.selection == selection,
+                )
+                .order_by(Price.changed_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if latest is not None and latest.book != row.book:
+            quotes[latest.book] = max(quotes.get(latest.book, 0.0), float(latest.odds))
+    if not quotes:
+        return ""
+    board = " · ".join(f"{book} {odds:.2f}"
+                       for book, odds in sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
+    return f"\nacross books: {board}"
 
 
 async def _context(session: AsyncSession, row: Price) -> dict[str, str]:
@@ -155,6 +225,7 @@ async def _watch_line_move(
             f":chart_with_upwards_trend: line move [{ctx['sport']}] {ctx['event']}\n"
             f"{row.book} · {row.market} · {ctx['selection']} — "
             f"{float(row.prev_odds):.2f} → {float(row.odds):.2f} ({direction} {move:.1f}%)"
+            + await _cross_book_line(session, row)
         )
         key = f"line_move:{row.book}:{row.event_external_id}:{row.market}:{row.selection}"
         if await _fire(session, sub, kind="line_move", key=key, message=message,
@@ -189,6 +260,7 @@ async def _watch_steam(
                 f"{book} · {market} · {ctx['selection']} — {arrow}, "
                 f"{len(series)} consecutive moves, "
                 f"{float(series[0].prev_odds or 0):.2f} → {float(series[-1].odds):.2f}"
+                + await _cross_book_line(session, series[-1])
             )
             key = f"steam:{book}:{event}:{market}:{selection}"
             if await _fire(session, sub, kind="steam", key=key, message=message,
@@ -245,6 +317,7 @@ async def _watch_value(
                 f":moneybag: value [{ctx['sport']}] {ctx['event']}\n"
                 f"{latest.book} · {pred.market} · {ctx['selection']} — model "
                 f"{float(pred.prob):.0%} at {float(latest.odds):.2f} = +{edge:.1f}% edge"
+                + await _cross_book_line(session, latest)
             )
             if await _fire(session, sub, kind="value", key=key, message=message,
                            payload={"edge_pct": round(edge, 2)}, pusher=pusher):

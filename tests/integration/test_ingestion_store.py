@@ -322,3 +322,47 @@ async def test_steam_and_value_watches(
     kinds = {m.split(" — ")[0] for m in pushed}
     assert report["alerts"] == 2  # one steam + one value (0.70*1.70 = +19% edge)
     assert any("steam" in k for k in kinds) and any("value" in k for k in kinds)
+
+
+async def test_alert_shows_other_books_for_the_same_market(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A line-move alert quotes the OTHER books mapped to the same fixture —
+    including an orientation flip (the other book lists the teams reversed,
+    so its AWAY price is quoted for our HOME selection)."""
+    from sportsdata_agents.data.models import Subscription
+    from sportsdata_agents.operations.ingestion.normalizers import PricePoint
+    from sportsdata_agents.operations.monitoring import run_watches
+    from sportsdata_agents.operations.resolution import resolve_events
+
+    start = {"start_time": "2026-06-10T09:30:00Z"}
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl", event_external_id="SB1",
+                   event_name="Western Bulldogs v Adelaide Crows", market="h2h",
+                   selection="home", odds=2.00, meta=start),
+        # TAB lists the teams the other way round: its AWAY is Sportsbet's home
+        PricePoint(provider="tab", book="TAB", sport="afl", event_external_id="T1",
+                   event_name="Adelaide v Wst Bulldogs", market="h2h",
+                   selection="away", odds=1.95, meta=start),
+    ], captured_at=T0)
+    assert (await resolve_events(db_sessionmaker))["created"] == 1
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl", event_external_id="SB1",
+                   event_name="Western Bulldogs v Adelaide Crows", market="h2h",
+                   selection="home", odds=1.70, meta=start),  # -15% move
+    ], captured_at=T1)
+
+    pushed: list[str] = []
+
+    async def pusher(sub: Any, message: str) -> bool:
+        pushed.append(message)
+        return True
+
+    async with db_sessionmaker() as s:
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="moves",
+                           kind="line_move", params={"threshold_pct": 10}, channel="log"))
+        await s.commit()
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    assert report["alerts"] == 1
+    assert "Western Bulldogs v Adelaide Crows" in pushed[0]
+    assert "across books: TAB 1.95" in pushed[0]  # orientation-translated quote
