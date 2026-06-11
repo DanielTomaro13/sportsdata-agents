@@ -11,11 +11,10 @@ tiers:
     default: "anthropic/claude-opus-4-8"
     fallback: "openai/gpt-4o"
 
+# Delegation-time model selection: the ORCHESTRATOR assesses each task's
+# complexity when it delegates; this map turns that judgment into a tier.
+# Empty string = keep the specialist's own spec tier.
 routing:
-  intent_classification: fast
-  data_lookup: fast
-  odds_comparison: balanced
-  analysis: balanced
-  modelling: strong
-  code: strong
-  default: balanced
+  simple: fast        # one lookup, one format, one comparison
+  standard: ""        # the specialist's own declared tier
+  complex: strong     # multi-step modelling, synthesis across sources, code

@@ -80,8 +80,11 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> _FakeLiteLLM:
 def test_policy_loads_and_routes() -> None:
     p = load_policy()
     assert set(p.tiers) == {"fast", "balanced", "strong"}
-    assert p.tier_for_task("modelling") == "strong"
-    assert p.tier_for_task("nonsense") == "balanced"  # routing default
+    # routing is now the DELEGATION complexity map (the orchestrator's pick):
+    assert p.tier_for_task("simple") == "fast"
+    assert p.tier_for_task("complex") == "strong"
+    assert p.tier_for_task("standard") == ""  # the specialist's own tier stands
+    assert p.tier_for_task("nonsense") == ""  # unknown = no override, never escalate
 
 
 def test_policy_workspace_override_pins_provider_and_suppresses_fallback() -> None:

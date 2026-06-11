@@ -254,3 +254,30 @@ async def test_runtime_cleans_up_manager_when_bridge_fails(monkeypatch: pytest.M
             pass
     mgr = FakeManager.instances[-1]
     assert mgr.entered and mgr.exited, "spawned manager leaked after bridge failure"
+
+
+async def test_orchestrator_complexity_picks_the_model_tier() -> None:
+    """The orchestrator's `complexity` call on a delegation overrides the
+    specialist's tier for THAT run only — simple runs cheap, complex runs strong,
+    standard/absent keep the spec's own tier."""
+    from sportsdata_agents.agents.runtime import AgentRuntime, delegate_tool
+    from sportsdata_agents.agents.spec import AgentSpec
+    from sportsdata_agents.workspace import Workspace
+
+    seen_tiers: list[str] = []
+
+    class TierProbe:
+        async def complete(self, messages, *, tier="balanced", workspace, budget=None, **kw):  # type: ignore[no-untyped-def]
+            seen_tiers.append(tier)
+            return _text("done")
+
+    spec = AgentSpec(id="probe", display_name="Probe", model_tier="balanced",
+                     system_prompt="answer")
+    async with AgentRuntime(spec, provider=TierProbe(), workspace=Workspace()) as runtime:
+        tool = delegate_tool(runtime)
+        await tool.execute({"task": "x", "complexity": "simple"})
+        await tool.execute({"task": "x", "complexity": "complex"})
+        await tool.execute({"task": "x", "complexity": "standard"})
+        await tool.execute({"task": "x"})
+        await tool.execute({"task": "x", "complexity": "nonsense"})
+    assert seen_tiers == ["fast", "strong", "balanced", "balanced", "balanced"]

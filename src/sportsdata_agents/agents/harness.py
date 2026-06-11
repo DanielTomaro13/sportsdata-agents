@@ -260,12 +260,15 @@ class Harness:
         *,
         budget: RunBudget | None = None,
         recorder: Any | None = None,
+        tier: str | None = None,
     ) -> RunResult:
         """Run the loop. ``budget`` shares an existing ceiling (a delegated sub-agent
         charges its caller's budget); omitted = a fresh per-run budget. ``recorder``
         overrides the harness recorder for THIS run only (contextvar-scoped, so a
         shared warm harness can serve concurrent requests without races); delegated
-        sub-runs in the same context inherit it."""
+        sub-runs in the same context inherit it. ``tier`` overrides the spec's
+        model tier for THIS run only (the orchestrator's complexity-based pick) —
+        budgets still clamp regardless of the model chosen."""
         system = self.spec.system_prompt
         if self.skills and len(self.skills):
             system = f"{system}\n\n{self.skills.index_text()}"
@@ -287,7 +290,7 @@ class Harness:
         started = time.monotonic()
         await self._record_start(run_id, parent_run_id, user_input)
         try:
-            result = await self._loop(messages, budget)
+            result = await self._loop(messages, budget, tier=tier)
         except BaseException as e:
             # A crashed run must not strand a "running" row + leak its usage buffer.
             await self._record_crash(
@@ -305,7 +308,8 @@ class Harness:
         await self._record_end(run_id, result, int((time.monotonic() - started) * 1000), recorder)
         return result
 
-    async def _loop(self, messages: list[dict[str, Any]], budget: RunBudget) -> RunResult:
+    async def _loop(self, messages: list[dict[str, Any]], budget: RunBudget,
+                    tier: str | None = None) -> RunResult:
         deadline = self._now() + self.timeout_seconds
         tool_schemas = [t.schema for t in self.tools.values()]
         if self.output_model is not None:
@@ -362,7 +366,7 @@ class Harness:
             steps += 1
             reply = await self.provider.complete(
                 messages,
-                tier=self.spec.model_tier,
+                tier=tier or self.spec.model_tier,
                 workspace=self.workspace,
                 budget=budget,
                 tools=tool_schemas or None,

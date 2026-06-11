@@ -64,9 +64,15 @@ def delegate_tool(runtime: AgentRuntime) -> ToolDef:
         task = str(args.get("task", "")).strip()
         if not task:
             return "error: delegation requires a non-empty `task`"
+        # Complexity-based model selection (the orchestrator's call, the policy's
+        # map): simple -> the cheap tier, complex -> the strong one, anything
+        # else -> the specialist's own spec tier. Budgets clamp regardless.
+        from sportsdata_agents.models.policy import load_policy
+
+        tier = load_policy().tier_for_task(str(args.get("complexity", "standard"))) or None
         # Charge the CALLER's budget: a team run shares one per-run ceiling (§16.1) —
         # otherwise "per-run" would multiply by the number of delegations.
-        result = await runtime.run(task, budget=CURRENT_RUN_BUDGET.get())
+        result = await runtime.run(task, budget=CURRENT_RUN_BUDGET.get(), tier=tier)
         summary: dict = {
             "agent": spec.id,
             "answer": result.output,
@@ -84,7 +90,15 @@ def delegate_tool(runtime: AgentRuntime) -> ToolDef:
         description=f"Delegate a task to {spec.display_name}: {spec.description or spec.system_prompt[:100]}",
         parameters={
             "type": "object",
-            "properties": {"task": {"type": "string", "description": "The question/task for this specialist."}},
+            "properties": {
+                "task": {"type": "string", "description": "The question/task for this specialist."},
+                "complexity": {
+                    "type": "string", "enum": ["simple", "standard", "complex"],
+                    "description": ("Your cost/complexity call for THIS task: simple = one "
+                                    "lookup/format (cheapest model), standard = the specialist's "
+                                    "default, complex = multi-step analysis/modelling (strongest)."),
+                },
+            },
             "required": ["task"],
         },
         execute=execute,
@@ -219,11 +233,16 @@ class AgentRuntime:
             self.harness = None
 
     async def run(
-        self, task: str, *, budget: RunBudget | None = None, recorder: RunRecorder | None = None
+        self,
+        task: str,
+        *,
+        budget: RunBudget | None = None,
+        recorder: RunRecorder | None = None,
+        tier: str | None = None,
     ) -> RunResult:
         if self.harness is None:
             raise RuntimeError("AgentRuntime is not started; use `async with AgentRuntime(...)`")
-        return await self.harness.run(task, budget=budget, recorder=recorder)
+        return await self.harness.run(task, budget=budget, recorder=recorder, tier=tier)
 
 
 @asynccontextmanager

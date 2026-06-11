@@ -28,8 +28,9 @@ class ModelPolicy(BaseModel):
     routing: dict[str, str] = Field(default_factory=dict)
 
     def tier_for_task(self, task_type: str) -> str:
-        """Map a task type to a tier; unknown tasks get the routing default."""
-        return self.routing.get(task_type, self.routing.get("default", "balanced"))
+        """Map a delegation complexity to a tier override ("" / unknown = none:
+        the specialist's own spec tier stands)."""
+        return self.routing.get(task_type, "")
 
     def models_for_tier(self, tier: str, workspace: Workspace | None = None) -> tuple[str, str | None]:
         """(primary, fallback) for a tier.
