@@ -23,6 +23,23 @@ logger = logging.getLogger(__name__)
 BATCH = 5_000
 
 
+def _alembic_head() -> str | None:
+    """The repo's current migration head (best-effort — a packaged install
+    without the alembic tree just skips stamping)."""
+    try:
+        from pathlib import Path
+
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        ini = Path(__file__).resolve().parents[3] / "alembic.ini"
+        if not ini.is_file():
+            return None
+        return ScriptDirectory.from_config(Config(str(ini))).get_current_head()
+    except Exception:
+        return None
+
+
 def _idempotent_insert(target: AsyncEngine, table: Table) -> Any:
     """Skip rows whose PK already exists — resuming a partial copy must not
     collide (dialect-specific: OR IGNORE / ON CONFLICT DO NOTHING)."""
@@ -87,8 +104,25 @@ async def migrate_warehouse(
             report[table.name] = copied
             if copied:
                 logger.info("migrated %s: %d rows", table.name, copied)
+        # stamp the migration head: the schema came from create_all, so alembic
+        # must not re-run the chain on the target (the chain is guarded, but a
+        # stamp is the clean contract — audit fix)
+        head = _alembic_head()
+        if head:
+            from sqlalchemy import text
+
+            async with target.begin() as conn:
+                await conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS alembic_version "
+                    "(version_num VARCHAR(32) NOT NULL)"
+                ))
+                await conn.execute(text("DELETE FROM alembic_version"))
+                await conn.execute(
+                    text("INSERT INTO alembic_version (version_num) VALUES (:v)"), {"v": head}
+                )
+            report["stamped"] = head
     finally:
         await source.dispose()
         await target.dispose()
-    report["total"] = sum(v for v in report.values() if isinstance(v, int))
+    report["total"] = sum(v for v in report.values() if isinstance(v, int) and v != report.get("stamped"))
     return report

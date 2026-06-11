@@ -192,11 +192,14 @@ async def _fire(
     ).scalars().first()
     if recent is not None:
         return False
-    try:
-        pushed = await pusher(subscription, message)
-    except Exception as e:  # a push failure must not sink the watch — the row is the record
-        logger.warning("push failed for %s: %s", subscription.name, e)
-        pushed = False
+    if float(subscription.params.get("digest_hours", 0) or 0) > 0:
+        pushed = False  # digest watches batch their pushes (see _push_digest)
+    else:
+        try:
+            pushed = await pusher(subscription, message)
+        except Exception as e:  # a push failure must not sink the watch — the row is the record
+            logger.warning("push failed for %s: %s", subscription.name, e)
+            pushed = False
     session.add(Alert(
         tenant_id=subscription.tenant_id, workspace_id=subscription.workspace_id,
         subscription_id=subscription.id, kind=kind, message=message,
@@ -386,6 +389,43 @@ async def _watch_scratching(
     return fired
 
 
+async def _push_digest(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, now: dt.datetime
+) -> bool:
+    """For digest watches (params.digest_hours): one summary push of everything
+    that fired since the last digest, instead of a message per alert."""
+    every = float(sub.params.get("digest_hours", 0) or 0)
+    if every <= 0:
+        return False
+    last = sub.params.get("last_digest_at")
+    last_at = dt.datetime.fromisoformat(last) if last else None
+    if last_at is not None and now - last_at < dt.timedelta(hours=every):
+        return False
+    pending = (
+        await session.execute(
+            select(Alert)
+            .where(Alert.subscription_id == sub.id, Alert.pushed.is_(False))
+            .order_by(Alert.created_at.desc())
+            .limit(50)
+        )
+    ).scalars().all()
+    if pending:
+        lines = [a.message.splitlines()[0] for a in pending[:15]]
+        more = f"\n…and {len(pending) - 15} more" if len(pending) > 15 else ""
+        summary = (f":newspaper: digest — {sub.name}: {len(pending)} alerts in the last "
+                   f"{every:g}h\n" + "\n".join(lines) + more)
+        try:
+            ok = await pusher(sub, summary)
+        except Exception as e:
+            logger.warning("digest push failed for %s: %s", sub.name, e)
+            ok = False
+        if ok:
+            for alert in pending:
+                alert.pushed = True
+    sub.params = {**sub.params, "last_digest_at": now.isoformat()}
+    return bool(pending)
+
+
 async def run_watches(
     session_factory: async_sessionmaker[AsyncSession],
     *,
@@ -426,6 +466,8 @@ async def run_watches(
                     continue
                 sub.cursor = now
                 report["alerts"] += fired
+                if await _push_digest(session, sub, push, now):
+                    report["digests"] = report.get("digests", 0) + 1
             except Exception as e:  # one broken watch must not sink the pass
                 logger.warning("watch %s (%s) failed: %s", sub.name, sub.kind, e)
                 report[f"error:{sub.name}"] = str(e)

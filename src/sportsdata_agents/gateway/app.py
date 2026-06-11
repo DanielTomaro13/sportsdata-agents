@@ -313,6 +313,9 @@ def create_app(*, session: TeamSession | None = None, conversation_store: Any | 
     # ─── public demo + leads (M3.4, D22) ────────────────────────────────
     demo_limiter = RateLimiter(per_minute=3)
     demo_stats_cache: dict[str, Any] = {}
+    # global cap: per-IP limits don't stop N different IPs each spawning a team
+    # session + MCP subprocesses (audit finding) — beyond this, 429 immediately
+    demo_slots = asyncio.Semaphore(2)
 
     @app.get("/demo/prompts")
     async def demo_prompts() -> dict[str, Any]:
@@ -329,10 +332,13 @@ def create_app(*, session: TeamSession | None = None, conversation_store: Any | 
         client = request.client.host if request.client else "unknown"
         demo_limiter.check(f"demo:{client}")
         prompt_id = str(body.get("prompt_id", ""))
-        try:
-            return await run_demo(prompt_id)
-        except KeyError:
-            raise HTTPException(404, detail=f"unknown demo prompt {prompt_id!r}") from None
+        if demo_slots.locked():
+            raise HTTPException(429, detail="demo at capacity — try again in a minute")
+        async with demo_slots:
+            try:
+                return await run_demo(prompt_id)
+            except KeyError:
+                raise HTTPException(404, detail=f"unknown demo prompt {prompt_id!r}") from None
 
     @app.get("/demo/stats")
     async def demo_stats_route() -> dict[str, Any]:
