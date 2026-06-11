@@ -331,6 +331,11 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 
 - [x] **🚪 P3 EXIT GATE — CLOSED 2026-06-11** (one human step pending): the self-improvement loop ran END TO END LIVE — repo_improver opened PR #1 (a real stale-docstring fix), CI went green on the branch, code_reviewer read the diff and submitted its review; **the merge button is Daniel's** (by design — and GitHub's no-self-approve rule means production wants a separate reviewer bot account). Alerts fired to Slack on real line moves; fantasy optimised a live lineup; the demo answered a real bounded query with visible tool calls. Remaining operational: deploy site/ + a hosted gateway publicly (hosting decision), merge PR #1.
 
+### P3+ additions (2026-06-11, post-exit-gate) — prediction markets + GTM polish
+- [x] **Site live on GitHub Pages** (playback mode, public `sportsdata-site` repo; private-repo Pages blocked by plan): full redesign, animated console demo, logo marquees, cancellable playback; republish via `scripts/deploy-site.sh` (noreply identity enforced).
+- [x] **Prediction-markets feed tier** (v0.7.0): `kalshi_all` (open events + nested markets, cursor-paged; live: 11,001 snapshots first cycle) and `polymarket_all` (volume-ordered Gamma events; **the Gamma edge geo-blocks AU** — feed degrades gracefully, runs wherever the edge answers). Exchange probabilities captured as decimal odds (1/ask). Market keys are STABLE: Kalshi uses the series ticker (one steward alias families a whole product line), Polymarket uses Gamma's `sportsMarketType` when stamped (dictionary maps "moneyline"→h2h) else the event title. 11 new `prediction.*`/`social.*` capability labels; X (Twitter) is a research surface, not a priced book — no feed. **Registry: 25 feeds (5 tiers).**
+- ⚠️ Prediction events don't resolve onto fixtures yet (no advertised start; titles aren't "X v Y") — exchange-vs-book cross-venue pricing is the headline P4 candidate: resolver support + meta start proxy (Kalshi `close_time`), then `cross_book_prices` shows Kalshi/Polymarket beside the books.
+
 ---
 
 ## Phase P4 — Productize (SaaS) — gated on go/no-go + legal (`D13`)

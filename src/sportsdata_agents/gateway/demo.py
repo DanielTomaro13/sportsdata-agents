@@ -31,21 +31,24 @@ DEMO_PROMPTS: list[dict[str, str]] = [
         "prompt": "What's the latest NBA Finals game result, and who leads the series?",
     },
     {
-        "id": "afl-round",
-        "title": "This week in the AFL",
-        "prompt": "Which AFL games are coming up in the next few days?",
-    },
-    {
         "id": "compare-books",
         "title": "Compare the books",
         "prompt": "Pick one upcoming AFL match and compare its head-to-head odds across the bookmakers you can see.",
     },
     {
-        "id": "ladder-check",
-        "title": "Who's on top?",
-        "prompt": "Show me the top four on the current AFL ladder.",
+        "id": "find-value",
+        "title": "Find me value",
+        "prompt": "Scan the registered models against current prices — is there any value? If so, set a watch on it.",
+    },
+    {
+        "id": "platform-tour",
+        "title": "What can it do?",
+        "prompt": "Give me the tour — summarise what this platform can do, grounded in the "
+                  "capability groups you can actually see.",
     },
 ]
+# These ids mirror site/demo-fallback.json: the static page's chips come from
+# /demo/prompts the moment window.GATEWAY_URL goes live, so drift breaks the demo.
 
 
 class ToolTraceRecorder:

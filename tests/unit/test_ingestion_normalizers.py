@@ -912,6 +912,7 @@ KALSHI_PAYLOAD = {
             "events": [
                 {
                     "event_ticker": "KXNBAGAME-26JUN11OKCIND",
+                    "series_ticker": "KXNBAGAME",
                     "title": "Thunder vs Pacers: Game 4 Winner?",
                     "category": "Sports",
                     "mutually_exclusive": True,
@@ -959,6 +960,7 @@ def test_normalize_kalshi_events() -> None:
     assert (thunder.provider, thunder.book, thunder.sport) == ("kalshi", "Kalshi", "sports")
     assert thunder.event_external_id == "KXNBAGAME-26JUN11OKCIND"
     assert thunder.event_name == "Thunder vs Pacers: Game 4 Winner?"
+    assert thunder.market == "kxnbagame"  # the series ticker: ONE steward alias families it
     assert thunder.odds == pytest.approx(1 / 0.55, abs=1e-3)
     assert by_sel["pacers"].odds == pytest.approx(1 / 0.47, abs=1e-3)  # cents path
     assert thunder.meta["close_time"] == "2026-06-12T02:00:00Z"
@@ -979,6 +981,7 @@ POLYMARKET_PAYLOAD = {
                         "id": "514501",
                         "question": "Will the Thunder win the 2026 NBA Finals?",
                         "groupItemTitle": "Thunder",
+                        "sportsMarketType": "moneyline",
                         "outcomes": '["Yes", "No"]',
                         "outcomePrices": '["0.62", "0.38"]',
                         "volume24hr": 250000.5,
@@ -1031,7 +1034,10 @@ def test_normalize_polymarket_events() -> None:
     # folds the league label onto the cross-book sport family
     assert thunder.sport == "basketball"
     assert thunder.event_name == "NBA Champion 2026"
+    assert thunder.market == "h2h"  # Gamma's sportsMarketType rides the dictionary
     assert thunder.odds == pytest.approx(1 / 0.62, abs=1e-3)
+    # no sportsMarketType -> the event title is the (book-local) market key
+    assert grouped["pacers"].market == "nba champion 2026"
     assert grouped["no thunder"].odds == pytest.approx(1 / 0.38, abs=1e-3)
     binary = {p.selection: p for p in points if p.event_external_id == "903500"}
     assert set(binary) == {"yes", "no"}  # plain binary: the outcomes ARE the selections
