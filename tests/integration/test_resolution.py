@@ -90,8 +90,10 @@ def test_split_sides_handles_every_separator() -> None:
     assert split_sides("Western Bulldogs v Adelaide Crows") == ("Western Bulldogs", "Adelaide Crows")
     assert split_sides("Gold Coast Suns vs Hawthorn") == ("Gold Coast Suns", "Hawthorn")
     assert split_sides("Western Bulldogs - Adelaide") == ("Western Bulldogs", "Adelaide")
-    # US '@' lists away first — normalised to (home, away)
+    # US '@'/'At' list away first — normalised to (home, away)
     assert split_sides("San Antonio Spurs @ New York Knicks") == ("New York Knicks", "San Antonio Spurs")
+    assert split_sides("New York Knicks At San Antonio Spurs") == (
+        "San Antonio Spurs", "New York Knicks")  # sportsbet's US-league naming, live-captured
     assert split_sides("Finger Lakes R8") is None  # racing names are one-sided
 
 

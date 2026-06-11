@@ -26,7 +26,7 @@ from sportsdata_agents.operations.ingestion.normalizers import canonical_sport
 
 logger = logging.getLogger(__name__)
 
-_SEPARATORS = (" vs ", " v ", " - ", " @ ")
+_SEPARATORS = (" vs ", " v ", " - ", " @ ", " At ", " at ")
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset({"the", "fc", "afc", "club"})
 MATCH_THRESHOLD = 0.3  # rank floor; the real gate is the per-side fuzzy-subset rule
@@ -43,12 +43,14 @@ def _tokens(name: str) -> frozenset[str]:
 
 def split_sides(event_name: str) -> tuple[str, str] | None:
     """("X", "Y") for a two-sided event name under any book's separator; None for
-    racing/futures names. '@' lists away first (US convention) — normalised here."""
+    racing/futures names. '@'/'At' list away first (US convention) — normalised
+    here. A name mis-split by a separator inside it just fails the per-side
+    fuzzy-subset gate and stays book-local (the known " - " limit's class)."""
     for sep in _SEPARATORS:
         if sep in event_name:
             left, right = (part.strip() for part in event_name.split(sep, 1))
             if left and right:
-                return (right, left) if sep == " @ " else (left, right)
+                return (right, left) if sep in (" @ ", " At ", " at ") else (left, right)
     return None
 
 

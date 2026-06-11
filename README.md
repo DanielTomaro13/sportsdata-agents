@@ -31,7 +31,7 @@ pros and cons of every choice.
 
 ## What's built (P0–P3 complete)
 
-**The agent team** (14 specs in `src/sportsdata_agents/specs/`): an orchestrator that
+**The agent team** (22 specs in `src/sportsdata_agents/specs/` — 16 product, 6 ops): an orchestrator that
 routes and delegates; odds/stats specialists over the live data plane; a modelling agent
 (general model development — features, calibration, Brier/log-loss, logistic regression,
 XGBoost skills); a value scout (vig removal, +EV detection, cross-book best price); a

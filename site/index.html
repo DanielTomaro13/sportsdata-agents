@@ -283,6 +283,8 @@
     <div class="marquee"><div class="track" id="row-sports"></div></div>
     <div class="rowlab">across the books</div>
     <div class="marquee"><div class="track rev" id="row-books"></div></div>
+    <div class="rowlab">grounded in official data</div>
+    <div class="marquee"><div class="track" id="row-data"></div></div>
     <div class="rowlab">on any model</div>
     <div class="marquee"><div class="track slow" id="row-llms"></div></div>
   </div>
@@ -367,7 +369,18 @@
 // null = PLAYBACK MODE (GitHub Pages, no gateway): baked counters, recorded
 // demo runs. Set a gateway URL here to go live.
 window.GATEWAY_URL = null;
+/* page analytics, opt-in: set to a GoatCounter endpoint (e.g.
+   "https://YOURCODE.goatcounter.com/count") and the no-cookie counter loads.
+   null = no script, no tracking, nothing leaves the page. */
+window.ANALYTICS_URL = null;
 const GW = window.GATEWAY_URL;
+if (window.ANALYTICS_URL) {
+  const ga = document.createElement("script");
+  ga.async = true;
+  ga.dataset.goatcounter = window.ANALYTICS_URL;
+  ga.src = "https://gc.zgo.at/count.js";
+  document.head.appendChild(ga);
+}
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const sleep = (ms) => new Promise(r => setTimeout(r, REDUCED ? 0 : ms));
 async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
@@ -438,6 +451,13 @@ const ROWS = {
     ["Unibet", "#14532d", "UB"], ["PointsBet", "#dc2626", "PB"], ["Ladbrokes", "#b91c1c", "LB"],
     ["Neds", "#ea580c", "NE"], ["betr", "#7c3aed", "BR"], ["FanDuel", "#1d4ed8", "FD"],
     ["FanDuel Racing", "#0e7490", "FR"], ["Kalshi", "#0d9488", "KX"], ["Polymarket", "#1652f0", "PM"]
+  ],
+  "row-data": [
+    ["AFL Official API", "#cf2e2e", "AFL"], ["NRL Official API", "#0e7a4e", "NRL"],
+    ["NBA Stats", "#1d4ed8", "NBA"], ["MLB StatsAPI", "#b91c1c", "MLB"],
+    ["ESPN", "#cc0000", "E"], ["DataGolf", "#15803d", "DG"],
+    ["OpenF1", "#dc2626", "F1"], ["Cricket Australia", "#1e40af", "CA"],
+    ["Racing & Sports", "#a16207", "RS"], ["X (Twitter)", "#0f172a", "𝕏"]
   ],
   "row-llms": [
     ["Claude", "#d97757", "C"], ["GPT", "#10a37f", "G"], ["Gemini", "#1a73e8", "♦"],
