@@ -1,7 +1,11 @@
 """`agents` CLI entrypoint (Typer).
 
-Scaffold for M0.1 — only `version` is wired today. The headline `run`/`chat` commands
-land in M0.12 once the runtime exists.
+The operator surface for the platform. Headline commands talk to the agent
+team (`run`, `chat`); the rest are deterministic operations — spec tooling
+(`lint`, `list`), serving (`serve`, `slack`), the data pipeline (`ingest`,
+`results`, `resolve`, `movement`), dictionary stewardship (`steward`,
+`dictionary-promote`), the offline eval gate (`eval`), and the ops-plane
+console (`ops run`, `ops health`). Run `agents --help` for the full list.
 """
 
 from __future__ import annotations
