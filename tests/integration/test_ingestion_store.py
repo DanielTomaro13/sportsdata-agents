@@ -247,3 +247,78 @@ async def test_entain_categories_discovered_with_fallback() -> None:
     })
     await fetch_entain_all(broken)
     assert broken.calls.count("entain_sport_event_request") == len(ENTAIN_SPORT_CATEGORIES)
+
+
+async def test_line_monitor_fires_and_dedupes(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """M3.2 exit gate (offline leg): a configured watch fires a push alert on a
+    real line move; the same condition does NOT refire next cycle; the cursor
+    advances so the watch is resumable."""
+    from sportsdata_agents.data.models import Alert, Subscription
+    from sportsdata_agents.operations.monitoring import run_watches
+
+    await record_points(db_sessionmaker, [_point(2.00)], captured_at=T0)
+    await record_points(db_sessionmaker, [_point(1.70)], captured_at=T1)  # -15%
+
+    pushed: list[str] = []
+
+    async def pusher(sub: Any, message: str) -> bool:
+        pushed.append(message)
+        return True
+
+    async with db_sessionmaker() as s:
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="big-moves",
+                           kind="line_move", params={"threshold_pct": 10}, channel="log"))
+        await s.commit()
+
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    assert report["alerts"] == 1 and len(pushed) == 1
+    assert "2.00 → 1.70" in pushed[0] and "shortened" in pushed[0]
+    async with db_sessionmaker() as s:
+        alert = (await s.execute(select(Alert))).scalar_one()
+        assert alert.pushed is True and alert.kind == "line_move"
+        sub = (await s.execute(select(Subscription))).scalar_one()
+        cursor = sub.cursor.replace(tzinfo=dt.UTC) if sub.cursor.tzinfo is None else sub.cursor
+        assert cursor == T2  # durable/resumable (SQLite drops tzinfo)
+
+    # same condition, next cycle: deduped AND behind the cursor — no refire
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2 + dt.timedelta(minutes=5))
+    assert report["alerts"] == 0 and len(pushed) == 1
+
+
+async def test_steam_and_value_watches(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    from sportsdata_agents.data.models import ModelArtifact, Prediction, Subscription
+    from sportsdata_agents.operations.monitoring import run_watches
+
+    # three same-direction moves = steam
+    for i, odds in enumerate((2.00, 1.90, 1.80, 1.70)):
+        await record_points(db_sessionmaker, [_point(odds, "away")],
+                            captured_at=T0 + dt.timedelta(minutes=i))
+    pushed: list[str] = []
+
+    async def pusher(sub: Any, message: str) -> bool:
+        pushed.append(message)
+        return True
+
+    async with db_sessionmaker() as s:
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="steam",
+                           kind="steam", params={"min_moves": 3}, channel="log"))
+        model = ModelArtifact(tenant_id="t", workspace_id="w", name="m", sport="nba",
+                              calibration={"brier": 0.2})
+        s.add(model)
+        await s.flush()
+        # model says 60% at current 1.70... no edge; use higher prob for value
+        s.add(Prediction(tenant_id="t", workspace_id="w", model_id=model.id,
+                         provider="nba_cdn", event_external_id="0042500403",
+                         market="2way", selection="away", prob=0.70))
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="edges",
+                           kind="value", params={"min_edge_pct": 3}, channel="log"))
+        await s.commit()
+
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    kinds = {m.split(" — ")[0] for m in pushed}
+    assert report["alerts"] == 2  # one steam + one value (0.70*1.70 = +19% edge)
+    assert any("steam" in k for k in kinds) and any("value" in k for k in kinds)

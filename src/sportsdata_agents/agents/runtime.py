@@ -141,6 +141,7 @@ class AgentRuntime:
                 # absent (a DB-less team must still OPEN — try_db_recorder philosophy).
                 from sportsdata_agents.tools.dictionary import DICTIONARY_TOOL_NAMES
                 from sportsdata_agents.tools.memory import MEMORY_TOOL_NAMES
+                from sportsdata_agents.tools.monitoring import MONITOR_TOOL_NAMES
                 from sportsdata_agents.tools.quant import QUANT_TOOL_NAMES
                 from sportsdata_agents.tools.registry import NATIVE_TOOLS
                 from sportsdata_agents.tools.resolution import RESOLUTION_TOOL_NAMES
@@ -150,6 +151,7 @@ class AgentRuntime:
                 session_tool_names = (
                     TRACKING_TOOL_NAMES | MEMORY_TOOL_NAMES | SLACK_ADMIN_TOOL_NAMES
                     | QUANT_TOOL_NAMES | DICTIONARY_TOOL_NAMES | RESOLUTION_TOOL_NAMES
+                    | MONITOR_TOOL_NAMES
                 )
                 for name in self.spec.tools.native:
                     if name in NATIVE_TOOLS:

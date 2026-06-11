@@ -11,7 +11,7 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantScopedModel
@@ -315,3 +315,44 @@ class Prediction(TenantScopedModel):
     selection: Mapped[str] = mapped_column(String(200))
     prob: Mapped[Decimal] = mapped_column(Numeric(6, 5))  # calibrated, 0..1
     predicted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ─── Alerts & subscriptions (M3.2) + leads (M3.4) ────────────────────────────
+
+
+class Subscription(TenantScopedModel):
+    """A standing watch on the ingestion stream (M3.2): line moves, steam, value
+    appearing/vanishing, scratchings. ``params`` carries the watch's filters and
+    thresholds; ``cursor`` makes the watcher durable/resumable (§8.2)."""
+
+    __tablename__ = "subscriptions"
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(32), index=True)  # line_move|steam|value|scratching
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    channel: Mapped[str] = mapped_column(String(128), default="log")  # "log" | slack channel id
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    cursor: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Alert(TenantScopedModel):
+    """One fired alert (M3.2). ``dedupe_key`` stops the same condition refiring
+    every cycle while it persists."""
+
+    __tablename__ = "alerts"
+    subscription_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("subscriptions.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    message: Mapped[str] = mapped_column(String(1000))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    dedupe_key: Mapped[str] = mapped_column(String(300), index=True)
+    pushed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Lead(Base):
+    """Marketing-site lead capture (M3.4) — pre-tenant, so not tenant-scoped."""
+
+    __tablename__ = "leads"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    note: Mapped[str] = mapped_column(String(1000), default="")
+    source: Mapped[str] = mapped_column(String(64), default="site")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

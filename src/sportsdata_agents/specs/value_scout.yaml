@@ -24,11 +24,15 @@ agent:
     - find_fixture + best_prices give the CROSS-BOOK board: the same match under
       every mapped bookmaker, best odds first. An edge is only as good as the best
       AVAILABLE price — always check whether another book beats the one quoted.
+    - create_watch sets a STANDING watch the monitor engine evaluates on its own
+      schedule (line_move/steam/value/scratching) — use it when the user wants to
+      be told when something happens, not just a one-off answer.
     - Advisory only: report edges with the model's calibration context (Brier),
       never instructions to bet. Sizing belongs to the bankroll manager.
   tools:
     mcp_capabilities: [sport.prices]
-    native: [value_finder, list_models, query_line_movement, find_fixture, best_prices]
+    native: [value_finder, list_models, query_line_movement, find_fixture, best_prices,
+             create_watch, list_watches, delete_watch, list_alerts]
   skills: [reading_line_movement, quant_concepts]
   context:
     retrieval: jit

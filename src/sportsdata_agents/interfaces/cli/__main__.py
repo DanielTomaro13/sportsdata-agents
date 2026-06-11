@@ -475,6 +475,56 @@ def dictionary_promote(
 
 
 @app.command()
+def monitor(
+    watch: str | None = typer.Option(None, "--add", help='Create a watch inline: "name:kind:threshold" '
+                                                         '(e.g. "big-moves:line_move:8").'),
+    channel: str = typer.Option("log", "--channel", help='Push target for --add: Slack channel id or "log".'),
+) -> None:
+    """Run one monitoring pass: every active watch scans the price stream since its
+    cursor and fires push alerts (M3.2). Deterministic — no LLM. Cron every 5min."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.operations.monitoring import run_watches
+
+    console = Console()
+
+    async def _run() -> None:
+        engine = make_engine(get_settings().database_url)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sf = make_sessionmaker(engine)
+        try:
+            if watch:
+                from sportsdata_agents.data.models import Subscription
+
+                name, kind, threshold = [*watch.split(":"), "5"][:3]
+                params_key = {"line_move": "threshold_pct", "steam": "min_moves",
+                              "value": "min_edge_pct", "scratching": "stale_minutes"}[kind]
+                async with sf() as session:
+                    session.add(Subscription(
+                        tenant_id="local", workspace_id="local", name=name, kind=kind,
+                        params={params_key: float(threshold)}, channel=channel,
+                    ))
+                    await session.commit()
+                console.print(f"✓ watch {name!r} ({kind}, {params_key}={threshold}, channel={channel})")
+            report = await run_watches(sf)
+            console.print(f"✓ monitor: {report}")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+@app.command()
 def steward(
     workspace: str = typer.Option("local", "--workspace", help="Workspace id (tenant scoping + budgets)."),
     model: str | None = typer.Option(None, "--model", help="Pin every tier to one litellm model id."),
