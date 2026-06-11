@@ -439,6 +439,14 @@ def ops_health() -> None:
                 console.print(f"[dim]disabled: {', '.join(health['disabled_feeds'])}[/dim]")
             if not health["stale_feeds"]:
                 console.print("✓ no stale feeds")
+            site = await tools["site_status"].execute({})
+            if site["ok"]:
+                console.print(
+                    f"✓ site up ({site['latency_ms']}ms"
+                    f"{', playback' if site.get('playback_mode') else ''})"
+                )
+            else:
+                console.print(f"[red]✗ site DOWN:[/red] {site.get('error') or site.get('status_code')}")
         finally:
             await engine.dispose()
 

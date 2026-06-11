@@ -889,13 +889,17 @@ async def fetch_unibet_racing_futures(manager: Any) -> dict[str, Any]:
 # ─── prediction markets (Kalshi / Polymarket) ──────────────────────────────
 
 KALSHI_PAGES_PER_CYCLE = 10  # cursor pages of open events (nested markets ride along)
+KALSHI_SPORTS_SERIES_PER_CYCLE = 25  # rotating window over the Sports series catalogue
 POLYMARKET_PAGES_PER_CYCLE = 10  # offset pages, volume-ordered (the liquid board first)
 
 
 async def fetch_kalshi_all(manager: Any) -> dict[str, Any]:
     """Kalshi: open events WITH nested markets — one paginated walk delivers titles,
     categories and live yes/no quotes together. Cursors are opaque (no stateless
-    rotation), so each cycle re-reads from the top; the page cap bounds the cycle."""
+    rotation), so each cycle re-reads from the top; the page cap bounds the cycle.
+    Game contracts live DEEP in the board (the broad walk surfaces mostly
+    elections), so a rotating window over the Sports SERIES catalogue pulls each
+    league's events directly — that's where exchange-vs-book pricing comes from."""
     pages: list[dict[str, Any]] = []
     cursor: str | None = None
     for _ in range(KALSHI_PAGES_PER_CYCLE):
@@ -911,6 +915,23 @@ async def fetch_kalshi_all(manager: Any) -> dict[str, Any]:
         cursor = payload.get("cursor") if isinstance(payload, dict) else None
         if not cursor:
             break
+    try:
+        series = await manager.call_tool("kalshi_series_list", {"category": "Sports"})
+        tickers = [str(s["ticker"]) for s in series.get("series", []) or [] if s.get("ticker")]
+    except Exception as e:
+        logger.warning("kalshi sports series list failed: %s", e)
+        tickers = []
+    for ticker in _take_rotating("kalshi_sports_series", tickers, KALSHI_SPORTS_SERIES_PER_CYCLE):
+        try:
+            payload = await manager.call_tool("kalshi_events", {
+                "limit": 200, "status": "open", "with_nested_markets": True,
+                "series_ticker": ticker,
+            })
+        except Exception as e:
+            logger.warning("kalshi series %s failed: %s", ticker, e)
+            continue
+        if isinstance(payload, dict) and payload.get("events"):
+            pages.append(payload)
     return {"pages": pages}
 
 
