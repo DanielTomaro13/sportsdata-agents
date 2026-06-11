@@ -9,6 +9,8 @@ cp "$REPO_DIR"/site/index.html "$REPO_DIR"/site/demo-fallback.json "$WORK"/
 cd "$WORK"
 git add -A
 git diff --cached --quiet && { echo "site unchanged"; exit 0; }
-git commit -m "publish site update"
+# noreply author: never leak a personal email into the public repo's history
+git -c user.name="DanielTomaro13" -c user.email="DanielTomaro13@users.noreply.github.com" \
+    commit -m "publish site update"
 git push origin main
 echo "published — live at https://danieltomaro13.github.io/sportsdata-site/ in ~a minute"
