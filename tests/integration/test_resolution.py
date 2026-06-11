@@ -386,10 +386,29 @@ async def test_league_results_map_and_settle_cross_book(
                 ]}
             if name == "nrl_competitions":
                 return {"competitionDetails": {"competition": []}}
+            if name == "mlb_schedule":
+                return {"dates": []}
+            if name == "espn_scoreboard":
+                return {"events": [
+                    {"id": "401", "status": {"type": {"completed": True}},
+                     "competitions": [{"date": "2026-06-10T17:10Z", "competitors": [
+                         {"homeAway": "home", "score": "7",
+                          "team": {"displayName": "Tampa Bay Rays"}},
+                         {"homeAway": "away", "score": "5",
+                          "team": {"displayName": "Boston Red Sox"}},
+                     ]}]},
+                    {"id": "402", "status": {"type": {"completed": False}},  # live -> skipped
+                     "competitions": [{"competitors": []}]},
+                ]}
             raise AssertionError(name)
 
+    from sportsdata_agents.operations.ingestion.results import _ESPN_LEAGUES
+
     report = await ingest_league_results(FakeManager(), db_sessionmaker)
-    assert report["afl"] == 1 and report["recorded"] == 1
+    assert report["afl"] == 1
+    # the fake serves the same one-final board to every catalogued ESPN league
+    assert report["espn"] == len(_ESPN_LEAGUES)
+    assert report["recorded"] == 2  # AFL final + the ESPN final (repeat ids upsert)
     assert report["fixtures_mapped"] == 1  # joined the Sportsbet fixture
 
     scope = TenantScope("t", "w")

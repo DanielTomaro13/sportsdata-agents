@@ -401,7 +401,8 @@ def results() -> None:
         sf = make_sessionmaker(engine)
         try:
             async with MCPManager(
-                groups=["pointsbet.racing", "nba.public.cdn", "afl.public.core", "nrl.public.core"],
+                groups=["pointsbet.racing", "nba.public.cdn", "afl.public.core",
+                        "nrl.public.core", "mlb.schedule", "espn.scores"],
                 command=settings.mcp_command,
                 extra_env={"SPORTSDATA_MCP_MAX_BYTES": str(INGEST_MAX_BYTES)},
             ) as manager:

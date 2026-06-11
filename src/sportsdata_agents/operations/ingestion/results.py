@@ -208,17 +208,107 @@ async def _nrl_results(manager: Any) -> list[dict[str, Any]]:
     return rows
 
 
+async def _mlb_results(manager: Any, *, days_back: int = 2) -> list[dict[str, Any]]:
+    """MLB StatsAPI schedule: codedGameState F = final; first-party (preferred
+    over ESPN's MLB scoreboard)."""
+    now = dt.datetime.now(dt.UTC)
+    sched = await manager.call_tool("mlb_schedule", {
+        "startDate": (now - dt.timedelta(days=days_back)).date().isoformat(),
+        "endDate": now.date().isoformat(),
+    })
+    rows: list[dict[str, Any]] = []
+    for date_node in sched.get("dates") or []:
+        for game in date_node.get("games") or []:
+            if str((game.get("status") or {}).get("codedGameState")) != "F":
+                continue
+            teams = game.get("teams") or {}
+            home, away = teams.get("home") or {}, teams.get("away") or {}
+            row = _result_row(
+                provider="mlb_api", sport="baseball",
+                external_id=str(game.get("gamePk") or ""),
+                home=str((home.get("team") or {}).get("name") or ""),
+                away=str((away.get("team") or {}).get("name") or ""),
+                home_score=home.get("score"), away_score=away.get("score"),
+                start=game.get("gameDate"),
+            )
+            if row:
+                rows.append(row)
+    return rows
+
+
+# Every other team sport settles from ESPN's scoreboard (one generic route). The
+# aggregator exclusion was about ODDS (second-hand prices); results are facts.
+# Leagues with first-party APIs above (NBA, AFL, NRL, MLB) are deliberately absent.
+# Extend by adding (sport_slug, league_slug, canonical_sport) rows.
+_ESPN_LEAGUES: tuple[tuple[str, str, str], ...] = (
+    ("football", "nfl", "american_football"),
+    ("football", "college-football", "american_football"),
+    ("hockey", "nhl", "ice_hockey"),
+    ("basketball", "wnba", "basketball"),
+    ("basketball", "mens-college-basketball", "basketball"),
+    ("basketball", "womens-college-basketball", "basketball"),
+    ("baseball", "college-baseball", "baseball"),
+    ("soccer", "eng.1", "soccer"),
+    ("soccer", "usa.1", "soccer"),
+    ("soccer", "uefa.champions", "soccer"),
+    ("soccer", "fifa.world", "soccer"),
+    ("soccer", "aus.1", "soccer"),
+)
+
+
+async def _espn_results(manager: Any, *, days_back: int = 2) -> list[dict[str, Any]]:
+    """ESPN scoreboards for every catalogued league: completed events carry
+    competitors with homeAway + score (strings); draws settle as draws."""
+    now = dt.datetime.now(dt.UTC)
+    dates = f"{(now - dt.timedelta(days=days_back)):%Y%m%d}-{now:%Y%m%d}"
+    rows: list[dict[str, Any]] = []
+    for sport_slug, league, sport in _ESPN_LEAGUES:
+        try:
+            board = await manager.call_tool(
+                "espn_scoreboard", {"sport": sport_slug, "league": league, "dates": dates}
+            )
+        except Exception as e:
+            logger.warning("espn %s/%s scoreboard failed: %s", sport_slug, league, e)
+            continue
+        for event in board.get("events") or []:
+            if not (((event.get("status") or {}).get("type")) or {}).get("completed"):
+                continue
+            competition = (event.get("competitions") or [{}])[0]
+            by_side = {
+                str(c.get("homeAway")): c
+                for c in competition.get("competitors") or []
+            }
+            home, away = by_side.get("home") or {}, by_side.get("away") or {}
+            row = _result_row(
+                provider="espn", sport=sport,
+                external_id=str(event.get("id") or ""),
+                home=str((home.get("team") or {}).get("displayName") or ""),
+                away=str((away.get("team") or {}).get("displayName") or ""),
+                home_score=home.get("score"), away_score=away.get("score"),
+                start=competition.get("date") or event.get("date"),
+            )
+            if row:
+                rows.append(row)
+    return rows
+
+
 async def ingest_league_results(
     manager: Any, session_factory: async_sessionmaker[AsyncSession]
 ) -> dict[str, Any]:
-    """Official scoreboards → event_results + fixture mapping. Each league is
-    isolated (one API down never sinks the rest); results only MAP onto fixtures
-    books actually priced — unmatched ones still record, keyed by their own id."""
+    """Official sources → event_results + fixture mapping. First-party league APIs
+    (NBA, AFL, NRL, MLB) are preferred; everything else reverts to ESPN's generic
+    scoreboard. Each source is isolated (one API down never sinks the rest);
+    results only MAP onto fixtures books actually priced — unmatched ones still
+    record, keyed by their own id."""
     from sportsdata_agents.operations.resolution.resolver import map_events_to_fixtures
 
     rows: list[dict[str, Any]] = []
     report: dict[str, Any] = {}
-    for league, collect in (("nba", _nba_results), ("afl", _afl_results), ("nrl", _nrl_results)):
+    sources = (
+        ("nba", _nba_results), ("afl", _afl_results), ("nrl", _nrl_results),
+        ("mlb", _mlb_results), ("espn", _espn_results),
+    )
+    for league, collect in sources:
         try:
             found = await collect(manager)
             rows.extend(found)

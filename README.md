@@ -121,7 +121,8 @@ cd sportsdata-agents && python3.12 -m venv .venv && .venv/bin/pip install -e ".[
 .venv/bin/agents ingest --once --prune 90   # retention for raw snapshots
 .venv/bin/agents resolve                    # map book events -> shared fixtures
 .venv/bin/agents resolve --dry-run          # count without writing
-.venv/bin/agents results                    # settle: racing placings + NBA/AFL/NRL scoreboards (cron daily)
+.venv/bin/agents results                    # settle: racing placings + league finals (cron daily)
+                                            #   first-party NBA/AFL/NRL/MLB; ESPN scoreboard for the rest
 .venv/bin/agents steward                    # market_steward dictionary audit (cron weekly)
 .venv/bin/agents dictionary-promote --write # promote steward overrides into the committed seed
 .venv/bin/agents movement --event <id>      # change-point series for one event
