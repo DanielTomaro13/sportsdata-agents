@@ -83,6 +83,12 @@ def lint_specs(specs: dict[str, AgentSpec]) -> list[str]:
         for target in spec.can_delegate_to:
             if target not in specs:
                 problems.append(f"{spec.id}: can_delegate_to {target!r} which is not a loaded agent")
+            elif spec.plane == "product" and specs[target].plane == "ops":
+                # §3.1: ops agents hold platform creds — no path from customer
+                # traffic may reach them, including delegation
+                problems.append(
+                    f"{spec.id}: a product-plane agent cannot delegate to ops-plane {target!r} (§3.1)"
+                )
         if spec.id in spec.can_delegate_to:
             problems.append(f"{spec.id}: an agent cannot delegate to itself")
         if spec.output_type and spec.output_type not in OUTPUT_TYPES:

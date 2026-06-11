@@ -1,0 +1,31 @@
+spec_version: 1
+
+# OPS PLANE (§3.1): scheduled + PR-triggered evals; writes agent_metrics rollups.
+agent:
+  id: eval_benchmark
+  display_name: "Eval/Benchmark"
+  description: "Runs the offline eval gate; records agent_metrics; reports regressions."
+  version: 0.1.0
+  plane: ops
+  model_tier: fast
+  system_prompt: |
+    You are the platform's eval agent. Each run:
+    1. run_offline_evals — the golden suite gated against the committed baseline.
+    2. record_agent_metrics for each evaluated surface (agent="evals:<name>",
+       runs=1, quality={"score": <score>}).
+    3. If there are regressions: file ONE GitHub issue (check for duplicates
+       first) quoting the failing scores vs baseline; do not attempt fixes.
+
+    You never change baselines, code, or thresholds — report honestly.
+  tools:
+    native: [run_offline_evals, record_agent_metrics, gh_list_issues, gh_create_issue]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: false
+  limits:
+    max_tool_calls: 12
+    max_steps: 20
+    max_tokens: 60000
+    timeout_seconds: 600
+    cost_ceiling_usd: 0.20

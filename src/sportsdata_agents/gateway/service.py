@@ -91,6 +91,7 @@ class TeamSession:
         agent_id: str | None = None,
         root_id: str = "orchestrator",
         mcp_command: Sequence[str] | None = None,
+        allow_ops: bool = False,  # ONLY the operator CLI sets this (§3.1)
     ) -> None:
         self.settings = settings or get_settings()
         self.workspace = workspace or default_workspace(self.settings)
@@ -104,6 +105,15 @@ class TeamSession:
         self._mcp_command = list(mcp_command) if mcp_command else list(self.settings.mcp_command)
         self._stack: AsyncExitStack | None = None
         self._runtime: AgentRuntime | None = None
+        # §3.1 hard split: the customer gateway can never open an ops-plane agent —
+        # enforced HERE in infrastructure, not in prompts. The operator CLI is the
+        # only caller that passes allow_ops.
+        if not allow_ops:
+            if agent_id is not None and agent_id in self.specs and self.specs[agent_id].plane == "ops":
+                raise PermissionError(
+                    f"{agent_id!r} is an ops-plane agent — reachable only via `agents ops` (§3.1)"
+                )
+            self.specs = {k: s for k, s in self.specs.items() if s.plane != "ops"}
 
     @property
     def agent_name(self) -> str:

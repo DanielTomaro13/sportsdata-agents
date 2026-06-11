@@ -91,6 +91,10 @@ class AgentSpec(BaseModel):
     display_name: str
     description: str = ""
     version: str = "0.1.0"
+    # §3.1 two-plane split: "product" agents serve tenants through the customer
+    # gateway; "ops" agents run under the PLATFORM's identity with platform creds
+    # (GitHub/CI) and are reachable only from the operator CLI — never the gateway.
+    plane: Literal["product", "ops"] = "product"
     model_tier: str = "balanced"
     system_prompt: str = Field(min_length=1)
     tools: ToolsSpec = Field(default_factory=ToolsSpec)

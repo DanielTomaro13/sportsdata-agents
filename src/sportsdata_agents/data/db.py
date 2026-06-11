@@ -24,8 +24,15 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
 def make_engine(url: str) -> AsyncEngine:
-    """Create an async engine for ``url`` (driver imported lazily on first connect)."""
-    return create_async_engine(url, pool_pre_ping=True, future=True)
+    """Create an async engine for ``url`` (driver imported lazily on first connect).
+
+    SQLite gets a busy timeout: the cron'd ingest writes every few minutes, and a
+    single-writer database must make concurrent readers WAIT, not fail with
+    'database is locked' (interim until the P3 Postgres move)."""
+    kwargs: dict[str, object] = {"pool_pre_ping": True, "future": True}
+    if url.startswith("sqlite"):
+        kwargs["connect_args"] = {"timeout": 30}
+    return create_async_engine(url, **kwargs)
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

@@ -270,6 +270,12 @@ def ingest(
     console = Console()
     settings = get_settings()
     feeds = list(FEEDS.values()) if feed is None else [FEEDS[feed]]
+    from sportsdata_agents.tools.ops import disabled_feeds as _disabled
+
+    skip = _disabled()
+    if skip:
+        feeds = [f for f in feeds if f.name not in skip]
+        console.print(f"[dim]skipping ops-disabled feeds: {', '.join(sorted(skip))}[/dim]")
     if cron_period is not None:
         import time as _time
 
@@ -303,6 +309,113 @@ def ingest(
             if prune_days is not None:
                 pruned = await prune_snapshots(sf, older_than_days=prune_days)
                 console.print(f"pruned {pruned} snapshots older than {prune_days}d")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+ops_app = typer.Typer(name="ops", help="Operator console (§3.1): ops-plane agents with platform creds.",
+                      no_args_is_help=True)
+app.add_typer(ops_app, name="ops")
+
+
+@ops_app.command(name="run")
+def ops_run(
+    agent: str = typer.Argument(..., help="An ops-plane agent id (mcp_health, repo_improver, ...)."),
+    prompt: str = typer.Argument(..., help="The task for the agent."),
+    model: str | None = typer.Option(None, "--model", help="Pin every tier to one litellm model id."),
+) -> None:
+    """Run an OPS-PLANE agent with platform tools (GitHub, doctor, remediation).
+
+    The only path that injects ops tools — the customer gateway can never reach
+    these agents or credentials (§3.1). PRs only; a human merges.
+    """
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from sportsdata_agents.agents.loader import load_builtin_specs
+
+    spec = load_builtin_specs().get(agent)
+    if spec is None:
+        raise typer.BadParameter(f"unknown agent {agent!r}")
+    if spec.plane != "ops":
+        raise typer.BadParameter(f"{agent!r} is a product-plane agent — use `agents run --agent {agent}`")
+
+    async def _run() -> None:
+        from rich.console import Console
+
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.repository import TenantScope
+        from sportsdata_agents.gateway.service import (
+            TeamSession,
+            _default_extra_tools,
+            detect_tier_overrides,
+            try_db_recorder,
+        )
+        from sportsdata_agents.interfaces.cli.progress import ConsoleProgressRecorder
+        from sportsdata_agents.observability.tracing import setup_observability
+        from sportsdata_agents.tools.ops import ops_tools
+        from sportsdata_agents.workspace import Workspace
+
+        settings = get_settings()
+        setup_observability(settings)
+        console = Console()
+        tiers = ({"fast": model, "balanced": model, "strong": model} if model
+                 else detect_tier_overrides())
+        workspace = Workspace(tenant_id="platform", workspace_id="ops", model_tiers=tiers)
+        recorder = ConsoleProgressRecorder(
+            console, inner=await try_db_recorder(settings, TenantScope("platform", "ops"))
+        )
+        inner = getattr(recorder, "inner", None)
+        sf = getattr(inner, "session_factory", None)
+        extra = _default_extra_tools(recorder) + ops_tools(sf)
+        session = TeamSession(settings=settings, workspace=workspace, recorder=recorder,
+                              agent_id=agent, extra_tools=extra, allow_ops=True)
+        console.print(f"[dim]opening ops agent {agent}…[/dim]")
+        async with session:
+            result = await session.run(prompt)
+        _render_result(console, result)
+
+    asyncio.run(_run())
+
+
+@ops_app.command(name="health")
+def ops_health() -> None:
+    """Deterministic platform health: MCP doctor + feed freshness (no LLM)."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    console = Console()
+
+    async def _run() -> None:
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.tools.ops import ops_tools
+
+        engine = make_engine(get_settings().database_url)
+        try:
+            tools = {t.name: t for t in ops_tools(make_sessionmaker(engine))}
+            doctor = await tools["run_doctor"].execute({})
+            console.print(f"doctor: {'✓ ok' if doctor['ok'] else '✗ FAILING'}")
+            if not doctor["ok"]:
+                console.print(doctor["output"][-2000:])
+            health = await tools["feed_health"].execute({"hours": 6})
+            console.print(f"providers active (6h): {len(health['providers'])}")
+            for stale in health["stale_feeds"]:
+                console.print(f"[yellow]stale:[/yellow] {stale['feed']} — {stale['reason']}")
+            if health["disabled_feeds"]:
+                console.print(f"[dim]disabled: {', '.join(health['disabled_feeds'])}[/dim]")
+            if not health["stale_feeds"]:
+                console.print("✓ no stale feeds")
         finally:
             await engine.dispose()
 

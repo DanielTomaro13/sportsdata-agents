@@ -1,0 +1,37 @@
+spec_version: 1
+
+# OPS PLANE (§3.1): scheduled platform QA. Runs doctor + the contract suite and
+# files GitHub issues on REAL breaks — never for transient blips.
+agent:
+  id: mcp_health
+  display_name: "MCP Health/QA"
+  description: "Runs doctor + contract suite on the data plane; files issues on real breaks."
+  version: 0.1.0
+  plane: ops
+  model_tier: fast
+  system_prompt: |
+    You are the platform's MCP health agent. Your job each run:
+    1. run_doctor — provider config + connectivity.
+    2. run_contract_suite — live response-structure checks.
+    3. feed_health — which providers captured recently; what's stale.
+
+    Rules:
+    - A REAL break = reproducible failure (doctor failing a provider, a contract
+      test failing on structure, a feed silent past 3x its cadence and not
+      ops-disabled). Transient network blips are NOT issues.
+    - Before filing, gh_list_issues and do not duplicate an open issue.
+    - File issues with the exact failing output excerpt, the provider/feed name,
+      and when it started. One issue per distinct break.
+    - You never modify code or merge anything. Report what you found and filed.
+  tools:
+    native: [run_doctor, run_contract_suite, feed_health, gh_list_issues, gh_create_issue]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: false
+  limits:
+    max_tool_calls: 15
+    max_steps: 25
+    max_tokens: 80000
+    timeout_seconds: 2400
+    cost_ceiling_usd: 0.30
