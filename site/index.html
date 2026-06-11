@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Every sport, every bookmaker, one agent team — live odds, stats, models and alerts over any LLM. Advisory only.">
+<meta name="description" content="Every sport, every bookmaker, one agent team — live odds, stats, models and alerts over any LLM.">
 <title>sportsdata — every sport, every book, one agent team</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236e8bff'/%3E%3Cstop offset='1' stop-color='%237cf5c8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%2305080f'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='url(%23g)' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
@@ -109,9 +109,34 @@
   .counter span { color: var(--dim); font-size: 13.5px; }
   .asof { grid-column: 1 / -1; text-align: right; color: var(--dim); font-size: 12px; margin-top: -6px; }
 
+  /* ── logo marquees ── */
+  .band { margin: 10px 0 30px; }
+  .band .rowlab { font-family: var(--mono); font-size: 11px; letter-spacing: 2.5px;
+    color: var(--dim); text-transform: uppercase; margin: 22px 0 10px; text-align: center;
+    opacity: .8; }
+  .marquee { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); }
+  .track { display: flex; gap: 12px; width: max-content; padding: 2px 0;
+    animation: slide 36s linear infinite; }
+  .track.rev { animation-direction: reverse; animation-duration: 42s; }
+  .track.slow { animation-duration: 48s; }
+  .marquee:hover .track { animation-play-state: paused; }
+  @keyframes slide { to { transform: translateX(-50%); } }
+  .badge { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap;
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 12px;
+    padding: 9px 16px 9px 10px; font-size: 13.5px; font-weight: 600; color: #d6ddf5;
+    transition: border-color .25s, transform .25s var(--ease); }
+  .badge:hover { border-color: rgba(110,139,255,.45); transform: translateY(-1px); }
+  .badge .bx { width: 26px; height: 26px; border-radius: 8px; display: grid;
+    place-items: center; font-size: 12px; font-weight: 800; color: #fff; flex: none; }
+
   /* ── section headers ── */
   section { padding: 30px 0 10px; }
-  .sec-head { text-align: center; margin: 36px 0 34px; }
+  .sec-head { text-align: center; margin: 36px 0 34px; opacity: 0; transform: translateY(16px);
+    transition: opacity .7s var(--ease), transform .7s var(--ease); }
+  .sec-head.in { opacity: 1; transform: none; }
+  .band { opacity: 0; transition: opacity .9s var(--ease); }
+  .band.in { opacity: 1; }
   .sec-head h2 { font-size: clamp(26px, 3.6vw, 36px); letter-spacing: -1px; font-weight: 750; }
   .sec-head p { color: var(--dim); margin-top: 10px; max-width: 560px; margin-inline: auto; }
 
@@ -227,7 +252,7 @@
 <main>
   <nav>
     <div class="wordmark">sports<span>data</span></div>
-    <div class="chip">Private beta · <b>advisory only</b></div>
+    <div class="chip">Private <b>beta</b></div>
   </nav>
 
   <div class="hero">
@@ -235,7 +260,7 @@
     <h1>Every sport. Every book.<br><span class="grad">One agent team.</span></h1>
     <p class="sub">A team of LLM agents over a live sports data plane — cross-book odds,
     official stats and results, calibrated models, backtests and alerts.
-    It informs; <b>you decide</b>. It never places a bet.</p>
+    It does the legwork; <b>you make the calls</b>.</p>
     <div class="ctas">
       <a class="btn primary" href="#demo">Watch it work</a>
       <a class="btn ghost" href="#how">How it works</a>
@@ -251,6 +276,15 @@
     <div class="counter"><b data-count="tools">0</b><span>live tools</span></div>
     <div class="counter"><b data-count="groups">0</b><span>capability groups</span></div>
     <div class="asof" id="asof"></div>
+  </div>
+
+  <div class="band" id="band">
+    <div class="rowlab">across the codes</div>
+    <div class="marquee"><div class="track" id="row-sports"></div></div>
+    <div class="rowlab">across the books</div>
+    <div class="marquee"><div class="track rev" id="row-books"></div></div>
+    <div class="rowlab">on any model</div>
+    <div class="marquee"><div class="track slow" id="row-llms"></div></div>
   </div>
 
   <section id="demo">
@@ -285,7 +319,7 @@
         <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M14 7h6v6"/></svg></div>
         <h3>Trading desk</h3>
         <p>Cross-book best price, line movement and steam alerts, CLV-honest backtests
-        against the sharp close. Advisory only — always.</p>
+        against the sharp close — your edge, measured properly.</p>
       </div>
       <div class="card">
         <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="10" width="4" height="10" rx="1"/><rect x="10" y="5" width="4" height="15" rx="1"/><rect x="17" y="13" width="4" height="7" rx="1"/></svg></div>
@@ -319,14 +353,13 @@
         racing feeds — through one capability-tagged tool surface.</p></div>
       <div class="step"><h4>Grounded answers</h4>
         <p>Every number traces to a tool result, verified before it reaches you.
-        Budgets cap every run. No invented facts, no placed bets.</p></div>
+        Budgets cap every run. No invented facts, ever.</p></div>
     </div>
   </section>
 
   <footer>
     <div class="wordmark">sports<span>data</span></div>
-    <div>Private beta — sign-ups open with the live demo · Informational only,
-    not betting or financial advice · © 2026</div>
+    <div>Private beta — sign-ups open with the live demo · Informational only · © 2026</div>
   </footer>
 </main>
 
@@ -366,14 +399,61 @@ async function loadCounters() {
   els.forEach(el => io.observe(el));
 }
 
-/* scroll reveal for cards + steps */
+/* scroll reveal for cards, steps, section heads, marquee band */
 function reveal() {
   const io = new IntersectionObserver((entries) => {
     entries.forEach((e, i) => {
       if (e.isIntersecting) { setTimeout(() => e.target.classList.add("in"), (i % 4) * 90); io.unobserve(e.target); }
     });
-  }, { threshold: .25 });
-  document.querySelectorAll(".card, .step").forEach(el => io.observe(el));
+  }, { threshold: .2 });
+  document.querySelectorAll(".card, .step, .sec-head, .band").forEach(el => io.observe(el));
+}
+
+/* gentle parallax on the ambient orbs */
+function parallax() {
+  if (REDUCED) return;
+  const orbs = [...document.querySelectorAll(".orb")], k = [0.06, -0.04, 0.03];
+  let ticking = false;
+  addEventListener("scroll", () => {
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(() => {
+      orbs.forEach((o, i) => { o.style.translate = `0 ${scrollY * k[i]}px`; });
+      ticking = false;
+    });
+  }, { passive: true });
+}
+
+/* logo marquees: sports / books / llms (styled badges; swap in brand SVGs anytime) */
+const ROWS = {
+  "row-sports": [
+    ["AFL", "#cf2e2e", "AFL"], ["NRL", "#0e7a4e", "NRL"], ["NBA", "#1d4ed8", "NBA"],
+    ["MLB", "#b91c1c", "MLB"], ["NFL", "#7c3aed", "NFL"], ["NHL", "#0891b2", "NHL"],
+    ["EPL", "#5b21b6", "⚽"], ["Horse racing", "#a16207", "🏇"],
+    ["Greyhounds", "#4d7c0f", "🐕"], ["Harness", "#9a3412", "🏇"],
+    ["Golf", "#15803d", "⛳"], ["F1", "#dc2626", "🏎"], ["Cricket", "#1e40af", "🏏"],
+    ["Tennis", "#ca8a04", "🎾"], ["UFC", "#991b1b", "🥊"], ["WNBA", "#ea580c", "WNB"]
+  ],
+  "row-books": [
+    ["Sportsbet", "#1660d6", "SB"], ["TAB", "#16a34a", "TAB"], ["Pinnacle", "#0f172a", "PIN"],
+    ["Unibet", "#14532d", "UB"], ["PointsBet", "#dc2626", "PB"], ["Ladbrokes", "#b91c1c", "LB"],
+    ["Neds", "#ea580c", "NE"], ["betr", "#7c3aed", "BR"], ["FanDuel", "#1d4ed8", "FD"],
+    ["FanDuel Racing", "#0e7490", "FR"]
+  ],
+  "row-llms": [
+    ["Claude", "#d97757", "C"], ["GPT", "#10a37f", "G"], ["Gemini", "#1a73e8", "♦"],
+    ["Groq", "#f55036", "Q"], ["OpenRouter", "#6366f1", "OR"], ["any MCP client", "#334155", "⌘"],
+    ["bring your own key", "#1f2937", "🔑"]
+  ]
+};
+function marquees() {
+  for (const [rowId, items] of Object.entries(ROWS)) {
+    const track = document.getElementById(rowId);
+    if (!track) continue;
+    const badges = items.map(([name, color, mark]) =>
+      `<span class="badge"><span class="bx" style="background:${color}">${mark}</span>${name}</span>`
+    ).join("");
+    track.innerHTML = badges + badges;  // duplicated for a seamless loop
+  }
 }
 
 /* mini markdown: escape first, then bold / tables / lists / h4 / _source_ */
@@ -407,10 +487,12 @@ function md(text) {
   return html;
 }
 
-/* the playback engine */
-let playing = false, currentId = null;
+/* the playback engine — a new run CANCELS the one in flight (clicking a chip
+   mid-animation must switch, not be swallowed) */
+let runSeq = 0, currentId = null;
 async function play(id, run, promptText, liveMeta) {
-  if (playing) return; playing = true; currentId = id;
+  const seq = ++runSeq; currentId = id;
+  const live = () => seq === runSeq;
   document.querySelectorAll(".prompts button").forEach(b => b.classList.toggle("active", b.dataset.id === id));
   const pl = document.getElementById("promptline"), tools = document.getElementById("tools"),
         think = document.getElementById("thinking"), ans = document.getElementById("answer"),
@@ -420,21 +502,27 @@ async function play(id, run, promptText, liveMeta) {
   // type the prompt
   const caret = '<span class="caret"></span>';
   for (let i = 0; i <= promptText.length; i += 2) {
+    if (!live()) return;
     pl.innerHTML = "❯ " + esc(promptText.slice(0, i)) + caret;
     await sleep(14);
   }
+  if (!live()) return;
   pl.innerHTML = "❯ " + esc(promptText);
   // tool calls: spinner -> check
   for (const c of run.tool_calls) {
+    if (!live()) return;
     const row = document.createElement("div"); row.className = "tool";
     row.innerHTML = `<span class="spin"></span><span class="name">${esc(c.tool)}</span><span class="lat"></span>`;
     tools.appendChild(row);
     await sleep(Math.min(Math.max(c.latency_ms / 3, 260), 950));
+    if (!live()) return;
     row.querySelector(".spin").outerHTML = '<span class="check">✓</span>';
     row.querySelector(".lat").textContent = `${c.latency_ms}ms`;
   }
+  if (!live()) return;
   think.hidden = false;
   await sleep(700);
+  if (!live()) return;
   think.hidden = true;
   // stream the answer block by block
   const html = md(run.answer);
@@ -442,15 +530,16 @@ async function play(id, run, promptText, liveMeta) {
   else {
     const holder = document.createElement("div"); holder.innerHTML = html;
     for (const node of [...holder.childNodes]) {
+      if (!live()) return;
       ans.appendChild(node);
       await sleep(120);
     }
   }
+  if (!live()) return;
   foot.textContent = liveMeta
     ? `live run · ${run.tool_calls.length} tool calls · $${liveMeta.cost_usd}`
     : `recorded playback · ${run.tool_calls.length} tool calls · grounded with sources`;
   replay.hidden = false;
-  playing = false;
 }
 
 async function runDemo(id) {
@@ -486,13 +575,13 @@ async function loadPrompts() {
   }
   // autoplay the first run when the console scrolls into view
   const io = new IntersectionObserver((entries) => {
-    if (entries.some(e => e.isIntersecting)) { io.disconnect(); if (!playing && !currentId) runDemo(prompts[0].id); }
+    if (entries.some(e => e.isIntersecting)) { io.disconnect(); if (!currentId) runDemo(prompts[0].id); }
   }, { threshold: .45 });
   io.observe(document.querySelector(".console"));
 }
 document.getElementById("replay").onclick = () => { if (currentId) runDemo(currentId); };
 
-loadCounters(); loadPrompts(); reveal();
+loadCounters(); loadPrompts(); reveal(); marquees(); parallax();
 </script>
 </body>
 </html>
