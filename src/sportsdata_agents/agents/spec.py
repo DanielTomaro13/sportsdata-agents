@@ -95,6 +95,10 @@ class AgentSpec(BaseModel):
     # gateway; "ops" agents run under the PLATFORM's identity with platform creds
     # (GitHub/CI) and are reachable only from the operator CLI — never the gateway.
     plane: Literal["product", "ops"] = "product"
+    # D27 deprecation window: a human-readable notice ("use X; removed after
+    # 2026-09-01"). Loading a deprecated version still WORKS (pinned workspaces
+    # must not break) — it warns.
+    deprecated: str | None = None
     model_tier: str = "balanced"
     system_prompt: str = Field(min_length=1)
     tools: ToolsSpec = Field(default_factory=ToolsSpec)
@@ -162,3 +166,13 @@ class AgentSpecFile(BaseModel):
 
     spec_version: int = 1
     agent: AgentSpec
+
+    @field_validator("spec_version")
+    @classmethod
+    def _supported_schema(cls, v: int) -> int:
+        if v != 1:
+            raise ValueError(
+                f"spec_version {v} is not supported by this runtime (knows: 1) — "
+                "upgrade sportsdata-agents or pin the older module version (D27)"
+            )
+        return v

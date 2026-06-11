@@ -47,6 +47,11 @@ class Workspace(BaseModel):
     # tier -> concrete model overrides (resolved by the model policy at M0.5).
     model_tiers: dict[str, str] = Field(default_factory=dict)
 
+    # D27 spec versioning: agent id -> pinned semver. A pinned workspace keeps the
+    # archived version when the platform ships a newer one; clearing the pin (or
+    # pinning the new version) is the explicit, opt-in migration.
+    agent_versions: dict[str, str] = Field(default_factory=dict)
+
     # Per-workspace secret fallback (env is always preferred).
     # repr=False so secret values never appear in logs/reprs of Workspace (§13).
     secrets: dict[str, str] = Field(default_factory=dict, repr=False)

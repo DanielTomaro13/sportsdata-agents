@@ -95,7 +95,25 @@ class TeamSession:
     ) -> None:
         self.settings = settings or get_settings()
         self.workspace = workspace or default_workspace(self.settings)
-        self.specs = specs or load_builtin_specs()
+        if specs is not None:
+            self.specs = specs
+        else:
+            self.specs = load_builtin_specs()
+            if self.workspace.agent_versions:  # D27: pinned workspaces keep archives
+                from sportsdata_agents.agents.loader import (
+                    builtin_specs_dir,
+                    load_spec_catalog,
+                    resolve_pins,
+                )
+
+                self.specs = resolve_pins(
+                    load_spec_catalog(builtin_specs_dir()),
+                    self.specs,
+                    self.workspace.agent_versions,
+                )
+        for spec in self.specs.values():
+            if spec.deprecated:
+                logger.warning("agent %s@%s is deprecated: %s", spec.id, spec.version, spec.deprecated)
         self.recorder = recorder
         usage_sink = getattr(recorder, "usage_sink", None) if recorder is not None else None
         self.provider = provider or ModelGateway(usage_sink=usage_sink)

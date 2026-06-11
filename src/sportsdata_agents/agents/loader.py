@@ -45,14 +45,17 @@ def load_spec_file(path: Path) -> AgentSpec:
 
 
 def load_specs_dir(directory: Path) -> dict[str, AgentSpec]:
-    """Load every non-underscore ``*.yaml``/``*.yml`` in a directory; duplicate ids are an error."""
+    """Load every non-underscore ``*.yaml``/``*.yml`` in a directory; duplicate ids are an error.
+
+    Files named ``{id}@{version}.yaml`` are ARCHIVED versions (D27) — skipped here;
+    ``load_spec_catalog`` reads them for workspaces pinned to old versions."""
     if not directory.is_dir():
         raise SpecError(str(directory), "spec directory does not exist")
     specs: dict[str, AgentSpec] = {}
     sources: dict[str, str] = {}
     paths = sorted(p for pattern in ("*.yaml", "*.yml") for p in directory.glob(pattern))
     for path in paths:
-        if path.name.startswith("_"):
+        if path.name.startswith("_") or "@" in path.name:
             continue
         spec = load_spec_file(path)
         if spec.id in specs:
@@ -60,6 +63,51 @@ def load_specs_dir(directory: Path) -> dict[str, AgentSpec]:
         specs[spec.id] = spec
         sources[spec.id] = str(path)
     return specs
+
+
+def load_spec_catalog(directory: Path) -> dict[str, dict[str, AgentSpec]]:
+    """Every version of every agent in a directory: {id: {version: spec}} (D27).
+
+    Latest = the plain ``{id}.yaml``; archives are ``{id}@{version}.yaml`` written
+    when a version is bumped (the agent-builder's save flow does this). An archive
+    whose embedded id/version disagrees with its filename is an authoring error."""
+    catalog: dict[str, dict[str, AgentSpec]] = {}
+    for agent_id, spec in load_specs_dir(directory).items():
+        catalog.setdefault(agent_id, {})[spec.version] = spec
+    for path in sorted(directory.glob("*@*.y*ml")):
+        if path.name.startswith("_"):
+            continue
+        spec = load_spec_file(path)
+        stem_id, _, stem_version = path.stem.partition("@")
+        if spec.id != stem_id or spec.version != stem_version:
+            raise SpecError(
+                str(path),
+                f"archive name says {stem_id}@{stem_version} but the spec inside is "
+                f"{spec.id}@{spec.version}",
+            )
+        catalog.setdefault(spec.id, {})[spec.version] = spec
+    return catalog
+
+
+def resolve_pins(
+    catalog: dict[str, dict[str, AgentSpec]],
+    latest: dict[str, AgentSpec],
+    pins: dict[str, str],
+) -> dict[str, AgentSpec]:
+    """The spec set a workspace actually runs: latest everywhere, except agents the
+    workspace PINNED to an archived version (D27). Unknown pins fail loudly —
+    a silently-ignored pin is how a platform change breaks a customer."""
+    out = dict(latest)
+    for agent_id, version in pins.items():
+        versions = catalog.get(agent_id, {})
+        if version not in versions:
+            raise SpecError(
+                agent_id,
+                f"workspace pins {agent_id}@{version} but only "
+                f"{sorted(versions)} exist (archive missing?)",
+            )
+        out[agent_id] = versions[version]
+    return out
 
 
 def builtin_specs_dir() -> Path:
