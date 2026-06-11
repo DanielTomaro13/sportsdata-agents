@@ -490,6 +490,46 @@ def dictionary_promote(
                   "(commit the seed change)")
 
 
+@app.command(name="migrate-warehouse")
+def migrate_warehouse_cmd(
+    target: str = typer.Argument(..., help="Target database URL (e.g. postgresql+asyncpg://...)."),
+    source: str | None = typer.Option(None, "--source", help="Source URL (default: the configured database)."),
+    allow_nonempty: bool = typer.Option(False, "--allow-nonempty",
+                                        help="Resume into a non-empty target (existing rows are skipped)."),
+) -> None:
+    """Copy the whole warehouse to another database — the SQLite → Postgres move.
+
+    PAUSE THE INGEST CRON FIRST (comment the */3 line; a live writer shifts the
+    copy's pages). After copying, run `alembic upgrade head` against the target: migration 0009
+    turns odds_snapshots into a Timescale hypertable with 90-day retention when
+    the extension is available (plain Postgres works fine without it). Then point
+    SPORTSDATA_AGENTS_DATABASE_URL (and the crontab lines) at the target.
+    """
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.operations.migrate import migrate_warehouse
+
+    console = Console()
+    src = source or get_settings().database_url
+
+    async def _run() -> None:
+        report = await migrate_warehouse(src, target, allow_nonempty=allow_nonempty)
+        for table, count in report.items():
+            if table != "total" and count:
+                console.print(f"  {table}: {count}")
+        console.print(f"✓ migrated {report['total']} rows — now run `alembic upgrade head` "
+                      "against the target and repoint SPORTSDATA_AGENTS_DATABASE_URL + crontab")
+
+    asyncio.run(_run())
+
+
 @app.command()
 def monitor(
     watch: str | None = typer.Option(None, "--add", help='Create a watch inline: "name:kind:threshold" '

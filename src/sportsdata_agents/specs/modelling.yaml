@@ -37,7 +37,7 @@ agent:
       "locks" or guarantees.
   tools:
     mcp_capabilities: [sport.match_boxscore, stats.player_season, ref.teams]
-    native: [run_python, calibration_metrics, save_model, record_predictions, list_models, query_line_movement]
+    native: [run_python, calibration_metrics, save_model, record_predictions, list_models, query_line_movement, calibration_curve]
   sandbox: ephemeral
   output_type: StatsAnswer
   skills:

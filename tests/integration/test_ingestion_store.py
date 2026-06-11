@@ -366,3 +366,50 @@ async def test_alert_shows_other_books_for_the_same_market(
     assert report["alerts"] == 1
     assert "Western Bulldogs v Adelaide Crows" in pushed[0]
     assert "across books: TAB 1.95" in pushed[0]  # orientation-translated quote
+
+
+async def test_migrate_warehouse_roundtrip(
+    db_sessionmaker: async_sessionmaker[AsyncSession], tmp_path: Any
+) -> None:
+    """P3: the SQLite -> Postgres mover, proven on SQLite -> SQLite — every row
+    copies in FK order; a non-empty target is refused without the override."""
+    import pytest as _pytest
+    from sqlalchemy.ext.asyncio import async_sessionmaker as _asm
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.operations.migrate import migrate_warehouse
+
+    # file-based source (the fixture is in-memory; the mover opens fresh engines)
+    source_url = f"sqlite+aiosqlite:///{tmp_path}/source.db"
+    target_url = f"sqlite+aiosqlite:///{tmp_path}/target.db"
+    source_engine = create_async_engine(source_url)
+    async with source_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    source_sf = _asm(source_engine, expire_on_commit=False)
+    await record_points(source_sf, [_point(1.85), _point(2.00, "away")], captured_at=T0)
+    await record_points(source_sf, [_point(1.92)], captured_at=T1)
+    await source_engine.dispose()
+
+    report = await migrate_warehouse(source_url, target_url)
+    assert report["odds_snapshots"] == 3 and report["prices"] == 3
+    assert report["total"] >= 6
+
+    from sqlalchemy import func as _func
+    from sqlalchemy import select as _select
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from sportsdata_agents.data.models import OddsSnapshot as _Snap
+
+    target = create_async_engine(target_url)
+    try:
+        async with target.connect() as conn:
+            count = (await conn.execute(_select(_func.count()).select_from(_Snap))).scalar_one()
+        assert count == 3
+    finally:
+        await target.dispose()
+
+    with _pytest.raises(RuntimeError, match="already has"):
+        await migrate_warehouse(source_url, target_url)
+    report = await migrate_warehouse(source_url, target_url, allow_nonempty=True)
+    assert report["odds_snapshots"] == 3

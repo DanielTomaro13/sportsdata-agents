@@ -163,6 +163,35 @@ async def value_finder(args: dict[str, Any]) -> Any:
     )
 
 
+async def _calibration_curve(args: dict[str, Any]) -> Any:
+    """Binned reliability data for a calibration diagram: for each probability bin,
+    the mean predicted prob vs the observed frequency. The modelling agent renders
+    this with run_python and posts the PNG as an artifact (P3 backlog item)."""
+    pairs = list(args.get("pairs") or [])
+    bins = max(2, min(int(args.get("bins", 10)), 20))
+    if not pairs:
+        raise ValueError("pairs must be a non-empty list of {prob, outcome}")
+    grid: list[list[tuple[float, int]]] = [[] for _ in range(bins)]
+    for pair in pairs:
+        prob = float(pair["prob"])
+        outcome = int(pair["outcome"])
+        index = min(int(prob * bins), bins - 1)
+        grid[index].append((prob, outcome))
+    rows = []
+    for index, bucket in enumerate(grid):
+        if not bucket:
+            continue
+        rows.append({
+            "bin": f"{index / bins:.2f}-{(index + 1) / bins:.2f}",
+            "mean_predicted": round(sum(p for p, _ in bucket) / len(bucket), 4),
+            "observed_frequency": round(sum(o for _, o in bucket) / len(bucket), 4),
+            "n": len(bucket),
+        })
+    brier = sum((float(p["prob"]) - int(p["outcome"])) ** 2 for p in pairs) / len(pairs)
+    return {"bins": rows, "brier": round(brier, 5), "n": len(pairs),
+            "note": "perfectly calibrated = mean_predicted == observed_frequency per bin"}
+
+
 async def _optimize_lineup_tool(args: dict[str, Any]) -> Any:
     from sportsdata_agents.quant.lineup import optimize_lineup
 
@@ -347,6 +376,26 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["pairs"],
         },
         execute=calibration_metrics,
+    ),
+    "calibration_curve": ToolDef(
+        name="calibration_curve",
+        description=("Binned reliability data for a calibration diagram "
+                     "(mean predicted prob vs observed frequency per bin, plus Brier)."),
+        parameters={
+            "type": "object",
+            "properties": {
+                "pairs": {
+                    "type": "array",
+                    "items": {"type": "object",
+                              "properties": {"prob": {"type": "number"},
+                                             "outcome": {"type": "integer"}},
+                              "required": ["prob", "outcome"]},
+                },
+                "bins": {"type": "integer"},
+            },
+            "required": ["pairs"],
+        },
+        execute=_calibration_curve,
     ),
     "optimize_lineup": ToolDef(
         name="optimize_lineup",

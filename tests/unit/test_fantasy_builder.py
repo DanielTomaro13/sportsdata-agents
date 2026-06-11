@@ -167,3 +167,15 @@ async def test_discord_handle_message_routes_to_gateway(monkeypatch: pytest.Monk
     reply = await discord_app.handle_message("<@9> who won the afl?", channel_key="555", bot_id=9)
     assert reply is not None and "Bulldogs by 2." in reply and "grounded" in reply
     assert await discord_app.handle_message("<@9>", channel_key="555", bot_id=9) is None
+
+
+async def test_calibration_curve_bins_reliability() -> None:
+    from sportsdata_agents.tools.registry import NATIVE_TOOLS
+
+    pairs = ([{"prob": 0.8, "outcome": 1}] * 8 + [{"prob": 0.8, "outcome": 0}] * 2
+             + [{"prob": 0.2, "outcome": 0}] * 9 + [{"prob": 0.2, "outcome": 1}])
+    out = await NATIVE_TOOLS["calibration_curve"].execute({"pairs": pairs, "bins": 5})
+    by_bin = {b["bin"]: b for b in out["bins"]}
+    assert by_bin["0.80-1.00"]["observed_frequency"] == 0.8  # perfectly calibrated bin
+    assert by_bin["0.20-0.40"]["observed_frequency"] == 0.1
+    assert out["n"] == 20 and 0 < out["brier"] < 0.25

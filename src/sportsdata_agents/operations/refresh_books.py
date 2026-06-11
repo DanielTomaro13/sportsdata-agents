@@ -197,7 +197,11 @@ def summary_lines(catalogue: dict[str, Any]) -> list[str]:
         if record.get("error"):
             lines.append(f"- **{book}** (`{record['tool']}`): probe failed — {record['error'].split(':')[0]}")
         elif not record["entries"]:
-            lines.append(f"- **{book}** (`{record['tool']}`): no entries found — discovery may have drifted!")
+            # layer 3 (P3 ops): both deterministic detection layers came up empty —
+            # an ops agent should read ONE payload sample and propose the field
+            # mapping as a PR: agents ops run repo_improver "map the {book} catalogue"
+            lines.append(f"- **{book}** (`{record['tool']}`): no entries found — discovery may "
+                         f"have drifted! escalate: `agents ops run repo_improver` with a payload sample")
         else:
             lines.append(f"- **{book}** (`{record['tool']}`): {len(record['entries'])} named ids harvested")
     return lines
