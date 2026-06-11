@@ -45,8 +45,8 @@ def test_demo_prompts_are_curated_only(client: TestClient) -> None:
 
 def test_demo_rate_limit_per_ip(client: TestClient) -> None:
     for _ in range(3):
-        assert client.post("/demo/run", json={"prompt_id": "afl-round"}).status_code == 200
-    assert client.post("/demo/run", json={"prompt_id": "afl-round"}).status_code == 429
+        assert client.post("/demo/run", json={"prompt_id": "find-value"}).status_code == 200
+    assert client.post("/demo/run", json={"prompt_id": "find-value"}).status_code == 429
 
 
 def test_leads_validate_and_never_lose_a_lead(

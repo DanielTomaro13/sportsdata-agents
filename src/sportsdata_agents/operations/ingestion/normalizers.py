@@ -983,7 +983,10 @@ def normalize_kalshi_all(payload: Any) -> list[PricePoint]:
             if not event_ticker:
                 continue
             sport = canonical_sport(str(event.get("category") or "prediction"))
-            market_key = canonical_market(event_name or "?")
+            # the SERIES ticker is the stable product line ("KXNBAGAME") — one
+            # steward alias maps a whole series onto a family; event titles would
+            # mint a unique market name per event and flood the dictionary queue
+            market_key = canonical_market(str(event.get("series_ticker") or event_name or "?"))
             for mkt in event.get("markets", []) or []:
                 if mkt.get("status") not in (None, "open", "active"):
                     continue
@@ -1045,10 +1048,13 @@ def normalize_polymarket_all(payload: Any) -> list[PricePoint]:
             labels = [str(t.get("label", "")) for t in event.get("tags", []) or [] if t.get("label")]
             specific = next((lbl for lbl in labels if lbl.lower() not in ("sports", "all")), "")
             sport = canonical_sport(specific or (labels[0] if labels else "prediction"))
-            market_key = canonical_market(event_name or "?")
             for mkt in event.get("markets", []) or []:
                 if mkt.get("closed") is True or mkt.get("active") is False:
                     continue
+                # Gamma stamps sports markets with a stable type ("moneyline",
+                # "spreads") the dictionary already maps; everything else gets the
+                # event title (book-local naming, steward can family it later)
+                market_key = canonical_market(str(mkt.get("sportsMarketType") or "") or event_name or "?")
                 subject = str(mkt.get("groupItemTitle") or "").strip()
                 outcomes = _json_list(mkt.get("outcomes"))
                 prices = _json_list(mkt.get("outcomePrices"))
