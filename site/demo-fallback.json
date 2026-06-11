@@ -53,5 +53,12 @@
       ],
       "answer": "Game 3 (June 9): Spurs 121 - 118 Knicks. New York leads the Finals 2-1; Game 4 is tonight at MSG.\\n\\nSources: NBA live scoreboard, fetched just now. Informational only."
     }
+  },
+  "stats": {
+    "providers": 19,
+    "groups": 62,
+    "tools": 356,
+    "as_of": "2026-06-11",
+    "note": "snapshot \u2014 live counters need the gateway"
   }
 }
