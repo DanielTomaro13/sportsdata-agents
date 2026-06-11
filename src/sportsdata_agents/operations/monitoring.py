@@ -64,6 +64,31 @@ def _pct_move(prev: float, new: float) -> float:
     return abs(new - prev) / prev * 100.0 if prev else 0.0
 
 
+async def _context(session: AsyncSession, row: Price) -> dict[str, str]:
+    """Human context for an alert — the change-point series carries only keys;
+    the event NAME, sport and runner/team label live in the latest snapshot."""
+    snap = (
+        await session.execute(
+            select(OddsSnapshot)
+            .where(
+                OddsSnapshot.provider == row.provider,
+                OddsSnapshot.event_external_id == row.event_external_id,
+                OddsSnapshot.market == row.market,
+                OddsSnapshot.selection == row.selection,
+            )
+            .order_by(OddsSnapshot.captured_at.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    event = (snap.event_name if snap else "") or row.event_external_id
+    sport = (snap.sport if snap else "") or row.sport
+    who = ((snap.meta or {}).get("runner") or (snap.meta or {}).get("team")) if snap else None
+    selection = row.selection
+    if who and str(who).strip().lower() != row.selection.lower():
+        selection = f"{row.selection} ({who})"
+    return {"event": event, "sport": sport, "selection": selection}
+
+
 def _match(row: Price, params: dict[str, Any]) -> bool:
     for field in ("sport", "market", "selection", "book", "provider"):
         want = params.get(field)
@@ -125,10 +150,11 @@ async def _watch_line_move(
         if move < threshold:
             continue
         direction = "shortened" if float(row.odds) < float(row.prev_odds) else "drifted"
+        ctx = await _context(session, row)
         message = (
-            f":chart_with_upwards_trend: line move — {row.book} {row.market} "
-            f"{row.selection!r} ({row.event_external_id}) {direction} "
-            f"{float(row.prev_odds):.2f} → {float(row.odds):.2f} ({move:.1f}%)"
+            f":chart_with_upwards_trend: line move [{ctx['sport']}] {ctx['event']}\n"
+            f"{row.book} · {row.market} · {ctx['selection']} — "
+            f"{float(row.prev_odds):.2f} → {float(row.odds):.2f} ({direction} {move:.1f}%)"
         )
         key = f"line_move:{row.book}:{row.event_external_id}:{row.market}:{row.selection}"
         if await _fire(session, sub, kind="line_move", key=key, message=message,
@@ -157,8 +183,10 @@ async def _watch_steam(
         directions = {1 if float(r.odds) > float(r.prev_odds or 0) else -1 for r in series}
         if len(series) >= min_moves and len(directions) == 1:
             arrow = "drifting" if directions == {1} else "steaming in"
+            ctx = await _context(session, series[-1])
             message = (
-                f":fire: steam — {book} {market} {selection!r} ({event}) {arrow}: "
+                f":fire: steam [{ctx['sport']}] {ctx['event']}\n"
+                f"{book} · {market} · {ctx['selection']} — {arrow}, "
                 f"{len(series)} consecutive moves, "
                 f"{float(series[0].prev_odds or 0):.2f} → {float(series[-1].odds):.2f}"
             )
@@ -212,10 +240,11 @@ async def _watch_value(
             )
         ).scalars().first()
         if edge >= min_edge:
+            ctx = await _context(session, latest)
             message = (
-                f":moneybag: value — {latest.book} {pred.market} {pred.selection!r} "
-                f"({pred.event_external_id}): model {float(pred.prob):.0%} at "
-                f"{float(latest.odds):.2f} = +{edge:.1f}% edge"
+                f":moneybag: value [{ctx['sport']}] {ctx['event']}\n"
+                f"{latest.book} · {pred.market} · {ctx['selection']} — model "
+                f"{float(pred.prob):.0%} at {float(latest.odds):.2f} = +{edge:.1f}% edge"
             )
             if await _fire(session, sub, kind="value", key=key, message=message,
                            payload={"edge_pct": round(edge, 2)}, pusher=pusher):
@@ -245,6 +274,8 @@ async def _watch_scratching(
                 OddsSnapshot.provider, OddsSnapshot.event_external_id,
                 OddsSnapshot.selection,
                 func.max(OddsSnapshot.captured_at),  # latest sighting per selection
+                func.max(OddsSnapshot.event_name),
+                func.max(OddsSnapshot.sport),
             )
             .where(OddsSnapshot.sport.like(f"%{sport_like}%"),
                    OddsSnapshot.market == "win")
@@ -252,11 +283,13 @@ async def _watch_scratching(
         )
     ).all()
     by_event: dict[tuple[str, str], list[tuple[str, dt.datetime]]] = {}
-    for provider, event, selection, latest in rows:
+    names: dict[tuple[str, str], tuple[str, str]] = {}
+    for provider, event, selection, latest, event_name, sport in rows:
         when = latest if isinstance(latest, dt.datetime) else dt.datetime.fromisoformat(str(latest))
         if when.tzinfo is None:
             when = when.replace(tzinfo=dt.UTC)
         by_event.setdefault((provider, event), []).append((selection, when))
+        names[(provider, event)] = (str(event_name or event), str(sport or sport_like))
     gap = dt.timedelta(minutes=stale_minutes)
     cap = int(sub.params.get("max_alerts_per_cycle", 10))
     for (provider, event), entries in by_event.items():
@@ -267,10 +300,11 @@ async def _watch_scratching(
         freshest = max(when for _sel, when in entries)
         for selection, when in entries:
             if freshest - when >= gap:
+                event_name, sport = names.get((provider, event), (event, sport_like))
                 message = (
-                    f":no_entry: scratching suspect — {provider} {event} runner "
-                    f"{selection!r}: no prices since {when.isoformat()} while the "
-                    f"card kept updating"
+                    f":no_entry: scratching suspect [{sport}] {event_name}\n"
+                    f"{provider} · runner {selection} — no prices since "
+                    f"{when.strftime('%H:%M UTC')} while the card kept updating"
                 )
                 key = f"scratching:{provider}:{event}:{selection}"
                 if await _fire(session, sub, kind="scratching", key=key, message=message,
