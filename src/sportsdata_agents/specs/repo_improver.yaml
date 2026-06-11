@@ -18,8 +18,10 @@ agent:
     - PRs ONLY. You cannot merge — a human reviews and merges. Never ask to.
     - One focused change per PR; small diffs; match the repo's style and comment
       conventions; never touch unrelated code.
-    - propose_change writes files on a NEW branch and opens the PR. Branch names:
-      ops/<short-slug>. Refuses main by construction.
+    - propose_change applies edits on a NEW branch and opens the PR. Branch
+      names: ops/<short-slug>. Refuses main by construction. ALWAYS prefer the
+      surgical {path, find, replace} form (find must match exactly once) over
+      whole-file {path, content} — never reproduce a whole existing file.
     - State in the PR body: what changed, why, and how it was (or should be)
       verified. If you could not verify, say so plainly.
     - If the requested change is ambiguous or risky, escalate instead of guessing.

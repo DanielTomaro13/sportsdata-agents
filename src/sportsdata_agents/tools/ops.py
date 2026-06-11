@@ -223,9 +223,11 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         return {"review_id": review.get("id"), "state": review.get("state")}
 
     async def propose_change(args: dict[str, Any]) -> Any:
-        """{repo, branch, files: [{path, content}], commit_message, pr_title, pr_body}
-        → write files on a NEW branch, commit, push, open a PR. Refuses main; refuses
-        paths escaping the repo; the PR is the only output — a human merges."""
+        """{repo, branch, files: [{path, content} | {path, find, replace}],
+        commit_message, pr_title, pr_body} → apply edits on a NEW branch, commit,
+        push, open a PR. find/replace is the surgical form (find must match the
+        file EXACTLY ONCE); content overwrites whole (new) files. Refuses main;
+        refuses paths escaping the repo; the PR is the only output — a human merges."""
         repo = str(args["repo"])
         branch = str(args["branch"]).strip()
         if repo not in repos:
@@ -235,7 +237,7 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         repo_path = repos[repo]
         files = list(args.get("files") or [])
         if not files:
-            raise ValueError("files must be a non-empty list of {path, content}")
+            raise ValueError("files must be a non-empty list of {path, content} or {path, find, replace}")
         rc, out = _run(["git", "-C", str(repo_path), "status", "--porcelain"])
         if rc != 0:
             raise RuntimeError(f"git status failed: {out}")
@@ -253,8 +255,20 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
                 target = (repo_path / str(f["path"])).resolve()
                 if not str(target).startswith(str(repo_path.resolve())):
                     raise ValueError(f"refused: {f['path']!r} escapes the repo")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(str(f["content"]), encoding="utf-8")
+                if "find" in f:  # surgical edit — never reproduce the whole file
+                    text = target.read_text(encoding="utf-8")
+                    hits = text.count(str(f["find"]))
+                    if hits != 1:
+                        raise ValueError(
+                            f"{f['path']}: find matched {hits} times — it must match exactly once"
+                        )
+                    target.write_text(
+                        text.replace(str(f["find"]), str(f.get("replace", "")), 1),
+                        encoding="utf-8",
+                    )
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(str(f["content"]), encoding="utf-8")
             message = str(args["commit_message"]).rstrip() + (
                 "\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
             )
@@ -475,8 +489,9 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
               {"repo": {"type": "string"}, "branch": {"type": "string"},
                "files": {"type": "array", "items": {
                    "type": "object",
-                   "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-                   "required": ["path", "content"]}},
+                   "properties": {"path": {"type": "string"}, "content": {"type": "string"},
+                                  "find": {"type": "string"}, "replace": {"type": "string"}},
+                   "required": ["path"]}},
                "commit_message": {"type": "string"}, "pr_title": {"type": "string"},
                "pr_body": {"type": "string"}},
               ["repo", "branch", "files", "commit_message", "pr_title"]),
