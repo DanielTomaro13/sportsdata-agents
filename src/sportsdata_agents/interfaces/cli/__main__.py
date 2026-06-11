@@ -382,7 +382,14 @@ def ops_run(
         console = Console()
         tiers = ({"fast": model, "balanced": model, "strong": model} if model
                  else detect_tier_overrides())
-        workspace = Workspace(tenant_id="platform", workspace_id="ops", model_tiers=tiers)
+        from sportsdata_agents.workspace import Budgets
+
+        # ops runs are platform opex, not tenant spend — the default $0.50/run
+        # clamp killed a live improver run; ops specs carry their own ceilings
+        workspace = Workspace(tenant_id="platform", workspace_id="ops", model_tiers=tiers,
+                              budgets=Budgets(per_run_usd=2.0, monthly_usd=50.0,
+                                              max_tool_calls=60, max_steps=60,
+                                              max_tokens=200_000, timeout_seconds=2400))
         recorder = ConsoleProgressRecorder(
             console, inner=await try_db_recorder(settings, TenantScope("platform", "ops"))
         )

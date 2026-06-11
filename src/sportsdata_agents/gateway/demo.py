@@ -108,13 +108,14 @@ async def demo_stats() -> dict[str, Any]:
     from sportsdata_agents.mcp.manager import MCPManager
 
     async with MCPManager(groups=["*"], command=get_settings().mcp_command) as manager:
-        groups = await manager.call_tool("list_available_groups", {})
-    rows = groups if isinstance(groups, list) else groups.get("groups", [])
-    providers = {str(g.get("group", g) if isinstance(g, dict) else g).split(".")[0] for g in rows}
-    tools = sum(int(g.get("tools", 0)) for g in rows if isinstance(g, dict))
+        payload = await manager.call_tool("list_available_groups", {})
+    # shape (verified live): {"enabled": [...], "available": {group: {provider, tools, ...}}}
+    available = payload.get("available") or {}
+    providers = {str(info.get("provider", group.split(".")[0]))
+                 for group, info in available.items()}
     return {
         "providers": len(providers),
-        "groups": len(rows),
-        "tools": tools,
+        "groups": len(available),
+        "tools": sum(int(info.get("tools", 0)) for info in available.values()),
         "at": dt.datetime.now(dt.UTC).isoformat(),
     }
