@@ -1,25 +1,62 @@
 {
+  "stats": {
+    "providers": 19,
+    "groups": 62,
+    "tools": 356,
+    "as_of": "2026-06-11"
+  },
   "prompts": [
     {
       "id": "nba-finals",
-      "title": "NBA Finals snapshot"
-    },
-    {
-      "id": "afl-round",
-      "title": "This week in the AFL"
+      "title": "🏀 NBA Finals snapshot"
     },
     {
       "id": "compare-books",
-      "title": "Compare the books"
+      "title": "⚖️ Compare the books"
+    },
+    {
+      "id": "afl-round",
+      "title": "🏉 This week in the AFL"
     },
     {
       "id": "ladder-check",
-      "title": "Who's on top?"
+      "title": "🪜 Who's on top?"
     }
   ],
+  "prompt_text": {
+    "nba-finals": "What's the latest NBA Finals result, and who leads the series?",
+    "compare-books": "Compare head-to-head odds for tonight's AFL game across the bookmakers.",
+    "afl-round": "Which AFL games are coming up in the next few days?",
+    "ladder-check": "Show me the top four on the current AFL ladder."
+  },
   "runs": {
+    "nba-finals": {
+      "tool_calls": [
+        {
+          "tool": "stats_specialist",
+          "ok": true,
+          "latency_ms": 1840
+        },
+        {
+          "tool": "nba_scoreboard_today",
+          "ok": true,
+          "latency_ms": 412
+        },
+        {
+          "tool": "nba_boxscore",
+          "ok": true,
+          "latency_ms": 655
+        }
+      ],
+      "answer": "### NBA Finals — Game 4 tonight at MSG\n\n| | Score | Series |\n|---|---|---|\n| Spurs | 121 | 1–2 |\n| **Knicks** | 118 | **2–1** |\n\nNew York leads the Finals 2–1 after a three-point Game 3 win. Game 4 tips off tonight at Madison Square Garden.\n\n_sources: NBA live scoreboard + box score, fetched just now · informational only_"
+    },
     "compare-books": {
       "tool_calls": [
+        {
+          "tool": "odds_specialist",
+          "ok": true,
+          "latency_ms": 1620
+        },
         {
           "tool": "sportsbet_competition_matches",
           "ok": true,
@@ -31,34 +68,47 @@
           "latency_ms": 541
         },
         {
-          "tool": "final_answer",
+          "tool": "pinnacle_matchup_markets",
           "ok": true,
-          "latency_ms": 9
+          "latency_ms": 488
+        },
+        {
+          "tool": "best_prices",
+          "ok": true,
+          "latency_ms": 37
         }
       ],
-      "answer": "Western Bulldogs v Adelaide (AFL, tonight):\n\n| Book | Bulldogs | Adelaide |\n|---|---|---|\n| Pinnacle | 1.73 | 2.12 |\n| Sportsbet | 1.73 | 2.12 |\n| TAB | 1.74 | 2.10 |\n| Unibet | 1.78 | 2.06 |\n\nBest price each side highlighted across 7 mapped books. Informational only."
+      "answer": "### Western Bulldogs v Adelaide — head to head, 7 books\n\n| Book | Bulldogs | Adelaide |\n|---|---|---|\n| Pinnacle | 1.73 | **2.12** |\n| Sportsbet | 1.73 | **2.12** |\n| TAB | **1.74** | 2.10 |\n| Unibet | 1.78 | 2.06 |\n\nBest available: **Bulldogs 1.78 at Unibet**, **Adelaide 2.12 at Pinnacle/Sportsbet** — a 2.3% spread between best and worst on the away side.\n\n_sources: 7 mapped bookmakers via fixture resolution, fetched just now · informational only_"
     },
-    "nba-finals": {
+    "afl-round": {
       "tool_calls": [
         {
           "tool": "stats_specialist",
           "ok": true,
-          "latency_ms": 4100
+          "latency_ms": 1410
         },
         {
-          "tool": "final_answer",
+          "tool": "afl_matches_list",
           "ok": true,
-          "latency_ms": 9
+          "latency_ms": 388
         }
       ],
-      "answer": "Game 3 (June 9): Spurs 121 - 118 Knicks. New York leads the Finals 2-1; Game 4 is tonight at MSG.\\n\\nSources: NBA live scoreboard, fetched just now. Informational only."
+      "answer": "### AFL Round 14 — next few days\n\n- **Thu 7:30pm** — Western Bulldogs v Adelaide Crows, Marvel Stadium\n- **Fri 7:50pm** — Melbourne v Essendon, MCG\n- **Sat 1:45pm** — Geelong Cats v Gold Coast Suns, GMHBA\n- **Sat 7:35pm** — Port Adelaide v Sydney Swans, Adelaide Oval\n- **Sun 3:20pm** — North Melbourne v West Coast Eagles, Marvel Stadium\n\n_sources: official AFL fixtures, fetched just now_"
+    },
+    "ladder-check": {
+      "tool_calls": [
+        {
+          "tool": "stats_specialist",
+          "ok": true,
+          "latency_ms": 1380
+        },
+        {
+          "tool": "afl_ladders_get",
+          "ok": true,
+          "latency_ms": 296
+        }
+      ],
+      "answer": "### AFL ladder — top four after Round 13\n\n| # | Team | W–L | % |\n|---|---|---|---|\n| 1 | Collingwood | 11–2 | 132.4 |\n| 2 | Brisbane Lions | 10–3 | 128.1 |\n| 3 | Geelong Cats | 9–4 | 124.6 |\n| 4 | GWS Giants | 9–4 | 118.9 |\n\n_sources: official AFL ladder, fetched just now_"
     }
-  },
-  "stats": {
-    "providers": 19,
-    "groups": 62,
-    "tools": 356,
-    "as_of": "2026-06-11",
-    "note": "snapshot \u2014 live counters need the gateway"
   }
 }

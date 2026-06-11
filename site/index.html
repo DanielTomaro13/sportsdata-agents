@@ -3,174 +3,496 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Every sport, every bookmaker, one agent team — live odds, stats, models and alerts over any LLM. Advisory only.">
 <title>sportsdata — every sport, every book, one agent team</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236e8bff'/%3E%3Cstop offset='1' stop-color='%237cf5c8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%2305080f'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='url(%23g)' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
-  :root { --bg:#0b1020; --card:#141a2f; --ink:#e8ecf8; --dim:#8b93ad; --acc:#4f8cff; --ok:#3ddc84; }
-  * { box-sizing:border-box; margin:0; }
-  body { background:var(--bg); color:var(--ink); font:16px/1.6 -apple-system,Segoe UI,Inter,sans-serif; }
-  main { max-width:960px; margin:0 auto; padding:48px 24px; }
-  h1 { font-size:42px; line-height:1.15; letter-spacing:-.5px; }
-  h1 em { color:var(--acc); font-style:normal; }
-  .sub { color:var(--dim); margin:16px 0 32px; max-width:640px; }
-  .counters { display:flex; gap:24px; margin:24px 0 40px; flex-wrap:wrap; }
-  .counter { background:var(--card); border-radius:12px; padding:16px 24px; min-width:140px; }
-  .counter b { font-size:30px; display:block; color:var(--acc); }
-  .counter span { color:var(--dim); font-size:13px; }
-  .demo { background:var(--card); border-radius:16px; padding:24px; margin:24px 0; }
-  .prompts { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
-  .prompts button { background:#1d2542; color:var(--ink); border:1px solid #2c365e; border-radius:999px;
-                    padding:8px 16px; cursor:pointer; font-size:14px; }
-  .prompts button:hover { border-color:var(--acc); }
-  .trace { font:13px/1.7 ui-monospace,Menlo,monospace; color:var(--dim); min-height:24px; margin:12px 0; }
-  .trace .ok { color:var(--ok); }
-  .answer { white-space:pre-wrap; background:#0e1429; border-radius:10px; padding:16px; min-height:60px; }
-  .note { color:var(--dim); font-size:13px; margin-top:10px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:40px 0; }
-  .card { background:var(--card); border-radius:12px; padding:20px; }
-  .card h3 { margin-bottom:8px; font-size:17px; }
-  .card p { color:var(--dim); font-size:14px; }
-  form { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
-  input { background:#0e1429; color:var(--ink); border:1px solid #2c365e; border-radius:8px;
-          padding:10px 14px; flex:1; min-width:220px; }
-  .cta, form button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:10px 20px;
-                      cursor:pointer; font-weight:600; }
-  footer { color:var(--dim); font-size:13px; margin-top:48px; border-top:1px solid #1d2542; padding-top:24px; }
+  :root {
+    --bg: #05080f;
+    --card: rgba(255,255,255,.035);
+    --card-border: rgba(255,255,255,.08);
+    --ink: #eef2ff;
+    --dim: #8e97b3;
+    --acc1: #6e8bff;
+    --acc2: #3dd6f5;
+    --acc3: #7cf5c8;
+    --ok: #4ade80;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --ease: cubic-bezier(.22,1,.36,1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+
+  /* ── ambient background ── */
+  .orbs { position: fixed; inset: 0; z-index: -2; overflow: hidden; }
+  .orb { position: absolute; border-radius: 50%; filter: blur(110px); opacity: .35; }
+  .orb.a { width: 560px; height: 560px; background: #2741b8; top: -180px; left: -120px;
+           animation: drift 26s var(--ease) infinite alternate; }
+  .orb.b { width: 480px; height: 480px; background: #0c5a6e; top: 30%; right: -180px;
+           animation: drift 32s var(--ease) infinite alternate-reverse; }
+  .orb.c { width: 420px; height: 420px; background: #173a6b; bottom: -160px; left: 30%;
+           animation: drift 38s var(--ease) infinite alternate; }
+  @keyframes drift { to { transform: translate(60px, 40px) scale(1.08); } }
+  .grid-bg {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 35%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 35%, transparent 75%);
+  }
+
+  main { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── nav ── */
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 26px 0; }
+  .wordmark { font-weight: 800; font-size: 19px; letter-spacing: -.3px; }
+  .wordmark span { background: linear-gradient(90deg, var(--acc1), var(--acc2));
+                   -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .chip { font-size: 12.5px; color: var(--dim); border: 1px solid var(--card-border);
+          border-radius: 999px; padding: 6px 14px; }
+  .chip b { color: var(--acc3); font-weight: 600; }
+
+  /* ── hero ── */
+  .hero { padding: 72px 0 40px; text-align: center; }
+  .hero .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+    color: var(--dim); border: 1px solid var(--card-border); background: var(--card);
+    border-radius: 999px; padding: 7px 16px; margin-bottom: 28px; }
+  .hero .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+    animation: pulse 2.2s ease infinite; }
+  @keyframes pulse { 50% { opacity: .35; transform: scale(.85); } }
+  h1 { font-size: clamp(40px, 6.4vw, 68px); line-height: 1.06; letter-spacing: -2px;
+       font-weight: 800; max-width: 820px; margin: 0 auto; }
+  h1 .grad {
+    background: linear-gradient(90deg, var(--acc1) 0%, var(--acc2) 45%, var(--acc3) 90%);
+    background-size: 200% auto;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: sheen 6s linear infinite;
+  }
+  @keyframes sheen { to { background-position: 200% center; } }
+  .hero p.sub { color: var(--dim); font-size: clamp(16px, 2vw, 19px); max-width: 640px;
+                margin: 24px auto 0; }
+  .hero p.sub b { color: var(--ink); }
+  .ctas { display: flex; gap: 14px; justify-content: center; margin-top: 36px; flex-wrap: wrap; }
+  .btn { border-radius: 12px; padding: 13px 26px; font-weight: 650; font-size: 15px;
+         cursor: pointer; text-decoration: none; transition: transform .25s var(--ease), box-shadow .25s; }
+  .btn.primary { color: #06101f; background: linear-gradient(90deg, var(--acc2), var(--acc3));
+                 box-shadow: 0 8px 32px rgba(61,214,245,.25); border: 0; }
+  .btn.primary:hover { transform: translateY(-2px); box-shadow: 0 14px 44px rgba(61,214,245,.35); }
+  .btn.ghost { color: var(--ink); border: 1px solid var(--card-border); background: var(--card); }
+  .btn.ghost:hover { border-color: rgba(255,255,255,.22); transform: translateY(-2px); }
+  .llms { margin-top: 40px; color: var(--dim); font-size: 13px; display: flex; gap: 10px;
+          justify-content: center; align-items: center; flex-wrap: wrap; }
+  .llms .l { border: 1px solid var(--card-border); border-radius: 8px; padding: 5px 12px;
+             font-family: var(--mono); font-size: 12.5px; color: var(--ink); opacity: .85; }
+
+  /* ── counters ── */
+  .counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+              gap: 16px; margin: 64px 0; }
+  .counter { position: relative; background: var(--card); border: 1px solid var(--card-border);
+             border-radius: 18px; padding: 26px 28px; overflow: hidden;
+             transition: transform .3s var(--ease); }
+  .counter:hover { transform: translateY(-3px); }
+  .counter::before { content: ""; position: absolute; inset: 0; border-radius: 18px; padding: 1px;
+    background: linear-gradient(135deg, rgba(110,139,255,.5), transparent 40%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  .counter b { display: block; font-size: 42px; font-weight: 800; letter-spacing: -1.5px;
+    background: linear-gradient(90deg, var(--ink), #b9c4ea);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .counter span { color: var(--dim); font-size: 13.5px; }
+  .asof { grid-column: 1 / -1; text-align: right; color: var(--dim); font-size: 12px; margin-top: -6px; }
+
+  /* ── section headers ── */
+  section { padding: 30px 0 10px; }
+  .sec-head { text-align: center; margin: 36px 0 34px; }
+  .sec-head h2 { font-size: clamp(26px, 3.6vw, 36px); letter-spacing: -1px; font-weight: 750; }
+  .sec-head p { color: var(--dim); margin-top: 10px; max-width: 560px; margin-inline: auto; }
+
+  /* ── demo console ── */
+  .prompts { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 22px; }
+  .prompts button { background: var(--card); color: var(--ink); border: 1px solid var(--card-border);
+    border-radius: 999px; padding: 10px 20px; cursor: pointer; font-size: 14px; font-weight: 550;
+    transition: all .25s var(--ease); }
+  .prompts button:hover { border-color: var(--acc2); color: var(--acc2); transform: translateY(-1px); }
+  .prompts button.active { background: linear-gradient(90deg, rgba(110,139,255,.18), rgba(61,214,245,.18));
+    border-color: var(--acc2); color: #fff; }
+
+  .console { background: rgba(10,14,26,.85); border: 1px solid var(--card-border); border-radius: 18px;
+    overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.02) inset;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .console .bar { display: flex; align-items: center; gap: 8px; padding: 13px 18px;
+    border-bottom: 1px solid var(--card-border); background: rgba(255,255,255,.025); }
+  .dotw { width: 12px; height: 12px; border-radius: 50%; }
+  .dotw.r { background: #ff5f57; } .dotw.y { background: #febc2e; } .dotw.g { background: #28c840; }
+  .console .title { margin-left: 10px; font-family: var(--mono); font-size: 12.5px; color: var(--dim); }
+  .console .body { padding: 22px 24px 18px; min-height: 360px; font-size: 14.5px; }
+  .promptline { font-family: var(--mono); font-size: 14px; color: var(--acc3); margin-bottom: 16px;
+    white-space: pre-wrap; min-height: 22px; }
+  .promptline .caret { display: inline-block; width: 8px; height: 16px; background: var(--acc3);
+    vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .tools { display: flex; flex-direction: column; gap: 7px; margin-bottom: 6px; }
+  .tool { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 12.5px;
+    color: var(--dim); opacity: 0; transform: translateX(-8px);
+    animation: toolin .4s var(--ease) forwards; }
+  @keyframes toolin { to { opacity: 1; transform: none; } }
+  .tool .spin { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.15);
+    border-top-color: var(--acc2); border-radius: 50%; animation: rot .7s linear infinite; flex: none; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .tool .check { color: var(--ok); font-weight: 700; flex: none; width: 12px; text-align: center; }
+  .tool .name { color: #c7d2f5; }
+  .tool .lat { margin-left: auto; font-size: 11px; color: var(--dim); }
+  .thinking { font-size: 13px; margin: 10px 0;
+    background: linear-gradient(90deg, var(--dim) 30%, #fff 50%, var(--dim) 70%);
+    background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
+    color: transparent; animation: sheen 1.6s linear infinite; }
+  .answer { border-top: 1px solid var(--card-border); margin-top: 14px; padding-top: 16px;
+    line-height: 1.7; }
+  .answer:empty { border: 0; padding: 0; margin: 0; }
+  .answer table { border-collapse: collapse; margin: 12px 0; font-size: 13.5px; width: 100%;
+    max-width: 480px; }
+  .answer th, .answer td { text-align: left; padding: 8px 14px;
+    border-bottom: 1px solid var(--card-border); }
+  .answer th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .4px; }
+  .answer td:not(:first-child) { font-family: var(--mono); font-size: 13px; }
+  .answer .best { color: var(--acc3); font-weight: 700; }
+  .answer h4 { margin: 14px 0 6px; font-size: 15px; }
+  .answer ul { margin: 8px 0 8px 20px; }
+  .answer .src { color: var(--dim); font-size: 12.5px; margin-top: 12px; }
+  .console .foot { display: flex; align-items: center; gap: 10px; padding: 12px 20px;
+    border-top: 1px solid var(--card-border); font-size: 12px; color: var(--dim);
+    font-family: var(--mono); background: rgba(255,255,255,.015); }
+  .console .foot .live { width: 7px; height: 7px; border-radius: 50%; background: var(--acc2);
+    animation: pulse 2s ease infinite; flex: none; }
+  .replay { margin-left: auto; background: none; color: var(--dim); border: 1px solid var(--card-border);
+    border-radius: 8px; padding: 4px 12px; font: inherit; cursor: pointer; }
+  .replay:hover { color: var(--ink); border-color: rgba(255,255,255,.25); }
+
+  /* ── feature cards ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;
+    margin: 16px 0 30px; }
+  .card { background: var(--card); border: 1px solid var(--card-border); border-radius: 18px;
+    padding: 26px; opacity: 0; transform: translateY(18px);
+    transition: opacity .6s var(--ease), transform .6s var(--ease),
+                border-color .3s, box-shadow .3s; }
+  .card.in { opacity: 1; transform: none; }
+  .card:hover { border-color: rgba(110,139,255,.4); box-shadow: 0 12px 40px rgba(20,30,80,.35); }
+  .card .ico { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+    background: linear-gradient(135deg, rgba(110,139,255,.2), rgba(61,214,245,.12));
+    margin-bottom: 16px; }
+  .card .ico svg { width: 20px; height: 20px; stroke: var(--acc2); fill: none;
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .card h3 { font-size: 16.5px; margin-bottom: 8px; letter-spacing: -.2px; }
+  .card p { color: var(--dim); font-size: 14px; }
+
+  /* ── pipeline ── */
+  .pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;
+    margin: 10px 0 40px; counter-reset: step; }
+  .step { background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 16px; padding: 22px 22px 20px; counter-increment: step;
+    opacity: 0; transform: translateY(18px);
+    transition: opacity .6s var(--ease), transform .6s var(--ease); }
+  .step.in { opacity: 1; transform: none; }
+  .step::before { content: "0" counter(step); font-family: var(--mono); font-size: 12px;
+    color: var(--acc2); display: block; margin-bottom: 10px; }
+  .step h4 { font-size: 15px; margin-bottom: 6px; }
+  .step p { color: var(--dim); font-size: 13.5px; }
+
+  footer { color: var(--dim); font-size: 13px; margin-top: 30px; padding: 30px 0 44px;
+    border-top: 1px solid var(--card-border); display: flex; gap: 16px; flex-wrap: wrap;
+    justify-content: space-between; align-items: center; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .card, .step { opacity: 1; transform: none; }
+  }
+  @media (max-width: 640px) {
+    .console .body { padding: 16px; min-height: 300px; }
+    .hero { padding-top: 44px; }
+    .answer { overflow-x: auto; }
+  }
 </style>
 </head>
 <body>
+<div class="orbs"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
+<div class="grid-bg"></div>
 <main>
-  <h1>Every sport. Every bookmaker.<br><em>One agent team.</em></h1>
-  <p class="sub">A team of LLM agents over a live sports data plane — odds from 10 bookmakers,
-  stats and results from official sources, models, backtests and alerts. Works with any LLM:
-  bring your own Claude, GPT, or Gemini key. <b>Advisory only — it never places bets.</b></p>
+  <nav>
+    <div class="wordmark">sports<span>data</span></div>
+    <div class="chip">Private beta · <b>advisory only</b></div>
+  </nav>
+
+  <div class="hero">
+    <div class="eyebrow"><span class="dot"></span> Capturing live odds from 10 bookmakers right now</div>
+    <h1>Every sport. Every book.<br><span class="grad">One agent team.</span></h1>
+    <p class="sub">A team of LLM agents over a live sports data plane — cross-book odds,
+    official stats and results, calibrated models, backtests and alerts.
+    It informs; <b>you decide</b>. It never places a bet.</p>
+    <div class="ctas">
+      <a class="btn primary" href="#demo">Watch it work</a>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+    <div class="llms">works with any LLM —
+      <span class="l">Claude</span><span class="l">GPT</span><span class="l">Gemini</span>
+      bring your own key
+    </div>
+  </div>
 
   <div class="counters" id="counters">
-    <div class="counter"><b id="c-providers">—</b><span>data providers</span></div>
-    <div class="counter"><b id="c-tools">—</b><span>live tools</span></div>
-    <div class="counter"><b id="c-groups">—</b><span>capability groups</span></div>
+    <div class="counter"><b data-count="providers">0</b><span>data providers</span></div>
+    <div class="counter"><b data-count="tools">0</b><span>live tools</span></div>
+    <div class="counter"><b data-count="groups">0</b><span>capability groups</span></div>
+    <div class="asof" id="asof"></div>
   </div>
 
-  <div class="demo">
-    <h3>Watch it work — live</h3>
-    <p class="note">Pick a question. A real agent answers it with real tool calls, shown as they happen.
-    (Curated prompts only; rate-limited; tiny budget per run.)</p>
+  <section id="demo">
+    <div class="sec-head">
+      <h2>Watch the agents work</h2>
+      <p>Pick a question. The team routes it to a specialist, calls the real data tools,
+      and answers with sources — every step visible.</p>
+    </div>
     <div class="prompts" id="prompts"></div>
-    <div class="trace" id="trace"></div>
-    <div class="answer" id="answer">Pick a prompt above to run the live demo.</div>
-    <p class="note" id="demo-note"></p>
-  </div>
+    <div class="console">
+      <div class="bar">
+        <span class="dotw r"></span><span class="dotw y"></span><span class="dotw g"></span>
+        <span class="title">sportsdata · team session</span>
+      </div>
+      <div class="body">
+        <div class="promptline" id="promptline"><span class="caret"></span></div>
+        <div class="tools" id="tools"></div>
+        <div class="thinking" id="thinking" hidden>synthesising…</div>
+        <div class="answer" id="answer"></div>
+      </div>
+      <div class="foot">
+        <span class="live"></span><span id="foot-note">pick a prompt to run the demo</span>
+        <button class="replay" id="replay" hidden>↻ replay</button>
+      </div>
+    </div>
+  </section>
 
-  <div class="grid">
-    <div class="card"><h3>Trading desk</h3><p>Cross-book best price, line movement, steam alerts,
-      CLV-honest backtests against the sharp close. You decide; it informs.</p></div>
-    <div class="card"><h3>Analytics &amp; coaching</h3><p>Stats, box scores, form guides and models
-      across AFL, NRL, NBA, MLB, racing and more — grounded, with sources.</p></div>
-    <div class="card"><h3>Fantasy desk</h3><p>Projections plus a deterministic salary-cap lineup
-      optimiser. Cash floor or GPP ceiling — the judgment calls made explicit.</p></div>
-    <div class="card"><h3>Build your own agents</h3><p>Describe the agent you want in plain English —
-      the builder wires data, skills and budgets, versioned so upgrades never break you.</p></div>
-  </div>
+  <section>
+    <div class="sec-head"><h2>One platform, four desks</h2></div>
+    <div class="grid" id="features">
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M14 7h6v6"/></svg></div>
+        <h3>Trading desk</h3>
+        <p>Cross-book best price, line movement and steam alerts, CLV-honest backtests
+        against the sharp close. Advisory only — always.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="10" width="4" height="10" rx="1"/><rect x="10" y="5" width="4" height="15" rx="1"/><rect x="17" y="13" width="4" height="7" rx="1"/></svg></div>
+        <h3>Analytics &amp; coaching</h3>
+        <p>Stats, box scores, ladders, form and models across AFL, NRL, NBA, MLB,
+        racing and more — grounded, with sources on every claim.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 5-6 8-6s6.5 2 8 6"/></svg></div>
+        <h3>Fantasy desk</h3>
+        <p>Projections plus a deterministic salary-cap optimiser. Cash floor or GPP
+        ceiling — the judgment calls made explicit, never hidden.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.2 2.2M16.2 16.2l2.2 2.2M18.4 5.6l-2.2 2.2M7.8 16.2l-2.2 2.2"/><circle cx="12" cy="12" r="3.5"/></svg></div>
+        <h3>Build your own agents</h3>
+        <p>Describe the agent you want in plain English — the builder wires the data,
+        skills and budgets. Versioned, so upgrades never break you.</p>
+      </div>
+    </div>
+  </section>
 
-  <div class="card">
-    <h3>Early access</h3>
-    <p>Private beta. Leave an email and what you'd use it for.</p>
-    <form id="lead-form">
-      <input type="email" id="lead-email" placeholder="you@example.com" required>
-      <input type="text" id="lead-note" placeholder="What would you build?">
-      <button type="submit">Request access</button>
-    </form>
-    <p class="note" id="lead-note-out"></p>
-  </div>
+  <section id="how">
+    <div class="sec-head"><h2>How it works</h2></div>
+    <div class="pipeline" id="pipeline">
+      <div class="step"><h4>Connect any LLM</h4>
+        <p>Bring your own Claude, GPT or Gemini key — or plug the data plane straight
+        into your own client as an MCP server.</p></div>
+      <div class="step"><h4>Agents query live data</h4>
+        <p>Specialist agents pull from 19 providers — bookmakers, official league APIs,
+        racing feeds — through one capability-tagged tool surface.</p></div>
+      <div class="step"><h4>Grounded answers</h4>
+        <p>Every number traces to a tool result, verified before it reaches you.
+        Budgets cap every run. No invented facts, no placed bets.</p></div>
+    </div>
+  </section>
 
-  <footer>Private beta · BYO-LLM or managed · Hosted MCP available for your own Claude/ChatGPT ·
-  Informational only — not betting or financial advice.</footer>
+  <footer>
+    <div class="wordmark">sports<span>data</span></div>
+    <div>Private beta — sign-ups open with the live demo · Informational only,
+    not betting or financial advice · © 2026</div>
+  </footer>
 </main>
+
 <script>
 // null = PLAYBACK MODE (GitHub Pages, no gateway): baked counters, recorded
-// demo runs, lead form hidden. Set a gateway URL here to go live.
+// demo runs. Set a gateway URL here to go live.
 window.GATEWAY_URL = null;
 const GW = window.GATEWAY_URL;
-
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const sleep = (ms) => new Promise(r => setTimeout(r, REDUCED ? 0 : ms));
 async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
 
+let FALLBACK = null;
+async function fallback() { return FALLBACK ??= await j("demo-fallback.json"); }
+
+/* counters: count up on scroll into view */
 async function loadCounters() {
   let s = null;
-  if (GW) { try { s = await j(`${GW}/demo/stats`); } catch { /* fall through */ } }
-  if (!s) { try { s = (await j("demo-fallback.json")).stats; } catch { return; } }
-  for (const [k, id] of [["providers","c-providers"],["tools","c-tools"],["groups","c-groups"]])
-    document.getElementById(id).textContent = s[k];
+  if (GW) { try { s = await j(`${GW}/demo/stats`); } catch {} }
+  if (!s) s = (await fallback()).stats;
+  document.getElementById("asof").textContent = GW ? "live from the data plane" : `snapshot · ${s.as_of}`;
+  const els = document.querySelectorAll("[data-count]");
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      io.unobserve(e.target);
+      const target = s[e.target.dataset.count] || 0;
+      if (REDUCED) { e.target.textContent = target; continue; }
+      const t0 = performance.now(), dur = 1200;
+      (function tick(t) {
+        const k = Math.min((t - t0) / dur, 1), eased = 1 - Math.pow(1 - k, 3);
+        e.target.textContent = Math.round(target * eased);
+        if (k < 1) requestAnimationFrame(tick);
+      })(t0);
+    }
+  }, { threshold: .6 });
+  els.forEach(el => io.observe(el));
+}
+
+/* scroll reveal for cards + steps */
+function reveal() {
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e, i) => {
+      if (e.isIntersecting) { setTimeout(() => e.target.classList.add("in"), (i % 4) * 90); io.unobserve(e.target); }
+    });
+  }, { threshold: .25 });
+  document.querySelectorAll(".card, .step").forEach(el => io.observe(el));
+}
+
+/* mini markdown: escape first, then bold / tables / lists / h4 / _source_ */
+function esc(t) { return t.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function md(text) {
+  const lines = esc(text).split("\n");
+  let html = "", table = [];
+  const flush = () => {
+    if (!table.length) return;
+    const rows = table.filter(r => !/^\|[\s\-|]+\|$/.test(r)).map(r =>
+      r.split("|").slice(1, -1).map(c => c.trim()));
+    const [head, ...body] = rows;
+    html += "<table><tr>" + head.map(h => `<th>${h}</th>`).join("") + "</tr>" +
+      body.map(r => "<tr>" + r.map(c =>
+        `<td>${c.replace(/\*\*(.+?)\*\*/g, '<span class="best">$1</span>')}</td>`).join("") + "</tr>").join("") + "</table>";
+    table = [];
+  };
+  let list = false;
+  for (const line of lines) {
+    if (/^\|/.test(line.trim())) { table.push(line.trim()); continue; }
+    flush();
+    let l = line.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    if (/^### /.test(l)) { html += `<h4>${l.slice(4)}</h4>`; continue; }
+    if (/^- /.test(l)) { if (!list) { html += "<ul>"; list = true; } html += `<li>${l.slice(2)}</li>`; continue; }
+    if (list) { html += "</ul>"; list = false; }
+    if (/^_(.+)_$/.test(l.trim())) { html += `<div class="src">${l.trim().slice(1, -1)}</div>`; continue; }
+    if (l.trim()) html += `<p style="margin:6px 0">${l}</p>`;
+  }
+  if (list) html += "</ul>";
+  flush();
+  return html;
+}
+
+/* the playback engine */
+let playing = false, currentId = null;
+async function play(id, run, promptText, liveMeta) {
+  if (playing) return; playing = true; currentId = id;
+  document.querySelectorAll(".prompts button").forEach(b => b.classList.toggle("active", b.dataset.id === id));
+  const pl = document.getElementById("promptline"), tools = document.getElementById("tools"),
+        think = document.getElementById("thinking"), ans = document.getElementById("answer"),
+        foot = document.getElementById("foot-note"), replay = document.getElementById("replay");
+  tools.innerHTML = ""; ans.innerHTML = ""; think.hidden = true; replay.hidden = true;
+  foot.textContent = liveMeta === undefined ? "recorded playback" : "live run in progress…";
+  // type the prompt
+  const caret = '<span class="caret"></span>';
+  for (let i = 0; i <= promptText.length; i += 2) {
+    pl.innerHTML = "❯ " + esc(promptText.slice(0, i)) + caret;
+    await sleep(14);
+  }
+  pl.innerHTML = "❯ " + esc(promptText);
+  // tool calls: spinner -> check
+  for (const c of run.tool_calls) {
+    const row = document.createElement("div"); row.className = "tool";
+    row.innerHTML = `<span class="spin"></span><span class="name">${esc(c.tool)}</span><span class="lat"></span>`;
+    tools.appendChild(row);
+    await sleep(Math.min(Math.max(c.latency_ms / 3, 260), 950));
+    row.querySelector(".spin").outerHTML = '<span class="check">✓</span>';
+    row.querySelector(".lat").textContent = `${c.latency_ms}ms`;
+  }
+  think.hidden = false;
+  await sleep(700);
+  think.hidden = true;
+  // stream the answer block by block
+  const html = md(run.answer);
+  if (REDUCED) { ans.innerHTML = html; }
+  else {
+    const holder = document.createElement("div"); holder.innerHTML = html;
+    for (const node of [...holder.childNodes]) {
+      ans.appendChild(node);
+      await sleep(120);
+    }
+  }
+  foot.textContent = liveMeta
+    ? `live run · ${run.tool_calls.length} tool calls · $${liveMeta.cost_usd}`
+    : `recorded playback · ${run.tool_calls.length} tool calls · grounded with sources`;
+  replay.hidden = false;
+  playing = false;
+}
+
+async function runDemo(id) {
+  const fb = await fallback();
+  const promptText = (fb.prompt_text || {})[id] || id;
+  if (GW) {
+    try {
+      const run = await j(`${GW}/demo/run`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt_id: id }) });
+      await play(id, run, run.prompt || promptText, run);
+      return;
+    } catch (e) {
+      if (String(e).includes("429")) {
+        document.getElementById("foot-note").textContent = "rate limited — try again in a minute";
+        return;
+      }
+    }
+  }
+  const run = fb.runs[id] || Object.values(fb.runs)[0];
+  await play(id, run, promptText, undefined);
 }
 
 async function loadPrompts() {
   const box = document.getElementById("prompts");
-  let prompts;
+  let prompts = null;
   if (GW) { try { prompts = (await j(`${GW}/demo/prompts`)).prompts; } catch {} }
-  if (!prompts) prompts = (await j("demo-fallback.json")).prompts;
+  if (!prompts) prompts = (await fallback()).prompts;
   for (const p of prompts) {
     const b = document.createElement("button");
-    b.textContent = p.title;
+    b.textContent = p.title; b.dataset.id = p.id;
     b.onclick = () => runDemo(p.id);
     box.appendChild(b);
   }
+  // autoplay the first run when the console scrolls into view
+  const io = new IntersectionObserver((entries) => {
+    if (entries.some(e => e.isIntersecting)) { io.disconnect(); if (!playing && !currentId) runDemo(prompts[0].id); }
+  }, { threshold: .45 });
+  io.observe(document.querySelector(".console"));
 }
+document.getElementById("replay").onclick = () => { if (currentId) runDemo(currentId); };
 
-async function playFallback(id) {
-  const data = await j("demo-fallback.json");
-  const run = data.runs[id] || Object.values(data.runs)[0];
-  document.getElementById("demo-note").textContent = GW ? "gateway offline — recorded playback"
-                                                         : "recorded playback";
-  await animate(run);
-}
-
-async function animate(run) {
-  const trace = document.getElementById("trace"), ans = document.getElementById("answer");
-  trace.innerHTML = ""; ans.textContent = "";
-  for (const c of run.tool_calls) {
-    trace.innerHTML += `→ <span class="ok">${c.tool}</span> (${c.latency_ms}ms)<br>`;
-    await new Promise(r => setTimeout(r, 350));
-  }
-  for (let i = 0; i <= run.answer.length; i += 4) {
-    ans.textContent = run.answer.slice(0, i);
-    await new Promise(r => setTimeout(r, 8));
-  }
-  ans.textContent = run.answer;
-}
-
-async function runDemo(id) {
-  const trace = document.getElementById("trace"), ans = document.getElementById("answer");
-  document.getElementById("demo-note").textContent = "";
-  trace.textContent = "running…"; ans.textContent = "";
-  if (!GW) { await playFallback(id); return; }
-  try {
-    const run = await j(`${GW}/demo/run`, {method:"POST", headers:{"Content-Type":"application/json"},
-                                           body: JSON.stringify({prompt_id:id})});
-    await animate(run);
-    document.getElementById("demo-note").textContent =
-      `live run · ${run.tool_calls.length} tool calls · $${run.cost_usd}`;
-  } catch (e) {
-    if (String(e).includes("429")) { document.getElementById("demo-note").textContent = "rate limited — try again in a minute"; trace.textContent=""; }
-    else await playFallback(id);
-  }
-}
-
-if (!GW) {
-  const form = document.getElementById("lead-form");
-  form.style.display = "none";
-  document.getElementById("lead-note-out").textContent =
-    "Private beta — sign-ups open when the live demo does.";
-}
-document.getElementById("lead-form").onsubmit = async (ev) => {
-  ev.preventDefault();
-  const email = document.getElementById("lead-email").value;
-  const note = document.getElementById("lead-note").value;
-  const out = document.getElementById("lead-note-out");
-  try { await j(`${GW}/leads`, {method:"POST", headers:{"Content-Type":"application/json"},
-                                body: JSON.stringify({email, note})});
-        out.textContent = "Thanks — you're on the list."; }
-  catch { out.textContent = "Couldn't reach the server — email hello@ instead."; }
-};
-
-loadCounters(); loadPrompts();
+loadCounters(); loadPrompts(); reveal();
 </script>
 </body>
 </html>
