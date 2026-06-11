@@ -932,3 +932,141 @@ def normalize_unibet_races(payload: Any) -> list[PricePoint]:
                           "post_time": event.get("eventDateTimeUtc")},
                 ))
     return sink.points
+
+
+# ─── prediction markets: Kalshi / Polymarket (probability venues) ──────────
+# Exchange quotes are probabilities, not bookmaker odds — captured as decimal
+# odds (1/price) so the warehouse, monitor and cross-book math read them like
+# any book. Both venues group "one outcome = one binary contract" under an
+# event; the event title is the market key and each contract is a selection.
+
+
+def _prob_to_odds(value: Any) -> float | None:
+    """Decimal odds from a 0-1 probability; None outside the tradeable band."""
+    try:
+        prob = float(value or 0)
+    except (TypeError, ValueError):
+        return None
+    if not 0.0 < prob < 1.0:
+        return None
+    return round(1.0 / prob, 4)
+
+
+def _kalshi_prob(market: dict[str, Any], side: str) -> Any:
+    """A side's ask as a probability — dollars field first, cents fallback."""
+    dollars = market.get(f"{side}_dollars")
+    if dollars not in (None, ""):
+        return dollars
+    cents = market.get(side)
+    try:
+        return float(cents) / 100.0 if cents not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_kalshi_all(payload: Any) -> list[PricePoint]:
+    """Kalshi events-with-nested-markets pages: each contract's YES/NO asks become
+    two selections under the EVENT title (the market in bookmaker terms); the
+    contract's yes_sub_title names the outcome. Sport rides the event category
+    (Kalshi's own naming — "sports" stays book-local until the dictionary maps it)."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    for page in payload.get("pages", []) or []:
+        if not isinstance(page, dict):
+            continue
+        for event in page.get("events", []) or []:
+            event_ticker = str(event.get("event_ticker", ""))
+            event_name = str(event.get("title") or "")
+            if not event_ticker:
+                continue
+            sport = canonical_sport(str(event.get("category") or "prediction"))
+            market_key = canonical_market(event_name or "?")
+            for mkt in event.get("markets", []) or []:
+                if mkt.get("status") not in (None, "open", "active"):
+                    continue
+                subject = str(mkt.get("yes_sub_title") or mkt.get("title") or mkt.get("ticker") or "?")
+                meta = {
+                    "ticker": mkt.get("ticker"),
+                    "close_time": mkt.get("close_time"),
+                    "volume_24h": mkt.get("volume_24h_fp") or mkt.get("volume_24h"),
+                    "open_interest": mkt.get("open_interest_fp") or mkt.get("open_interest"),
+                }
+                yes = _odds_ok(_prob_to_odds(_kalshi_prob(mkt, "yes_ask")))
+                if yes is not None:
+                    sink.add(PricePoint(
+                        provider="kalshi", book="Kalshi", sport=sport,
+                        event_external_id=event_ticker, event_name=event_name,
+                        market=market_key, selection=subject.lower(), odds=yes, meta=meta,
+                    ))
+                no = _odds_ok(_prob_to_odds(_kalshi_prob(mkt, "no_ask")))
+                if no is not None:
+                    sink.add(PricePoint(
+                        provider="kalshi", book="Kalshi", sport=sport,
+                        event_external_id=event_ticker, event_name=event_name,
+                        market=market_key, selection=f"no {subject}".lower(), odds=no, meta=meta,
+                    ))
+    return sink.points
+
+
+def _json_list(value: Any) -> list[Any]:
+    """Gamma encodes list fields as JSON strings ('["Yes","No"]'); accept both."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value.startswith("["):
+        import json
+
+        try:
+            return json.loads(value)
+        except ValueError:
+            return []
+    return []
+
+
+def normalize_polymarket_all(payload: Any) -> list[PricePoint]:
+    """Polymarket Gamma event pages: each nested market's outcome prices become
+    selections under the EVENT title; grouped markets (one team per contract) name
+    the selection from groupItemTitle, plain binaries from the outcome itself.
+    Sport is the most specific tag label (the portal-level "Sports" tag hides the
+    code, so any other label wins)."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    for page in payload.get("pages", []) or []:
+        for event in page if isinstance(page, list) else []:
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or event.get("slug") or "")
+            event_name = str(event.get("title") or "")
+            if not event_id:
+                continue
+            labels = [str(t.get("label", "")) for t in event.get("tags", []) or [] if t.get("label")]
+            specific = next((lbl for lbl in labels if lbl.lower() not in ("sports", "all")), "")
+            sport = canonical_sport(specific or (labels[0] if labels else "prediction"))
+            market_key = canonical_market(event_name or "?")
+            for mkt in event.get("markets", []) or []:
+                if mkt.get("closed") is True or mkt.get("active") is False:
+                    continue
+                subject = str(mkt.get("groupItemTitle") or "").strip()
+                outcomes = _json_list(mkt.get("outcomes"))
+                prices = _json_list(mkt.get("outcomePrices"))
+                meta = {
+                    "market_id": mkt.get("id"),
+                    "end_date": mkt.get("endDate"),
+                    "volume_24h": mkt.get("volume24hr"),
+                    "liquidity": mkt.get("liquidity"),
+                }
+                for outcome_name, price in zip(outcomes, prices, strict=False):
+                    odds = _odds_ok(_prob_to_odds(price))
+                    if odds is None:
+                        continue
+                    name = str(outcome_name)
+                    # grouped: the contract's subject is the selection; plain
+                    # binary: the outcomes ARE the selections
+                    selection = (subject if name.lower() == "yes" else f"{name} {subject}") if subject else name
+                    sink.add(PricePoint(
+                        provider="polymarket", book="Polymarket", sport=sport,
+                        event_external_id=event_id, event_name=event_name,
+                        market=market_key, selection=selection.lower(), odds=odds, meta=meta,
+                    ))
+    return sink.points

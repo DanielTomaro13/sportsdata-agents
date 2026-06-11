@@ -215,11 +215,13 @@ def test_feed_registry_is_discovery_driven() -> None:
     racing = {"tab_racing", "sportsbet_racing", "betr_racing", "pointsbet_racing", "unibet_racing"}
     futures = {"tab_racing_futures", "sportsbet_racing_futures",
                "pointsbet_racing_futures", "unibet_racing_futures"}
-    assert set(FEEDS) == hot | books | racing | futures
-    assert all(FEEDS[n].fetch is not None for n in hot | books | racing | futures)
+    prediction = {"kalshi_all", "polymarket_all"}
+    assert set(FEEDS) == hot | books | racing | futures | prediction
+    assert all(FEEDS[n].fetch is not None for n in hot | books | racing | futures | prediction)
     assert all(FEEDS[n].interval_s == 3600 for n in books)
     assert all(FEEDS[n].interval_s <= 300 for n in racing)  # racing moves near post
     assert all(FEEDS[n].interval_s == 3600 for n in futures)  # ante-post moves slowly
+    assert all(FEEDS[n].interval_s == 900 for n in prediction)  # boards move on news
 
 
 def test_rotation_window_derives_from_wall_clock(monkeypatch) -> None:
@@ -899,3 +901,140 @@ def test_feeds_due_in_window_paces_each_interval() -> None:
     # tick at 11:00:00 (hour boundary crossed): both
     due = feeds_due_in_window(feeds, now_s=3600 * 11, period_s=180)
     assert [f.name for f in due] == ["fast", "slow"]
+
+
+# ── prediction markets: Kalshi / Polymarket (shapes per the v0.4.0 specs) ──
+
+KALSHI_PAYLOAD = {
+    "pages": [
+        {
+            "cursor": "abc",
+            "events": [
+                {
+                    "event_ticker": "KXNBAGAME-26JUN11OKCIND",
+                    "title": "Thunder vs Pacers: Game 4 Winner?",
+                    "category": "Sports",
+                    "mutually_exclusive": True,
+                    "markets": [
+                        {
+                            "ticker": "KXNBAGAME-26JUN11OKCIND-OKC",
+                            "yes_sub_title": "Thunder",
+                            "status": "open",
+                            "yes_ask_dollars": "0.55",
+                            "no_ask_dollars": "0.47",
+                            "volume_24h_fp": "120000",
+                            "open_interest_fp": "60000",
+                            "close_time": "2026-06-12T02:00:00Z",
+                        },
+                        {
+                            "ticker": "KXNBAGAME-26JUN11OKCIND-IND",
+                            "yes_sub_title": "Pacers",
+                            "status": "open",
+                            "yes_ask": 47,  # cents fallback (no dollars field)
+                            "no_ask": 57,
+                        },
+                        {  # settled contracts carry no live book
+                            "ticker": "KXNBAGAME-26JUN11OKCIND-VOID",
+                            "yes_sub_title": "Void",
+                            "status": "settled",
+                            "yes_ask_dollars": "0.99",
+                        },
+                    ],
+                },
+                {"title": "No ticker — skipped", "markets": []},
+            ],
+        }
+    ]
+}
+
+
+def test_normalize_kalshi_events() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_kalshi_all
+
+    points = normalize_kalshi_all(KALSHI_PAYLOAD)
+    by_sel = {p.selection: p for p in points}
+    # YES and NO per open contract; the settled one stays out
+    assert set(by_sel) == {"thunder", "no thunder", "pacers", "no pacers"}
+    thunder = by_sel["thunder"]
+    assert (thunder.provider, thunder.book, thunder.sport) == ("kalshi", "Kalshi", "sports")
+    assert thunder.event_external_id == "KXNBAGAME-26JUN11OKCIND"
+    assert thunder.event_name == "Thunder vs Pacers: Game 4 Winner?"
+    assert thunder.odds == pytest.approx(1 / 0.55, abs=1e-3)
+    assert by_sel["pacers"].odds == pytest.approx(1 / 0.47, abs=1e-3)  # cents path
+    assert thunder.meta["close_time"] == "2026-06-12T02:00:00Z"
+    assert normalize_kalshi_all({}) == []
+    assert normalize_kalshi_all([]) == []
+
+
+POLYMARKET_PAYLOAD = {
+    "pages": [
+        [
+            {
+                "id": "903193",
+                "slug": "nba-champion-2026",
+                "title": "NBA Champion 2026",
+                "tags": [{"label": "Sports"}, {"label": "NBA"}],
+                "markets": [
+                    {
+                        "id": "514501",
+                        "question": "Will the Thunder win the 2026 NBA Finals?",
+                        "groupItemTitle": "Thunder",
+                        "outcomes": '["Yes", "No"]',
+                        "outcomePrices": '["0.62", "0.38"]',
+                        "volume24hr": 250000.5,
+                        "endDate": "2026-06-22T00:00:00Z",
+                    },
+                    {
+                        "id": "514502",
+                        "question": "Will the Pacers win the 2026 NBA Finals?",
+                        "groupItemTitle": "Pacers",
+                        "outcomes": ["Yes", "No"],  # already-decoded lists pass too
+                        "outcomePrices": ["0.38", "0.62"],
+                    },
+                    {
+                        "id": "514503",
+                        "question": "Closed market",
+                        "closed": True,
+                        "outcomes": '["Yes", "No"]',
+                        "outcomePrices": '["0.5", "0.5"]',
+                    },
+                ],
+            },
+            {
+                "id": "903500",
+                "title": "Will it rain in NYC tomorrow?",
+                "tags": [],
+                "markets": [
+                    {
+                        "id": "600100",
+                        "question": "Will it rain in NYC tomorrow?",
+                        "outcomes": '["Yes", "No"]',
+                        "outcomePrices": '["0.2", "0.8"]',
+                    }
+                ],
+            },
+        ]
+    ]
+}
+
+
+def test_normalize_polymarket_events() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_polymarket_all
+
+    points = normalize_polymarket_all(POLYMARKET_PAYLOAD)
+    grouped = {p.selection: p for p in points if p.event_external_id == "903193"}
+    # grouped markets: the subject is the selection (yes side), "no <subject>" rides along
+    assert set(grouped) == {"thunder", "no thunder", "pacers", "no pacers"}
+    thunder = grouped["thunder"]
+    assert (thunder.provider, thunder.book) == ("polymarket", "Polymarket")
+    # the specific tag wins over the portal "Sports" tag, then the dictionary
+    # folds the league label onto the cross-book sport family
+    assert thunder.sport == "basketball"
+    assert thunder.event_name == "NBA Champion 2026"
+    assert thunder.odds == pytest.approx(1 / 0.62, abs=1e-3)
+    assert grouped["no thunder"].odds == pytest.approx(1 / 0.38, abs=1e-3)
+    binary = {p.selection: p for p in points if p.event_external_id == "903500"}
+    assert set(binary) == {"yes", "no"}  # plain binary: the outcomes ARE the selections
+    assert binary["yes"].odds == pytest.approx(5.0, abs=1e-3)
+    assert normalize_polymarket_all({}) == []
+    assert normalize_polymarket_all([]) == []
