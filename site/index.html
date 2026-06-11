@@ -87,8 +87,9 @@
 </main>
 <script>
 // null = PLAYBACK MODE (GitHub Pages, no gateway): baked counters, recorded
-// demo runs, lead form hidden. Set to a gateway URL to go live.
-const GW = ("GATEWAY_URL" in window) ? window.GATEWAY_URL : "http://127.0.0.1:8400";
+// demo runs, lead form hidden. Set a gateway URL here to go live.
+window.GATEWAY_URL = null;
+const GW = window.GATEWAY_URL;
 
 async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
 
