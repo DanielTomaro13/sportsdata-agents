@@ -67,11 +67,29 @@ def _token_match(a: str, b: str) -> bool:
     return all(ch in it for ch in short)
 
 
+# A team VARIANT is a different team: "Blues Women" is not "Blues", "Australia
+# U20" is not "Australia". The subset rule alone can't tell a variant marker
+# from a nickname ("Adelaide Crows") because both ride the longer name — so
+# markers are checked explicitly on BOTH names before the subset test. Found
+# live: a Super Rugby Women's match fixture-merged with the men's game and
+# manufactured a 74% "arb".
+_VARIANT_WORDS = frozenset({"women", "womens", "woman", "ladies", "female", "girls",
+                            "reserves", "academy", "youth", "amateur", "b"})
+_VARIANT_RE = re.compile(r"^u\d{1,2}$")  # U17 / U20 / U23 age grades
+
+
+def _variant_markers(tokens: frozenset[str]) -> frozenset[str]:
+    return frozenset(t for t in tokens if t in _VARIANT_WORDS or _VARIANT_RE.match(t))
+
+
 def _side_ok(x: frozenset[str], y: frozenset[str]) -> bool:
     """One side names the same team iff the SHORTER name's every token has a fuzzy
     partner in the longer ("Adelaide" ⊆ "Adelaide Crows"; "Wst Bulldogs" ≈
     "Western Bulldogs") — but "Sydney Swans" never matches "Sydney Roosters"
-    (the nickname token has no partner)."""
+    (the nickname token has no partner), and a variant marker on either name
+    ("Blues Women", "Australia U20") must appear on BOTH or the teams differ."""
+    if _variant_markers(x) != _variant_markers(y):
+        return False
     short, long_ = (x, y) if len(x) <= len(y) else (y, x)
     return bool(short) and all(any(_token_match(t, u) for u in long_) for t in short)
 

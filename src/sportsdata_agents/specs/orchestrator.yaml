@@ -7,7 +7,7 @@ agent:
   id: orchestrator
   display_name: "Orchestrator"
   description: "Routes requests, delegates to specialist agents, synthesises their answers."
-  version: 0.2.0
+  version: 0.2.1
   model_tier: balanced
   system_prompt: |
     You are the orchestrator of a sports-data agent team. Decompose the user's request,
@@ -32,7 +32,7 @@ agent:
     - If a request is outside the team's scope or data, say so plainly.
   tools:
     native: [remember, recall, forget]
-  can_delegate_to: [odds_specialist, stats_specialist, bet_tracker, bankroll_manager, data_analysis, modelling, value_scout, backtester, news_scout]
+  can_delegate_to: [odds_specialist, stats_specialist, bet_tracker, bankroll_manager, data_analysis, modelling, value_scout, backtester, news_scout, arb_hunter]
   context:
     retrieval: jit
     long_run: compact

@@ -4,6 +4,8 @@ Deterministic, no LLM. Each ``Subscription`` is a durable watch with its own
 ``cursor`` — the engine scans only change-points written since the cursor, so a
 missed cycle catches up instead of losing alerts (§8.2 durable/resumable). Kinds:
 
+- ``arb``        — a complete cross-book outcome board whose best prices sum
+  under 1 by ≥ ``threshold_pct`` gross margin (quant.arbitrage does the math).
 - ``line_move``  — a single change-point moved ≥ ``threshold_pct`` (params may
   filter sport/market/selection/book).
 - ``steam``      — ≥ ``min_moves`` same-direction moves on one (event, market,
@@ -389,6 +391,42 @@ async def _watch_scratching(
     return fired
 
 
+async def _watch_arb(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
+) -> int:
+    """Cross-book arbitrage: scan fresh boards, alert each arb above the margin
+    threshold. Dedupe buckets the margin so a GROWING arb re-fires."""
+    from sportsdata_agents.quant.arbitrage import scan_arbs
+
+    threshold = float(sub.params.get("threshold_pct", 1.0))
+    hours = float(sub.params.get("hours", 1.0))
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    arbs = await scan_arbs(session, hours=hours, threshold_pct=threshold, limit=cap * 3, now=now)
+    fired = 0
+    for arb in arbs:
+        if fired >= cap:
+            break
+        line = f" {arb['line']}" if arb["line"] else ""
+        legs_text = "\n".join(
+            f"• {leg['outcome']}: {leg['book']} {leg['odds']:.2f} — "
+            f"stake {leg['stake_share'] * 100:.1f}%"
+            for leg in arb["legs"]
+        )
+        message = (
+            f":money_with_wings: ARB {arb['margin_pct']:.2f}% [{arb['sport']}] {arb['fixture']}\n"
+            f"{arb['market']}{line} — equalised stakes:\n{legs_text}\n"
+            f"_gross margin — verify every leg is live; exchange legs pay fees; "
+            f"books may limit or void_"
+        )
+        books = ",".join(sorted({leg["book"] for leg in arb["legs"]}))
+        bucket = int(arb["margin_pct"] / 0.5)  # re-fire when the margin grows a band
+        key = f"arb:{arb['fixture_id']}:{arb['market']}:{arb['line']}:{books}:{bucket}"
+        if await _fire(session, sub, kind="arb", key=key, message=message,
+                       payload=arb, pusher=pusher):
+            fired += 1
+    return fired
+
+
 async def _push_digest(
     session: AsyncSession, sub: Subscription, pusher: Pusher, now: dt.datetime
 ) -> bool:
@@ -461,6 +499,8 @@ async def run_watches(
                     fired = await _watch_value(session, sub, push)
                 elif sub.kind == "scratching":
                     fired = await _watch_scratching(session, sub, push)
+                elif sub.kind == "arb":
+                    fired = await _watch_arb(session, sub, push, now=now)
                 else:
                     logger.warning("unknown watch kind %s (subscription %s)", sub.kind, sub.id)
                     continue
