@@ -14,6 +14,7 @@ normalization, never exclusion.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -952,6 +953,21 @@ def _prob_to_odds(value: Any) -> float | None:
     return round(1.0 / prob, 4)
 
 
+_KALSHI_MATCHUP = re.compile(
+    r"(?:^|:\s)\s*([A-Za-z0-9 .,'&()-]+?)\s+(?:at|vs\.?|v)\s+([A-Za-z0-9 .,'&()-]+?)\s*(?=[:?(]|$)"
+)
+
+
+def _kalshi_event_name(title: str) -> str:
+    """The "X vs Y" core of a game-contract title — "Game 5: New York at San
+    Antonio" → "New York vs San Antonio" — so the resolver's side-splitting
+    works; non-matchup titles pass through untouched."""
+    m = _KALSHI_MATCHUP.search(title)
+    if not m:
+        return title
+    return f"{m.group(1).strip()} vs {m.group(2).strip()}"
+
+
 def _kalshi_prob(market: dict[str, Any], side: str) -> Any:
     """A side's ask as a probability — dollars field first, cents fallback."""
     dollars = market.get(f"{side}_dollars")
@@ -979,7 +995,7 @@ def normalize_kalshi_all(payload: Any) -> list[PricePoint]:
             continue
         for event in page.get("events", []) or []:
             event_ticker = str(event.get("event_ticker", ""))
-            event_name = str(event.get("title") or "")
+            event_name = _kalshi_event_name(str(event.get("title") or ""))
             if not event_ticker:
                 continue
             sport = canonical_sport(str(event.get("category") or "prediction"))
@@ -993,6 +1009,10 @@ def normalize_kalshi_all(payload: Any) -> list[PricePoint]:
                 subject = str(mkt.get("yes_sub_title") or mkt.get("title") or mkt.get("ticker") or "?")
                 meta = {
                     "ticker": mkt.get("ticker"),
+                    # expected_expiration ≈ game end (close_time is a settlement
+                    # deadline weeks out) — close enough for the resolver's day
+                    # windows to join game contracts onto fixtures
+                    "start_time": mkt.get("expected_expiration_time"),
                     "close_time": mkt.get("close_time"),
                     "volume_24h": mkt.get("volume_24h_fp") or mkt.get("volume_24h"),
                     "open_interest": mkt.get("open_interest_fp") or mkt.get("open_interest"),
@@ -1060,6 +1080,7 @@ def normalize_polymarket_all(payload: Any) -> list[PricePoint]:
                 prices = _json_list(mkt.get("outcomePrices"))
                 meta = {
                     "market_id": mkt.get("id"),
+                    "start_time": mkt.get("endDate"),  # event end ≈ resolver day-window proxy
                     "end_date": mkt.get("endDate"),
                     "volume_24h": mkt.get("volume24hr"),
                     "liquidity": mkt.get("liquidity"),

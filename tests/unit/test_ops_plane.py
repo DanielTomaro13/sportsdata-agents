@@ -31,7 +31,8 @@ agent:
 
 def test_ops_agents_exist_and_are_ops_plane() -> None:
     specs = load_builtin_specs()
-    ops_ids = {"mcp_health", "repo_improver", "code_reviewer", "eval_benchmark", "incident_triage"}
+    ops_ids = {"mcp_health", "repo_improver", "code_reviewer", "eval_benchmark",
+               "incident_triage", "site_manager"}
     assert ops_ids <= set(specs)
     assert all(specs[i].plane == "ops" for i in ops_ids)
     # every other (product) agent stays product-plane
@@ -63,6 +64,34 @@ def test_there_is_no_merge_tool() -> None:
     names = {t.name for t in ops_tools()}
     assert names == OPS_TOOL_NAMES
     assert not any("merge" in n for n in names)  # a human merges — structurally
+
+
+async def test_site_status_reports_unreachable_not_crashes() -> None:
+    """The site checker degrades to a structured error — never an exception
+    (the agent escalates on ok=False; offline CI must not need the network)."""
+    import os
+
+    tools = {t.name: t for t in ops_tools()}
+    os.environ["SPORTSDATA_AGENTS_SITE_URL"] = "http://127.0.0.1:9/"  # discard port: refused fast
+    try:
+        result = await tools["site_status"].execute({})
+    finally:
+        del os.environ["SPORTSDATA_AGENTS_SITE_URL"]
+    assert result["ok"] is False and "error" in result
+
+
+async def test_post_ops_report_needs_config() -> None:
+    import os
+
+    tools = {t.name: t for t in ops_tools()}
+    saved = {k: os.environ.pop(k, None) for k in ("SLACK_BOT_TOKEN", "OPS_SLACK_CHANNEL")}
+    try:
+        result = await tools["post_ops_report"].execute({"title": "t"})
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+    assert result == {"pushed": False, "reason": "SLACK_BOT_TOKEN/OPS_SLACK_CHANNEL not configured"}
 
 
 async def test_remediation_allow_list_is_closed() -> None:

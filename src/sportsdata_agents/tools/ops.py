@@ -37,7 +37,19 @@ OPS_TOOL_NAMES = {
     "gh_review_pr", "list_repo_files", "read_repo_file", "propose_change",
     "run_doctor", "run_contract_suite", "feed_health", "remediate_feed",
     "run_offline_evals", "record_agent_metrics", "delegation_stats", "escalate",
+    "site_status", "site_audit", "site_traffic", "post_ops_report",
 }
+
+# The public marketing site (GitHub Pages, playback mode) and the PUBLIC repo
+# that hosts it — the site_manager agent's beat. Env-overridable for tests/moves.
+_SITE_URL_ENV = "SPORTSDATA_AGENTS_SITE_URL"
+_SITE_REPO_ENV = "SPORTSDATA_AGENTS_SITE_REPO"
+_SITE_URL_DEFAULT = "https://danieltomaro13.github.io/sportsdata-site/"
+_SITE_REPO_DEFAULT = "DanielTomaro13/sportsdata-site"
+
+
+def site_url() -> str:
+    return os.environ.get(_SITE_URL_ENV, _SITE_URL_DEFAULT)
 
 REMEDIATION_ALLOW_LIST = ("retry", "disable", "enable")
 _GITHUB_API = "https://api.github.com"
@@ -464,6 +476,127 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
             await session.commit()
         return {"recorded": str(args["agent"])}
 
+    async def site_status(args: dict[str, Any]) -> Any:
+        """{} → is the public site up and intact: HTTP status, latency, and the
+        structural markers (playback flag, marquee band, demo fallback)."""
+        import time as _time
+
+        import httpx
+
+        url = site_url()
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                t0 = _time.monotonic()
+                page = await client.get(url)
+                latency_ms = int((_time.monotonic() - t0) * 1000)
+                fallback = await client.get(url.rstrip("/") + "/demo-fallback.json")
+        except httpx.HTTPError as e:
+            return {"ok": False, "url": url, "error": f"{type(e).__name__}: {e}"}
+        html = page.text
+        return {
+            "ok": page.status_code == 200 and fallback.status_code == 200,
+            "url": url,
+            "status_code": page.status_code,
+            "latency_ms": latency_ms,
+            "bytes": len(page.content),
+            "playback_mode": "window.GATEWAY_URL = null" in html,
+            "has_marquees": 'id="row-sports"' in html,
+            "fallback_ok": fallback.status_code == 200,
+        }
+
+    async def site_audit(args: dict[str, Any]) -> Any:
+        """{} → drift between the LIVE site and the data plane: published counters
+        vs the real catalogue, and providers whose name appears nowhere on the
+        page. Display names legitimately differ (entain → Ladbrokes/Neds;
+        fanduel_racing → FanDuel Racing) — judge, don't churn."""
+        import json as _json
+
+        import httpx
+
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.mcp.manager import MCPManager
+
+        url = site_url().rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                page = await client.get(url + "/")
+                fallback = await client.get(url + "/demo-fallback.json")
+            live_stats = (_json.loads(fallback.text) or {}).get("stats", {})
+            html = page.text.lower()
+        except (httpx.HTTPError, ValueError) as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        async with MCPManager(groups=["*"], command=get_settings().mcp_command) as manager:
+            payload = await manager.call_tool("list_available_groups", {})
+        available = payload.get("available") or {}
+        providers = sorted({str(info.get("provider", group.split(".")[0]))
+                            for group, info in available.items()})
+        catalogue = {
+            "providers": len(providers),
+            "groups": len(available),
+            "tools": sum(int(info.get("tools", 0)) for info in available.values()),
+        }
+        missing = [p for p in providers if p.replace("_", " ").lower() not in html]
+        return {
+            "ok": True,
+            "live_stats": live_stats,
+            "catalogue": catalogue,
+            "counts_drift": any(live_stats.get(k) != v for k, v in catalogue.items()),
+            "providers_not_on_page": missing,
+            "note": "display names differ legitimately for some providers — "
+                    "verify before proposing a change",
+        }
+
+    async def site_traffic(args: dict[str, Any]) -> Any:
+        """{days?: 14} → traffic for the PUBLIC site repo from the GitHub traffic
+        API (views/clones are the repo's, the closest signal Pages exposes) plus
+        referrers, popular paths, and the lead count from the gateway DB."""
+        import httpx
+
+        repo = os.environ.get(_SITE_REPO_ENV, _SITE_REPO_DEFAULT)
+        token = _github_token()
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+        out: dict[str, Any] = {"repo": repo, "site": site_url()}
+        async with httpx.AsyncClient(timeout=20) as client:
+            for key, path in (("views", "traffic/views"), ("clones", "traffic/clones"),
+                              ("referrers", "traffic/popular/referrers"),
+                              ("paths", "traffic/popular/paths")):
+                response = await client.get(f"{_GITHUB_API}/repos/{repo}/{path}", headers=headers)
+                out[key] = response.json() if response.status_code == 200 else {
+                    "error": response.status_code}
+        if session_factory is not None:
+            try:
+                from sportsdata_agents.data.models import Lead
+
+                async with session_factory() as session:
+                    out["leads_total"] = int(
+                        (await session.execute(select(func.count()).select_from(Lead))).scalar() or 0
+                    )
+            except Exception as e:  # the leads table is optional signal, never a failure
+                out["leads_total"] = None
+                out["leads_note"] = f"{type(e).__name__}: {e}"
+        out["note"] = ("GitHub traffic counts the REPO, not Pages page views — "
+                       "page-level analytics needs a privacy-friendly snippet (P4 call)")
+        return out
+
+    async def post_ops_report(args: dict[str, Any]) -> Any:
+        """{title, body} → push an operator report to Slack (OPS_SLACK_CHANNEL).
+        For routine summaries — escalate() is for incidents."""
+        title = str(args["title"])
+        body = str(args.get("body", ""))[:3000]
+        token = os.environ.get("SLACK_BOT_TOKEN")
+        channel = os.environ.get("OPS_SLACK_CHANNEL")
+        if not (token and channel):
+            return {"pushed": False, "reason": "SLACK_BOT_TOKEN/OPS_SLACK_CHANNEL not configured"}
+        import httpx
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                "https://slack.com/api/chat.postMessage",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"channel": channel, "text": f":bar_chart: *{title}*\n{body}"},
+            )
+        return {"pushed": bool(response.json().get("ok"))}
+
     async def escalate(args: dict[str, Any]) -> Any:
         """{summary, details?} → report to the operator: durable ops-state entry +
         Slack push when configured. The escape hatch for anything outside the
@@ -522,6 +655,11 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
                "verdict": {"type": "string", "enum": ["approve", "request_changes", "comment"]},
                "body": {"type": "string"}},
               ["repo", "number", "verdict"]),
+        _tool("site_status", site_status, {}, []),
+        _tool("site_audit", site_audit, {}, []),
+        _tool("site_traffic", site_traffic, {"days": {"type": "integer"}}, []),
+        _tool("post_ops_report", post_ops_report,
+              {"title": {"type": "string"}, "body": {"type": "string"}}, ["title"]),
         _tool("propose_change", propose_change,
               {"repo": {"type": "string"}, "branch": {"type": "string"},
                "files": {"type": "array", "items": {

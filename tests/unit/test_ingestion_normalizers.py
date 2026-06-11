@@ -923,6 +923,7 @@ KALSHI_PAYLOAD = {
                             "status": "open",
                             "yes_ask_dollars": "0.55",
                             "no_ask_dollars": "0.47",
+                            "expected_expiration_time": "2026-06-12T01:30:00Z",
                             "volume_24h_fp": "120000",
                             "open_interest_fp": "60000",
                             "close_time": "2026-06-12T02:00:00Z",
@@ -959,13 +960,30 @@ def test_normalize_kalshi_events() -> None:
     thunder = by_sel["thunder"]
     assert (thunder.provider, thunder.book, thunder.sport) == ("kalshi", "Kalshi", "sports")
     assert thunder.event_external_id == "KXNBAGAME-26JUN11OKCIND"
-    assert thunder.event_name == "Thunder vs Pacers: Game 4 Winner?"
-    assert thunder.market == "kxnbagame"  # the series ticker: ONE steward alias families it
+    # the title's "X vs Y" core becomes the event name (resolver-splittable);
+    # the trailing ": Game 4 Winner?" qualifier is stripped
+    assert thunder.event_name == "Thunder vs Pacers"
+    # the seed dictionary already families the verified game series onto h2h
+    assert thunder.market == "h2h"
+    assert thunder.meta["start_time"] == "2026-06-12T01:30:00Z"  # expected expiration ≈ game end
     assert thunder.odds == pytest.approx(1 / 0.55, abs=1e-3)
     assert by_sel["pacers"].odds == pytest.approx(1 / 0.47, abs=1e-3)  # cents path
     assert thunder.meta["close_time"] == "2026-06-12T02:00:00Z"
     assert normalize_kalshi_all({}) == []
     assert normalize_kalshi_all([]) == []
+
+
+def test_kalshi_event_name_extracts_the_matchup() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import _kalshi_event_name
+
+    # live-captured title shapes (2026-06-11)
+    assert _kalshi_event_name("Game 5: New York at San Antonio") == "New York vs San Antonio"
+    assert _kalshi_event_name("Thunder vs Pacers: Game 4 Winner?") == "Thunder vs Pacers"
+    assert _kalshi_event_name("Liverpool v Everton") == "Liverpool vs Everton"
+    # non-matchup titles pass through untouched — never mangled
+    assert _kalshi_event_name("Matthew Stafford: Retirement") == "Matthew Stafford: Retirement"
+    assert _kalshi_event_name("New York J: To Break Playoff Drought") == (
+        "New York J: To Break Playoff Drought")
 
 
 POLYMARKET_PAYLOAD = {
@@ -1035,6 +1053,7 @@ def test_normalize_polymarket_events() -> None:
     assert thunder.sport == "basketball"
     assert thunder.event_name == "NBA Champion 2026"
     assert thunder.market == "h2h"  # Gamma's sportsMarketType rides the dictionary
+    assert thunder.meta["start_time"] == "2026-06-22T00:00:00Z"  # endDate as the day-window proxy
     assert thunder.odds == pytest.approx(1 / 0.62, abs=1e-3)
     # no sportsMarketType -> the event title is the (book-local) market key
     assert grouped["pacers"].market == "nba champion 2026"
