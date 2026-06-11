@@ -234,6 +234,11 @@ if __name__ == "__main__":  # pragma: no cover
 def ingest(
     once: bool = typer.Option(True, "--once/--loop", help="One capture (default) or the scheduled loop."),
     feed: str | None = typer.Option(None, "--feed", help="Run a single feed by name."),
+    cron_period: int | None = typer.Option(
+        None, "--cron",
+        help="Stateless cron pacing: only run feeds whose interval boundary was "
+             "crossed in the last N seconds (invoke every N seconds from cron).",
+    ),
     prune_days: int | None = typer.Option(None, "--prune", help="Also prune snapshots older than N days."),
 ) -> None:
     """Capture odds into the history warehouse (M2.1). Deterministic — no LLM.
@@ -253,12 +258,25 @@ def ingest(
     from sportsdata_agents.data.base import Base
     from sportsdata_agents.data.db import make_engine, make_sessionmaker
     from sportsdata_agents.mcp.manager import MCPManager
-    from sportsdata_agents.operations.ingestion import FEEDS, ingest_once, prune_snapshots, run_loop
+    from sportsdata_agents.operations.ingestion import (
+        FEEDS,
+        feeds_due_in_window,
+        ingest_once,
+        prune_snapshots,
+        run_loop,
+    )
     from sportsdata_agents.operations.ingestion.worker import INGEST_MAX_BYTES
 
     console = Console()
     settings = get_settings()
     feeds = list(FEEDS.values()) if feed is None else [FEEDS[feed]]
+    if cron_period is not None:
+        import time as _time
+
+        feeds = feeds_due_in_window(feeds, now_s=_time.time(), period_s=float(cron_period))
+        if not feeds:
+            console.print("[dim]no feeds due in this window[/dim]")
+            return
     groups = sorted({g for f in feeds for g in f.mcp_groups})
 
     async def _run() -> None:

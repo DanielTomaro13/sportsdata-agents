@@ -880,3 +880,22 @@ def test_discover_fanduel_pages_parses_navigation_slugs() -> None:
 
     slugs = asyncio.run(discover_fanduel_pages(FakeManager()))
     assert slugs == ["nba", "pga"]
+
+
+def test_feeds_due_in_window_paces_each_interval() -> None:
+    """Stateless cron pacing: `--cron N` every N seconds runs fast feeds every
+    tick and slow feeds only on the tick that crosses their interval boundary."""
+    from sportsdata_agents.operations.ingestion import Feed, feeds_due_in_window
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_nba_odds
+
+    fast = Feed(name="fast", tool="t", mcp_groups=("g",), normalizer=normalize_nba_odds,
+                interval_s=180)
+    slow = Feed(name="slow", tool="t", mcp_groups=("g",), normalizer=normalize_nba_odds,
+                interval_s=3600)
+    feeds = [fast, slow]
+    # tick at 10:03 (no hour boundary in the last 180s): only the fast feed
+    due = feeds_due_in_window(feeds, now_s=3600 * 10 + 180, period_s=180)
+    assert [f.name for f in due] == ["fast"]
+    # tick at 11:00:00 (hour boundary crossed): both
+    due = feeds_due_in_window(feeds, now_s=3600 * 11, period_s=180)
+    assert [f.name for f in due] == ["fast", "slow"]

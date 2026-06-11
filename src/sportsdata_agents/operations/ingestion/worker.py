@@ -291,6 +291,20 @@ FEEDS: dict[str, Feed] = {
 }
 
 
+def feeds_due_in_window(
+    feeds: list[Feed], *, now_s: float, period_s: float
+) -> list[Feed]:
+    """The feeds whose interval boundary was crossed in the last ``period_s``
+    seconds — STATELESS cron pacing: invoke `ingest --once --cron N` every N
+    seconds and each feed runs at its own interval (a 180s racing feed every
+    tick, the 3600s books tier only on the tick that crosses an hour boundary),
+    with no daemon and no state file."""
+    return [
+        f for f in feeds
+        if int(now_s // f.interval_s) != int((now_s - period_s) // f.interval_s)
+    ]
+
+
 async def ingest_once(
     manager: Any,  # MCPManager (Any: tests inject a fake with .call_tool)
     session_factory: async_sessionmaker[AsyncSession],
