@@ -958,8 +958,10 @@ def _kalshi_prob(market: dict[str, Any], side: str) -> Any:
     if dollars not in (None, ""):
         return dollars
     cents = market.get(side)
+    if cents is None or cents == "":
+        return None
     try:
-        return float(cents) / 100.0 if cents not in (None, "") else None
+        return float(cents) / 100.0
     except (TypeError, ValueError):
         return None
 
