@@ -191,8 +191,9 @@ async def fetch_unibet_all(manager: Any) -> dict[str, Any]:
     return {"sports": out}
 
 
-# The data plane's documented Entain sport-category UUIDs (documentation/Entain.md;
-# NOVELTY and POLITICS excluded — not sports).
+# FALLBACK ONLY — categories are discovered live via the SportingCategories
+# GraphQL op (all 26 with UUIDs); this snapshot (documentation/Entain.md) covers
+# gateway outages. NOVELTY and POLITICS excluded — not sports.
 ENTAIN_SPORT_CATEGORIES: dict[str, str] = {
     "american_football": "a19fe930-3d0c-4f23-9cd4-12132fcc6b0a",
     "australian_rules": "23d497e6-8aab-4309-905b-9421f42c9bc5",
@@ -220,10 +221,38 @@ ENTAIN_SPORT_CATEGORIES: dict[str, str] = {
 }
 
 
+_ENTAIN_NON_SPORTS = ("NOVELTY", "POLITICS")
+
+
+async def discover_entain_categories(manager: Any) -> dict[str, str]:
+    """Entain's SportingCategories GraphQL op lists every sport category with its
+    UUID — discovery tracks whatever Entain adds, no code change (verified live
+    2026-06-11; UUIDs match the documented snapshot)."""
+    payload = await manager.call_tool(
+        "entain_graphql_call", {"operation": "SportingCategories", "variables": {}}
+    )
+    categories = ((payload.get("data") or payload).get("categories")) or []
+    out: dict[str, str] = {}
+    for cat in categories:
+        enum = str(cat.get("category") or "")
+        if enum in _ENTAIN_NON_SPORTS or not cat.get("id"):
+            continue
+        out[_slug(str(cat.get("name") or enum.lower()))] = str(cat["id"])
+    return out
+
+
 async def fetch_entain_all(manager: Any) -> dict[str, Any]:
-    """Entain: one event-request per sport category (events+markets+prices in bulk)."""
+    """Entain: discovered sport categories → one event-request per category
+    (events+markets+prices in bulk)."""
+    try:
+        categories = await discover_entain_categories(manager)
+    except Exception as e:
+        logger.warning("entain category discovery failed (using fallback map): %s", e)
+        categories = {}
+    if not categories:
+        categories = dict(ENTAIN_SPORT_CATEGORIES)
     out: list[dict[str, Any]] = []
-    for sport, category_id in ENTAIN_SPORT_CATEGORIES.items():
+    for sport, category_id in categories.items():
         try:
             payload = await manager.call_tool(
                 "entain_sport_event_request", {"category_ids": [category_id]}

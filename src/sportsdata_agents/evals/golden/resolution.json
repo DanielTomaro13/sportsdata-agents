@@ -1,0 +1,32 @@
+{
+  "_doc": "Golden event-resolution scenario: four books name the same AFL match four ways (abbreviation, vs/dash separators) and must land on ONE fixture; St Kilda v GWS is a distinct second fixture; the sloppy one-name TAB event matches two same-day fixtures and must be SKIPPED as ambiguous, never guessed. Score = correct outcomes / expected outcomes.",
+  "captures": [
+    {"provider": "sportsbet", "book": "Sportsbet", "sport": "afl", "event_external_id": "SB1",
+     "event_name": "Western Bulldogs v Adelaide Crows", "market": "h2h", "selection": "home",
+     "odds": 1.73, "meta": {"start_time": "2026-06-11T09:30:00Z"}},
+    {"provider": "tab", "book": "TAB", "sport": "afl", "event_external_id": "T1",
+     "event_name": "Wst Bulldogs v Adelaide", "market": "h2h", "selection": "home",
+     "odds": 1.74, "meta": {"start_time": "2026-06-11T09:30:00Z"}},
+    {"provider": "entain", "book": "Ladbrokes", "sport": "australian_rules", "event_external_id": "E1",
+     "event_name": "Western Bulldogs vs Adelaide Crows", "market": "h2h", "selection": "home",
+     "odds": 1.75, "meta": {"start_time": "2026-06-11T09:30:00Z"}},
+    {"provider": "unibet", "book": "Unibet", "sport": "australian_rules", "event_external_id": "U1",
+     "event_name": "Western Bulldogs - Adelaide", "market": "h2h", "selection": "home",
+     "odds": 1.78, "meta": {"start_time": "2026-06-11T09:30:00Z"}},
+    {"provider": "sportsbet", "book": "Sportsbet", "sport": "afl", "event_external_id": "SB2",
+     "event_name": "St Kilda v GWS GIANTS", "market": "h2h", "selection": "home",
+     "odds": 2.05, "meta": {"start_time": "2026-06-11T05:10:00Z"}},
+    {"provider": "sportsbet", "book": "Sportsbet", "sport": "afl", "event_external_id": "SB3",
+     "event_name": "Sydney Swans v Carlton", "market": "h2h", "selection": "home",
+     "odds": 1.60, "meta": {"start_time": "2026-06-12T09:30:00Z"}},
+    {"provider": "sportsbet", "book": "Sportsbet", "sport": "afl", "event_external_id": "SB4",
+     "event_name": "Sydney Roosters v Carlton", "market": "h2h", "selection": "home",
+     "odds": 1.90, "meta": {"start_time": "2026-06-12T09:30:00Z"}}
+  ],
+  "ambiguous_capture": {
+    "provider": "tab", "book": "TAB", "sport": "afl", "event_external_id": "TX",
+    "event_name": "Sydney v Carlton", "market": "h2h", "selection": "home",
+    "odds": 1.75, "meta": {"start_time": "2026-06-12T09:30:00Z"}
+  },
+  "expect": {"fixtures": 4, "bulldogs_books": 4, "ambiguous": 1}
+}

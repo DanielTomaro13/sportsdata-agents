@@ -117,8 +117,64 @@ def eval_grounding() -> EvalScore:
     )
 
 
+async def eval_resolution() -> EvalScore:
+    """Event resolution on the golden cross-book scenario: four spellings of one
+    match join, distinct matches stay apart, ambiguity is skipped never guessed.
+    Runs the REAL resolver over an in-memory warehouse."""
+    import datetime as dt
+
+    from sqlalchemy import func, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import StaticPool
+
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.data.models import Event, Fixture
+    from sportsdata_agents.operations.ingestion import PricePoint, record_points
+    from sportsdata_agents.operations.resolution import resolve_events
+
+    data = _golden("resolution.json")
+    engine = create_async_engine(
+        "sqlite+aiosqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sf = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        captured = dt.datetime(2026, 6, 11, 7, 0, tzinfo=dt.UTC)
+        await record_points(sf, [PricePoint(**p) for p in data["captures"]], captured_at=captured)
+        await resolve_events(sf)
+        await record_points(sf, [PricePoint(**data["ambiguous_capture"])], captured_at=captured)
+        second = await resolve_events(sf)
+        async with sf() as session:
+            n_fixtures = (await session.execute(select(func.count()).select_from(Fixture))).scalar_one()
+            bulldogs = (
+                await session.execute(select(Fixture).where(Fixture.name.like("%Bulldogs%")))
+            ).scalars().first()
+            bulldogs_books = 0
+            if bulldogs is not None:
+                bulldogs_books = (
+                    await session.execute(
+                        select(func.count()).select_from(Event).where(Event.fixture_id == bulldogs.id)
+                    )
+                ).scalar_one()
+    finally:
+        await engine.dispose()
+    expect = data["expect"]
+    checks = {
+        "fixtures": n_fixtures == expect["fixtures"],
+        "bulldogs_books": bulldogs_books == expect["bulldogs_books"],
+        "ambiguous_skipped": second["ambiguous"] == expect["ambiguous"] and second["mapped"] == 0,
+    }
+    return EvalScore(
+        name="resolution",
+        score=round(sum(checks.values()) / len(checks), 6),
+        details={"fixtures": n_fixtures, "bulldogs_books": bulldogs_books,
+                 "second_pass": second, "failed": [k for k, v in checks.items() if not v]},
+    )
+
+
 async def run_offline_evals() -> list[EvalScore]:
-    return [eval_calibration(), await eval_clv_backtest(), eval_grounding()]
+    return [eval_calibration(), await eval_clv_backtest(), eval_grounding(), await eval_resolution()]
 
 
 def load_baseline(path: Path | None = None) -> dict[str, float]:

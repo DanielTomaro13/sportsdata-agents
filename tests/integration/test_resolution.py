@@ -330,3 +330,126 @@ async def test_one_name_events_gate_on_subset_not_jaccard(
         names = [f.name for f in (await s.execute(select(Fixture))).scalars()]
     assert len(names) == 3  # two country markets apart; the two Queen Annes joined
     assert sum("Queen Anne" in n for n in names) == 1
+
+
+async def test_far_future_events_get_a_wide_day_window(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Books placeholder far-future outright dates and disagree by days — events
+    more than a month out window at +/-14d (the name gate still decides)."""
+    base = dt.datetime.now(dt.UTC) + dt.timedelta(days=60)
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="unibet", book="Unibet", sport="australian_rules",
+                   event_external_id="W1", event_name="AFL Premiership Winner 2026",
+                   market="winner", selection="adelaide crows", odds=5.0,
+                   meta={"start_time": base.isoformat()}),
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl",
+                   event_external_id="W2", event_name="AFL Premiership Winner 2026",
+                   market="winner", selection="adelaide crows", odds=5.5,
+                   meta={"start_time": (base + dt.timedelta(days=10)).isoformat()}),
+    ], captured_at=T0)
+    stats = await resolve_events(db_sessionmaker)
+    assert stats["mapped"] == 2 and stats["created"] == 1  # ten days apart, one fixture
+
+
+async def test_league_results_map_and_settle_cross_book(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Add 4: scoreboard finals map onto existing fixtures (never founding one) and
+    settle book predictions through them — orientation translated from the
+    result's meta event_name (scoreboards have no odds snapshots)."""
+    from sportsdata_agents.data.models import ModelArtifact, Prediction
+    from sportsdata_agents.data.repository import TenantScope
+    from sportsdata_agents.operations.ingestion.results import ingest_league_results
+    from sportsdata_agents.quant.backtest import run_backtest
+
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="sportsbet", book="Sportsbet", sport="afl",
+                   event_external_id="SB7", event_name="Adelaide Crows v Geelong Cats",
+                   market="h2h", selection="home", odds=1.95,
+                   meta={"start_time": "2026-06-04T09:30:00Z"}),
+    ], captured_at=dt.datetime(2026, 6, 4, 7, 0, tzinfo=dt.UTC))
+    assert (await resolve_events(db_sessionmaker))["created"] == 1
+
+    class FakeManager:
+        async def call_tool(self, name: str, args: Any = None) -> Any:
+            if name == "nba_scoreboard_today":
+                return {"scoreboard": {"games": []}}
+            if name == "afl_matches_list":
+                return {"matches": [
+                    {"providerId": "CD_M1", "status": "CONCLUDED",
+                     "utcStartTime": "2026-06-04T09:30:00.000+0000",
+                     "home": {"team": {"name": "Adelaide Crows"}, "score": {"totalScore": 75}},
+                     "away": {"team": {"name": "Geelong Cats"}, "score": {"totalScore": 74}}},
+                    {"providerId": "CD_M2", "status": "SCHEDULED",  # not final -> skipped
+                     "home": {"team": {"name": "X"}}, "away": {"team": {"name": "Y"}}},
+                ]}
+            if name == "nrl_competitions":
+                return {"competitionDetails": {"competition": []}}
+            raise AssertionError(name)
+
+    report = await ingest_league_results(FakeManager(), db_sessionmaker)
+    assert report["afl"] == 1 and report["recorded"] == 1
+    assert report["fixtures_mapped"] == 1  # joined the Sportsbet fixture
+
+    scope = TenantScope("t", "w")
+    async with db_sessionmaker() as s:
+        model = ModelArtifact(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                              name="m", sport="afl", calibration={"brier": 0.2})
+        s.add(model)
+        await s.flush()
+        s.add(Prediction(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                         model_id=model.id, provider="sportsbet", event_external_id="SB7",
+                         market="h2h", selection="home", prob=0.60,
+                         predicted_at=dt.datetime(2026, 6, 4, 8, 0, tzinfo=dt.UTC)))
+        await s.commit()
+    report = await run_backtest(db_sessionmaker, scope, min_edge_pct=0.0)
+    assert report["bets"] == 1 and report["per_bet"][0]["won"] is True  # Crows won at home
+
+
+async def test_clv_book_benchmarks_against_sharp_close(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Add 6: clv_book uses the benchmark book's close at the same fixture
+    (orientation-translated) — falling back to the own close when absent."""
+    from sportsdata_agents.data.models import ModelArtifact, Prediction
+    from sportsdata_agents.data.repository import TenantScope
+    from sportsdata_agents.quant.backtest import run_backtest
+
+    t0 = dt.datetime(2026, 6, 4, 7, 0, tzinfo=dt.UTC)
+    start = {"start_time": "2026-06-04T09:30:00Z"}
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="tab", book="TAB", sport="afl", event_external_id="TB1",
+                   event_name="Adelaide v Geelong", market="h2h", selection="home",
+                   odds=2.00, meta=start),
+        # Pinnacle lists the sides the other way round: its AWAY is TAB's home
+        PricePoint(provider="pinnacle", book="Pinnacle", sport="australian_rules",
+                   event_external_id="PN1", event_name="Geelong Cats v Adelaide Crows",
+                   market="h2h", selection="away", odds=1.90, meta=start),
+    ], captured_at=t0)
+    await record_points(db_sessionmaker, [
+        PricePoint(provider="pinnacle", book="Pinnacle", sport="australian_rules",
+                   event_external_id="PN1", event_name="Geelong Cats v Adelaide Crows",
+                   market="h2h", selection="away", odds=1.60, meta=start),  # sharp close
+    ], captured_at=t0 + dt.timedelta(hours=2))
+    await resolve_events(db_sessionmaker)
+
+    scope = TenantScope("t", "w")
+    async with db_sessionmaker() as s:
+        model = ModelArtifact(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                              name="m", sport="afl", calibration={"brier": 0.2})
+        s.add(model)
+        await s.flush()
+        s.add(Prediction(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                         model_id=model.id, provider="tab", event_external_id="TB1",
+                         market="h2h", selection="home", prob=0.60, predicted_at=t0))
+        s.add(EventResult(provider="tab", sport="afl", event_external_id="TB1",
+                          winning_selection="home", settled_at=t0 + dt.timedelta(hours=4)))
+        await s.commit()
+
+    plain = await run_backtest(db_sessionmaker, scope, min_edge_pct=0.0)
+    assert plain["per_bet"][0]["clv_pct"] == 0.0  # own close never moved
+    sharp = await run_backtest(db_sessionmaker, scope, min_edge_pct=0.0, clv_book="Pinnacle")
+    assert sharp["clv_benchmarked_bets"] == 1
+    assert sharp["per_bet"][0]["closing_odds"] == 1.60  # entered 2.00 vs sharp close 1.60
+    assert sharp["per_bet"][0]["clv_pct"] == 25.0

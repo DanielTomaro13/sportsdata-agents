@@ -152,7 +152,8 @@ async def test_model_versions_increment_and_predictions_scope(
     with pytest.raises(ValueError, match="unknown model_id"):
         await other["record_predictions"].execute({
             "model_id": v1["model_id"],
-            "predictions": [{"event_external_id": "G1", "selection": "home", "prob": 0.5}],
+            "predictions": [{"event_external_id": "G1", "selection": "home", "prob": 0.5,
+                             "provider": "test"}],
         })
 
     listed = await tools["list_models"].execute({})
@@ -199,15 +200,15 @@ async def test_backtest_clv_positive_on_holdout(db_sessionmaker: async_sessionma
         "model_id": saved["model_id"],
         "predictions": [
             {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60,
-             "predicted_at": when},  # edge 26%
+             "predicted_at": when, "provider": "test"},  # edge 26%
             {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50,
-             "predicted_at": when},  # edge -2.5%
+             "predicted_at": when, "provider": "test"},  # edge -2.5%
             {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30,
-             "predicted_at": when},  # edge 8%
+             "predicted_at": when, "provider": "test"},  # edge 8%
             {"event_external_id": "E4", "market": "2way", "selection": "home", "prob": 0.70,
-             "predicted_at": when},  # no prices
+             "predicted_at": when, "provider": "test"},  # no prices
             {"event_external_id": "E5", "market": "2way", "selection": "home", "prob": 0.80,
-             "predicted_at": when},  # no result
+             "predicted_at": when, "provider": "test"},  # no result
         ],
     })
 
@@ -259,7 +260,7 @@ async def test_backtest_entry_has_no_lookahead(db_sessionmaker: async_sessionmak
     await tools["record_predictions"].execute({  # predicted_at AFTER both captures
         "model_id": saved["model_id"],
         "predictions": [{"event_external_id": "L1", "market": "2way", "selection": "home", "prob": 0.60,
-                         "predicted_at": "2026-06-02T00:00:00+00:00"}],
+                         "provider": "test", "predicted_at": "2026-06-02T00:00:00+00:00"}],
     })
     report = await tools["run_backtest"].execute({"model_id": saved["model_id"], "min_edge_pct": 2.0})
     assert report["bets"] == 1

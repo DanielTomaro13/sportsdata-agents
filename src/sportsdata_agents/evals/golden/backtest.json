@@ -3,24 +3,90 @@
   "min_edge_pct": 5.0,
   "captures": [
     [
-      {"book": "B", "event_external_id": "E1", "market": "2way", "selection": "home", "odds": 2.10},
-      {"book": "B", "event_external_id": "E2", "market": "2way", "selection": "home", "odds": 1.95},
-      {"book": "B", "event_external_id": "E3", "market": "2way", "selection": "home", "odds": 3.60}
+      {
+        "book": "B",
+        "event_external_id": "E1",
+        "market": "2way",
+        "selection": "home",
+        "odds": 2.1
+      },
+      {
+        "book": "B",
+        "event_external_id": "E2",
+        "market": "2way",
+        "selection": "home",
+        "odds": 1.95
+      },
+      {
+        "book": "B",
+        "event_external_id": "E3",
+        "market": "2way",
+        "selection": "home",
+        "odds": 3.6
+      }
     ],
     [
-      {"book": "B", "event_external_id": "E1", "market": "2way", "selection": "home", "odds": 1.90},
-      {"book": "B", "event_external_id": "E2", "market": "2way", "selection": "home", "odds": 2.00},
-      {"book": "B", "event_external_id": "E3", "market": "2way", "selection": "home", "odds": 3.40}
+      {
+        "book": "B",
+        "event_external_id": "E1",
+        "market": "2way",
+        "selection": "home",
+        "odds": 1.9
+      },
+      {
+        "book": "B",
+        "event_external_id": "E2",
+        "market": "2way",
+        "selection": "home",
+        "odds": 2.0
+      },
+      {
+        "book": "B",
+        "event_external_id": "E3",
+        "market": "2way",
+        "selection": "home",
+        "odds": 3.4
+      }
     ]
   ],
   "results": [
-    {"event_external_id": "E1", "winning_selection": "home"},
-    {"event_external_id": "E2", "winning_selection": "home"},
-    {"event_external_id": "E3", "winning_selection": "away"}
+    {
+      "event_external_id": "E1",
+      "winning_selection": "home"
+    },
+    {
+      "event_external_id": "E2",
+      "winning_selection": "home"
+    },
+    {
+      "event_external_id": "E3",
+      "winning_selection": "away"
+    }
   ],
   "predictions": [
-    {"event_external_id": "E1", "market": "2way", "selection": "home", "prob": 0.60, "predicted_at": "2025-12-31T00:00:00+00:00"},
-    {"event_external_id": "E2", "market": "2way", "selection": "home", "prob": 0.50, "predicted_at": "2025-12-31T00:00:00+00:00"},
-    {"event_external_id": "E3", "market": "2way", "selection": "home", "prob": 0.30, "predicted_at": "2025-12-31T00:00:00+00:00"}
+    {
+      "event_external_id": "E1",
+      "market": "2way",
+      "selection": "home",
+      "prob": 0.6,
+      "predicted_at": "2025-12-31T00:00:00+00:00",
+      "provider": "golden"
+    },
+    {
+      "event_external_id": "E2",
+      "market": "2way",
+      "selection": "home",
+      "prob": 0.5,
+      "predicted_at": "2025-12-31T00:00:00+00:00",
+      "provider": "golden"
+    },
+    {
+      "event_external_id": "E3",
+      "market": "2way",
+      "selection": "home",
+      "prob": 0.3,
+      "predicted_at": "2025-12-31T00:00:00+00:00",
+      "provider": "golden"
+    }
   ]
 }

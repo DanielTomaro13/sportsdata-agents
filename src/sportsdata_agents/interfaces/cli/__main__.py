@@ -291,6 +291,130 @@ def ingest(
     asyncio.run(_run())
 
 
+@app.command(name="dictionary-promote")
+def dictionary_promote(
+    write: bool = typer.Option(False, "--write", help="Merge overrides into the packaged seed and clear them."),
+) -> None:
+    """Promote steward-curated LOCAL dictionary overrides into the packaged seed
+    (the file you commit). Without --write it just shows the diff."""
+    import json
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from importlib import resources
+
+    from rich.console import Console
+
+    from sportsdata_agents.tools.dictionary import _read_overrides, _write_overrides
+
+    console = Console()
+    seed_path = resources.files("sportsdata_agents.operations.resolution").joinpath(
+        "market_dictionary.json"
+    )
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    overrides = _read_overrides()
+    rationales = overrides.get("rationales") or {}
+
+    promoted = 0
+    for section in ("markets", "sports"):
+        for family, aliases in (overrides.get(section) or {}).items():
+            for alias in aliases:
+                already = alias in (seed.get(section, {}).get(family) or [])
+                note = rationales.get(f"{section}:{alias}", "")
+                mark = "=" if already else "+"
+                console.print(f"{mark} {section}: {alias!r} -> {family!r}"
+                              + (f"  [dim]{note}[/dim]" if note else ""))
+                if not already:
+                    seed.setdefault(section, {}).setdefault(family, []).append(alias)
+                    promoted += 1
+    if not promoted:
+        console.print("[dim]nothing to promote — overrides and seed agree[/dim]")
+        return
+    if not write:
+        console.print(f"\n{promoted} alias(es) would merge — rerun with --write, then commit the seed")
+        return
+    with open(str(seed_path), "w", encoding="utf-8") as fh:
+        json.dump(seed, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    _write_overrides({"markets": {}, "sports": {}, "rationales": {}})  # promoted — start clean
+    console.print(f"✓ merged {promoted} alias(es) into {seed_path} and cleared the overrides "
+                  "(commit the seed change)")
+
+
+@app.command()
+def steward(
+    workspace: str = typer.Option("local", "--workspace", help="Workspace id (tenant scoping + budgets)."),
+    model: str | None = typer.Option(None, "--model", help="Pin every tier to one litellm model id."),
+) -> None:
+    """Run the market_steward's standing audit: map unmapped market names into the
+    dictionary (merge safety enforced in the tools). Cron weekly."""
+    import asyncio
+
+    prompt = (
+        "Run your standing dictionary audit: list the warehouse's unmapped market "
+        "names (min_count 20), map the unambiguous ones into the dictionary with "
+        "rationales, refuse and report anything ambiguous. Summarise what you "
+        "mapped, what you refused, and why."
+    )
+
+    async def _run() -> None:
+        console, session = await _bootstrap_session(workspace, "market_steward", model)
+        console.print("[dim]opening market_steward…[/dim]")
+        async with session:
+            result = await session.run(prompt)
+        _render_result(console, result)
+
+    asyncio.run(_run())
+
+
+@app.command()
+def results() -> None:
+    """Settle events: racing placings + league scoreboards (NBA/AFL/NRL finals)
+    into event_results, mapped onto fixtures. Deterministic — no LLM. Cron daily."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.mcp.manager import MCPManager
+    from sportsdata_agents.operations.ingestion.results import (
+        ingest_league_results,
+        ingest_racing_results,
+    )
+    from sportsdata_agents.operations.ingestion.worker import INGEST_MAX_BYTES
+
+    console = Console()
+    settings = get_settings()
+
+    async def _run() -> None:
+        engine = make_engine(settings.database_url)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sf = make_sessionmaker(engine)
+        try:
+            async with MCPManager(
+                groups=["pointsbet.racing", "nba.public.cdn", "afl.public.core", "nrl.public.core"],
+                command=settings.mcp_command,
+                extra_env={"SPORTSDATA_MCP_MAX_BYTES": str(INGEST_MAX_BYTES)},
+            ) as manager:
+                racing = await ingest_racing_results(manager, sf)
+                league = await ingest_league_results(manager, sf)
+            console.print(f"✓ racing: {racing} settled")
+            console.print(f"✓ leagues: {league}")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
 @app.command()
 def movement(
     event: str = typer.Argument(..., help="Event external id (e.g. an NBA gameId)."),

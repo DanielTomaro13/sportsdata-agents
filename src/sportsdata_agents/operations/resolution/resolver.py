@@ -130,6 +130,7 @@ async def resolve_events(
             add_to_index(fixture.id, fixture.sport, fixture_day(fixture.start_time), fixture.name)
 
         stats = {"examined": 0, "mapped": 0, "created": 0, "ambiguous": 0, "skipped_unnamed": 0}
+        now = dt.datetime.now(dt.UTC)
         for provider, external_id, event_name, sport, first_seen, start_time in seen:
             if (provider, external_id) in mapped_keys:
                 continue
@@ -147,8 +148,14 @@ async def resolve_events(
             sides = split_sides(name)
             mine: Any = (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(name)
 
+            # near-term events disagree by at most a midnight; books PLACEHOLDER
+            # far-future outright dates and disagree by days-to-weeks — widen the
+            # window once nothing kicks off for a month (the name gate still rules)
+            aware = event_time if event_time.tzinfo else event_time.replace(tzinfo=dt.UTC)
+            offsets = range(-14, 15) if (aware - now).days > 30 else (-1, 0, 1)
+
             candidates: list[tuple[float, uuid.UUID]] = []
-            for offset in (-1, 0, 1):  # books disagree near midnight UTC
+            for offset in offsets:  # books disagree near midnight UTC
                 day_key = (
                     (dt.datetime.strptime(day, "%Y-%m-%d") + dt.timedelta(days=offset)).strftime("%Y-%m-%d")
                 )
@@ -198,6 +205,80 @@ async def resolve_events(
             await session.rollback()
         else:
             await session.commit()
+    return stats
+
+
+async def map_events_to_fixtures(
+    session_factory: async_sessionmaker[AsyncSession],
+    items: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Map externally-sourced events (scoreboard results) onto EXISTING fixtures —
+    same matching rules as resolve_events, but never founds a fixture: a result for
+    a game no book priced settles nothing and would only add noise.
+
+    items: [{provider, external_id, event_name, sport, event_time?}]
+    """
+    async with session_factory() as session:
+        mapped_keys = {
+            (provider, external_id)
+            for provider, external_id in (
+                await session.execute(select(Event.provider, Event.external_id))
+            ).all()
+        }
+        fixtures = (await session.execute(select(Fixture))).scalars().all()
+        index: dict[tuple[str, str], list[tuple[uuid.UUID, Any]]] = {}
+        for fixture in fixtures:
+            sides = split_sides(fixture.name)
+            keyed = (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(fixture.name)
+            day = (fixture.start_time or dt.datetime.now(dt.UTC)).strftime("%Y-%m-%d")
+            index.setdefault((fixture.sport, day), []).append((fixture.id, keyed))
+
+        stats = {"examined": 0, "mapped": 0, "ambiguous": 0, "unmatched": 0}
+        for item in items:
+            provider, external_id = str(item["provider"]), str(item["external_id"])
+            if (provider, external_id) in mapped_keys:
+                continue
+            stats["examined"] += 1
+            name = str(item.get("event_name") or "")
+            family = canonical_sport(str(item.get("sport") or "?"))
+            event_time = item.get("event_time") or dt.datetime.now(dt.UTC)
+            sides = split_sides(name)
+            mine: Any = (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(name)
+
+            candidates: list[tuple[float, uuid.UUID]] = []
+            for offset in (-1, 0, 1):
+                day_key = (event_time + dt.timedelta(days=offset)).strftime("%Y-%m-%d")
+                for fixture_id, theirs in index.get((family, day_key), []):
+                    if isinstance(mine, tuple) and isinstance(theirs, tuple):
+                        score = _sides_score(mine, theirs)
+                        threshold = MATCH_THRESHOLD
+                    elif isinstance(mine, frozenset) and isinstance(theirs, frozenset):
+                        score = (
+                            len(mine & theirs) / len(mine | theirs)
+                            if _side_ok(mine, theirs) and (mine | theirs) else 0.0
+                        )
+                        threshold = NAME_THRESHOLD
+                    else:
+                        continue
+                    if score >= threshold:
+                        candidates.append((score, fixture_id))
+
+            distinct = {fid for _s, fid in candidates}
+            if len(distinct) > 1:
+                best = sorted(candidates, reverse=True)
+                if best[0][0] - best[1][0] < 0.15:
+                    stats["ambiguous"] += 1
+                    continue
+                target = best[0][1]
+            elif len(distinct) == 1:
+                target = next(iter(distinct))
+            else:
+                stats["unmatched"] += 1
+                continue
+            session.add(Event(fixture_id=target, provider=provider, external_id=external_id))
+            mapped_keys.add((provider, external_id))
+            stats["mapped"] += 1
+        await session.commit()
     return stats
 
 

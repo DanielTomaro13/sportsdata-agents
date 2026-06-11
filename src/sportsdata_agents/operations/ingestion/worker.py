@@ -117,8 +117,8 @@ FEEDS: dict[str, Feed] = {
     ),
     "entain_all": Feed(
         name="entain_all",
-        tool="entain_sport_event_request",  # label; one bulk call per sport category
-        mcp_groups=("entain.rest",),
+        tool="entain_sport_event_request",  # label; discovered categories -> bulk calls
+        mcp_groups=("entain.rest", "entain.graphql"),  # graphql: SportingCategories discovery
         normalizer=normalize_entain_all,
         fetch=fetch_entain_all,
         interval_s=300,

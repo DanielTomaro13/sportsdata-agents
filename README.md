@@ -74,9 +74,12 @@ recorded under any book settles every book's series, with side-orientation trans
 between books' listing orders), and the `find_fixture` / `best_prices` agent tools.
 
 **The quant loop**: `save_model` refuses uncalibrated models → `record_predictions`
-(backdatable `predicted_at`) → `run_backtest` (flat-stake replay, no lookahead: entry is
-the prevailing price at prediction time; CLV vs close) → `agents eval` gates golden
-metrics (calibration, CLV backtest, grounding) against a committed baseline.
+(backdatable `predicted_at`; side-relative selections must name their book) →
+`run_backtest` (flat-stake replay, no lookahead: entry is the prevailing price at
+prediction time; CLV vs close, or vs a sharp benchmark via `clv_book="Pinnacle"`) →
+`agents results` settles from racing placings + official NBA/AFL/NRL scoreboards →
+`agents eval` gates golden metrics (calibration, CLV backtest, grounding, event
+resolution) against a committed baseline.
 
 ## Quickstart
 
@@ -118,6 +121,9 @@ cd sportsdata-agents && python3.12 -m venv .venv && .venv/bin/pip install -e ".[
 .venv/bin/agents ingest --once --prune 90   # retention for raw snapshots
 .venv/bin/agents resolve                    # map book events -> shared fixtures
 .venv/bin/agents resolve --dry-run          # count without writing
+.venv/bin/agents results                    # settle: racing placings + NBA/AFL/NRL scoreboards (cron daily)
+.venv/bin/agents steward                    # market_steward dictionary audit (cron weekly)
+.venv/bin/agents dictionary-promote --write # promote steward overrides into the committed seed
 .venv/bin/agents movement --event <id>      # change-point series for one event
 .venv/bin/agents eval --baseline src/sportsdata_agents/evals/baseline.json
 .venv/bin/agents refresh-books              # weekly: re-verify bookmaker ids

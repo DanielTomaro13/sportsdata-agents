@@ -221,3 +221,29 @@ async def test_futures_fetchers_compose_listing_then_prices() -> None:
     await fetch_sportsbet_all(sba)
     assert sba.calls.count("sportsbet_competition_matches") == 1
     assert sba.calls.count("sportsbet_competition_outrights") == 1
+
+
+async def test_entain_categories_discovered_with_fallback() -> None:
+    """Categories come from the SportingCategories op (non-sports excluded);
+    a rejecting gateway degrades to the documented snapshot, never to nothing."""
+    from sportsdata_agents.operations.ingestion.fetchers import (
+        ENTAIN_SPORT_CATEGORIES,
+        fetch_entain_all,
+    )
+
+    discovering = FakeManager({
+        "entain_graphql_call": {"data": {"categories": [
+            {"id": "uuid-bb", "name": "Basketball", "category": "BASKETBALL"},
+            {"id": "uuid-nov", "name": "Novelty", "category": "NOVELTY"},  # excluded
+        ]}},
+        "entain_sport_event_request": {"events": {}},
+    })
+    await fetch_entain_all(discovering)
+    assert discovering.calls.count("entain_sport_event_request") == 1  # basketball only
+
+    broken = FakeManager({
+        "entain_graphql_call": RuntimeError("PERSISTED_QUERY_NOT_FOUND"),
+        "entain_sport_event_request": {"events": {}},
+    })
+    await fetch_entain_all(broken)
+    assert broken.calls.count("entain_sport_event_request") == len(ENTAIN_SPORT_CATEGORIES)

@@ -73,7 +73,10 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
     async def record_predictions(args: dict[str, Any]) -> Any:
         """{model_id, predictions: [{event_external_id, selection, prob, market?,
         provider?, predicted_at?}]} — predicted_at (ISO) backdates a prediction so
-        historical scenarios backtest with honest entry prices (default: now)."""
+        historical scenarios backtest with honest entry prices (default: now).
+        provider is REQUIRED for home/away/draw selections: those are relative to
+        one book's listing order, and cross-book settlement can only translate the
+        side when it knows whose frame the prediction is in."""
         model_uuid = uuid.UUID(str(args["model_id"]))
         rows = args.get("predictions") or []
         if not rows:
@@ -87,6 +90,11 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 prob = float(r["prob"])
                 if not 0.0 <= prob <= 1.0:
                     raise ValueError(f"prob {prob} outside [0, 1]")
+                if str(r["selection"]).lower() in ("home", "away", "draw") and not r.get("provider"):
+                    raise ValueError(
+                        f"selection {r['selection']!r} is side-relative — pass the provider "
+                        "whose listing the side refers to (books disagree on home/away order)"
+                    )
                 predicted_at = (
                     dt.datetime.fromisoformat(str(r["predicted_at"])) if r.get("predicted_at") else now
                 )
@@ -138,8 +146,10 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         }
 
     async def run_backtest(args: dict[str, Any]) -> Any:
-        """{model_id?, min_edge_pct?, book?} → replay predictions vs the captured price
-        series + results: ROI, hit-rate, average CLV, P&L variance (M2.3)."""
+        """{model_id?, min_edge_pct?, book?, clv_book?} → replay predictions vs the
+        captured price series + results: ROI, hit-rate, average CLV, P&L variance.
+        clv_book (e.g. "Pinnacle") benchmarks CLV against that book's close at the
+        same fixture instead of the bet book's own close."""
         from sportsdata_agents.quant.backtest import run_backtest as _run
 
         return await _run(
@@ -148,6 +158,7 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
             model_id=args.get("model_id"),
             min_edge_pct=float(args.get("min_edge_pct", 2.0)),
             book=args.get("book"),
+            clv_book=args.get("clv_book"),
         )
 
     async def record_result(args: dict[str, Any]) -> Any:
@@ -247,6 +258,8 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 "model_id": {"type": "string"},
                 "min_edge_pct": {"type": "number", "description": "Entry-edge threshold (default 2.0)"},
                 "book": {"type": "string"},
+                "clv_book": {"type": "string",
+                             "description": 'CLV benchmark book, e.g. "Pinnacle" (sharp close)'},
             },
             [],
         ),

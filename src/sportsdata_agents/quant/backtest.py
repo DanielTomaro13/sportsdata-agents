@@ -21,7 +21,7 @@ ROI silently).
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -33,21 +33,27 @@ from sportsdata_agents.operations.resolution.resolver import _side_ok, _tokens, 
 _SIDE_WINNERS = ("home", "away", "draw")
 
 
-async def _settlement_maps(
-    session: AsyncSession,
-) -> tuple[
-    dict[tuple[str, str], uuid.UUID | None],
-    dict[str, uuid.UUID | None],
-    dict[str, EventResult],
-    dict[uuid.UUID, EventResult],
-]:
+class _Maps(NamedTuple):
+    fixture_by_pe: dict[tuple[str, str], uuid.UUID | None]
+    fixture_by_ext: dict[str, uuid.UUID | None]
+    result_by_ext: dict[str, EventResult]
+    result_by_fixture: dict[uuid.UUID, EventResult]
+    events_by_fixture: dict[uuid.UUID, list[tuple[str, str]]]
+
+
+async def _settlement_maps(session: AsyncSession) -> _Maps:
     """Fixture joins + results, loaded once per backtest instead of per prediction."""
     events = (await session.execute(select(Event))).scalars().all()
-    fixture_by_pe = {(e.provider, e.external_id): e.fixture_id for e in events}
+    fixture_by_pe: dict[tuple[str, str], uuid.UUID | None] = {
+        (e.provider, e.external_id): e.fixture_id for e in events
+    }
     fixture_by_ext: dict[str, uuid.UUID | None] = {}
+    events_by_fixture: dict[uuid.UUID, list[tuple[str, str]]] = {}
     for e in events:  # ext-id-only fallback; collisions across providers → unusable
         prior = fixture_by_ext.get(e.external_id, e.fixture_id)
         fixture_by_ext[e.external_id] = e.fixture_id if prior == e.fixture_id else None
+        if e.fixture_id is not None:
+            events_by_fixture.setdefault(e.fixture_id, []).append((e.provider, e.external_id))
     results = (
         await session.execute(
             select(EventResult).order_by(EventResult.settled_at.asc().nulls_first())
@@ -62,7 +68,7 @@ async def _settlement_maps(
         )
         if fixture is not None:
             result_by_fixture[fixture] = res
-    return fixture_by_pe, fixture_by_ext, result_by_ext, result_by_fixture
+    return _Maps(fixture_by_pe, fixture_by_ext, result_by_ext, result_by_fixture, events_by_fixture)
 
 
 async def _event_name_for(
@@ -99,6 +105,53 @@ def _translate_side(winner: str, pred_name: str, result_name: str) -> str | None
     return winner if same else {"home": "away", "away": "home"}[winner]
 
 
+async def _benchmark_close(
+    session: AsyncSession,
+    maps: _Maps,
+    name_cache: dict[tuple[str, str], str],
+    pred: Prediction,
+    *,
+    clv_book: str,
+) -> float | None:
+    """The benchmark book's closing price for this prediction's selection at the
+    SAME fixture — side-relative selections translate into the benchmark event's
+    frame first. None when the benchmark never priced it (caller falls back)."""
+    fixture = maps.fixture_by_pe.get(
+        (pred.provider, pred.event_external_id)
+    ) or maps.fixture_by_ext.get(pred.event_external_id)
+    if fixture is None:
+        return None
+    pred_name = ""
+    side_relative = pred.selection in _SIDE_WINNERS
+    if side_relative:
+        pred_name = await _event_name_for(session, name_cache, pred.provider, pred.event_external_id)
+    for provider, external_id in maps.events_by_fixture.get(fixture, []):
+        selection = pred.selection
+        if side_relative:
+            bench_name = await _event_name_for(session, name_cache, provider, external_id)
+            # _translate_side maps FROM its third arg's frame INTO its second's
+            translated = _translate_side(pred.selection, bench_name, pred_name)
+            if translated is None:
+                continue
+            selection = translated
+        row = (
+            await session.execute(
+                select(Price)
+                .where(
+                    Price.book == clv_book,
+                    Price.event_external_id == external_id,
+                    Price.market == pred.market,
+                    Price.selection == selection,
+                )
+                .order_by(Price.changed_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if row is not None:
+            return float(row.odds)
+    return None
+
+
 async def run_backtest(
     session_factory: async_sessionmaker[AsyncSession],
     scope: TenantScope,
@@ -106,8 +159,14 @@ async def run_backtest(
     model_id: str | None = None,
     min_edge_pct: float = 2.0,
     book: str | None = None,
+    clv_book: str | None = None,
 ) -> dict[str, Any]:
-    """Replay predictions vs captured prices + results → ROI / hit-rate / CLV / variance."""
+    """Replay predictions vs captured prices + results → ROI / hit-rate / CLV / variance.
+
+    clv_book (e.g. "Pinnacle") benchmarks CLV against THAT book's close for the
+    same fixture/market/selection (orientation-translated) instead of the bet
+    book's own close — beating the sharp close is the stronger edge signal. Falls
+    back to the own-book close per bet when the benchmark has no series there."""
     async with session_factory() as session:
         stmt = select(Prediction).where(
             Prediction.tenant_id == scope.tenant_id,
@@ -117,9 +176,9 @@ async def run_backtest(
             stmt = stmt.where(Prediction.model_id == uuid.UUID(model_id))
         predictions = (await session.execute(stmt)).scalars().all()
 
-        fixture_by_pe, fixture_by_ext, result_by_ext, result_by_fixture = (
-            await _settlement_maps(session)
-        )
+        maps = await _settlement_maps(session)
+        fixture_by_pe, fixture_by_ext = maps.fixture_by_pe, maps.fixture_by_ext
+        result_by_ext, result_by_fixture = maps.result_by_ext, maps.result_by_fixture
         name_cache: dict[tuple[str, str], str] = {}
         bets: list[dict[str, Any]] = []
         skipped = {"no_price": 0, "no_result": 0, "below_edge": 0}
@@ -153,7 +212,11 @@ async def run_backtest(
                         pred_name = await _event_name_for(
                             session, name_cache, pred.provider, pred.event_external_id
                         )
-                        result_name = await _event_name_for(
+                        # scoreboard results carry their frame's name in meta —
+                        # they have no odds snapshots to look it up from
+                        result_name = str(
+                            (result.meta or {}).get("event_name") or ""
+                        ) or await _event_name_for(
                             session, name_cache, result.provider, result.event_external_id
                         )
                         winner = _translate_side(
@@ -170,6 +233,13 @@ async def run_backtest(
                 prevailing = [r for r in series if r.changed_at <= pred.predicted_at]
                 entry_row = prevailing[-1] if prevailing else series[0]
             entry, closing = float(entry_row.odds), float(series[-1].odds)
+            benchmarked = False
+            if clv_book:
+                bench = await _benchmark_close(
+                    session, maps, name_cache, pred, clv_book=clv_book
+                )
+                if bench is not None:
+                    closing, benchmarked = bench, True
             prob = float(pred.prob)
             edge_pct = (prob * entry - 1.0) * 100.0
             if edge_pct < min_edge_pct:
@@ -184,6 +254,7 @@ async def run_backtest(
                     "prob": prob,
                     "entry_odds": entry,
                     "closing_odds": closing,
+                    "clv_benchmarked": benchmarked,
                     "edge_pct": round(edge_pct, 2),
                     "clv_pct": round((entry / closing - 1.0) * 100.0, 2),
                     "won": won,
@@ -205,6 +276,8 @@ async def run_backtest(
         "avg_clv_pct": round(sum(clvs) / len(clvs), 2),
         "pnl_variance": round(sum((p - mean_pnl) ** 2 for p in pnls) / len(pnls), 4),
         "min_edge_pct": min_edge_pct,
+        "clv_book": clv_book,
+        "clv_benchmarked_bets": sum(1 for b in bets if b.get("clv_benchmarked")),
         "skipped": skipped,
         "per_bet": bets,
     }

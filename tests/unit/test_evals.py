@@ -32,6 +32,7 @@ def test_gate_fails_a_deliberately_worse_change() -> None:
         EvalScore(name="calibration", score=0.70, details={}),  # worse Brier
         EvalScore(name="clv_backtest", score=baseline["clv_backtest"], details={}),
         EvalScore(name="grounding", score=baseline["grounding"], details={}),
+        EvalScore(name="resolution", score=baseline["resolution"], details={}),
     ]
     problems = gate_against_baseline(worse, baseline)
     assert len(problems) == 1 and problems[0].startswith("calibration:")
