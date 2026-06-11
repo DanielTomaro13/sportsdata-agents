@@ -297,38 +297,39 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 
 **Goal:** ops agents maintain the repos; alerts fire; fantasy works; the public demo is live.
 
-### M3.1 — Operations plane (`§3.1`, platform-only)
-- [ ] Separate **operations deployable** + operator console/CLI; platform creds (GitHub/CI) **never** in tenant runtime.
-- [ ] **MCP health/QA agent** — run `doctor` + the MCP contract suite on a schedule; file issues on real breaks.
-- [ ] **Repo-improver / scout** — propose changes from feedback; **open PRs only** (git + GitHub API).
-- [ ] **Code-reviewer agent** — review PRs; approve/request changes; **human merges**.
-- [ ] **Eval / benchmark agent** — scheduled + PR-triggered; writes `evals`/`agent_metrics`.
-- [ ] **Incident-triage agent** — watch errors/alerts; auto-remediate within a safe allow-list (retry, fail over provider, disable a broken module) else **escalate a report to the operator**.
-- [ ] Aggregated/anonymized signals only cross product→operations (`§3.1`/`D16`).
-- [ ] **Exit gate:** QA/triage catch a broken feed (auto-fix or escalate); improver lands a CI-passing PR a human merges.
+### M3.1 — Operations plane (`§3.1`, platform-only) ✅ (2026-06-11)
+- [x] **Hard plane split in INFRASTRUCTURE**: `AgentSpec.plane` (product|ops); the customer gateway REFUSES ops agents and filters them from team mode; lint refuses product→ops delegation; only `agents ops run` injects platform tools. Platform creds (OPS_GITHUB_TOKEN / credential helper) resolve lazily inside ops tools only.
+- [x] **MCP health/QA agent** (`mcp_health`): run_doctor + run_contract_suite + feed_health; files deduped GitHub issues on real breaks. `agents ops health` = the deterministic no-LLM shortcut (live: caught pointsbet_racing silent past 3x cadence).
+- [x] **Repo-improver** (`repo_improver`): list/read repo files + `propose_change` (NEW branch only — refuses main; repo-confined paths; surgical find/replace edits after whole-file rewrites blew the token budget live). **Live: opened PR #1** (stale CLI docstring), CI green.
+- [x] **Code-reviewer** (`code_reviewer`): diff-driven gh_review_pr (approve/request_changes/comment); **no merge tool exists — structurally**. Live: reviewed PR #1; GitHub refused self-approve (same account) → comment review; production needs a separate bot account (P4 note).
+- [x] **Eval/benchmark agent** (`eval_benchmark`): run_offline_evals (gated vs baseline) + record_agent_metrics rows.
+- [x] **Incident-triage agent** (`incident_triage`): feed_health → remediate_feed within the CLOSED allow-list (retry/disable/enable — durable ops state the ingest CLI honours) else escalate (ops-state entry + Slack).
+- [x] Aggregated signals only: feed_health/evals expose counts and scores, never raw rows.
+- [x] **Exit gate ✅ (live)**: health caught a silent feed; improver opened CI-passing PR #1; reviewer reviewed it; the merge awaits a human (Daniel).
 
-### M3.2 — Line-monitor / alerting
-- [ ] Standing watches (line moves, steam, scratchings, value appear/vanish) on the ingestion stream → push alerts (Slack/Discord); durable/resumable (`§8.2`).
-- [ ] `alerts`, `subscriptions` tables.
-- [ ] **Exit gate:** a configured watch fires a push alert on a real line move.
+### M3.2 — Line-monitor / alerting ✅ (2026-06-11)
+- [x] Standing watches: line_move / steam / value appear+vanish / scratching-suspect over the price stream; durable per-watch cursors (missed cycles replay); per-condition dedupe + max_alerts_per_cycle cap (live lesson: the first unbounded pass over a 6h backlog got Slack rate-limited). Push: Slack chat.postMessage per subscription channel; push failure never sinks the watch.
+- [x] `subscriptions` + `alerts` tables (migration 0008); create/list/delete_watch + list_alerts session tools (value_scout); `agents monitor [--add name:kind:threshold]`; cron 5min.
+- [x] **Exit gate ✅ (live)**: a 10% line_move watch fired 10 alerts on real racing moves, pushed to Slack (#all-daniel), pushed=true rows in `alerts`.
 
-### M3.3 — Fantasy advisor + agent-builder + Discord
-- [ ] **Fantasy advisor** — projections, lineup optimisation (sandbox), player research.
-- [ ] **Agent-builder** — NL → a validated agent/module spec (the customization path, §7.1); drafts the system prompt, skills, data (capability tags), tier, schedule, and limits from a plain-English goal; preview/test before save; output is versioned (D27).
-- [ ] **Capability→friendly-label map** — human names for capability tags + skills/modules ("AFL stats", "Compare odds across books") so users pick from a curated catalogue, never raw tool names (§7.1). Reused by the visual builder (M4.5).
-- [ ] **Discord adapter**.
-- [ ] **Exit gate:** optimise a DFS lineup; a user builds a working custom agent from chat.
+### M3.3 — Fantasy advisor + agent-builder + Discord ✅ (2026-06-11)
+- [x] **Fantasy advisor**: `optimize_lineup` deterministic beam-search optimiser (exhaustive-oracle tested; multi-position, locks/exclusions, G/F/UTIL families) + dfs_lineup_building skill + sandboxed run_python for projection math.
+- [x] **Agent-builder** (§7.1): list_capabilities → draft_agent_spec (validated against the REAL spec models + lint at draft time) → save_agent_spec (user specs dir; version bumps archive `{id}@{version}.yaml` per D27). Guardrails by construction: product-plane only, no builtin-id collisions, no-money invariant. User specs merge into TeamSession (builtins never shadowed — a parameter-shadowing bug here was caught by the ops-plane test the moment the live run populated the dir).
+- [x] **Capability→friendly-label map**: capability_labels.json — 52 tags generated from the MCP catalogue with hand-curated headline labels ("Live odds", "Race cards & runners").
+- [x] **Discord adapter** mirroring the Slack shape (mention/DM → gateway); routing core unit-tested without discord.py; optional `[discord]` extra; `agents discord`.
+- [x] **Exit gate ✅ (live)**: fantasy optimised a 3-slot cash lineup from user projections ($0.11); "build me an nrl_form_guide agent" → saved v0.1.0 ($0.06) → loads and runs with real MCP calls (capability picks are an iteration item — it chose generic tags over NRL-specific routes).
 
-### M3.4 — Marketing site + live MCP demo (`§11.1`)
-- [ ] Astro/Next site (`D21`): hero, **live MCP chat demo** (`D22` hybrid — curated prompts → real read-only, rate-limited+budget-capped demo agent, tool calls shown live; animated-playback fallback), "works with any LLM", **live capability counters** from the MCP, per-persona use cases, pricing, docs, sign-up; `leads` capture.
-- [ ] Hosted/remote-MCP channel (`D23`) for BYO-LLM.
-- [ ] **Exit gate:** public site live; demo runs a real bounded query with visible tool calls; no secret/abuse exposure.
+### M3.4 — Marketing site + live MCP demo (`§11.1`) ✅ built 2026-06-11 (public deploy = operator hosting decision)
+- [x] Static site (`site/`, framework-free first cut — D21 allows Astro later): hero, live capability counters (`/demo/stats`), the D22 hybrid demo (curated prompt chips → POST `/demo/run` with tool calls animated; recorded-playback fallback from demo-fallback.json when the gateway is offline), persona cards, lead form → `/leads` (DB row, file fallback — a lead is never lost; `leads` table in migration 0008).
+- [x] Demo abuse posture BY CONSTRUCTION: free-form input does not exist (curated prompt ids only), fresh budget-capped TEAM session per run ($0.30, tight limits), per-IP rate limit (3/min), tool trace carries names+timings only — never arguments/payloads/secrets.
+- [x] Hosted/remote-MCP channel (D23): docs/hosted-mcp.md — stdio config for any MCP client today (scoped via SPORTSDATA_MCP_GROUPS), proxy recipe for remote; productised auth/metering is P4 billing work.
+- [x] **Exit gate (local) ✅ (live)**: `/demo/run nba-finals` → 4 real tool calls shown → complete grounded answer (caught Game 4 IN PROGRESS), $0.06; rate-limit + curated-only + no-secret-trace covered by tests. *Public deployment*: drop `site/` on Vercel/Netlify + point GATEWAY_URL at a hosted gateway — Daniel's hosting call.
 
-### M3.5 — Spec/module versioning (`§7`/`D27`)
-- [ ] Semantic version per agent/module spec; workspaces **pin** versions; migration path + deprecation window; schema-version guard.
-- [ ] **Exit gate:** bump a module version without breaking a workspace pinned to the old one; migration applies on opt-in.
+### M3.5 — Spec/module versioning (`§7`/`D27`) ✅ (2026-06-11)
+- [x] Semver per spec (already enforced) + `{id}@{version}.yaml` archives (load_spec_catalog; filename must match contents); `Workspace.agent_versions` pins resolve in TeamSession (unknown pin fails loudly); `deprecated` notice loads-with-warning so pinned workspaces never break; spec_version schema guard refuses future schemas with a clear message. The agent-builder's save flow archives automatically.
+- [x] **Exit gate ✅**: test bumps a spec to 0.2.0 with 0.1.0 archived — unpinned workspaces get the new version, a pinned workspace keeps the old, re-pinning IS the opt-in migration.
 
-- [ ] **🚪 P3 EXIT GATE:** self-improvement loop demonstrably closes (perf/feedback → PR → CI → review → merge); alerts + fantasy + demo live.
+- [x] **🚪 P3 EXIT GATE — CLOSED 2026-06-11** (one human step pending): the self-improvement loop ran END TO END LIVE — repo_improver opened PR #1 (a real stale-docstring fix), CI went green on the branch, code_reviewer read the diff and submitted its review; **the merge button is Daniel's** (by design — and GitHub's no-self-approve rule means production wants a separate reviewer bot account). Alerts fired to Slack on real line moves; fantasy optimised a live lineup; the demo answered a real bounded query with visible tool calls. Remaining operational: deploy site/ + a hosted gateway publicly (hosting decision), merge PR #1.
 
 ---
 

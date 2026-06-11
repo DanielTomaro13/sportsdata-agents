@@ -1,0 +1,57 @@
+{
+  "prompts": [
+    {
+      "id": "nba-finals",
+      "title": "NBA Finals snapshot"
+    },
+    {
+      "id": "afl-round",
+      "title": "This week in the AFL"
+    },
+    {
+      "id": "compare-books",
+      "title": "Compare the books"
+    },
+    {
+      "id": "ladder-check",
+      "title": "Who's on top?"
+    }
+  ],
+  "runs": {
+    "compare-books": {
+      "tool_calls": [
+        {
+          "tool": "sportsbet_competition_matches",
+          "ok": true,
+          "latency_ms": 633
+        },
+        {
+          "tool": "tab_competition",
+          "ok": true,
+          "latency_ms": 541
+        },
+        {
+          "tool": "final_answer",
+          "ok": true,
+          "latency_ms": 9
+        }
+      ],
+      "answer": "Western Bulldogs v Adelaide (AFL, tonight):\n\n| Book | Bulldogs | Adelaide |\n|---|---|---|\n| Pinnacle | 1.73 | 2.12 |\n| Sportsbet | 1.73 | 2.12 |\n| TAB | 1.74 | 2.10 |\n| Unibet | 1.78 | 2.06 |\n\nBest price each side highlighted across 7 mapped books. Informational only."
+    },
+    "nba-finals": {
+      "tool_calls": [
+        {
+          "tool": "stats_specialist",
+          "ok": true,
+          "latency_ms": 4100
+        },
+        {
+          "tool": "final_answer",
+          "ok": true,
+          "latency_ms": 9
+        }
+      ],
+      "answer": "Game 3 (June 9): Spurs 121 - 118 Knicks. New York leads the Finals 2-1; Game 4 is tonight at MSG.\\n\\nSources: NBA live scoreboard, fetched just now. Informational only."
+    }
+  }
+}

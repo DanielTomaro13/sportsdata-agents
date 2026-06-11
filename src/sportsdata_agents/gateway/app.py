@@ -310,6 +310,70 @@ def create_app(*, session: TeamSession | None = None, conversation_store: Any | 
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
+    # ─── public demo + leads (M3.4, D22) ────────────────────────────────
+    demo_limiter = RateLimiter(per_minute=3)
+    demo_stats_cache: dict[str, Any] = {}
+
+    @app.get("/demo/prompts")
+    async def demo_prompts() -> dict[str, Any]:
+        from sportsdata_agents.gateway.demo import DEMO_PROMPTS
+
+        return {"prompts": [{"id": p["id"], "title": p["title"]} for p in DEMO_PROMPTS]}
+
+    @app.post("/demo/run")
+    async def demo_run(body: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Run ONE curated demo prompt (free-form input deliberately does not
+        exist — D22's abuse posture). Per-IP rate limited; tiny per-run budget."""
+        from sportsdata_agents.gateway.demo import run_demo
+
+        client = request.client.host if request.client else "unknown"
+        demo_limiter.check(f"demo:{client}")
+        prompt_id = str(body.get("prompt_id", ""))
+        try:
+            return await run_demo(prompt_id)
+        except KeyError:
+            raise HTTPException(404, detail=f"unknown demo prompt {prompt_id!r}") from None
+
+    @app.get("/demo/stats")
+    async def demo_stats_route() -> dict[str, Any]:
+        """Live capability counters (cached for an hour — they move slowly)."""
+        from sportsdata_agents.gateway.demo import demo_stats
+
+        cached = demo_stats_cache.get("stats")
+        if cached and time.monotonic() - demo_stats_cache.get("at", 0.0) < 3600:
+            return cached
+        stats = await demo_stats()
+        demo_stats_cache.update(stats=stats, at=time.monotonic())
+        return stats
+
+    @app.post("/leads")
+    async def create_lead(body: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Marketing-site lead capture. DB row when the database is up; an
+        append-only local file otherwise — a lead must never be lost."""
+        email = str(body.get("email", "")).strip()
+        if "@" not in email or "." not in email.split("@")[-1] or len(email) > 320:
+            raise HTTPException(422, detail="a valid email is required")
+        client = request.client.host if request.client else "unknown"
+        limiter.check(f"leads:{client}")
+        note = str(body.get("note", ""))[:1000]
+        try:
+            from sportsdata_agents.data.db import get_sessionmaker
+            from sportsdata_agents.data.models import Lead
+
+            async with get_sessionmaker()() as db:
+                db.add(Lead(email=email, note=note, source=str(body.get("source", "site"))[:64]))
+                await db.commit()
+            return {"ok": True, "stored": "db"}
+        except Exception:
+            import json as _json
+            from pathlib import Path
+
+            fallback = Path.home() / ".sportsdata-agents" / "leads.jsonl"
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            with fallback.open("a", encoding="utf-8") as fh:
+                fh.write(_json.dumps({"email": email, "note": note}) + "\n")
+            return {"ok": True, "stored": "file"}
+
     @app.post("/conversations/{conversation_id}/message", response_model=None)
     async def conversation_message(
         conversation_id: str,

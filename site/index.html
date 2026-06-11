@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sportsdata — every sport, every book, one agent team</title>
+<style>
+  :root { --bg:#0b1020; --card:#141a2f; --ink:#e8ecf8; --dim:#8b93ad; --acc:#4f8cff; --ok:#3ddc84; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--ink); font:16px/1.6 -apple-system,Segoe UI,Inter,sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:48px 24px; }
+  h1 { font-size:42px; line-height:1.15; letter-spacing:-.5px; }
+  h1 em { color:var(--acc); font-style:normal; }
+  .sub { color:var(--dim); margin:16px 0 32px; max-width:640px; }
+  .counters { display:flex; gap:24px; margin:24px 0 40px; flex-wrap:wrap; }
+  .counter { background:var(--card); border-radius:12px; padding:16px 24px; min-width:140px; }
+  .counter b { font-size:30px; display:block; color:var(--acc); }
+  .counter span { color:var(--dim); font-size:13px; }
+  .demo { background:var(--card); border-radius:16px; padding:24px; margin:24px 0; }
+  .prompts { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .prompts button { background:#1d2542; color:var(--ink); border:1px solid #2c365e; border-radius:999px;
+                    padding:8px 16px; cursor:pointer; font-size:14px; }
+  .prompts button:hover { border-color:var(--acc); }
+  .trace { font:13px/1.7 ui-monospace,Menlo,monospace; color:var(--dim); min-height:24px; margin:12px 0; }
+  .trace .ok { color:var(--ok); }
+  .answer { white-space:pre-wrap; background:#0e1429; border-radius:10px; padding:16px; min-height:60px; }
+  .note { color:var(--dim); font-size:13px; margin-top:10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:40px 0; }
+  .card { background:var(--card); border-radius:12px; padding:20px; }
+  .card h3 { margin-bottom:8px; font-size:17px; }
+  .card p { color:var(--dim); font-size:14px; }
+  form { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
+  input { background:#0e1429; color:var(--ink); border:1px solid #2c365e; border-radius:8px;
+          padding:10px 14px; flex:1; min-width:220px; }
+  .cta, form button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:10px 20px;
+                      cursor:pointer; font-weight:600; }
+  footer { color:var(--dim); font-size:13px; margin-top:48px; border-top:1px solid #1d2542; padding-top:24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Every sport. Every bookmaker.<br><em>One agent team.</em></h1>
+  <p class="sub">A team of LLM agents over a live sports data plane — odds from 10 bookmakers,
+  stats and results from official sources, models, backtests and alerts. Works with any LLM:
+  bring your own Claude, GPT, or Gemini key. <b>Advisory only — it never places bets.</b></p>
+
+  <div class="counters" id="counters">
+    <div class="counter"><b id="c-providers">—</b><span>data providers</span></div>
+    <div class="counter"><b id="c-tools">—</b><span>live tools</span></div>
+    <div class="counter"><b id="c-groups">—</b><span>capability groups</span></div>
+  </div>
+
+  <div class="demo">
+    <h3>Watch it work — live</h3>
+    <p class="note">Pick a question. A real agent answers it with real tool calls, shown as they happen.
+    (Curated prompts only; rate-limited; tiny budget per run.)</p>
+    <div class="prompts" id="prompts"></div>
+    <div class="trace" id="trace"></div>
+    <div class="answer" id="answer">Pick a prompt above to run the live demo.</div>
+    <p class="note" id="demo-note"></p>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h3>Trading desk</h3><p>Cross-book best price, line movement, steam alerts,
+      CLV-honest backtests against the sharp close. You decide; it informs.</p></div>
+    <div class="card"><h3>Analytics &amp; coaching</h3><p>Stats, box scores, form guides and models
+      across AFL, NRL, NBA, MLB, racing and more — grounded, with sources.</p></div>
+    <div class="card"><h3>Fantasy desk</h3><p>Projections plus a deterministic salary-cap lineup
+      optimiser. Cash floor or GPP ceiling — the judgment calls made explicit.</p></div>
+    <div class="card"><h3>Build your own agents</h3><p>Describe the agent you want in plain English —
+      the builder wires data, skills and budgets, versioned so upgrades never break you.</p></div>
+  </div>
+
+  <div class="card">
+    <h3>Early access</h3>
+    <p>Private beta. Leave an email and what you'd use it for.</p>
+    <form id="lead-form">
+      <input type="email" id="lead-email" placeholder="you@example.com" required>
+      <input type="text" id="lead-note" placeholder="What would you build?">
+      <button type="submit">Request access</button>
+    </form>
+    <p class="note" id="lead-note-out"></p>
+  </div>
+
+  <footer>Private beta · BYO-LLM or managed · Hosted MCP available for your own Claude/ChatGPT ·
+  Informational only — not betting or financial advice.</footer>
+</main>
+<script>
+const GW = window.GATEWAY_URL || "http://127.0.0.1:8400";
+
+async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
+
+async function loadCounters() {
+  try {
+    const s = await j(`${GW}/demo/stats`);
+    for (const [k, id] of [["providers","c-providers"],["tools","c-tools"],["groups","c-groups"]])
+      document.getElementById(id).textContent = s[k];
+  } catch { /* counters stay em-dash when the gateway is offline */ }
+}
+
+async function loadPrompts() {
+  const box = document.getElementById("prompts");
+  let prompts;
+  try { prompts = (await j(`${GW}/demo/prompts`)).prompts; }
+  catch { prompts = (await j("demo-fallback.json")).prompts; }
+  for (const p of prompts) {
+    const b = document.createElement("button");
+    b.textContent = p.title;
+    b.onclick = () => runDemo(p.id);
+    box.appendChild(b);
+  }
+}
+
+async function playFallback(id) {
+  const data = await j("demo-fallback.json");
+  const run = data.runs[id] || Object.values(data.runs)[0];
+  document.getElementById("demo-note").textContent = "gateway offline — recorded playback";
+  await animate(run);
+}
+
+async function animate(run) {
+  const trace = document.getElementById("trace"), ans = document.getElementById("answer");
+  trace.innerHTML = ""; ans.textContent = "";
+  for (const c of run.tool_calls) {
+    trace.innerHTML += `→ <span class="ok">${c.tool}</span> (${c.latency_ms}ms)<br>`;
+    await new Promise(r => setTimeout(r, 350));
+  }
+  for (let i = 0; i <= run.answer.length; i += 4) {
+    ans.textContent = run.answer.slice(0, i);
+    await new Promise(r => setTimeout(r, 8));
+  }
+  ans.textContent = run.answer;
+}
+
+async function runDemo(id) {
+  const trace = document.getElementById("trace"), ans = document.getElementById("answer");
+  document.getElementById("demo-note").textContent = "";
+  trace.textContent = "running…"; ans.textContent = "";
+  try {
+    const run = await j(`${GW}/demo/run`, {method:"POST", headers:{"Content-Type":"application/json"},
+                                           body: JSON.stringify({prompt_id:id})});
+    await animate(run);
+    document.getElementById("demo-note").textContent =
+      `live run · ${run.tool_calls.length} tool calls · $${run.cost_usd}`;
+  } catch (e) {
+    if (String(e).includes("429")) { document.getElementById("demo-note").textContent = "rate limited — try again in a minute"; trace.textContent=""; }
+    else await playFallback(id);
+  }
+}
+
+document.getElementById("lead-form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const email = document.getElementById("lead-email").value;
+  const note = document.getElementById("lead-note").value;
+  const out = document.getElementById("lead-note-out");
+  try { await j(`${GW}/leads`, {method:"POST", headers:{"Content-Type":"application/json"},
+                                body: JSON.stringify({email, note})});
+        out.textContent = "Thanks — you're on the list."; }
+  catch { out.textContent = "Couldn't reach the server — email hello@ instead."; }
+};
+
+loadCounters(); loadPrompts();
+</script>
+</body>
+</html>
