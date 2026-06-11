@@ -1,0 +1,210 @@
+{
+  "broadcast.channels": {
+    "description": "Broadcast channel catalogue.",
+    "label": "Channels"
+  },
+  "broadcast.schedule": {
+    "description": "Broadcast schedule (who shows what, when, where).",
+    "label": "Schedule"
+  },
+  "content.news": {
+    "description": "Text articles, news index.",
+    "label": "News"
+  },
+  "content.promo": {
+    "description": "Promo / marketing cards from CMS.",
+    "label": "Promo"
+  },
+  "content.video": {
+    "description": "Editorial video content (highlights, replays, press conferences).",
+    "label": "Video"
+  },
+  "racing.futures": {
+    "description": "Long-running futures markets (Cup outrights, season-long props).",
+    "label": "Racing futures (Cup outrights)"
+  },
+  "racing.meetings_by_date": {
+    "description": "List all race meetings (track + races) for a given date.",
+    "label": "Race meetings by day"
+  },
+  "racing.next_to_jump": {
+    "description": "Next races about to start, sorted by start time.",
+    "label": "Next races to jump"
+  },
+  "racing.race_card": {
+    "description": "Full racecard for one race: runners, prices, jockeys, scratchings.",
+    "label": "Race cards & runners"
+  },
+  "racing.race_results": {
+    "description": "Final placings + dividends for a resulted race.",
+    "label": "Race results & dividends"
+  },
+  "racing.same_race_multi": {
+    "description": "Same Race Multi (SRM) suggestions or popular combinations.",
+    "label": "Same race multi"
+  },
+  "ref.coaches": {
+    "description": "Coach catalogue / coaching records.",
+    "label": "Coaches"
+  },
+  "ref.players": {
+    "description": "Player catalogue (id, name, dob, draft info).",
+    "label": "Player profiles"
+  },
+  "ref.seasons": {
+    "description": "Season / competition-season catalogue.",
+    "label": "Seasons"
+  },
+  "ref.teams": {
+    "description": "Team catalogue (id, name, club, colours).",
+    "label": "Team profiles"
+  },
+  "ref.venues": {
+    "description": "Venue catalogue (id, name, location, timezone).",
+    "label": "Venues"
+  },
+  "sport.commentary": {
+    "description": "Text or play-by-play commentary for a match.",
+    "label": "Commentary"
+  },
+  "sport.competition_screen": {
+    "description": "Competition page: leagues, events, optional futures.",
+    "label": "Competition screen"
+  },
+  "sport.competitions_list": {
+    "description": "List sport competitions / leagues / tours.",
+    "label": "Competition catalogues"
+  },
+  "sport.depth_chart": {
+    "description": "Team depth chart (positional ordering of the roster).",
+    "label": "Depth chart"
+  },
+  "sport.draft": {
+    "description": "Draft results / picks for a given season.",
+    "label": "Draft"
+  },
+  "sport.event_markets": {
+    "description": "All markets + selections + prices for one event.",
+    "label": "Every market for a match"
+  },
+  "sport.example": {
+    "description": "Placeholder capability for the template spec and tests; not a real question.",
+    "label": "Example"
+  },
+  "sport.fixtures_by_date": {
+    "description": "All scheduled fixtures / games on a given date across one league.",
+    "label": "Fixtures & schedules"
+  },
+  "sport.in_play": {
+    "description": "Events currently in-play / live.",
+    "label": "In-play matches"
+  },
+  "sport.injuries": {
+    "description": "Injury report / inactive list for a team or league.",
+    "label": "Injuries"
+  },
+  "sport.live_audio": {
+    "description": "Live audio stream URLs.",
+    "label": "Live audio"
+  },
+  "sport.live_video": {
+    "description": "Live video stream URLs.",
+    "label": "Live video"
+  },
+  "sport.match_boxscore": {
+    "description": "Detailed game box score (quarter/period scores, team totals, leaders).",
+    "label": "Match box scores"
+  },
+  "sport.match_detail": {
+    "description": "Single sport event/match including teams, venue, start time.",
+    "label": "Match detail"
+  },
+  "sport.match_score": {
+    "description": "Current scoreboard / period state for a match.",
+    "label": "Live scores"
+  },
+  "sport.prices": {
+    "description": "Live or last prices for selections.",
+    "label": "Live odds"
+  },
+  "sport.rankings": {
+    "description": "Poll rankings (AP, coaches, committee) for a league.",
+    "label": "Rankings"
+  },
+  "sport.same_game_multi": {
+    "description": "Same Game Multi (SGM) suggestions or popular combinations.",
+    "label": "Same game multi"
+  },
+  "sport.season_summary": {
+    "description": "End-of-season / current-state league summary (champion, top scorer, awards).",
+    "label": "Season summary"
+  },
+  "sport.transactions": {
+    "description": "Roster transactions log (signings, trades, waivers, call-ups).",
+    "label": "Transactions"
+  },
+  "stats.advanced_metrics": {
+    "description": "Advanced / synergy / tracking stats not in basic box scores (PER, true shooting, xG, etc.).",
+    "label": "Advanced metrics"
+  },
+  "stats.fantasy_projections": {
+    "description": "Fantasy-points projections / DFS pricing.",
+    "label": "Fantasy projections"
+  },
+  "stats.head_to_head": {
+    "description": "Head-to-head history between two teams.",
+    "label": "Head to head"
+  },
+  "stats.ladder": {
+    "description": "Current ladder / standings / conference standings for a competition.",
+    "label": "Ladder"
+  },
+  "stats.leaders_season": {
+    "description": "Season leaders per stat (Coleman, Brownlow, top scorers, MVP, etc.).",
+    "label": "Leaders season"
+  },
+  "stats.play_by_play": {
+    "description": "Event-level play-by-play log of a game.",
+    "label": "Play by play"
+  },
+  "stats.player_career": {
+    "description": "Per-season totals across a player's career.",
+    "label": "Player career"
+  },
+  "stats.player_game_log": {
+    "description": "Game-by-game stat line for one player across a date range or season.",
+    "label": "Player game log"
+  },
+  "stats.player_match": {
+    "description": "Per-player stats for a single match / game / fixture.",
+    "label": "Player match"
+  },
+  "stats.player_profile": {
+    "description": "Biographical + career-summary view of one player (height, weight, debut, draft).",
+    "label": "Player profile"
+  },
+  "stats.player_season": {
+    "description": "Per-player stats over a season.",
+    "label": "Player season stats"
+  },
+  "stats.shot_chart": {
+    "description": "Shot location / spatial data (basketball, soccer, hockey).",
+    "label": "Shot chart"
+  },
+  "stats.team_game_log": {
+    "description": "Game-by-game results / form for one team.",
+    "label": "Team game log"
+  },
+  "stats.team_match": {
+    "description": "Per-team aggregate stats for a single match.",
+    "label": "Team match"
+  },
+  "stats.team_season": {
+    "description": "Per-team aggregate stats over a season.",
+    "label": "Team season"
+  },
+  "stats.win_probability": {
+    "description": "In-game win-probability time series for a contest.",
+    "label": "Win probability"
+  }
+}

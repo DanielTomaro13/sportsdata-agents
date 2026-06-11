@@ -43,6 +43,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+discord = ["discord.py>=2.3"]
 # sandbox analysis stack (data_analysis agent; local sandbox runs in this venv)
 analysis = [
   "pandas>=2.0",

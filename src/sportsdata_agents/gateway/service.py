@@ -99,6 +99,13 @@ class TeamSession:
             self.specs = specs
         else:
             self.specs = load_builtin_specs()
+            from sportsdata_agents.agents.loader import load_specs_dir
+            from sportsdata_agents.tools.builder import user_specs_dir
+
+            user_dir = user_specs_dir()
+            if any(user_dir.glob("*.y*ml")):  # user-built agents merge on top (§7.1)
+                for agent_id, spec in load_specs_dir(user_dir).items():
+                    self.specs.setdefault(agent_id, spec)  # builtins never shadowed
             if self.workspace.agent_versions:  # D27: pinned workspaces keep archives
                 from sportsdata_agents.agents.loader import (
                     builtin_specs_dir,
@@ -221,6 +228,9 @@ def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:
         from sportsdata_agents.tools.slack_admin import slack_admin_tools
 
         tools += slack_admin_tools()
+    from sportsdata_agents.tools.builder import builder_tools
+
+    tools += builder_tools()  # DB-free: drafting/saving specs works everywhere
     return tools
 
 

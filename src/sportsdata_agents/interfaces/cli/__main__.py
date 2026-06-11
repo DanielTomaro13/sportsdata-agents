@@ -150,6 +150,18 @@ def slack() -> None:
     serve_socket_mode()
 
 
+@app.command()
+def discord() -> None:
+    """Run the Discord adapter. Needs DISCORD_BOT_TOKEN + a running gateway
+    (`agents serve`). Install the extra: pip install 'sportsdata-agents[discord]'."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    from sportsdata_agents.interfaces.discord.app import serve_bot
+
+    serve_bot()
+
+
 @app.command(name="refresh-books")
 def refresh_books_cmd() -> None:
     """Re-verify bookmaker catalogue ids and rewrite book_navigation's auto section.

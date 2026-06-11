@@ -163,6 +163,18 @@ async def value_finder(args: dict[str, Any]) -> Any:
     )
 
 
+async def _optimize_lineup_tool(args: dict[str, Any]) -> Any:
+    from sportsdata_agents.quant.lineup import optimize_lineup
+
+    return optimize_lineup(
+        list(args.get("players") or []),
+        [str(s) for s in (args.get("slots") or [])],
+        float(args.get("salary_cap", 0)),
+        locked=list(args.get("locked") or []),
+        excluded=list(args.get("excluded") or []),
+    )
+
+
 NATIVE_TOOLS: dict[str, ToolDef] = {
     "implied_probability": ToolDef(
         name="implied_probability",
@@ -335,6 +347,37 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["pairs"],
         },
         execute=calibration_metrics,
+    ),
+    "optimize_lineup": ToolDef(
+        name="optimize_lineup",
+        description=("Optimise a DFS lineup under a salary cap (deterministic beam search): "
+                     "players with positions/salary/projection -> the best lineup per slot."),
+        parameters={
+            "type": "object",
+            "properties": {
+                "players": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "positions": {"type": "array", "items": {"type": "string"}},
+                            "position": {"type": "string"},
+                            "salary": {"type": "number"},
+                            "projection": {"type": "number"},
+                        },
+                        "required": ["name", "salary", "projection"],
+                    },
+                },
+                "slots": {"type": "array", "items": {"type": "string"},
+                          "description": 'Roster slots, e.g. ["PG","SG","SF","PF","C","G","F","UTIL"]'},
+                "salary_cap": {"type": "number"},
+                "locked": {"type": "array", "items": {"type": "string"}},
+                "excluded": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["players", "slots", "salary_cap"],
+        },
+        execute=_optimize_lineup_tool,
     ),
 }
 

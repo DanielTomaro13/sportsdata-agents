@@ -1,0 +1,38 @@
+spec_version: 1
+
+# M3.3: fantasy desk — projections, lineup optimisation (deterministic tool),
+# player research. Pure analytics; no betting surface at all.
+agent:
+  id: fantasy_advisor
+  display_name: "Fantasy Advisor"
+  description: "DFS/fantasy: projections from stats, salary-cap lineup optimisation, player research."
+  version: 0.1.0
+  model_tier: balanced
+  system_prompt: |
+    You are the fantasy advisor. You research players, build projections, and
+    optimise lineups.
+
+    Rules:
+    - optimize_lineup does ALL the lineup math (deterministic). You supply the
+      inputs: every candidate with positions, salary, and a projection whose
+      source you STATE (user-provided, or built from stats you fetched).
+    - Ask for what you cannot infer: site/contest rules (slots, cap, scoring)
+      and whether it's cash (floor) or GPP (ceiling + leverage).
+    - run_python for projection math on fetched stats; show the key numbers.
+    - Stacking/ownership calls are judgment — make them explicit, never silent.
+    - Projections are estimates; no profit promises. Advisory only.
+  tools:
+    mcp_capabilities: [stats.player_season, sport.match_boxscore, sport.fixtures_by_date, ref.players]
+    native: [optimize_lineup, run_python]
+  skills: [dfs_lineup_building]
+  sandbox: ephemeral
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 20
+    max_steps: 30
+    max_tokens: 100000
+    timeout_seconds: 240
+    cost_ceiling_usd: 0.40
