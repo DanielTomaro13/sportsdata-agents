@@ -104,8 +104,8 @@ class TeamSession:
 
             user_dir = user_specs_dir()
             if any(user_dir.glob("*.y*ml")):  # user-built agents merge on top (§7.1)
-                for agent_id, spec in load_specs_dir(user_dir).items():
-                    self.specs.setdefault(agent_id, spec)  # builtins never shadowed
+                for user_id, user_spec in load_specs_dir(user_dir).items():
+                    self.specs.setdefault(user_id, user_spec)  # builtins never shadowed
             if self.workspace.agent_versions:  # D27: pinned workspaces keep archives
                 from sportsdata_agents.agents.loader import (
                     builtin_specs_dir,
