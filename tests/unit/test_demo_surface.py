@@ -85,3 +85,38 @@ def test_demo_only_gate_hides_the_model_spend_routes(monkeypatch: pytest.MonkeyP
     assert gated.post("/message", json={"text": "hi"}).status_code == 404
     assert gated.post("/conversations/x/message", json={"text": "hi"}).status_code == 404
     assert gated.get("/agents").status_code == 404
+
+
+def test_chat_ui_is_served_for_an_entitled_build_and_gated_for_free() -> None:
+    """The web chat UI mounts at / for a chat-entitled build; a free product
+    build (pubkey set, no license) serves the API but not the UI."""
+    from pathlib import Path
+
+    import sportsdata_agents.gateway.demo as demo_module
+    import sportsdata_agents.licensing.license as lic
+    from sportsdata_agents.gateway.app import create_app
+
+    ui_index = Path(demo_module.__file__).parent / "ui" / "index.html"
+    assert ui_index.is_file()  # the UI ships with the package
+
+    async def fake_run_demo(prompt_id: str) -> dict[str, Any]:
+        demo_module.demo_prompt(prompt_id)
+        return {"prompt_id": prompt_id, "answer": "ok", "tool_calls": [], "cost_usd": 0.0}
+
+    stub = type("StubSession", (), {"agent_name": "orchestrator"})()
+
+    # entitled (no pubkey baked → dev-unrestricted): the UI is served at /
+    served = TestClient(create_app(session=stub))
+    assert served.get("/").status_code == 200
+    assert "sports" in served.get("/").text.lower()
+    assert served.get("/healthz").status_code == 200  # API routes still win
+
+    # free product build: pubkey set, no license → chat UI not mounted
+    saved = lic.LICENSE_PUBLIC_KEY_B64
+    lic.LICENSE_PUBLIC_KEY_B64 = "bakedkey"
+    try:
+        gated = TestClient(create_app(session=stub))
+        assert gated.get("/").status_code == 404  # no UI
+        assert gated.get("/healthz").status_code == 200  # but the API is alive
+    finally:
+        lic.LICENSE_PUBLIC_KEY_B64 = saved

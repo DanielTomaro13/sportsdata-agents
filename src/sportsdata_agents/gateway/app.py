@@ -402,6 +402,24 @@ def create_app(
         body.conversation_id = conversation_id
         return await message(body, request, tenant)
 
+    # ─── the web chat UI (M4.2) — served at / when not a public demo node ───
+    # The full chat surface is a paid feature; gate it the same way the CLI gates
+    # `agents serve`. demo_only nodes never serve it (they're public).
+    if not demo_only:
+        from pathlib import Path
+
+        from fastapi.staticfiles import StaticFiles
+
+        from sportsdata_agents.licensing.enforce import EntitlementError, require_chat_ui
+
+        ui_dir = Path(__file__).parent / "ui"
+        try:
+            require_chat_ui()
+            if ui_dir.is_dir():
+                app.mount("/", StaticFiles(directory=str(ui_dir), html=True), name="ui")
+        except EntitlementError:
+            logger.info("chat UI not served: the tier doesn't include it (API still available)")
+
     if demo_only:
         _public = ("/healthz", "/demo", "/leads")
 

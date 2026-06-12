@@ -262,6 +262,35 @@
   .tier li::before { content: "✓"; position: absolute; left: 0; color: var(--acc3); font-weight: 700; }
   .tnote { text-align: center; color: var(--dim); font-size: 13px; margin-top: 18px; }
   .tnote a { color: var(--acc2); text-decoration: none; }
+  /* ── app preview (the real chat UI in a window frame) ── */
+  .appwrap { margin: 8px auto 0; max-width: 880px; }
+  .window { border: 1px solid var(--card-border); border-radius: 16px; overflow: hidden;
+    background: #070b14; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+  .winbar { display: flex; align-items: center; gap: 8px; padding: 11px 15px;
+    border-bottom: 1px solid var(--card-border); background: rgba(255,255,255,.02); }
+  .winbar .dotrow { display: flex; gap: 7px; }
+  .winbar .wd { width: 11px; height: 11px; border-radius: 50%; }
+  .winbar .wd.r { background: #ff5f57; } .winbar .wd.y { background: #febc2e; } .winbar .wd.g { background: #28c840; }
+  .winbar .addr { margin-left: 10px; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .winbar .pill { margin-left: auto; font-size: 11px; color: var(--ok); border: 1px solid var(--card-border);
+    border-radius: 999px; padding: 3px 10px; }
+  .appbody { padding: 24px 26px; display: flex; flex-direction: column; gap: 18px; }
+  .am { display: flex; gap: 12px; }
+  .am .av { width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto; display: grid; place-items: center;
+    font-size: 12px; font-weight: 700; }
+  .am.u .av { background: rgba(110,139,255,.18); color: var(--acc1); }
+  .am.b .av { background: linear-gradient(135deg, var(--acc2), var(--acc3)); color: #06101f; }
+  .am .bd { font-size: 14px; color: #d6ddf5; padding-top: 3px; }
+  .am .bd h4 { font-size: 14.5px; margin-bottom: 6px; }
+  .toolrow { display: flex; gap: 7px; flex-wrap: wrap; margin: 4px 0 8px; }
+  .tk { font-family: var(--mono); font-size: 11.5px; color: var(--dim); background: rgba(255,255,255,.025);
+    border: 1px solid var(--card-border); border-radius: 8px; padding: 4px 10px; }
+  .tk b { color: var(--acc3); font-weight: 700; }
+  .miniboard { border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+  .miniboard td, .miniboard th { border: 1px solid var(--card-border); padding: 5px 12px; }
+  .miniboard th { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .miniboard td.bp { color: var(--acc3); font-weight: 700; }
+  .am .meta { font-size: 11.5px; color: var(--dim); font-family: var(--mono); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -270,7 +299,7 @@
 <main>
   <nav>
     <div class="wordmark">sports<span>data</span></div>
-    <div class="chip">Private <b>beta</b></div>
+    <div class="chip">Now <b>downloadable</b></div>
   </nav>
 
   <div class="hero">
@@ -280,8 +309,8 @@
     official stats and results, calibrated models, backtests and alerts.
     It does the legwork; <b>you make the calls</b>.</p>
     <div class="ctas">
-      <a class="btn primary" href="#demo">Watch it work</a>
-      <a class="btn ghost" href="#pricing">Pricing</a>
+      <a class="btn primary" href="#pricing">Get the app</a>
+      <a class="btn ghost" href="#demo">Watch it work</a>
     </div>
     <div class="llms">works with any LLM —
       <span class="l">Claude</span><span class="l">GPT</span><span class="l">Gemini</span>
@@ -374,6 +403,42 @@
       <div class="step"><h4>Grounded answers</h4>
         <p>Every number traces to a tool result, verified before it reaches you.
         Budgets cap every run. No invented facts, ever.</p></div>
+    </div>
+  </section>
+
+  <section id="app">
+    <div class="sec-head"><h2>The app on your machine</h2></div>
+    <p style="text-align:center;color:var(--dim);max-width:560px;margin:-6px auto 26px">
+      Download it, bring your own model key, and the whole agent team runs locally — your data,
+      your compute, your files. Chat, watch the tools work, get grounded answers.</p>
+    <div class="appwrap">
+      <div class="window">
+        <div class="winbar">
+          <div class="dotrow"><span class="wd r"></span><span class="wd y"></span><span class="wd g"></span></div>
+          <div class="addr">sportsdata — localhost</div>
+          <div class="pill">● connected</div>
+        </div>
+        <div class="appbody">
+          <div class="am u"><div class="av">you</div><div class="bd">Compare tonight's Bulldogs v Adelaide head-to-head across the books, and is there any value?</div></div>
+          <div class="am b"><div class="av">sd</div><div class="bd">
+            <div class="toolrow">
+              <span class="tk">✓ <b>find_fixture</b></span>
+              <span class="tk">✓ <b>best_prices</b></span>
+              <span class="tk">✓ <b>value_finder</b></span>
+              <span class="tk">✓ <b>create_watch</b></span>
+            </div>
+            <h4>Western Bulldogs v Adelaide — 7 books</h4>
+            <table class="miniboard">
+              <tr><th>Book</th><th>Bulldogs</th><th>Adelaide</th></tr>
+              <tr><td>Pinnacle</td><td>1.73</td><td class="bp">2.12</td></tr>
+              <tr><td>TAB</td><td class="bp">1.74</td><td>2.10</td></tr>
+              <tr><td>Unibet</td><td>1.78</td><td>2.06</td></tr>
+            </table>
+            <p style="margin-top:10px;font-size:13.5px;color:#d6ddf5">Best available: <strong style="color:#fff">Bulldogs 1.78 (Unibet)</strong>, <strong style="color:#fff">Adelaide 2.12 (Pinnacle)</strong>. Your <strong style="color:#fff">afl-totals v3</strong> model makes the under 165.5 a <strong style="color:#fff">+9.4% edge</strong> at TAB — I've set a watch.</p>
+            <div class="meta">5 tool calls · $0.06 · verified ✓ · <span style="color:var(--warn)">advisory only</span></div>
+          </div></div>
+        </div>
+      </div>
     </div>
   </section>
 

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sportsdata</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236e8bff'/%3E%3Cstop offset='1' stop-color='%237cf5c8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%2305080f'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='url(%23g)' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#05080f; --panel:rgba(255,255,255,.035); --border:rgba(255,255,255,.08);
+    --ink:#eef2ff; --dim:#8e97b3; --acc1:#6e8bff; --acc2:#3dd6f5; --acc3:#7cf5c8;
+    --ok:#4ade80; --warn:#fbbf24; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);height:100vh;overflow:hidden;
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+  .orbs{position:fixed;inset:0;z-index:-1;overflow:hidden}
+  .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.25}
+  .orb.a{width:520px;height:520px;background:#2741b8;top:-160px;left:-120px}
+  .orb.b{width:440px;height:440px;background:#0c5a6e;bottom:-180px;right:-140px}
+
+  /* top bar */
+  header{display:flex;align-items:center;gap:14px;padding:13px 20px;
+    border-bottom:1px solid var(--border);backdrop-filter:blur(8px)}
+  .wordmark{font-weight:800;font-size:17px;letter-spacing:-.3px}
+  .wordmark span{background:linear-gradient(90deg,var(--acc1),var(--acc2));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .status{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--dim);
+    border:1px solid var(--border);border-radius:999px;padding:5px 13px;margin-left:auto}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+  .dot.up{background:var(--ok);animation:pulse 2.2s ease infinite}
+  .dot.down{background:#ef4444}
+  @keyframes pulse{50%{opacity:.4;transform:scale(.8)}}
+  .tier{font-size:12px;color:var(--acc3);border:1px solid var(--border);
+    border-radius:999px;padding:5px 12px}
+
+  /* layout */
+  main{flex:1;display:flex;min-height:0}
+  .thread{flex:1;overflow-y:auto;padding:28px 0 0}
+  .wrap{max-width:780px;margin:0 auto;padding:0 24px}
+
+  /* empty state */
+  .welcome{text-align:center;padding:7vh 24px}
+  .welcome h1{font-size:30px;font-weight:800;letter-spacing:-1px}
+  .welcome h1 .g{background:linear-gradient(90deg,var(--acc1),var(--acc2) 50%,var(--acc3));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .welcome p{color:var(--dim);margin-top:10px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:26px}
+  .chip{cursor:pointer;border:1px solid var(--border);background:var(--panel);
+    border-radius:12px;padding:11px 16px;font-size:13.5px;color:#d6ddf5;
+    transition:border-color .2s,transform .2s var(--ease)}
+  .chip:hover{border-color:rgba(255,255,255,.22);transform:translateY(-2px)}
+
+  /* messages */
+  .msg{margin-bottom:22px;display:flex;gap:13px}
+  .avatar{width:30px;height:30px;border-radius:9px;flex:0 0 auto;display:grid;
+    place-items:center;font-size:13px;font-weight:700}
+  .msg.user .avatar{background:rgba(110,139,255,.18);color:var(--acc1)}
+  .msg.bot .avatar{background:linear-gradient(135deg,var(--acc2),var(--acc3));color:#06101f}
+  .body{flex:1;min-width:0;padding-top:3px}
+  .msg.user .body{color:#d6ddf5}
+  .body h3{font-size:1.05em;margin:.7em 0 .3em}
+  .body p{margin:.5em 0}
+  .body ul{margin:.4em 0;padding-left:1.3em}
+  .body li{margin:.2em 0}
+  .body strong{color:#fff}
+  .body code{font-family:var(--mono);font-size:.88em;background:rgba(255,255,255,.06);
+    padding:2px 6px;border-radius:5px}
+  .body table{border-collapse:collapse;margin:.7em 0;font-size:.92em;width:100%}
+  .body th,.body td{border:1px solid var(--border);padding:6px 11px;text-align:left}
+  .body th{color:var(--dim);font-weight:600;font-size:.85em;text-transform:uppercase;letter-spacing:.5px}
+  .body td.best{color:var(--acc3);font-weight:700}
+  .src{font-size:12px;color:var(--dim);margin-top:8px;font-family:var(--mono)}
+
+  /* tool feed */
+  .tools{margin:6px 0 4px;display:flex;flex-direction:column;gap:5px}
+  .tool{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;
+    color:var(--dim);padding:5px 11px;background:rgba(255,255,255,.025);
+    border:1px solid var(--border);border-radius:9px;width:fit-content;max-width:100%}
+  .tool .spin{width:11px;height:11px;border:2px solid var(--border);
+    border-top-color:var(--acc2);border-radius:50%;animation:spin .7s linear infinite;flex:0 0 auto}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .tool .check{color:var(--ok)}
+  .tool .fail{color:#ef4444}
+  .tool .nm{color:#c3cbe8}
+  .meta{font-size:11.5px;color:var(--dim);font-family:var(--mono);margin-top:7px}
+  .meta .adv{color:var(--warn)}
+  .shimmer{display:inline-block;background:linear-gradient(90deg,var(--dim),#fff,var(--dim));
+    background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:sh 1.4s linear infinite;font-size:13px}
+  @keyframes sh{to{background-position:200% center}}
+
+  /* composer */
+  .composer{border-top:1px solid var(--border);padding:14px 24px 18px;background:rgba(5,8,15,.6);
+    backdrop-filter:blur(8px)}
+  .cbox{max-width:780px;margin:0 auto;display:flex;gap:10px;align-items:flex-end;
+    border:1px solid var(--border);background:var(--panel);border-radius:16px;padding:9px 9px 9px 16px;
+    transition:border-color .2s}
+  .cbox:focus-within{border-color:rgba(61,214,245,.4)}
+  textarea{flex:1;background:none;border:0;color:var(--ink);font:inherit;resize:none;
+    outline:none;max-height:160px;padding:6px 0}
+  textarea::placeholder{color:var(--dim)}
+  .send{flex:0 0 auto;width:38px;height:38px;border:0;border-radius:11px;cursor:pointer;
+    background:linear-gradient(135deg,var(--acc2),var(--acc3));color:#06101f;font-size:17px;
+    display:grid;place-items:center;transition:transform .2s var(--ease),opacity .2s}
+  .send:hover{transform:translateY(-1px)}
+  .send:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .foot{max-width:780px;margin:8px auto 0;text-align:center;font-size:11.5px;color:var(--dim)}
+  .thread::-webkit-scrollbar{width:9px}.thread::-webkit-scrollbar-thumb{background:var(--border);border-radius:9px}
+</style>
+</head>
+<body>
+<div class="orbs"><div class="orb a"></div><div class="orb b"></div></div>
+
+<header>
+  <div class="wordmark">sports<span>data</span></div>
+  <div class="tier" id="tier">…</div>
+  <div class="status"><span class="dot" id="dot"></span><span id="statustext">connecting…</span></div>
+</header>
+
+<main>
+  <div class="thread" id="thread">
+    <div class="welcome" id="welcome">
+      <h1>Your <span class="g">sports-data desk</span></h1>
+      <p>Ask the agent team — cross-book odds, models, arbitrage, fantasy. Every answer is grounded in live tool results.</p>
+      <div class="chips" id="chips"></div>
+    </div>
+  </div>
+</main>
+
+<div class="composer">
+  <div class="cbox">
+    <textarea id="input" rows="1" placeholder="Ask the desk anything…"></textarea>
+    <button class="send" id="send" title="Send">↑</button>
+  </div>
+  <div class="foot">Grounded in live tool results · advisory only — not betting or financial advice</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
