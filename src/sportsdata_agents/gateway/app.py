@@ -295,6 +295,77 @@ def create_app(
             return JSONResponse({"detail": str(e)}, status_code=400)
         return JSONResponse(res)
 
+    # ─── the operator panel (owner-only: 404 unless SPORTSDATA_OPERATOR=1) ───
+    # The same switch that gates the platform-maintenance jobs gates this surface,
+    # so only the operator's own deployment ever serves it. Customers' installs
+    # return 404 — the panel doesn't exist for them.
+
+    def _operator_only() -> JSONResponse | None:
+        from sportsdata_agents.operations.scheduler import is_operator
+
+        if not is_operator():
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        return None
+
+    @app.get("/operator/overview")
+    async def operator_overview() -> JSONResponse:
+        """Everything the operator console shows, in one payload: config preflight,
+        spend + budget, and ops-plane status — the CLI commands, app-shaped."""
+        denied = _operator_only()
+        if denied:
+            return denied
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.operations import costs as cost_mod
+        from sportsdata_agents.operations.preflight import run_preflight, summarise
+        from sportsdata_agents.operations.scheduler import status as job_status
+        from sportsdata_agents.tools.ops import read_ops_state
+
+        checks = [c.__dict__ for c in run_preflight()]
+        spend: dict[str, Any] | None = None
+        budget: dict[str, Any] | None = None
+        try:
+            engine = make_engine(get_settings().database_url)
+            try:
+                sf = make_sessionmaker(engine)
+                spend = await cost_mod.spend_report(sf, days=7)
+                budget = await cost_mod.budget_status(sf)
+            finally:
+                await engine.dispose()
+        except Exception as e:  # DB down: the panel still shows config + ops state
+            logger.warning("operator overview: spend unavailable (%s)", e)
+        if budget is None:
+            # the budget CONFIG is a local file — show the cap even when the
+            # warehouse (and so the spent figure) is unreachable
+            configured = cost_mod.get_budget()
+            if configured:
+                budget = {**configured, "spent_usd": None, "pct": None, "breached": False}
+        ops_state = read_ops_state()
+        return JSONResponse({
+            "preflight": {"checks": checks, "summary": summarise(run_preflight())},
+            "costs": spend,
+            "budget": budget,
+            "ops": {
+                "escalations": (ops_state.get("escalations") or [])[-5:],
+                "disabled_feeds": ops_state.get("disabled_feeds") or [],
+                "jobs": job_status(),
+            },
+        })
+
+    @app.post("/operator/budget")
+    async def operator_budget(body: dict[str, Any]) -> JSONResponse:
+        """Set the spend budget from the panel (same as `agents costs --set-budget`)."""
+        denied = _operator_only()
+        if denied:
+            return denied
+        from sportsdata_agents.operations import costs as cost_mod
+
+        try:
+            budget = cost_mod.set_budget(float(body.get("cap_usd", 0)),
+                                         str(body.get("period", "monthly")))
+        except (TypeError, ValueError) as e:
+            return JSONResponse({"detail": str(e)}, status_code=422)
+        return JSONResponse({"ok": True, "budget": budget})
+
     @app.post("/account/activate")
     async def activate(body: dict[str, Any]) -> JSONResponse:
         """Activate (or upgrade to) a licence key from the UI: verify it, store it in

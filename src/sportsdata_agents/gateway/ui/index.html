@@ -116,6 +116,7 @@
 
 <header>
   <div class="wordmark">sports<span>data</span></div>
+  <div class="tier" id="operator" title="Operator console" style="cursor:pointer" hidden>OPERATOR</div>
   <div class="tier" id="tier" title="View your plan" style="cursor:pointer">…</div>
   <div class="status"><span class="dot" id="dot"></span><span id="statustext">connecting…</span></div>
 </header>
@@ -184,6 +185,42 @@
       <button class="btn ghost" id="acc-upgrade">Upgrade plan ↗</button>
     </div>
     <div class="msg" id="acc-msg"></div>
+  </div>
+</div>
+
+<div class="modal" id="opmodal" hidden>
+  <style>
+    #opmodal .card{width:min(560px,94vw);max-height:84vh;overflow-y:auto}
+    #opmodal h3{margin:14px 0 6px;font-size:13px;color:var(--muted,#8aa0bd);font-weight:600;
+      text-transform:uppercase;letter-spacing:.04em}
+    #opmodal li{display:flex;align-items:baseline;gap:8px;font-size:13px;padding:3px 0;border:0}
+    #opmodal .st{width:14px;text-align:center;flex:none}
+    #opmodal .st.ok{color:#7cf5c8}.st.warn{color:#ffd479}.st.missing{color:#ff8a8a}.st.info{color:var(--muted,#8aa0bd)}
+    #opmodal .lbl{white-space:nowrap;font-weight:600}
+    #opmodal .det{color:var(--muted,#8aa0bd);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+    #opmodal .kv{display:flex;justify-content:space-between;font-size:13px;padding:4px 0}
+    #opmodal .kv b{font-weight:600}
+    #opmodal .brow{display:flex;gap:8px;margin-top:8px}
+    #opmodal .brow input,#opmodal .brow select{padding:8px 10px;border-radius:8px;
+      border:1px solid var(--border,#21304a);background:rgba(255,255,255,.03);color:inherit;font-size:13px}
+    #opmodal .brow input{width:110px}
+    #opmodal .brow button{padding:8px 14px;border-radius:8px;border:0;cursor:pointer;font-weight:650;
+      background:linear-gradient(90deg,var(--acc2,#6e8bff),var(--acc3,#7cf5c8));color:#06101f}
+    #opmodal .breach{color:#ff8a8a;font-weight:700}
+  </style>
+  <div class="card">
+    <span class="x" id="op-close">✕</span>
+    <h2>Operator console</h2>
+    <div class="plan">This panel exists only on your deployment (SPORTSDATA_OPERATOR).</div>
+    <h3>Config preflight</h3><ul id="op-preflight"></ul>
+    <h3>Spend (7d)</h3><div id="op-costs"></div>
+    <div class="brow">
+      <input id="op-cap" type="number" min="0" step="1" placeholder="cap USD" />
+      <select id="op-period"><option>monthly</option><option>weekly</option><option>daily</option></select>
+      <button id="op-setbudget">Set budget</button>
+    </div>
+    <h3>Ops plane</h3><div id="op-ops"></div>
+    <div class="msg" id="op-msg"></div>
   </div>
 </div>
 

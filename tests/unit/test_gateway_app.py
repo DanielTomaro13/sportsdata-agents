@@ -243,6 +243,39 @@ async def test_skills_endpoints_list_and_prune(monkeypatch: Any, tmp_path: Any) 
         assert not [s for s in listed if s["source"] == "user"]
 
 
+async def test_operator_panel_is_404_for_customers_and_live_for_the_operator(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """The operator console exists ONLY on the operator's deployment: customers'
+    installs 404 the routes (the panel doesn't exist for them)."""
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/w.db")
+    import sportsdata_agents.app.wizard as wizard
+
+    monkeypatch.setattr(wizard, "configured_provider", lambda: None)
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+        # customer install: the panel does not exist
+        monkeypatch.delenv("SPORTSDATA_OPERATOR", raising=False)
+        assert (await c.get("/operator/overview")).status_code == 404
+        assert (await c.post("/operator/budget", json={"cap_usd": 5})).status_code == 404
+
+        # the operator's deployment: full payload + budget round-trip
+        monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")
+        r = await c.get("/operator/overview")
+        assert r.status_code == 200
+        body = r.json()
+        assert {"preflight", "costs", "budget", "ops"} <= set(body)
+        assert body["preflight"]["checks"] and "jobs" in body["ops"]
+
+        ok = await c.post("/operator/budget", json={"cap_usd": 25, "period": "weekly"})
+        assert ok.status_code == 200 and ok.json()["budget"]["cap_usd"] == 25.0
+        assert (await c.post("/operator/budget", json={"cap_usd": -1})).status_code == 422
+        # the new budget shows up in the overview
+        assert (await c.get("/operator/overview")).json()["budget"]["period"] == "weekly"
+
+
 async def test_foreign_host_is_rejected() -> None:
     """DNS-rebinding defense: a request whose Host isn't local is 403'd, but the
     .app launcher's /healthz probe stays open."""
