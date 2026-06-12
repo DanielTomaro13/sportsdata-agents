@@ -421,31 +421,42 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
                 await session.execute(select(Alert).where(Alert.created_at >= cutoff))
             ).scalars().all()
         by_kind: dict[str, int] = {}
-        decays: list[float] = []
-        measured = still = 0
+        stats: dict[str, dict[str, Any]] = {
+            "arb": {"measured": 0, "still": 0, "decays": []},
+            "value": {"measured": 0, "still": 0, "decays": []},
+        }
         for alert in rows:
             by_kind[alert.kind] = by_kind.get(alert.kind, 0) + 1
-            if alert.kind != "arb":
+            bucket = stats.get(alert.kind)
+            if bucket is None:
                 continue
             payload = alert.payload or {}
             outcome = payload.get("outcome")
             if not outcome:
                 continue
-            measured += 1
-            if outcome.get("still_arb"):
-                still += 1
-            after = outcome.get("margin_pct_after")
-            before = payload.get("margin_pct")
+            bucket["measured"] += 1
+            if outcome.get("still_arb") or outcome.get("still_value"):
+                bucket["still"] += 1
+            after = outcome.get("margin_pct_after", outcome.get("edge_pct_after"))
+            before = payload.get("margin_pct", payload.get("edge_pct"))
             if after is not None and before is not None:
-                decays.append(round(float(before) - float(after), 2))
+                bucket["decays"].append(round(float(before) - float(after), 2))
+
+        def _summary(bucket: dict[str, Any]) -> dict[str, Any]:
+            measured, still, decays = bucket["measured"], bucket["still"], bucket["decays"]
+            return {
+                "measured": measured,
+                "still_live_after_5m": still,
+                "takeable_rate": round(still / measured, 3) if measured else None,
+                "median_decay_pct": round(statistics.median(decays), 2) if decays else None,
+            }
+
         return {
             "days": days,
             "fired_by_kind": by_kind,
-            "arb_measured": measured,
-            "arb_still_live_after_5m": still,
-            "takeable_rate": round(still / measured, 3) if measured else None,
-            "median_margin_decay_pct": (round(statistics.median(decays), 2) if decays else None),
-            "note": "decay = margin at fire minus margin 5min later; a high takeable "
+            "arb": _summary(stats["arb"]),
+            "value": _summary(stats["value"]),
+            "note": "decay = edge/margin at fire minus 5min later; a high takeable "
                     "rate means alerts arrive while the window is still open",
         }
 

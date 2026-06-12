@@ -33,6 +33,7 @@
     {
       "now": "2026-06-15T09:00:30",
       "due": [
+        "custodian",
         "ingest",
         "monitor",
         "steward"
@@ -49,6 +50,7 @@
     {
       "now": "2026-06-15T10:00:30",
       "due": [
+        "custodian",
         "ingest",
         "monitor",
         "site_manager"
@@ -57,6 +59,7 @@
     {
       "now": "2026-06-14T06:00:30",
       "due": [
+        "custodian",
         "ingest",
         "monitor",
         "refresh_books"
@@ -65,6 +68,7 @@
     {
       "now": "2026-06-14T07:00:30",
       "due": [
+        "custodian",
         "ingest",
         "monitor",
         "ops_health"
@@ -73,6 +77,7 @@
     {
       "now": "2026-06-16T09:00:30",
       "due": [
+        "custodian",
         "ingest",
         "monitor"
       ]

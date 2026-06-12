@@ -12,7 +12,8 @@ Each tick is deterministic — no LLM in the dispatch path:
    refresh-books/health Sunday) fire when the tick window crosses their
    wall-clock slot — stateless boundary logic, so a missed tick never
    double-fires and a dead box resumes cleanly.
-3. **Monitor** (the arb watch et al) every 5 minutes.
+3. **Monitor** (the arb watch et al) every 5 minutes; the **custodian** checks
+   disk pressure hourly and holds/backs-up/prunes adaptively.
 4. **Failure handoff to the error agent**: consecutive failures per job are
    durable in ops_state; two in a row triggers an immediate deterministic
    ``ops health``; three hands the job to the ``incident_triage`` ops agent
@@ -61,6 +62,8 @@ JOBS: tuple[Job, ...] = (
         log="/tmp/agents-ingest.log", interval_s=60, timeout_s=3000, paced=True),
     Job(name="monitor", args=("monitor",),
         log="/tmp/agents-monitor.log", interval_s=300, timeout_s=600),
+    Job(name="custodian", args=("custodian",),
+        log="/tmp/agents-cron.log", interval_s=3600, timeout_s=1800),
     Job(name="resolve", args=("resolve",),
         log="/tmp/agents-cron.log", at=(23, 30), timeout_s=1800),
     Job(name="results", args=("results",),

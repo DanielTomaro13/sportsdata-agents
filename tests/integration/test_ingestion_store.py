@@ -632,3 +632,76 @@ async def test_arb_alert_outcome_is_remeasured(
     report = await run_watches(db_sessionmaker, pusher=pusher,
                                now=T2 + dt.timedelta(minutes=10))
     assert report["outcomes_measured"] == 0
+
+
+async def test_value_alert_outcome_is_remeasured(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The honesty loop covers value alerts too: the edge is re-checked at the
+    CURRENT listed price 5+ minutes after firing."""
+    from sportsdata_agents.data.models import Alert, ModelArtifact, Prediction, Subscription
+    from sportsdata_agents.operations.monitoring import run_watches
+
+    await record_points(db_sessionmaker, [_point(1.70, "away")], captured_at=T0)
+
+    async def pusher(sub: Any, message: str) -> bool:
+        return True
+
+    async with db_sessionmaker() as s:
+        model = ModelArtifact(tenant_id="t", workspace_id="w", name="m", sport="nba",
+                              calibration={"brier": 0.2})
+        s.add(model)
+        await s.flush()
+        s.add(Prediction(tenant_id="t", workspace_id="w", model_id=model.id,
+                         provider="nba_cdn", event_external_id="0042500403",
+                         market="2way", selection="away", prob=0.70))
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="edges",
+                           kind="value", params={"min_edge_pct": 3}, channel="log"))
+        await s.commit()
+
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    assert report["alerts"] == 1  # 0.70 * 1.70 = +19% edge
+    async with db_sessionmaker() as s:
+        alert = (await s.execute(select(Alert).where(Alert.kind == "value"))).scalar_one()
+        assert alert.payload["prob"] == 0.7  # enriched for the re-probe
+        alert.created_at = T2
+        await s.commit()
+
+    # the price collapses before the re-measurement window
+    await record_points(db_sessionmaker, [_point(1.30, "away")],
+                        captured_at=T2 + dt.timedelta(minutes=2))
+    report = await run_watches(db_sessionmaker, pusher=pusher,
+                               now=T2 + dt.timedelta(minutes=6))
+    assert report["outcomes_measured"] == 1
+    async with db_sessionmaker() as s:
+        alert = (await s.execute(select(Alert).where(Alert.kind == "value"))).scalar_one()
+        outcome = alert.payload["outcome"]
+        assert outcome["still_value"] is False  # 0.70 * 1.30 = -9% — edge gone
+        assert outcome["edge_pct_after"] == pytest.approx(-9.0, abs=0.1)
+
+
+async def test_same_day_doubleheaders_never_merge(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """MLB doubleheaders: identical teams, same day, starts hours apart are
+    DIFFERENT games — two fixtures; books advertising the same start still merge."""
+    from sportsdata_agents.data.models import Fixture
+    from sportsdata_agents.operations.ingestion.normalizers import PricePoint
+    from sportsdata_agents.operations.resolution import resolve_events
+
+    def pt(provider: str, book: str, ext: str, start_iso: str) -> PricePoint:
+        return PricePoint(provider=provider, book=book, sport="baseball",
+                          event_external_id=ext, event_name="Mariners v Orioles",
+                          market="h2h", selection="home", odds=1.9,
+                          meta={"start_time": start_iso})
+
+    await record_points(db_sessionmaker, [
+        pt("tab", "TAB", "G1", "2026-06-10T17:00:00Z"),         # game 1
+        pt("sportsbet", "Sportsbet", "SB-G1", "2026-06-10T17:05:00Z"),  # same game, 5min apart
+        pt("tab", "TAB", "G2", "2026-06-10T23:30:00Z"),         # game 2: 6.5h later
+    ], captured_at=T0)
+    report = await resolve_events(db_sessionmaker)
+    assert report["created"] == 2  # two games, not one
+    async with db_sessionmaker() as s:
+        fixtures = (await s.execute(select(Fixture))).scalars().all()
+    assert len(fixtures) == 2

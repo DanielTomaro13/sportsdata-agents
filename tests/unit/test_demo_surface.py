@@ -66,3 +66,22 @@ def test_tool_trace_recorder_keeps_no_arguments() -> None:
     asyncio.run(recorder.on_tool_call(run_id=uuid.uuid4(), tool="tab_competition",
                                       arguments={"secret": "x"}, ok=True, latency_ms=5))
     assert recorder.calls == [{"tool": "tab_competition", "ok": True, "latency_ms": 5}]
+
+
+def test_demo_only_gate_hides_the_model_spend_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--demo-only is the ONLY publicly hostable mode until P4 auth: the demo
+    surface stays up, the header-trust gateway routes 404."""
+
+    async def fake_run_demo(prompt_id: str) -> dict[str, Any]:
+        demo_module.demo_prompt(prompt_id)
+        return {"prompt_id": prompt_id, "answer": "ok", "tool_calls": [], "cost_usd": 0.0}
+
+    monkeypatch.setattr(demo_module, "run_demo", fake_run_demo)
+    stub = type("StubSession", (), {"agent_name": "team"})()
+    gated = TestClient(create_app(session=stub, demo_only=True))
+    assert gated.get("/healthz").status_code == 200
+    assert gated.get("/demo/prompts").status_code == 200
+    assert gated.post("/demo/run", json={"prompt_id": "find-value"}).status_code == 200
+    assert gated.post("/message", json={"text": "hi"}).status_code == 404
+    assert gated.post("/conversations/x/message", json={"text": "hi"}).status_code == 404
+    assert gated.get("/agents").status_code == 404

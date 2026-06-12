@@ -342,6 +342,22 @@ FEEDS: dict[str, Feed] = {
 }
 
 
+PACE_SCOPE_MAX_INTERVAL_S = 900  # only hot/prediction tiers accelerate
+
+
+def paced_feeds(feeds: list[Feed], pace: int) -> list[Feed]:
+    """Apply the proximity floor to the FAST tiers only. Flooring the 60-minute
+    firehose tiers made one cycle outlast the racing cadence (observed live:
+    racing feeds silent 40+ minutes behind a continuously-locked ingest)."""
+    from dataclasses import replace
+
+    return [
+        replace(f, interval_s=min(f.interval_s, pace))
+        if f.interval_s <= PACE_SCOPE_MAX_INTERVAL_S else f
+        for f in feeds
+    ]
+
+
 def feeds_due_in_window(
     feeds: list[Feed], *, now_s: float, period_s: float
 ) -> list[Feed]:

@@ -133,6 +133,12 @@ def _render_result(console, result) -> None:
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8400, "--port"),
+    demo_only: bool = typer.Option(
+        False, "--demo-only",
+        help="Expose ONLY /healthz, /demo/* and /leads — the abuse-hardened public "
+             "surface. Until P4 auth lands, this is the only mode safe to host "
+             "publicly (the full gateway trusts headers for tenancy).",
+    ),
 ) -> None:
     """Run the HTTP gateway (channel-agnostic POST /message + async tasks + SSE)."""
     from dotenv import load_dotenv
@@ -140,7 +146,7 @@ def serve(
     load_dotenv()
     from sportsdata_agents.gateway.app import serve as _serve
 
-    _serve(host=host, port=port)
+    _serve(host=host, port=port, demo_only=demo_only)
 
 
 @app.command()
@@ -298,10 +304,10 @@ def ingest(
         feeds = [f for f in feeds if f.name not in skip]
         console.print(f"[dim]skipping ops-disabled feeds: {', '.join(sorted(skip))}[/dim]")
     if pace is not None and feed is None:
-        from dataclasses import replace as _replace
+        from sportsdata_agents.operations.ingestion.worker import paced_feeds
 
-        feeds = [_replace(f, interval_s=min(f.interval_s, pace)) for f in feeds]
-        console.print(f"[dim]proximity pace: feeds floored to {pace}s[/dim]")
+        feeds = paced_feeds(feeds, pace)
+        console.print(f"[dim]proximity pace: hot-tier feeds floored to {pace}s[/dim]")
     if cron_period is not None:
         import time as _time
 
@@ -665,6 +671,29 @@ def schedule(
         + (" health!" if report.health_triggered else "")
         + (f" triage!{report.triage_triggered}" if report.triage_triggered else "")
     )
+
+
+@app.command()
+def custodian(
+    force_days: int | None = typer.Option(None, "--prune-days",
+                                          help="Override the ladder: prune to N days now."),
+) -> None:
+    """The data custodian: adaptive disk-aware retention (hold when space is
+    plentiful; backup+prune as it tightens). The conductor runs this hourly.
+    Deterministic — no LLM decides what data dies."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.operations.retention import run_custodian
+
+    console = Console()
+    report = asyncio.run(run_custodian(get_settings().database_url, force_days=force_days))
+    console.print(f"✓ custodian: {report}")
 
 
 @app.command()

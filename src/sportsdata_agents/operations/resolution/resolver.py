@@ -133,21 +133,26 @@ async def resolve_events(
             )
         ).all()
         fixtures = (await session.execute(select(Fixture))).scalars().all()
-        # in-memory candidate index: (sport_family, date) → [(fixture_id, sides|name tokens)]
-        index: dict[tuple[str, str], list[tuple[uuid.UUID, Any]]] = {}
+        # in-memory candidate index:
+        # (sport_family, date) → [(fixture_id, sides|name tokens, start_time)]
+        index: dict[tuple[str, str], list[tuple[uuid.UUID, Any, dt.datetime | None]]] = {}
 
         def fixture_day(fx_time: dt.datetime | None) -> str:
             return (fx_time or dt.datetime.now(dt.UTC)).strftime("%Y-%m-%d")
 
-        def add_to_index(fixture_id: uuid.UUID, sport: str, day: str, name: str) -> None:
+        def add_to_index(
+            fixture_id: uuid.UUID, sport: str, day: str, name: str,
+            start: dt.datetime | None,
+        ) -> None:
             sides = split_sides(name)
             keyed = (
                 (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(name)
             )
-            index.setdefault((sport, day), []).append((fixture_id, keyed))
+            index.setdefault((sport, day), []).append((fixture_id, keyed, start))
 
         for fixture in fixtures:
-            add_to_index(fixture.id, fixture.sport, fixture_day(fixture.start_time), fixture.name)
+            add_to_index(fixture.id, fixture.sport, fixture_day(fixture.start_time),
+                         fixture.name, fixture.start_time)
 
         stats = {"examined": 0, "mapped": 0, "created": 0, "ambiguous": 0, "skipped_unnamed": 0}
         now = dt.datetime.now(dt.UTC)
@@ -175,11 +180,20 @@ async def resolve_events(
             offsets = range(-14, 15) if (aware - now).days > 30 else (-1, 0, 1)
 
             candidates: list[tuple[float, uuid.UUID]] = []
+            near_term = (aware - now).days <= 30
             for offset in offsets:  # books disagree near midnight UTC
                 day_key = (
                     (dt.datetime.strptime(day, "%Y-%m-%d") + dt.timedelta(days=offset)).strftime("%Y-%m-%d")
                 )
-                for fixture_id, theirs in index.get((family, day_key), []):
+                for fixture_id, theirs, fx_start in index.get((family, day_key), []):
+                    # SAME-DAY DOUBLEHEADERS (MLB): identical teams, starts hours
+                    # apart, are different games — when both advertise a real
+                    # start and they disagree by >3h, never merge. Far-future
+                    # placeholder dates are exempt (books disagree by days).
+                    if (near_term and start_time is not None and fx_start is not None):
+                        fx_aware = fx_start if fx_start.tzinfo else fx_start.replace(tzinfo=dt.UTC)
+                        if abs((aware - fx_aware).total_seconds()) > 3 * 3600:
+                            continue
                     if isinstance(mine, tuple) and isinstance(theirs, tuple):
                         score = _sides_score(mine, theirs)
                         threshold = MATCH_THRESHOLD
@@ -214,7 +228,7 @@ async def resolve_events(
                 session.add(fixture)
                 await session.flush()
                 target = fixture.id
-                add_to_index(target, family, day, fixture.name)
+                add_to_index(target, family, day, fixture.name, fixture.start_time)
                 stats["created"] += 1
 
             session.add(Event(fixture_id=target, provider=str(provider), external_id=str(external_id)))

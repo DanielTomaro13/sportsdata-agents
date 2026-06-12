@@ -155,10 +155,19 @@ class RateLimiter:
 # ─── app factory ─────────────────────────────────────────────────────────
 
 
-def create_app(*, session: TeamSession | None = None, conversation_store: Any | None = None) -> FastAPI:
+def create_app(
+    *,
+    session: TeamSession | None = None,
+    conversation_store: Any | None = None,
+    demo_only: bool = False,
+) -> FastAPI:
     """Build the gateway. ``session``/``conversation_store`` injectable for tests;
     production builds one warm team session (and, when the DB is live, a
-    conversation store) for the app lifetime."""
+    conversation store) for the app lifetime.
+
+    ``demo_only`` exposes nothing but /healthz, /demo/* and /leads — the
+    abuse-hardened public surface. Until P4 replaces resolve_tenant with real
+    auth, the full gateway trusts headers and must not face the internet."""
 
     state: dict[str, Any] = {"session": session, "convstore": conversation_store}
     tasks = TaskStore()
@@ -393,10 +402,22 @@ def create_app(*, session: TeamSession | None = None, conversation_store: Any | 
         body.conversation_id = conversation_id
         return await message(body, request, tenant)
 
+    if demo_only:
+        _public = ("/healthz", "/demo", "/leads")
+
+        @app.middleware("http")
+        async def _demo_gate(request: Request, call_next: Any) -> Any:
+            path = request.url.path
+            if not any(path == p or path.startswith(p + "/") for p in _public):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse({"detail": "Not Found"}, status_code=404)
+            return await call_next(request)
+
     return app
 
 
-def serve(host: str = "127.0.0.1", port: int = 8400) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8400, demo_only: bool = False) -> None:
     import uvicorn
 
-    uvicorn.run(create_app(), host=host, port=port)
+    uvicorn.run(create_app(demo_only=demo_only), host=host, port=port)
