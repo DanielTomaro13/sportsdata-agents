@@ -22,7 +22,14 @@ def test_warehouse_url_is_durable_sqlite(tmp_path: Any, monkeypatch: pytest.Monk
     monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
     url = paths.warehouse_url()
     assert url.startswith("sqlite+aiosqlite:///") and url.endswith("warehouse.db")
-    assert "/tmp/" not in url  # the whole point of the desktop move
+    # lives under the configured data dir — not a hardcoded ephemeral path
+    assert str(tmp_path) in url
+
+
+def test_default_data_dir_is_not_ephemeral(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no override, the warehouse lands in the OS data dir, never /tmp."""
+    monkeypatch.delenv("SPORTSDATA_AGENTS_DATA_DIR", raising=False)
+    assert not str(paths._platform_root()).startswith("/tmp/")
 
 
 def test_subdirs_are_under_the_data_root(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
