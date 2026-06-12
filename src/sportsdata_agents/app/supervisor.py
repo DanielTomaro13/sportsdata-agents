@@ -106,7 +106,5 @@ async def run_app_async(
 
 def run_app(**kwargs: Any) -> None:
     """Blocking entry point for the `agents app` CLI command."""
-    try:
+    with contextlib.suppress(KeyboardInterrupt):  # pragma: no cover - signal path
         asyncio.run(run_app_async(**kwargs))
-    except KeyboardInterrupt:  # pragma: no cover - signal path
-        pass
