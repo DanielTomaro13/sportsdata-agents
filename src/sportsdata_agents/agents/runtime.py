@@ -186,6 +186,10 @@ class AgentRuntime:
             if needs_mcp:
                 # Subprocess scope: the spec's groups, else the workspace ceiling (§13).
                 groups = list(self.spec.tools.mcp_groups) or list(self.workspace.mcp_groups)
+                if groups and self.spec.plane != "ops":  # P4: cap to the licensed MCP quota
+                    from sportsdata_agents.licensing.enforce import cap_mcp_groups
+
+                    groups = cap_mcp_groups(groups)
                 if self._pool is not None:
                     # Borrowed: the pool owns it — identical scopes share one subprocess.
                     self._manager = await self._pool.get(groups)

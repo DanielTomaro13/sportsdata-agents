@@ -34,6 +34,27 @@ any order, whenever. (Anything requiring actual code lives in
 - [ ] **Rotate keys pasted in chat (2026-06-10)** — Anthropic, Groq, Gemini,
   OpenRouter, TAB client id/secret, Slack tokens. Standing hygiene item.
 
+## Going commercial (P4 — the three account-gated steps to charge money)
+
+The entitlement/licensing code is DONE and tested (`src/sportsdata_agents/licensing/`,
+`PRICING.md`). These three need your accounts/money to switch from "code-complete"
+to "taking payments":
+
+- [ ] **Generate the license signing keypair** — `python scripts/license.py keygen`
+  (run once). Put the PUBLIC key in the build env (`SPORTSDATA_LICENSE_PUBKEY`) so
+  shipped builds enforce; keep the PRIVATE key in the payment webhook secret only.
+  Until this is done every build runs unrestricted (source) / free-tier (if a
+  pubkey is set) — no one is gated yet, by design.
+- [ ] **Payment processor** — Paddle or LemonSqueezy (merchant-of-record: they
+  handle GST/VAT for downloadable software so you don't). On a successful charge
+  the webhook calls `sportsdata_agents.licensing.issue_license(privkey, tier=…,
+  issued_to=…, addons=…)` and emails the key; the customer runs `agents license
+  --activate <key>`. A ~50-line webhook is the only server the desktop model needs.
+- [ ] **Apple Developer ID** ($99/yr) — sign + notarize the Mac build so Gatekeeper
+  doesn't warn on a direct download (NOT App Store review — just `codesign` with the
+  Developer ID cert + `notarytool`). Build the bundle with `sh scripts/build-desktop.sh`,
+  then sign/notarize/staple the result. Windows later wants an Authenticode cert.
+
 ## Infrastructure (host something, flip a switch)
 
 - [ ] **Postgres/Timescale move** — retires the deliberate `/tmp` warehouse risk.

@@ -118,6 +118,11 @@ class TeamSession:
                     self.specs,
                     self.workspace.agent_versions,
                 )
+        # P4 entitlements: the paid tier scopes which PRODUCT agents the team
+        # offers (ops agents are never gated — they're the platform's own crew).
+        from sportsdata_agents.licensing.enforce import filter_roster
+
+        self.specs = filter_roster(self.specs, root_id)
         for spec in self.specs.values():
             if spec.deprecated:
                 logger.warning("agent %s@%s is deprecated: %s", spec.id, spec.version, spec.deprecated)
