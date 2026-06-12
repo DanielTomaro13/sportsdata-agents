@@ -32,7 +32,7 @@ agent:
 def test_ops_agents_exist_and_are_ops_plane() -> None:
     specs = load_builtin_specs()
     ops_ids = {"mcp_health", "repo_improver", "code_reviewer", "eval_benchmark",
-               "incident_triage", "site_manager"}
+               "incident_triage", "site_manager", "docs_keeper"}
     assert ops_ids <= set(specs)
     assert all(specs[i].plane == "ops" for i in ops_ids)
     # every other (product) agent stays product-plane
