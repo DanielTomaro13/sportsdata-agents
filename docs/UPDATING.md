@@ -46,13 +46,19 @@ fresh download.
 
 ## Plan / tier changes (the user's "upgrade")
 
-The user's *subscription* changes are a licence change, not an app update:
+The user's *subscription* changes are a licence change, not an app update. Two ways,
+both self-serve:
 
-```sh
-agents license               # show the current tier + entitlements
-agents license --activate <key>   # apply a new/upgraded licence (stored in the keychain)
-```
+- **In the app** — click the tier chip (top-right of the chat UI) to open **Your
+  plan**: it shows your entitlements, an **Upgrade plan** button (opens checkout),
+  and a field to paste a key. Buy → paste the emailed key → instantly on the new tier.
+- **CLI** —
+  ```sh
+  agents license               # show the current tier + entitlements
+  agents license --activate <key>   # apply a new/upgraded licence (stored in the keychain)
+  ```
 
 A new licence takes effect immediately — the roster, MCP quota and gated features
-re-resolve on the next run. Upgrading is just activating the key for the higher
-tier (or the add-on). See [../PRICING.md](../PRICING.md).
+re-resolve. The gateway backs this with `GET /account` and `POST /account/activate`
+(localhost-only). `SPORTSDATA_UPGRADE_URL` sets where the Upgrade button points.
+See [../PRICING.md](../PRICING.md).

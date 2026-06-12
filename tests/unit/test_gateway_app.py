@@ -183,6 +183,43 @@ def test_rate_limiter_trips() -> None:
     rl.check("t2")  # other tenants unaffected
 
 
+async def test_account_returns_tier_and_upgrade_url(client: httpx.AsyncClient) -> None:
+    acct = (await client.get("/account")).json()
+    assert acct["tier"] and "upgrade_url" in acct
+    assert {"mcp_quota", "chat_ui", "full_app", "agents", "addons"} <= set(acct)
+
+
+async def test_activate_validates_input() -> None:
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+        assert (await c.post("/account/activate", json={})).status_code == 422  # no key
+        assert (await c.post("/account/activate", json={"key": "not.a.licence"})).status_code == 400
+
+
+async def test_activate_a_valid_key_upgrades_the_plan(monkeypatch: Any, tmp_path: Any) -> None:
+    """The self-serve upgrade: paste a verified key → the account flips tier."""
+    import sportsdata_agents.secrets as secrets
+    from sportsdata_agents.licensing import license as lic
+
+    priv, pub = lic.generate_keypair()
+    monkeypatch.setattr(lic, "LICENSE_PUBLIC_KEY_B64", pub)  # product build with a baked key
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("SPORTSDATA_LICENSE", raising=False)
+    monkeypatch.setattr(secrets, "_keyring", lambda: None)  # no keychain → license.key fallback
+
+    token = lic.issue_license(priv, tier="pro", issued_to="buyer@x.com", days=30)
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+        r = await c.post("/account/activate", json={"key": token})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["issued_to"] == "buyer@x.com" and body["account"]["tier"] == "pro"
+        # it persisted: a fresh /account read reflects the new tier
+        assert (await c.get("/account")).json()["tier"] == "pro"
+
+
 async def test_foreign_host_is_rejected() -> None:
     """DNS-rebinding defense: a request whose Host isn't local is 403'd, but the
     .app launcher's /healthz probe stays open."""
