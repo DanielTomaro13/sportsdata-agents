@@ -42,3 +42,6 @@ dist/
 .idea/
 .vscode/
 .claude/
+
+# stray run logs (the app writes to the OS logs dir; these are dev artifacts)
+*.log

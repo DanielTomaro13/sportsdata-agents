@@ -144,6 +144,8 @@ def serve(
     from dotenv import load_dotenv
 
     load_dotenv()
+    if not demo_only:  # the public demo surface is always allowed; the full chat gateway is gated
+        _require_entitlement("chat_ui")
     from sportsdata_agents.gateway.app import serve as _serve
 
     _serve(host=host, port=port, demo_only=demo_only)

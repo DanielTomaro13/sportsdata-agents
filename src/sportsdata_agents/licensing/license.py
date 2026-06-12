@@ -137,6 +137,13 @@ def issue_license(
     Lives here so the format has one definition; the private key never ships."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+    if addons:
+        from .entitlements import ADDONS
+
+        unknown = [a for a in addons if a not in ADDONS]
+        if unknown:
+            logger.warning("issuing a license with unknown add-on(s) %s — they will be IGNORED "
+                           "at resolution; check the spelling against ADDONS", unknown)
     payload = {
         "tier": tier,
         "issued_to": issued_to,
