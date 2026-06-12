@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 class Job:
     name: str
     args: tuple[str, ...]  # `agents <args...>`
-    log: str  # append-mode log path
+    log: str  # append-mode log FILE NAME, resolved under the OS logs dir
     # interval jobs fire on wall-clock boundary crossings of interval_s;
     # calendar jobs fire when the tick window crosses (weekday, hour, minute)
     interval_s: int | None = None
@@ -59,31 +59,31 @@ class Job:
 
 JOBS: tuple[Job, ...] = (
     Job(name="ingest", args=("ingest", "--once", "--cron", "60"),
-        log="/tmp/agents-ingest.log", interval_s=60, timeout_s=3000, paced=True),
+        log="ingest.log", interval_s=60, timeout_s=3000, paced=True),
     Job(name="monitor", args=("monitor",),
-        log="/tmp/agents-monitor.log", interval_s=300, timeout_s=600),
+        log="monitor.log", interval_s=300, timeout_s=600),
     Job(name="custodian", args=("custodian",),
-        log="/tmp/agents-cron.log", interval_s=3600, timeout_s=1800),
+        log="cron.log", interval_s=3600, timeout_s=1800),
     Job(name="resolve", args=("resolve",),
-        log="/tmp/agents-cron.log", at=(23, 30), timeout_s=1800),
+        log="cron.log", at=(23, 30), timeout_s=1800),
     Job(name="results", args=("results",),
-        log="/tmp/agents-cron.log", at=(23, 40), timeout_s=1800),
+        log="cron.log", at=(23, 40), timeout_s=1800),
     Job(name="steward", args=("steward",),
-        log="/tmp/agents-steward.log", weekday=0, at=(9, 0), timeout_s=1800),
+        log="steward.log", weekday=0, at=(9, 0), timeout_s=1800),
     Job(name="eval_benchmark",
         args=("ops", "run", "eval_benchmark",
               "Run your standing weekly evaluation: offline evals vs baseline, "
               "agent_metrics rollups, and the delegation_stats routing-economics report."),
-        log="/tmp/agents-ops.log", weekday=0, at=(9, 30), timeout_s=1800),
+        log="ops.log", weekday=0, at=(9, 30), timeout_s=1800),
     Job(name="site_manager",
         args=("ops", "run", "site_manager",
               "Weekly site run: check status, audit against the catalogue, and post "
               "the traffic report. Propose a PR only if there is real drift."),
-        log="/tmp/agents-site-manager.log", weekday=0, at=(10, 0), timeout_s=1800),
+        log="site-manager.log", weekday=0, at=(10, 0), timeout_s=1800),
     Job(name="refresh_books", args=("refresh-books",),
-        log="/tmp/agents-cron.log", weekday=6, at=(6, 0), timeout_s=1800),
+        log="cron.log", weekday=6, at=(6, 0), timeout_s=1800),
     Job(name="ops_health", args=("ops", "health"),
-        log="/tmp/agents-cron.log", weekday=6, at=(7, 0), timeout_s=900),
+        log="cron.log", weekday=6, at=(7, 0), timeout_s=900),
 )
 
 # ─── event-proximity pacing ────────────────────────────────────────────────
@@ -223,8 +223,9 @@ def _agents_binary() -> str:
 
 
 def _lock_dir() -> Path:
-    base = os.environ.get("SPORTSDATA_AGENTS_VAR_DIR") or str(Path.home() / ".sportsdata-agents")
-    path = Path(base) / "locks"
+    from sportsdata_agents.paths import ops_dir
+
+    path = ops_dir() / "locks"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -253,8 +254,18 @@ def acquire_lock(job_name: str) -> Path | None:
 Runner = Callable[[Job, list[str]], subprocess.CompletedProcess]
 
 
+def _resolve_log(job: Job) -> str:
+    """A bare job log name resolves under the OS logs dir; an absolute path
+    (tests construct these) is used as-is."""
+    if os.path.isabs(job.log):
+        return job.log
+    from sportsdata_agents.paths import log_path
+
+    return str(log_path(job.log))
+
+
 def _default_runner(job: Job, argv: list[str]) -> subprocess.CompletedProcess:
-    with open(job.log, "a") as log:
+    with open(_resolve_log(job), "a") as log:
         log.write(f"\n--- scheduler: {job.name} @ {dt.datetime.now(dt.UTC).isoformat()} ---\n")
         log.flush()
         # argv comes from the static registry, never user input

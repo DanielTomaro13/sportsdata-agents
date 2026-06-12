@@ -17,6 +17,14 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
+def _default_database_url() -> str:
+    """Desktop default: the durable SQLite warehouse under the OS data dir.
+    Imported lazily so the env override path never builds the data dir."""
+    from sportsdata_agents.paths import warehouse_url
+
+    return warehouse_url()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SPORTSDATA_AGENTS_",
@@ -30,7 +38,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # ── data layer ──
-    database_url: str = "postgresql+asyncpg://agents:agents@localhost:5432/sportsdata_agents"
+    # Desktop default: the durable SQLite warehouse under the OS data dir
+    # (never /tmp). Servers override with a Postgres URL via the env var.
+    database_url: str = Field(default_factory=_default_database_url)
 
     # ── default local tenant/workspace (one workspace until SaaS, §12) ──
     default_tenant: str = "local"

@@ -150,6 +150,81 @@ def serve(
 
 
 @app.command()
+def setup() -> None:
+    """First-run wizard: pick a model provider, store its key in the OS keychain.
+    Run once on a fresh desktop install (the app prompts you if it's missing)."""
+    import asyncio
+
+    from dotenv import load_dotenv
+    from rich.console import Console
+    from rich.prompt import Prompt
+
+    from sportsdata_agents.app.wizard import PROVIDERS, configured_provider, store_key, verify_key
+    from sportsdata_agents.paths import data_dir
+
+    load_dotenv()
+    console = Console()
+    console.print(f"[bold]sportsdata setup[/bold] — data lives in [cyan]{data_dir()}[/cyan]\n")
+
+    already = configured_provider()
+    if already:
+        console.print(f"[green]✓[/green] a key for [bold]{already.label}[/bold] is already configured.")
+        if Prompt.ask("Reconfigure?", choices=["y", "n"], default="n") == "n":
+            return
+
+    for i, provider in enumerate(PROVIDERS, 1):
+        tag = " [green](free tier)[/green]" if provider.free_tier else ""
+        console.print(f"  {i}. {provider.label}{tag} — [dim]{provider.hint}[/dim]")
+    choice = int(Prompt.ask("Pick a provider", choices=[str(i) for i in range(1, len(PROVIDERS) + 1)],
+                            default="1"))
+    provider = PROVIDERS[choice - 1]
+    key = Prompt.ask(f"Paste your {provider.label} API key", password=True).strip()
+    if not key:
+        console.print("[red]no key entered — aborting[/red]")
+        raise typer.Exit(1)
+
+    console.print("[dim]verifying with a live call…[/dim]")
+    ok, detail = asyncio.run(verify_key(provider, key))
+    if not ok:
+        console.print(f"[red]✗ that key did not work:[/red] {detail}")
+        raise typer.Exit(1)
+
+    where = store_key(provider, key)
+    if where == "keychain":
+        console.print(f"[green]✓ verified and stored in the OS keychain[/green] ({provider.key_env}).")
+    else:
+        console.print(f"[yellow]verified, but no keychain available[/yellow] — set "
+                      f"[bold]{provider.key_env}[/bold] in your environment or .env.")
+    console.print("\nRun [bold]agents app[/bold] to start the desktop daemon.")
+
+
+@app.command(name="app")
+def app_cmd(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (localhost-only by default)."),
+    port: int = typer.Option(8765, "--port"),
+    no_conductor: bool = typer.Option(False, "--no-conductor",
+                                      help="Gateway only — don't run ingest/monitor/custodian."),
+) -> None:
+    """The desktop daemon: gateway + the conductor loop (ingest/resolve/monitor/
+    custodian) in ONE supervised process — no crontab, no .env. Ctrl-C to stop."""
+    import logging
+
+    from dotenv import load_dotenv
+
+    from sportsdata_agents.app import run_app
+    from sportsdata_agents.app.wizard import configured_provider
+
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if configured_provider() is None:
+        from rich.console import Console
+
+        Console().print("[yellow]No model key found — run [bold]agents setup[/bold] first.[/yellow]")
+        raise typer.Exit(1)
+    run_app(host=host, port=port, with_conductor=not no_conductor)
+
+
+@app.command()
 def slack() -> None:
     """Run the Slack adapter (Socket Mode). Needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN."""
     from dotenv import load_dotenv

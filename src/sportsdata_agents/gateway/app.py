@@ -381,10 +381,10 @@ def create_app(
             return {"ok": True, "stored": "db"}
         except Exception:
             import json as _json
-            from pathlib import Path
 
-            fallback = Path.home() / ".sportsdata-agents" / "leads.jsonl"
-            fallback.parent.mkdir(parents=True, exist_ok=True)
+            from sportsdata_agents.paths import data_dir
+
+            fallback = data_dir() / "leads.jsonl"
             with fallback.open("a", encoding="utf-8") as fh:
                 fh.write(_json.dumps({"email": email, "note": note}) + "\n")
             return {"ok": True, "stored": "file"}

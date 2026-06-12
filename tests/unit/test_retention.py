@@ -55,7 +55,7 @@ async def _seed_warehouse(db_url: str) -> None:
 async def test_custodian_holds_when_space_is_plentiful(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
     db_url = f"sqlite+aiosqlite:///{tmp_path}/wh.db"
     await _seed_warehouse(db_url)
     monkeypatch.setattr(retention, "disk_status",
@@ -75,7 +75,7 @@ async def test_custodian_holds_when_space_is_plentiful(
 async def test_custodian_prunes_under_pressure_and_never_touches_prices(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
     db_url = f"sqlite+aiosqlite:///{tmp_path}/wh.db"
     await _seed_warehouse(db_url)
     # 12% free → 30-day window; the 90-day-old snapshot goes, yesterday's stays
@@ -104,7 +104,7 @@ async def test_custodian_prunes_under_pressure_and_never_touches_prices(
 def test_backup_refuses_to_eat_the_last_headroom(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
     db = tmp_path / "wh.db"
     db.write_bytes(b"x" * 10_000)
     monkeypatch.setattr(retention, "disk_status",
@@ -117,7 +117,7 @@ async def test_hourly_runs_in_a_low_disk_tier_stay_quiet(
 ) -> None:
     """A box parked under pressure must not backup/VACUUM/page the operator
     every hour — each heavy action carries its own cadence."""
-    monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
     db_url = f"sqlite+aiosqlite:///{tmp_path}/wh.db"
     await _seed_warehouse(db_url)
     monkeypatch.setattr(retention, "disk_status",

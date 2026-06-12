@@ -351,6 +351,19 @@ a bundled chat UI, no central hosting of user data. Milestones M4.1–M4.5 in th
 doc supersede the SaaS milestones below; the hosted-tenant design is RETAINED below
 for a possible future cloud tier (the tenancy seams stay in the code).
 
+- [x] **M4.1 — Daemonize (v0.14.0)**: `paths.py` (OS-conventional storage — macOS
+  `~/Library/Application Support/sportsdata/`, Windows `%APPDATA%`, Linux XDG; the
+  config DB default flipped from Postgres to the durable SQLite warehouse there;
+  scheduler logs, ops state, locks, backups, user specs all moved off `/tmp` and
+  `~/.sportsdata-agents`; `migrate_legacy_layout` does the one-time move). Keychain
+  secrets (`keyring` tier in resolve_secret: env → keychain → map). `agents setup`
+  (provider pick → live-verified key → keychain). `agents app` supervisor (gateway
+  + the conductor loop in ONE process — no crontab, no .env). **Live exit gate:
+  fresh OS data dir, no .env, no /tmp → kalshi capture 12,842 snapshots into
+  ~/.../sportsdata/warehouse.db; the supervisor booted the gateway, served /healthz
+  + /demo/prompts, shut down clean.** macOS→Windows order; BYO-key; app name
+  "sportsdata". Mac packaging/signing is M4.3. Chat UI deferred (web-app-later).
+
 **Original SaaS goal (deferred):** a second tenant on a paid tier with isolated data, enforced entitlements + budgets.
 
 - [ ] **Kalshi structured targets → player-prop resolution** (carried from the P3 reviews):
