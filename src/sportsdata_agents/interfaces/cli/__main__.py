@@ -359,6 +359,33 @@ def setup(
 
 
 @app.command()
+def skills() -> None:
+    """List every skill the platform knows — the built-in playbooks plus the ones
+    the generalist has authored as it learned your needs."""
+    import asyncio
+
+    from rich.console import Console
+
+    from sportsdata_agents.tools.skillsmith import list_skills as _list_skills
+
+    console = Console()
+    result = asyncio.run(_list_skills({}))
+    learned = [s for s in result["skills"] if s["source"] == "user"]
+    builtin = [s for s in result["skills"] if s["source"] == "builtin"]
+    if learned:
+        console.print("[bold]Learned skills[/bold] (authored by the generalist):")
+        for s in learned:
+            console.print(f"  [green]{s['name']}[/green] — {s['description']}")
+        console.print()
+    console.print("[bold]Built-in skills:[/bold]")
+    for s in builtin:
+        console.print(f"  {s['name']} — [dim]{s['description']}[/dim]")
+    if not learned:
+        console.print("\n[dim]No learned skills yet — the generalist writes one when it cracks a "
+                      "reusable method for a request no specialist covered.[/dim]")
+
+
+@app.command()
 def desk(
     set_path: str | None = typer.Option(None, "--set", help="Set the desk folder to this path (persisted)."),
 ) -> None:

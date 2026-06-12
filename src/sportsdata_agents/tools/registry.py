@@ -11,6 +11,7 @@ from typing import Any
 
 from sportsdata_agents.agents.harness import ToolDef
 from sportsdata_agents.tools.desk import DESK_TOOLS
+from sportsdata_agents.tools.skillsmith import SKILLSMITH_TOOLS
 
 
 def _implied_probability(odds: float) -> float:
@@ -431,6 +432,8 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
     ),
     # Desk-folder export tools (P4 §4.2) — session-less, always available.
     **DESK_TOOLS,
+    # Skill learning loop — the generalist's growth mechanism.
+    **SKILLSMITH_TOOLS,
 }
 
 
