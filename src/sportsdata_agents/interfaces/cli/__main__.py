@@ -253,7 +253,9 @@ def billing(
 
 
 @app.command()
-def setup() -> None:
+def setup(
+    check: bool = typer.Option(False, "--check", help="Exit 0 if a model key is configured, 1 if not (no prompts)."),
+) -> None:
     """First-run wizard: pick a model provider, store its key in the OS keychain.
     Run once on a fresh desktop install (the app prompts you if it's missing)."""
     import asyncio
@@ -266,6 +268,10 @@ def setup() -> None:
     from sportsdata_agents.paths import data_dir
 
     load_dotenv()
+    if check:
+        # Non-interactive probe for the .app launcher: is a key already set up?
+        raise typer.Exit(0 if configured_provider() else 1)
+
     console = Console()
     console.print(f"[bold]sportsdata setup[/bold] — data lives in [cyan]{data_dir()}[/cyan]\n")
 
