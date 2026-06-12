@@ -27,34 +27,38 @@ so a workspace without it is a pure analytics tool (bigger market, lower complia
 
 ## Design
 
-🛠️ **[`BUILD_PLAN.md`](./BUILD_PLAN.md)** — the technical, phase-by-phase implementation
+🛠️ **[`BUILD_PLAN.md`](docs/history/BUILD_PLAN.md)** — the technical, phase-by-phase implementation
 checklist to tick off while coding (P0 → P4, milestones, exit gates).
 
-🖥️ **[`P4_DESKTOP_PLAN.md`](./P4_DESKTOP_PLAN.md)** — the P4 replan: a downloadable
+🖥️ **[`P4_DESKTOP_PLAN.md`](docs/history/P4_DESKTOP_PLAN.md)** — the P4 replan: a downloadable
 desktop app (the Cursor-style harness on the user's machine) instead of hosted SaaS —
 shell options, process/storage/secrets architecture, trade-offs, revised milestones.
 
 💳 **[`PRICING.md`](./PRICING.md)** — the three tiers (Base / Plus / Pro), add-ons,
 suggested prices, and how the offline license gating works.
 
-📐 **[`PLAN.md`](./PLAN.md)** — the full architecture: the two-plane design, the agent
+📐 **[`PLAN.md`](docs/history/PLAN.md)** — the full architecture: the two-plane design, the agent
 roster, the user-customizable agent-spec format, the data model, orchestration & model
 selection, sandboxing, interfaces (CLI → Slack → web), multi-tenancy / SaaS-readiness,
 the self-improvement loop, the delivery roadmap, and a **decision register** with the
 pros and cons of every choice.
 
-## What's built (P0–P3 complete)
+## What's built (P0–P4 complete — a downloadable desktop app)
 
-**The agent team** (23 specs in `src/sportsdata_agents/specs/` — 17 product, 6 ops): an orchestrator that
-routes and delegates; odds/stats specialists over the live data plane; a modelling agent
+**The agent team** (27 specs in `src/sportsdata_agents/specs/` — 20 product, 7 ops): an orchestrator that
+routes and delegates; odds/stats specialists over the live data plane; a **racing
+analyst** (racecards, results, cross-book win/place) and a **prediction-market
+analyst** (Kalshi/Polymarket + the exchange-vs-book edge); a modelling agent
 (general model development — features, calibration, Brier/log-loss, logistic regression,
 XGBoost skills); a value scout (vig removal, +EV detection, cross-book best price); a
 backtester (entry-at-prediction-time discipline, CLV vs close); bankroll manager, bet
 tracker and bet notifier (advisory only); a market steward that maintains the market
 dictionary as data; an **arb hunter** (deterministic cross-book arbitrage incl.
-exchange-vs-book); a news scout over X/official feeds; Slack manager; data-analysis
-agent (sandboxed `run_python`); concierge — plus six ops agents (health, improver,
-reviewer, evals, triage, site manager) on the separate operations plane.
+exchange-vs-book); a news scout over X/official feeds; a fantasy advisor; Slack manager;
+data-analysis agent (sandboxed `run_python`); a **generalist** catch-all that *grows the
+platform* (writes reusable skills, builds new agents as it learns your needs); concierge
+— plus seven ops agents (health, improver, reviewer, evals, triage, site manager,
+docs keeper) on the separate operations plane.
 Every answer is **grounded** (numbers must come from tool results — a deterministic
 verifier checks), **sourced** (provenance per tool call), **budgeted** (one cost ceiling
 per team run) and **audited** (runs/tool-calls/costs land in the DB when configured).
@@ -171,18 +175,24 @@ persisted-query drift; Entain *sports* REST — including its outrights — is u
 
 ## Status
 
-**P3 complete** — everything above plus: the operations plane (six ops agents; the
-self-improvement loop has merged real PRs), the line monitor and **cross-book
-arbitrage watch** (alerts re-measured 5 minutes later for honesty), prediction
-markets (Kalshi/Polymarket) beside the bookmakers on shared fixtures, fantasy +
-agent-builder + Discord, the public site with a recorded demo, and **the conductor**:
-`agents schedule --cron 60` is the ONE crontab line that runs everything — ingest
-with event-proximity pacing (feeds tighten from 30min to 2min as a match approaches),
-nightly settle, weekly ops — and hands persistent failures to the incident_triage
-agent. Next (P4, gated on go/no-go + legal): multi-tenancy, auth, billing. See
-[`BUILD_PLAN.md`](./BUILD_PLAN.md) for the milestone log and
-[`POST_DEV.md`](./POST_DEV.md) for everything built-but-switched-off
-(accounts, hosts, and one-command flips).
+**P4 complete — code-ready to ship.** The platform is a **downloadable desktop app**
+(the "Cursor for sports data" model): `agents app` runs the gateway + the conductor
+in one supervised process on the user's machine — their compute, their warehouse,
+their own odds capture, BYO model key. On top of P0–P3 (the operations plane and
+its merged self-improvement PRs, the line monitor + **cross-book arbitrage watch**
+with honesty re-measurement, prediction markets beside the bookmakers, fantasy +
+agent-builder + Discord), P4 added: the **web chat UI** with self-serve plan
+upgrades and the learned-skills panel; **offline Ed25519 licensing** (3 tiers +
+add-ons, fails open to free) with a provider-agnostic **billing webhook**
+(Paddle/LemonSqueezy → signed licence, SMTP delivery, `/licence/refresh`); the
+**macOS packaging + signing pipeline** (tag → notarized DMG, pending only the Apple
+Developer ID); a signed **OTA data feed**; daemon hardening (DNS-rebind guard,
+crash-restart supervision); the **generalist** growth loop; and the **operator
+console** (`agents config|costs|ops status` + the in-app operator panel, gated to
+your deployment by `SPORTSDATA_OPERATOR`). What remains to go live is account
+setup, not code — see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md), the milestone log
+in [`docs/history/BUILD_PLAN.md`](docs/history/BUILD_PLAN.md), and
+[`POST_DEV.md`](./POST_DEV.md) for everything built-but-switched-off.
 
 ---
 

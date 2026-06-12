@@ -1,8 +1,9 @@
 # Next steps
 
-Status as of v0.22.0. The platform is **code-complete** through Phase 4 (the
-downloadable desktop app). What remains is account setup and a small set of
-deliberately-deferred items.
+Status as of v0.30.0. The platform is **code-complete** through Phase 4 (the
+downloadable desktop app), including the generalist growth loop and the operator
+console (CLI + the in-app operator panel). What remains is account setup and a
+small set of deliberately-deferred items.
 
 ## To go live (account/setup — no code)
 
@@ -41,9 +42,12 @@ you — it can never extend access beyond what renewals minted). Details in
 - **Per-seat enforcement** — claims-only today (fine for single-user v1).
 - **Opt-in telemetry / crash reports** — the "every machine is a snowflake" support
   mitigation; needs a destination endpoint.
+- **Budget-breach push** — `agents costs` flags a breach in the report/panel; an
+  automatic Slack/Discord push needs a small operator-only conductor job.
 
 ## Health of the codebase
 
-408+ tests (unit + integration), green CI gates, ~37/60 data capabilities leveraged
-with a coverage guard. The self-improvement loop (ops agents → CI-gated PRs) is live.
-This file and the rest of `docs/` are kept current by the **docs_keeper** ops agent.
+520+ tests (unit + integration), green CI gates, ~37/60 data capabilities leveraged
+with a coverage guard. The self-improvement loop (ops agents → CI-gated PRs) is live,
+and the platform grows per-user via the generalist's skill library. This file and the
+rest of `docs/` are kept current by the **docs_keeper** ops agent.

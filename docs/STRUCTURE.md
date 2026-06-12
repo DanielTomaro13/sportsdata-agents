@@ -11,7 +11,7 @@ Top level:
 | `docs/` | this documentation set |
 | `site/` | the marketing site source (published to the public `sportsdata-site` repo by `scripts/deploy-site.sh`) |
 | `alembic/` | DB migrations |
-| `*.md` (root) | PLAN / BUILD_PLAN / P4_DESKTOP_PLAN (history), PRICING, POST_DEV, RELEASE, README |
+| `*.md` (root) | PRICING, POST_DEV, RELEASE, README (planning history lives in `docs/history/`) |
 
 ## `src/sportsdata_agents/`
 

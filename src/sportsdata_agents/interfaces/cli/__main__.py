@@ -138,8 +138,8 @@ def serve(
     demo_only: bool = typer.Option(
         False, "--demo-only",
         help="Expose ONLY /healthz, /demo/* and /leads — the abuse-hardened public "
-             "surface. Until P4 auth lands, this is the only mode safe to host "
-             "publicly (the full gateway trusts headers for tenancy).",
+             "surface, and the only mode meant to face the internet (the full "
+             "gateway is the localhost desktop daemon).",
     ),
 ) -> None:
     """Run the HTTP gateway (channel-agnostic POST /message + async tasks + SSE)."""
