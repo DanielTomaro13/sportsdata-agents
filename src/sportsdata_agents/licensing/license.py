@@ -45,6 +45,10 @@ class LicenseClaims:
     issued_to: str
     expires: dt.date | None
     raw: dict
+    operator: bool = False
+    """True only on a token the product owner signed for themselves (the
+    cryptographic operator grant). Customer tokens never carry it — minting one
+    needs the private key, which never ships. See ``scheduler.is_operator``."""
 
 
 def _b64url_decode(s: str) -> bytes:
@@ -100,6 +104,7 @@ def verify_license(
         issued_to=str(claims.get("issued_to", "")),
         expires=expires,
         raw=claims,
+        operator=claims.get("operator") is True,
     )
 
 
@@ -140,9 +145,14 @@ def issue_license(
     addons: list[str] | None = None,
     seats: int = 1,
     days: int | None = 365,
+    operator: bool = False,
 ) -> str:
     """Mint a signed license token (the issuer side — payment webhook / ops).
-    Lives here so the format has one definition; the private key never ships."""
+    Lives here so the format has one definition; the private key never ships.
+
+    ``operator=True`` stamps the cryptographic operator grant. ONLY the product
+    owner runs this (they hold the private key), so it's the unforgeable basis
+    for ``scheduler.is_operator`` on a release build — a customer cannot mint it."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     if addons:
@@ -160,6 +170,8 @@ def issue_license(
         "issued": dt.date.today().isoformat(),
         "expires": (dt.date.today() + dt.timedelta(days=days)).isoformat() if days else None,
     }
+    if operator:  # the cryptographic operator grant — omitted on ordinary tokens
+        payload["operator"] = True
     payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     key = Ed25519PrivateKey.from_private_bytes(_b64url_decode(private_key_b64))
     signature = key.sign(payload_bytes)

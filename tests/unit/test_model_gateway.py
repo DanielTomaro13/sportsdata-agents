@@ -167,6 +167,42 @@ def test_run_budget_from_workspace() -> None:
     assert RunBudget.for_workspace(ws).ceiling_usd == 0.75
 
 
+class _FakeGuard:
+    """A stand-in SpendGuard recording prechecks/charges (the cross-run ceiling)."""
+
+    def __init__(self, *, refuse: bool = False) -> None:
+        self.refuse = refuse
+        self.prechecks = 0
+        self.charged = 0.0
+
+    async def precheck(self) -> None:
+        self.prechecks += 1
+        if self.refuse:
+            raise BudgetExceededError(9.99, 5.0)
+
+    def charge(self, cost_usd: float) -> None:
+        self.charged += cost_usd
+
+
+async def test_spend_guard_refuses_before_any_call(fake: _FakeLiteLLM) -> None:
+    """The period budget (operator's cap) blocks model traffic up front, just like
+    an exhausted per-run ceiling — no call leaks through once it's spent."""
+    guard = _FakeGuard(refuse=True)
+    with pytest.raises(BudgetExceededError):
+        await ModelGateway(spend_guard=guard).complete(
+            [{"role": "user", "content": "hi"}], tier="fast", workspace=WS
+        )
+    assert guard.prechecks == 1 and fake.calls == []
+
+
+async def test_spend_guard_is_charged_after_a_call(fake: _FakeLiteLLM) -> None:
+    guard = _FakeGuard()
+    await ModelGateway(spend_guard=guard).complete(
+        [{"role": "user", "content": "hi"}], tier="fast", workspace=WS
+    )
+    assert guard.prechecks == 1 and guard.charged == pytest.approx(0.01)
+
+
 async def test_cost_failure_never_crashes_and_is_flagged(fake: _FakeLiteLLM, monkeypatch: pytest.MonkeyPatch) -> None:
     """Unknown pricing meters 0 but flags cost_known=False (managed mode must act on it, §8.1)."""
     monkeypatch.setattr(fake, "completion_cost", lambda **_: (_ for _ in ()).throw(ValueError("no pricing")))

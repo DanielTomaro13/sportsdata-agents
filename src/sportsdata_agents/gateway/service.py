@@ -128,7 +128,16 @@ class TeamSession:
                 logger.warning("agent %s@%s is deprecated: %s", spec.id, spec.version, spec.deprecated)
         self.recorder = recorder
         usage_sink = getattr(recorder, "usage_sink", None) if recorder is not None else None
-        self.provider = provider or ModelGateway(usage_sink=usage_sink)
+        # When the warehouse is up, enforce the operator's daily/weekly/monthly budget
+        # at the model-call chokepoint — the OUTER ceiling above each run's RunBudget.
+        spend_guard = None
+        inner = getattr(recorder, "inner", recorder)
+        session_factory = getattr(inner, "session_factory", None)
+        if session_factory is not None:
+            from sportsdata_agents.operations.budget_guard import PeriodBudgetGuard
+
+            spend_guard = PeriodBudgetGuard(session_factory)
+        self.provider = provider or ModelGateway(usage_sink=usage_sink, spend_guard=spend_guard)
         self._extra_tools = list(extra_tools) if extra_tools is not None else _default_extra_tools(recorder)
         self.agent_id = agent_id
         self.root_id = root_id

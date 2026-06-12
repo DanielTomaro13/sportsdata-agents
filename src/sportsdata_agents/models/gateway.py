@@ -24,7 +24,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 import litellm
 
@@ -175,6 +175,20 @@ class ModelReply:
 UsageSink = Callable[[UsageEvent], None]
 
 
+class SpendGuard(Protocol):
+    """A *cross-run* spend ceiling — the operator's daily/weekly/monthly budget —
+    enforced at the model-call chokepoint, on top of the per-run ``RunBudget``.
+
+    ``precheck`` is awaited before every call and raises ``BudgetExceededError``
+    once the period cap is spent (so a new run does nothing and ends as
+    ``budget_exhausted``); ``charge`` accrues each call's cost so the running
+    period total stays accurate without a database round-trip per call.
+    """
+
+    async def precheck(self) -> None: ...
+    def charge(self, cost_usd: float) -> None: ...
+
+
 class ModelGateway:
     """Tier-routed completions over litellm with fallback, budget, and metering."""
 
@@ -183,9 +197,11 @@ class ModelGateway:
         *,
         policy: ModelPolicy | None = None,
         usage_sink: UsageSink | None = None,
+        spend_guard: SpendGuard | None = None,
     ) -> None:
         self.policy = policy or load_policy()
         self._sink = usage_sink
+        self._spend_guard = spend_guard
 
     async def complete(
         self,
@@ -205,6 +221,10 @@ class ModelGateway:
         """
         if budget is not None:
             budget.check()
+        # The cross-run period budget (operator's daily/weekly/monthly cap) is the
+        # OUTER ceiling: once it's spent, no run — product or ops — may call a model.
+        if self._spend_guard is not None:
+            await self._spend_guard.precheck()
 
         # A wedged provider must not hang the run: per-call timeout tighter than the
         # run deadline so fallback/retry still get a turn (callers override via kwargs).
@@ -241,6 +261,8 @@ class ModelGateway:
 
         if budget is not None:
             budget.charge(cost_usd)
+        if self._spend_guard is not None:
+            self._spend_guard.charge(cost_usd)
         if self._sink is not None:
             self._sink(
                 UsageEvent(

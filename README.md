@@ -2,7 +2,7 @@
 
 > **Documentation:** [Architecture & system design](docs/ARCHITECTURE.md) ·
 > [Repo structure](docs/STRUCTURE.md) · [Agent roster](docs/AGENTS.md) ·
-> [Operating it](docs/OPERATING.md) ·
+> [Operating it](docs/OPERATING.md) · [Security & cost controls](docs/SECURITY.md) ·
 > [Updating the app](docs/UPDATING.md) · [Next steps](docs/NEXT_STEPS.md) ·
 > [Pricing](PRICING.md) · [Releasing](RELEASE.md). These are kept current by the
 > `docs_keeper` ops agent.

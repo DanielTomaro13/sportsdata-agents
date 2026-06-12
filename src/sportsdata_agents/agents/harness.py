@@ -364,13 +364,19 @@ class Harness:
                 return result("budget_exhausted", last_text)
 
             steps += 1
-            reply = await self.provider.complete(
-                messages,
-                tier=tier or self.spec.model_tier,
-                workspace=self.workspace,
-                budget=budget,
-                tools=tool_schemas or None,
-            )
+            try:
+                reply = await self.provider.complete(
+                    messages,
+                    tier=tier or self.spec.model_tier,
+                    workspace=self.workspace,
+                    budget=budget,
+                    tools=tool_schemas or None,
+                )
+            except BudgetExceededError:
+                # The cross-run period budget (operator's daily/weekly/monthly cap) is
+                # spent — the gateway refused the call. End the run cleanly, same as the
+                # per-run ceiling above, rather than surfacing it as a crash.
+                return result("budget_exhausted", last_text)
             messages.append(reply.assistant_message)
             last_text = reply.text or last_text
 

@@ -26,16 +26,27 @@ site_manager, docs_keeper, code_reviewer) is **owner-only by construction**: the
 customer gateway physically cannot open an ops agent, and the only path that
 injects ops tools + platform creds is `agents ops run <agent>`.
 
-The **scheduled** ops jobs are gated by **`SPORTSDATA_OPERATOR`**. Set it on *your*
-deployment:
+The **scheduled** ops jobs, the self-healing handoff, and the in-app operator panel
+are gated by `is_operator()`. This is **cryptographic on a release build** — it
+requires a signed licence carrying the `operator` claim, which only you can mint
+(it needs the private signing key). Issue yourself one and activate it:
 
 ```sh
-export SPORTSDATA_OPERATOR=1
+# on the issuer box (holds SPORTSDATA_LICENSE_PRIVKEY)
+SPORTSDATA_LICENSE_PRIVKEY=... python scripts/license.py issue \
+    --tier pro --to you@example.com --operator --days 0   # 0 = perpetual
+# on your deployment
+agents license --activate <the-token>
 ```
 
-With it set, the conductor runs the full job set incl. platform-maintenance
+On a **source checkout** (no public key baked) `export SPORTSDATA_OPERATOR=1` still
+works as a local convenience — but on a shipped build that env var is **ignored**,
+so a customer cannot grant themselves operator access. See
+[Security & cost controls](SECURITY.md#3-operator-access--only-the-product-owner).
+
+With operator mode on, the conductor runs the full job set incl. platform-maintenance
 (site_manager, eval_benchmark, refresh_books, ops_health) and the self-healing
-incident_triage→repo_improver handoff. **Unset (the default on a customer install)**
+incident_triage→repo_improver handoff. **Off (the default on a customer install)**
 the conductor runs only the data plane: ingest, monitor, custodian, resolve,
 results, steward. A customer never runs your maintenance.
 
@@ -55,8 +66,14 @@ plane). Ops spend is tenant `platform`; product spend is everything else.
 ```sh
 agents costs                       # spend by day/agent/model, ops vs product, last 7d
 agents costs --days 30
-agents costs --set-budget 50 --period monthly    # set a cap; the report flags a breach
+agents costs --set-budget 50 --period monthly    # set a cap — ENFORCED, not just reported
 ```
+
+The budget is a hard ceiling: once the period's spend reaches it, the model gateway
+refuses further calls (runs end as `budget_exhausted`) until the period rolls over —
+covering both your ops maintenance and product spend. Each run is independently
+capped by its per-run ceiling. Details:
+[Security & cost controls](SECURITY.md#1-cost-controls--nobody-exceeds-their-budget).
 
 - **Right model per tier:** edit `models/policy.yaml` (today Haiku/Sonnet/Opus with
   GPT-4o fallbacks). Pin a specific model on an agent via its `model_tier`.

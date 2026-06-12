@@ -1,3 +1,8 @@
+---
+name: prediction_markets
+description: How to read prediction markets (Kalshi, Polymarket) — price-as-probability, resolution rules before any comparison, fees/spread, and comparing exchange contracts to book odds honestly.
+triggers: [prediction market, kalshi, polymarket, event contract, binary contract, resolution, settlement]
+---
 # Prediction markets
 
 Prediction markets (Kalshi, Polymarket) trade **binary/event contracts** that pay 1

@@ -1,3 +1,8 @@
+---
+name: reading_a_racecard
+description: How to read a racecard honestly — barrier/weight/form/scratchings, converting prices to fair probability (overround/vig), cross-book best price, and exotics.
+triggers: [racecard, race card, scratchings, barrier, form string, each-way, same race multi, srm]
+---
 # Reading a racecard
 
 A racecard is the runners for one race with the facts that move prices. Read it in
