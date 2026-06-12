@@ -59,7 +59,7 @@ async def _serve_gateway(stop: asyncio.Event, *, host: str, port: int, demo_only
     )
     server = uvicorn.Server(config)
     # the supervisor owns process signals; uvicorn must not install its own
-    server.install_signal_handlers = lambda: None
+    server.install_signal_handlers = lambda: None  # type: ignore[attr-defined]
     serve_task = asyncio.create_task(server.serve())
     await stop.wait()
     server.should_exit = True
