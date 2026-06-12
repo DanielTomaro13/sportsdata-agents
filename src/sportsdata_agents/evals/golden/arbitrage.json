@@ -1,0 +1,159 @@
+{
+  "boards": [
+    {
+      "name": "orientation_flip_two_way",
+      "fixture": "San Antonio Spurs v New York Knicks",
+      "market": "h2h",
+      "rows": [
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "home",
+          "odds": 2.1,
+          "event_name": "San Antonio Spurs v New York Knicks"
+        },
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "away",
+          "odds": 1.75,
+          "event_name": "San Antonio Spurs v New York Knicks"
+        },
+        {
+          "provider": "sportsbet",
+          "book": "Sportsbet",
+          "selection": "home",
+          "odds": 2.12,
+          "event_name": "New York Knicks v San Antonio Spurs"
+        },
+        {
+          "provider": "sportsbet",
+          "book": "Sportsbet",
+          "selection": "away",
+          "odds": 1.8,
+          "event_name": "New York Knicks v San Antonio Spurs"
+        }
+      ],
+      "expect": {
+        "arbs": 1,
+        "margin_pct": 5.21,
+        "books": [
+          "Sportsbet",
+          "TAB"
+        ]
+      }
+    },
+    {
+      "name": "exchange_no_fold",
+      "fixture": "San Antonio Spurs v New York Knicks",
+      "market": "h2h",
+      "rows": [
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "home",
+          "odds": 1.95,
+          "event_name": "San Antonio Spurs v New York Knicks"
+        },
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "away",
+          "odds": 1.8,
+          "event_name": "San Antonio Spurs v New York Knicks"
+        },
+        {
+          "provider": "kalshi",
+          "book": "Kalshi",
+          "selection": "no san antonio",
+          "odds": 2.2,
+          "event_name": "San Antonio vs New York"
+        },
+        {
+          "provider": "kalshi",
+          "book": "Kalshi",
+          "selection": "san antonio",
+          "odds": 1.9,
+          "event_name": "San Antonio vs New York"
+        }
+      ],
+      "expect": {
+        "arbs": 1,
+        "margin_pct": 3.27,
+        "books": [
+          "Kalshi",
+          "TAB"
+        ]
+      }
+    },
+    {
+      "name": "three_way_draw_kills_the_pair_arb",
+      "fixture": "Arsenal v Chelsea",
+      "market": "h2h",
+      "rows": [
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "home",
+          "odds": 2.6,
+          "event_name": "Arsenal v Chelsea"
+        },
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "draw",
+          "odds": 2.8,
+          "event_name": "Arsenal v Chelsea"
+        },
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "away",
+          "odds": 3.1,
+          "event_name": "Arsenal v Chelsea"
+        },
+        {
+          "provider": "pinnacle",
+          "book": "Pinnacle",
+          "selection": "home",
+          "odds": 2.75,
+          "event_name": "Arsenal v Chelsea"
+        },
+        {
+          "provider": "pinnacle",
+          "book": "Pinnacle",
+          "selection": "away",
+          "odds": 3.4,
+          "event_name": "Arsenal v Chelsea"
+        }
+      ],
+      "expect": {
+        "arbs": 0
+      }
+    },
+    {
+      "name": "single_book_artifact_never_arbs",
+      "fixture": "San Antonio Spurs v New York Knicks",
+      "market": "h2h",
+      "rows": [
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "home",
+          "odds": 2.3,
+          "event_name": "San Antonio Spurs v New York Knicks"
+        },
+        {
+          "provider": "tab",
+          "book": "TAB",
+          "selection": "away",
+          "odds": 2.3,
+          "event_name": "San Antonio Spurs v New York Knicks"
+        }
+      ],
+      "expect": {
+        "arbs": 0
+      }
+    }
+  ]
+}

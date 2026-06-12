@@ -37,7 +37,10 @@ routes and delegates; odds/stats specialists over the live data plane; a modelli
 XGBoost skills); a value scout (vig removal, +EV detection, cross-book best price); a
 backtester (entry-at-prediction-time discipline, CLV vs close); bankroll manager, bet
 tracker and bet notifier (advisory only); a market steward that maintains the market
-dictionary as data; Slack manager; data-analysis agent (sandboxed `run_python`); concierge.
+dictionary as data; an **arb hunter** (deterministic cross-book arbitrage incl.
+exchange-vs-book); a news scout over X/official feeds; Slack manager; data-analysis
+agent (sandboxed `run_python`); concierge — plus six ops agents (health, improver,
+reviewer, evals, triage, site manager) on the separate operations plane.
 Every answer is **grounded** (numbers must come from tool results — a deterministic
 verifier checks), **sourced** (provenance per tool call), **budgeted** (one cost ceiling
 per team run) and **audited** (runs/tool-calls/costs land in the DB when configured).
@@ -122,6 +125,9 @@ cd sportsdata-agents && python3.12 -m venv .venv && .venv/bin/pip install -e ".[
 .venv/bin/agents ingest --once              # one capture cycle across all due feeds
 .venv/bin/agents ingest --once --feed tab_racing_futures   # a single feed
 .venv/bin/agents ingest --loop              # scheduled loop (per-feed cadence)
+.venv/bin/agents schedule --cron 60         # THE CONDUCTOR: one cron line runs everything
+.venv/bin/agents schedule --status          #   per-job state, failures, pacing
+.venv/bin/agents schedule --dry-run         #   what this tick would run
 .venv/bin/agents ingest --once --prune 90   # retention for raw snapshots
 .venv/bin/agents resolve                    # map book events -> shared fixtures
 .venv/bin/agents resolve --dry-run          # count without writing
@@ -151,11 +157,15 @@ persisted-query drift; Entain *sports* REST — including its outrights — is u
 
 ## Status
 
-**P2 complete** — the full quant loop over a discovery-driven, capture-everything odds
-warehouse (10 books × 40+ sports × 1,200+ distinct markets, futures included), event
-resolution with cross-book pricing and resolution-aware settlement, the market-steward
-dictionary loop, and the eval gate. Next (P3): scheduled ingestion deployment,
-Postgres/Timescale migration, market monitor agent. See
+**P3 complete** — everything above plus: the operations plane (six ops agents; the
+self-improvement loop has merged real PRs), the line monitor and **cross-book
+arbitrage watch** (alerts re-measured 5 minutes later for honesty), prediction
+markets (Kalshi/Polymarket) beside the bookmakers on shared fixtures, fantasy +
+agent-builder + Discord, the public site with a recorded demo, and **the conductor**:
+`agents schedule --cron 60` is the ONE crontab line that runs everything — ingest
+with event-proximity pacing (feeds tighten from 30min to 2min as a match approaches),
+nightly settle, weekly ops — and hands persistent failures to the incident_triage
+agent. Next (P4, gated on go/no-go + legal): multi-tenancy, auth, billing. See
 [`BUILD_PLAN.md`](./BUILD_PLAN.md) for the milestone log.
 
 ---

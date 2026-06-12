@@ -569,3 +569,66 @@ async def test_arb_watch_skips_started_events(
         await s.commit()
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
     assert report["alerts"] == 0 and pushed == []
+
+
+async def test_arb_alert_outcome_is_remeasured(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The honesty loop: 5+ minutes after an arb alert fires, the SAME board is
+    re-measured and the outcome stamped into the payload — including when the
+    margin has decayed away."""
+    from sportsdata_agents.data.models import Alert, Subscription
+    from sportsdata_agents.operations.ingestion.normalizers import PricePoint
+    from sportsdata_agents.operations.monitoring import run_watches
+    from sportsdata_agents.operations.resolution import resolve_events
+
+    start = {"start_time": "2026-06-10T11:30:00Z"}
+
+    def board(home: float, away_flipped: float, at: Any) -> Any:
+        return record_points(db_sessionmaker, [
+            PricePoint(provider="sportsbet", book="Sportsbet", sport="afl",
+                       event_external_id="SB20", event_name="Carlton v Essendon",
+                       market="h2h", selection="home", odds=home, meta=start),
+            PricePoint(provider="sportsbet", book="Sportsbet", sport="afl",
+                       event_external_id="SB20", event_name="Carlton v Essendon",
+                       market="h2h", selection="away", odds=1.70, meta=start),
+            PricePoint(provider="tab", book="TAB", sport="afl",
+                       event_external_id="T20", event_name="Essendon v Carlton",
+                       market="h2h", selection="home", odds=away_flipped, meta=start),
+            PricePoint(provider="tab", book="TAB", sport="afl",
+                       event_external_id="T20", event_name="Essendon v Carlton",
+                       market="h2h", selection="away", odds=1.75, meta=start),
+        ], captured_at=at)
+
+    await board(2.10, 2.05, T0)  # 1/2.10 + 1/2.05 ≈ 0.964 — a 3.6% arb
+    assert (await resolve_events(db_sessionmaker))["created"] == 1
+
+    async def pusher(sub: Any, message: str) -> bool:
+        return True
+
+    async with db_sessionmaker() as s:
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="arbs", kind="arb",
+                           params={"threshold_pct": 1.0, "hours": 24 * 365 * 10},
+                           channel="log"))
+        await s.commit()
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
+    assert report["alerts"] == 1 and report["outcomes_measured"] == 0  # too fresh
+    async with db_sessionmaker() as s:
+        alert = (await s.execute(select(Alert).where(Alert.kind == "arb"))).scalar_one()
+        alert.created_at = T2  # the column defaults to REAL now; the test drives a synthetic clock
+        await s.commit()
+
+    # the board decays before the re-measurement window
+    await board(1.90, 1.85, T2 + dt.timedelta(minutes=2))
+    report = await run_watches(db_sessionmaker, pusher=pusher,
+                               now=T2 + dt.timedelta(minutes=6))
+    assert report["outcomes_measured"] == 1
+    async with db_sessionmaker() as s:
+        alert = (await s.execute(select(Alert).where(Alert.kind == "arb"))).scalar_one()
+        outcome = alert.payload["outcome"]
+        assert outcome["still_arb"] is False  # 1/1.90 + 1/1.85 > 1 — margin gone
+        assert outcome["margin_pct_after"] < 0
+    # already measured: never re-stamped
+    report = await run_watches(db_sessionmaker, pusher=pusher,
+                               now=T2 + dt.timedelta(minutes=10))
+    assert report["outcomes_measured"] == 0

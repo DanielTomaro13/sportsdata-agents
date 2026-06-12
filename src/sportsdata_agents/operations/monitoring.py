@@ -464,6 +464,48 @@ async def _push_digest(
     return bool(pending)
 
 
+OUTCOME_MIN_AGE_S = 5 * 60  # measure after the actionable window has passed
+OUTCOME_MAX_AGE_S = 60 * 60  # too old to re-measure meaningfully
+
+
+async def measure_arb_outcomes(session: AsyncSession, *, now: dt.datetime) -> int:
+    """Honesty loop: 5+ minutes after an arb alert fires, re-measure the SAME
+    board and stamp the outcome into the alert payload — "the watch fired" only
+    matters if the margin was still there when a human could have acted. The
+    alert_quality ops tool aggregates these for the weekly eval."""
+    from sportsdata_agents.quant.arbitrage import arb_margin_now
+
+    pending = (
+        await session.execute(
+            select(Alert).where(
+                Alert.kind == "arb",
+                Alert.created_at <= now - dt.timedelta(seconds=OUTCOME_MIN_AGE_S),
+                Alert.created_at >= now - dt.timedelta(seconds=OUTCOME_MAX_AGE_S),
+            )
+        )
+    ).scalars().all()
+    measured = 0
+    for alert in pending:
+        payload = dict(alert.payload or {})
+        if "outcome" in payload or not payload.get("fixture_id"):
+            continue
+        margin_after = await arb_margin_now(
+            session,
+            fixture_id=str(payload["fixture_id"]),
+            market=str(payload.get("market", "h2h")),
+            line=str(payload.get("line", "")),
+            now=now,
+        )
+        payload["outcome"] = {
+            "margin_pct_after": margin_after,
+            "still_arb": bool(margin_after is not None and margin_after > 0),
+            "measured_at": now.isoformat(),
+        }
+        alert.payload = payload  # reassign: JSON columns persist on attribute set
+        measured += 1
+    return measured
+
+
 async def run_watches(
     session_factory: async_sessionmaker[AsyncSession],
     *,
@@ -511,5 +553,9 @@ async def run_watches(
             except Exception as e:  # one broken watch must not sink the pass
                 logger.warning("watch %s (%s) failed: %s", sub.name, sub.kind, e)
                 report[f"error:{sub.name}"] = str(e)
+        try:
+            report["outcomes_measured"] = await measure_arb_outcomes(session, now=now)
+        except Exception as e:  # measurement is bookkeeping — never sink the pass
+            logger.warning("arb outcome measurement failed: %s", e)
         await session.commit()
     return report

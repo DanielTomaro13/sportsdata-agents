@@ -33,6 +33,8 @@ def test_gate_fails_a_deliberately_worse_change() -> None:
         EvalScore(name="clv_backtest", score=baseline["clv_backtest"], details={}),
         EvalScore(name="grounding", score=baseline["grounding"], details={}),
         EvalScore(name="resolution", score=baseline["resolution"], details={}),
+        EvalScore(name="arbitrage", score=baseline["arbitrage"], details={}),
+        EvalScore(name="scheduler", score=baseline["scheduler"], details={}),
     ]
     problems = gate_against_baseline(worse, baseline)
     assert len(problems) == 1 and problems[0].startswith("calibration:")

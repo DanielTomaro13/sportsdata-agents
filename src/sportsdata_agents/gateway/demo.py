@@ -41,6 +41,12 @@ DEMO_PROMPTS: list[dict[str, str]] = [
         "prompt": "Scan the registered models against current prices — is there any value? If so, set a watch on it.",
     },
     {
+        "id": "arb-scan",
+        "title": "Any arbitrage?",
+        "prompt": "Scan for cross-book arbitrage right now — explain what you found, "
+                  "or why a clean board is the honest norm.",
+    },
+    {
         "id": "platform-tour",
         "title": "What can it do?",
         "prompt": "Give me the tour — summarise what this platform can do, grounded in the "
