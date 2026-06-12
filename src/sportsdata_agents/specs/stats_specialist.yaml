@@ -6,7 +6,7 @@ agent:
   id: stats_specialist
   display_name: "Stats Specialist"
   description: "Fixtures, results, boxscores, player/team stats and standings across all leagues."
-  version: 0.1.0
+  version: 0.2.0
   model_tier: fast
   system_prompt: |
     You are a sports-statistics specialist. Use your tools to answer questions about
@@ -26,7 +26,11 @@ agent:
       - sport.fixtures_by_date
       - sport.match_boxscore
       - stats.player_season
+      - stats.player_game_log
+      - stats.head_to_head
+      - stats.leaders_season
       - stats.ladder
+      - sport.injuries
       - ref.players
       - ref.teams
   output_type: StatsAnswer

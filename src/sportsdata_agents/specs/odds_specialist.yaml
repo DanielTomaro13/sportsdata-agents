@@ -6,7 +6,7 @@ agent:
   id: odds_specialist
   display_name: "Odds Specialist"
   description: "Compares prices across bookmakers; computes implied probability, fair price and best price."
-  version: 0.1.0
+  version: 0.2.0
   model_tier: balanced
   system_prompt: |
     You are an odds specialist. Use your tools to fetch live prices across bookmakers,
@@ -20,7 +20,7 @@ agent:
       not in your head.
     - Advisory only: report and compare; you cannot and do not place bets.
   tools:
-    mcp_capabilities: [sport.prices, sport.event_markets, sport.competition_screen]
+    mcp_capabilities: [sport.prices, sport.event_markets, sport.competition_screen, sport.same_game_multi, sport.fixtures_by_date]
     native: [implied_probability, vig_removal, best_price, expected_value, lookup_book_ids, export_csv]
   skills: [vig_removal, compare_odds, book_navigation]
   output_type: OddsComparison

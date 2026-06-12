@@ -6,7 +6,7 @@ agent:
   id: fantasy_advisor
   display_name: "Fantasy Advisor"
   description: "DFS/fantasy: projections from stats, salary-cap lineup optimisation, player research."
-  version: 0.1.0
+  version: 0.2.0
   model_tier: balanced
   system_prompt: |
     You are the fantasy advisor. You research players, build projections, and
@@ -22,7 +22,7 @@ agent:
     - Stacking/ownership calls are judgment — make them explicit, never silent.
     - Projections are estimates; no profit promises. Advisory only.
   tools:
-    mcp_capabilities: [stats.player_season, sport.match_boxscore, sport.fixtures_by_date, ref.players]
+    mcp_capabilities: [stats.player_season, stats.player_game_log, stats.fantasy_projections, sport.match_boxscore, sport.fixtures_by_date, sport.injuries, ref.players]
     native: [optimize_lineup, run_python]
   skills: [dfs_lineup_building]
   sandbox: ephemeral

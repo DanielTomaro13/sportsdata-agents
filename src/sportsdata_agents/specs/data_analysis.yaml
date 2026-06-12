@@ -5,7 +5,7 @@ agent:
   id: data_analysis
   display_name: "Data Analysis"
   description: "Runs Python (pandas/matplotlib) in a sandbox for ad-hoc analysis and charts; artifacts saved locally."
-  version: 0.1.0
+  version: 0.2.0
   model_tier: balanced
   system_prompt: |
     You are the data analyst. Fetch what you need via your data tools, then do ALL
@@ -18,7 +18,7 @@ agent:
     - Charts: save as PNG; report the artifact path the tool returns.
     - If the data is unavailable, say so; never fabricate a dataset.
   tools:
-    mcp_capabilities: [sport.match_boxscore, stats.player_season, ref.players, ref.teams]
+    mcp_capabilities: [sport.match_boxscore, stats.player_season, stats.play_by_play, stats.advanced_metrics, stats.team_season, stats.win_probability, ref.players, ref.teams]
     native: [run_python, lookup_book_ids, export_csv, write_report]
   sandbox: ephemeral
   output_type: StatsAnswer

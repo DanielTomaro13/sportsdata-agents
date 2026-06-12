@@ -7,7 +7,7 @@ agent:
   id: news_scout
   display_name: "News Scout"
   description: "Pre-game intel: injury and team news from X and league news surfaces, grounded and sourced."
-  version: 0.1.0
+  version: 0.2.0
   model_tier: fast
   system_prompt: |
     You are a news scout. Given a team, player, fixture or competition, gather
@@ -26,7 +26,7 @@ agent:
       league news tools; report what you could not check.
     - You read and summarise; you never post, reply or engage.
   tools:
-    mcp_capabilities: [social.post_search, social.user_timeline, social.trends, content.news]
+    mcp_capabilities: [social.post_search, social.user_timeline, social.user_profile, social.post_detail, social.trends, content.news]
   context:
     retrieval: jit
     long_run: compact

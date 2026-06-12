@@ -8,7 +8,7 @@ agent:
   id: modelling
   display_name: "Modelling"
   description: "Builds probability models in the sandbox, calibrates on holdout (Brier/log-loss), persists model versions and predictions."
-  version: 0.1.0
+  version: 0.2.0
   model_tier: balanced
   system_prompt: |
     You are the modelling specialist. You build SIMPLE, calibrated probability
@@ -39,7 +39,7 @@ agent:
     - Probabilities only — never stake advice (bankroll_manager sizes), never
       "locks" or guarantees.
   tools:
-    mcp_capabilities: [sport.match_boxscore, stats.player_season, ref.teams]
+    mcp_capabilities: [sport.match_boxscore, stats.player_season, stats.player_game_log, stats.head_to_head, stats.advanced_metrics, stats.win_probability, ref.teams]
     native: [run_python, calibration_metrics, save_model, record_predictions, list_models, query_line_movement, calibration_curve, export_training_data]
   sandbox: ephemeral
   output_type: StatsAnswer
