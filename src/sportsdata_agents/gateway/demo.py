@@ -26,6 +26,12 @@ DEMO_BUDGET_USD = 0.30
 # extend as specialists gain capabilities.
 DEMO_PROMPTS: list[dict[str, str]] = [
     {
+        "id": "arb-scan",
+        "title": "Any arbitrage?",
+        "prompt": "Scan for cross-book arbitrage right now — explain what you found, "
+                  "or why a clean board is the honest norm.",
+    },
+    {
         "id": "nba-finals",
         "title": "NBA Finals snapshot",
         "prompt": "What's the latest NBA Finals game result, and who leads the series?",
@@ -39,12 +45,6 @@ DEMO_PROMPTS: list[dict[str, str]] = [
         "id": "find-value",
         "title": "Find me value",
         "prompt": "Scan the registered models against current prices — is there any value? If so, set a watch on it.",
-    },
-    {
-        "id": "arb-scan",
-        "title": "Any arbitrage?",
-        "prompt": "Scan for cross-book arbitrage right now — explain what you found, "
-                  "or why a clean board is the honest norm.",
     },
     {
         "id": "platform-tour",
