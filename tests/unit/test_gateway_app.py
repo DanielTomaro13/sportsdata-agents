@@ -276,6 +276,59 @@ async def test_operator_panel_is_404_for_customers_and_live_for_the_operator(
         assert (await c.get("/operator/overview")).json()["budget"]["period"] == "weekly"
 
 
+async def test_operator_actions_gated_and_validated(monkeypatch: Any, tmp_path: Any) -> None:
+    """The operator action triggers are operator-only (404 for customers); run-ops
+    validates the agent against the ops roster and never spawns on bad input."""
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/w.db")
+    import sportsdata_agents.app.wizard as wizard
+
+    monkeypatch.setattr(wizard, "configured_provider", lambda: None)
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+        # customer install: the action routes don't exist
+        monkeypatch.delenv("SPORTSDATA_OPERATOR", raising=False)
+        assert (await c.post("/operator/actions/health")).status_code == 404
+        assert (await c.post("/operator/actions/run-ops", json={"agent": "x"})).status_code == 404
+
+        monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")  # operator (dev build: env honoured)
+        # the overview lists the ops agents the panel offers
+        ov = (await c.get("/operator/overview")).json()
+        ops_agents = ov["ops"]["agents"]
+        assert ops_agents and "incident_triage" in ops_agents
+
+        # health: stub the deterministic check so the test needn't reach a DB/site
+        import sportsdata_agents.operations.health as health_mod
+
+        async def fake_health(_sf: Any) -> dict[str, Any]:
+            return {"ok": True, "doctor": {"ok": True, "output": ""},
+                    "feeds": {"providers_active_6h": 3, "stale_feeds": [], "disabled_feeds": []},
+                    "site": {"ok": True, "latency_ms": 42, "playback_mode": False, "error": None}}
+
+        monkeypatch.setattr(health_mod, "run_health", fake_health)
+        hr = await c.post("/operator/actions/health")
+        assert hr.status_code == 200 and hr.json()["health"]["ok"] is True
+
+        # run-ops: unknown agent → 422 (with the roster); empty prompt → 422; both never spawn
+        bad = await c.post("/operator/actions/run-ops", json={"agent": "not_an_agent", "prompt": "go"})
+        assert bad.status_code == 422 and bad.json()["ops_agents"]
+        empty = await c.post("/operator/actions/run-ops",
+                             json={"agent": ops_agents[0], "prompt": "  "})
+        assert empty.status_code == 422
+
+        # valid run: the subprocess is stubbed so nothing actually launches
+        import subprocess
+
+        spawned: dict[str, Any] = {}
+        monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: spawned.update(argv=argv, kw=kw))
+        ok = await c.post("/operator/actions/run-ops",
+                          json={"agent": ops_agents[0], "prompt": "run your weekly pass"})
+        assert ok.status_code == 200 and ok.json() == {"ok": True, "started": True, "agent": ops_agents[0]}
+        assert spawned["argv"][1:4] == ["ops", "run", ops_agents[0]]
+        assert spawned["kw"].get("start_new_session") is True
+
+
 async def test_foreign_host_is_rejected() -> None:
     """DNS-rebinding defense: a request whose Host isn't local is 403'd, but the
     .app launcher's /healthz probe stays open."""

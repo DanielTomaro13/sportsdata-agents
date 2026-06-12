@@ -56,7 +56,14 @@ results, steward. A customer never runs your maintenance.
 agents ops status        # recent ops runs, open escalations, disabled feeds, job status
 agents ops health        # deterministic: MCP doctor + feed freshness + site (no LLM)
 agents ops run <agent> "<task>"   # run one ops agent by hand (PRs only; you merge)
+agents ops budget-watch  # push a Slack/Discord alert if the budget is breached (hourly job)
 ```
+
+The same triggers are in the **in-app operator panel** (operator builds only): a
+*Run health check* button, a *Run ops agent* picker + instruction box (spawns the
+same `agents ops run`), the budget setter, and a live view of spend/ops state that
+**auto-refreshes**. The budget-breach push also runs automatically as the hourly
+operator-only `budget_watch` conductor job (rate-limited to ~twice a day per breach).
 
 ## Costs & models
 
