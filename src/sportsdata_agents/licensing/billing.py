@@ -82,7 +82,11 @@ def verify_paddle(body: bytes, sig_header: str, secret: str, *, now: float | Non
     ts, h1 = parts.get("ts"), parts.get("h1")
     if not ts or not h1:
         return False
-    if abs((now or time.time()) - int(ts)) > SIGNATURE_MAX_AGE_S:
+    try:  # a non-numeric ts is a forged/garbled header, not a server error
+        ts_val = int(ts)
+    except ValueError:
+        return False
+    if abs((now or time.time()) - ts_val) > SIGNATURE_MAX_AGE_S:
         return False
     signed = f"{ts}:".encode() + body
     expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
@@ -258,15 +262,24 @@ def create_billing_app() -> FastAPI:
         return {"ok": True, "providers": list(product_map().keys())}
 
     async def _process(
-        provider: str, request: Request, verify: Callable[[bytes, str, str], bool]
+        provider: str,
+        request: Request,
+        verify: Callable[[bytes, str, str], bool],
+        sig_header: str,
     ) -> JSONResponse:
         body = await request.body()
         secret = os.environ.get(f"{provider.upper()}_WEBHOOK_SECRET", "")
-        header = request.headers.get("paddle-signature") or request.headers.get("x-signature") or ""
+        # each provider's OWN header only — never accept one provider's signature
+        # scheme on another's endpoint
+        header = request.headers.get(sig_header, "")
         if not verify(body, header, secret):
             return JSONResponse({"ok": False, "error": "bad signature"}, status_code=401)
         try:
-            token = handle_event(provider, json.loads(body))
+            payload = json.loads(body)
+        except ValueError:  # signed-but-garbled body: reject cleanly, never 500
+            return JSONResponse({"ok": False, "error": "body is not valid JSON"}, status_code=400)
+        try:
+            token = handle_event(provider, payload)
         except BillingError as e:
             logger.error("billing error (%s): %s", provider, e)
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
@@ -274,10 +287,52 @@ def create_billing_app() -> FastAPI:
 
     @app.post("/webhook/lemonsqueezy")
     async def ls(request: Request) -> JSONResponse:
-        return await _process("lemonsqueezy", request, verify_lemonsqueezy)
+        return await _process("lemonsqueezy", request, verify_lemonsqueezy, "x-signature")
 
     @app.post("/webhook/paddle")
     async def pad(request: Request) -> JSONResponse:
-        return await _process("paddle", request, verify_paddle)
+        return await _process("paddle", request, verify_paddle, "paddle-signature")
+
+    @app.post("/licence/refresh")
+    async def refresh(request: Request) -> JSONResponse:
+        """{token} → the LATEST licence issued to the same buyer (renewal pickup).
+
+        Auth is the customer's existing token itself: the signature must verify
+        (expiry ignored — a lapsed-but-genuine token identifies a real customer).
+        The newest audit-log entry for that email is returned; a cancelled
+        subscriber simply gets back a token that expired with their last paid
+        period, so this can never extend access — only deliver what renewals
+        already minted. This is what makes short monthly tokens frictionless:
+        `agents license --refresh` instead of pasting a new key every cycle."""
+        from .license import verify_license
+
+        pub = os.environ.get("SPORTSDATA_LICENSE_PUBKEY", "")
+        try:
+            body = json.loads(await request.body())
+        except ValueError:
+            return JSONResponse({"ok": False, "error": "body is not valid JSON"}, status_code=400)
+        presented = str(body.get("token", "")).strip()
+        if not presented:
+            return JSONResponse({"ok": False, "error": "a licence token is required"}, status_code=422)
+        try:
+            claims = verify_license(presented, public_key_b64=pub or None, allow_expired=True)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "token does not verify"}, status_code=401)
+
+        from sportsdata_agents.paths import data_dir
+
+        latest: str | None = None
+        audit = data_dir() / "issued-licenses.jsonl"
+        if audit.is_file():
+            for line in audit.read_text(encoding="utf-8").splitlines():
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("email") == claims.issued_to and rec.get("token"):
+                    latest = str(rec["token"])  # the file is append-ordered: last wins
+        if not latest:
+            return JSONResponse({"ok": False, "error": "no issued licence on record"}, status_code=404)
+        return JSONResponse({"ok": True, "token": latest})
 
     return app

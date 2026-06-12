@@ -18,12 +18,14 @@ deliberately-deferred items.
    to a Release in the **public** `sportsdata-site` repo (the download button points
    there). A cross-repo publish step (PAT) would make this turnkey.
 
-## One open design decision
+## Subscription model (decided)
 
-- **Subscription expiry.** Offline tokens can't be revoked. For monthly plans, mint
-  **short** tokens (`days≈33`) and re-issue on renewal, OR add a **licence-refresh
-  endpoint** the app polls (so the customer never re-activates by hand). Decide
-  before launch. (Details in [../POST_DEV.md](../POST_DEV.md).)
+Monthly plans mint **short tokens** (`days: 33` in the product map); each renewal
+re-issues, and a cancelled subscriber keeps access until the paid period ends.
+Renewal pickup is `agents license --refresh` against the billing app's
+`POST /licence/refresh` (present your current token, get the latest one issued to
+you — it can never extend access beyond what renewals minted). Details in
+[../POST_DEV.md](../POST_DEV.md).
 
 ## Deferred / future (code, not blocking)
 

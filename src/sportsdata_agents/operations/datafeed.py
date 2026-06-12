@@ -163,6 +163,10 @@ def fetch_and_apply(url: str, *, public_key_b64: str | None = None) -> dict[str,
     import urllib.request
 
     pub = public_key_b64 if public_key_b64 is not None else os.environ.get(DATA_PUBKEY_ENV, "")
+    if url.startswith("http://"):
+        # the signature protects integrity either way, but a plaintext feed lets a
+        # network observer see WHAT data the install pulls — prefer https
+        logger.warning("data feed over plain http (%s) — use https", url.split("?")[0])
     with urllib.request.urlopen(url, timeout=30) as resp:
         doc = json.loads(resp.read().decode("utf-8"))
     bundle, signature = doc.get("bundle"), doc.get("signature", "")

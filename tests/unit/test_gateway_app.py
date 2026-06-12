@@ -230,6 +230,16 @@ async def test_foreign_host_is_rejected() -> None:
         assert (await c.get("/healthz")).status_code == 200  # probe exempt
 
 
+async def test_empty_host_is_rejected() -> None:
+    """HTTP/1.1 requires Host and browsers always send it — an empty/absent one is
+    not a legitimate local client, so it is refused too."""
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+        r = await c.post("/message", json={"text": "x"}, headers={"host": ""})
+        assert r.status_code == 403
+
+
 async def test_gateway_token_gates_mutations(monkeypatch: Any) -> None:
     monkeypatch.setenv("SPORTSDATA_GATEWAY_TOKEN", "s3cret")
     app = create_app(session=FakeSession())

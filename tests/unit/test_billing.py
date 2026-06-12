@@ -105,6 +105,62 @@ def test_webhook_app_rejects_bad_signature_and_accepts_good(env: tuple[str, str]
     assert ok.status_code == 200 and ok.json()["issued"] is True
 
 
+def test_paddle_malformed_ts_rejects_not_crashes() -> None:
+    """A garbled signature header must be a clean reject (401 path), never a 500."""
+    assert not billing.verify_paddle(b"{}", "ts=not-a-number;h1=deadbeef", "pd-secret")
+    assert not billing.verify_paddle(b"{}", "ts=;h1=", "pd-secret")
+
+
+def test_provider_signature_headers_are_not_interchangeable(env: tuple[str, str]) -> None:
+    """Each endpoint accepts only its OWN provider's signature header."""
+    client = TestClient(billing.create_billing_app())
+    body = json.dumps({
+        "meta": {"event_name": "order_created"},
+        "data": {"attributes": {"variant_id": "V1", "user_email": "z@z.com"}},
+    }).encode()
+    good_sig = hmac.new(b"ls-secret", body, hashlib.sha256).hexdigest()
+    # the right signature in the WRONG header is rejected
+    r = client.post("/webhook/lemonsqueezy", content=body, headers={"paddle-signature": good_sig})
+    assert r.status_code == 401
+
+
+def test_signed_but_garbled_body_is_400_not_500(env: tuple[str, str]) -> None:
+    client = TestClient(billing.create_billing_app())
+    body = b"this is not json"
+    sig = hmac.new(b"ls-secret", body, hashlib.sha256).hexdigest()
+    r = client.post("/webhook/lemonsqueezy", content=body, headers={"x-signature": sig})
+    assert r.status_code == 400 and "JSON" in r.json()["error"]
+
+
+def test_licence_refresh_round_trip(env: tuple[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    """The subscription loop: an EXPIRED-but-genuine token retrieves the latest
+    renewal token for the same buyer; forged tokens and unknown buyers are refused."""
+    priv, pub = env
+    monkeypatch.setenv("SPORTSDATA_LICENSE_PUBKEY", pub)
+    client = TestClient(billing.create_billing_app())
+
+    old = lic.issue_license(priv, tier="pro", issued_to="sub@x.com", days=-1)  # lapsed
+    new = lic.issue_license(priv, tier="pro", issued_to="sub@x.com", days=33)  # the renewal
+    billing.deliver_license("sub@x.com", old, plan={"tier": "pro", "addons": []})
+    billing.deliver_license("sub@x.com", new, plan={"tier": "pro", "addons": []})
+
+    # presenting the lapsed token returns the LATEST issued one
+    r = client.post("/licence/refresh", json={"token": old})
+    assert r.status_code == 200 and r.json()["token"] == new
+
+    # a forged token never gets a licence back
+    other_priv, _ = lic.generate_keypair()
+    forged = lic.issue_license(other_priv, tier="pro", issued_to="sub@x.com", days=33)
+    assert client.post("/licence/refresh", json={"token": forged}).status_code == 401
+
+    # a genuine token for a buyer with no audit record → 404
+    stranger = lic.issue_license(priv, tier="base", issued_to="nobody@x.com", days=33)
+    assert client.post("/licence/refresh", json={"token": stranger}).status_code == 404
+
+    # no token → 422
+    assert client.post("/licence/refresh", json={}).status_code == 422
+
+
 def test_deliver_emails_when_smtp_configured(env: tuple[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 

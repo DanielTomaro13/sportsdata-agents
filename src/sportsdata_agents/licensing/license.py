@@ -55,11 +55,19 @@ def _b64url_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 
 
-def verify_license(token: str, *, public_key_b64: str | None = None, today: dt.date | None = None) -> LicenseClaims:
+def verify_license(
+    token: str,
+    *,
+    public_key_b64: str | None = None,
+    today: dt.date | None = None,
+    allow_expired: bool = False,
+) -> LicenseClaims:
     """Verify a token's signature + expiry and return its claims, or raise.
 
     No trusted public key (placeholder/empty) → raise, so the caller falls to
-    free tier rather than trusting an unsigned blob."""
+    free tier rather than trusting an unsigned blob. ``allow_expired`` skips ONLY
+    the expiry check (signature still mandatory) — the refresh endpoint uses it
+    to recognise a lapsed-but-genuine customer token."""
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -81,7 +89,7 @@ def verify_license(token: str, *, public_key_b64: str | None = None, today: dt.d
     claims = json.loads(payload)
     expires_raw = claims.get("expires")
     expires = dt.date.fromisoformat(expires_raw) if expires_raw else None
-    if expires is not None and (today or dt.date.today()) > expires:
+    if expires is not None and not allow_expired and (today or dt.date.today()) > expires:
         raise LicenseError(f"license expired on {expires}")
     if claims.get("tier") not in ("base", "plus", "pro"):
         raise LicenseError(f"unknown tier {claims.get('tier')!r}")

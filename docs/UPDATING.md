@@ -56,6 +56,7 @@ both self-serve:
   ```sh
   agents license               # show the current tier + entitlements
   agents license --activate <key>   # apply a new/upgraded licence (stored in the keychain)
+  agents license --refresh     # pick up your latest renewal token (subscriptions)
   ```
 
 A new licence takes effect immediately — the roster, MCP quota and gated features
