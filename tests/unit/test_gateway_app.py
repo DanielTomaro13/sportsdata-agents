@@ -42,7 +42,7 @@ class FakeSession:
 async def client():
     app = create_app(session=FakeSession())
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://gw") as c:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
         yield c
 
 
@@ -106,7 +106,7 @@ async def test_sse_late_join_gets_end_not_a_hang(client: httpx.AsyncClient) -> N
 async def test_healthz_503_before_session_ready() -> None:
     app = create_app(session=None)  # no lifespan run → no session
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://gw") as c:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
         r = await c.get("/healthz")
     assert r.status_code == 503 and r.json()["ok"] is False
 
@@ -136,7 +136,7 @@ async def test_conversation_threads_context_and_persists_turn() -> None:
     store = FakeConvStore()
     app = create_app(session=fake, conversation_store=store)
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://gw") as c:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
         r = await c.post("/conversations/slack-T1/message", json={"text": "and away games?"})
         assert r.status_code == 200
         # the team saw prior turns + the new question
@@ -159,7 +159,7 @@ async def test_artifacts_ride_message_out() -> None:
 
     app = create_app(session=ArtifactSession())
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://gw") as c:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
         r = await c.post("/message", json={"text": "chart it"})
     assert r.json()["artifacts"] == ["artifacts/abc-chart.png"]
 
@@ -181,6 +181,36 @@ def test_rate_limiter_trips() -> None:
     with pytest.raises(Exception, match=r"429|rate limit"):
         rl.check("t1")
     rl.check("t2")  # other tenants unaffected
+
+
+async def test_foreign_host_is_rejected() -> None:
+    """DNS-rebinding defense: a request whose Host isn't local is 403'd, but the
+    .app launcher's /healthz probe stays open."""
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://evil.example.com") as c:
+        assert (await c.post("/message", json={"text": "drive the agent"})).status_code == 403
+        assert (await c.get("/healthz")).status_code == 200  # probe exempt
+
+
+async def test_gateway_token_gates_mutations(monkeypatch: Any) -> None:
+    monkeypatch.setenv("SPORTSDATA_GATEWAY_TOKEN", "s3cret")
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
+        assert (await c.post("/message", json={"text": "x"})).status_code == 401  # no token
+        ok = await c.post("/message", json={"text": "x"}, headers={"X-Sportsdata-Token": "s3cret"})
+        assert ok.status_code == 200
+        assert (await c.get("/agents")).status_code == 200  # GET not gated
+
+
+async def test_demo_node_skips_host_guard() -> None:
+    """The public demo node faces the internet by design (its own gate); the
+    localhost Host guard must NOT apply or it would 403 real visitors."""
+    app = create_app(session=FakeSession(), demo_only=True)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://sportsdata.example") as c:
+        assert (await c.get("/demo/prompts")).status_code == 200  # public, foreign host ok
 
 
 async def test_task_store_error_surfaced() -> None:

@@ -40,6 +40,18 @@ The entitlement/licensing code is DONE and tested (`src/sportsdata_agents/licens
 `PRICING.md`). These three need your accounts/money to switch from "code-complete"
 to "taking payments":
 
+> **⚠ Subscription expiry (decide before launch).** Licences are Ed25519 tokens
+> verified OFFLINE — they cannot be revoked before they expire. For a **monthly**
+> subscription you MUST mint **short** tokens (set `days` ≈ 33 in the product map,
+> NOT 365) so a cancelled subscriber loses access within the period; the renewal
+> webhook (`subscription_updated` / `transaction.completed`) re-issues a fresh token
+> each cycle. Short tokens imply the customer needs the new token each month — wire
+> a **licence-refresh endpoint** (the billing server returns the latest token for an
+> authenticated subscriber) and have the app fetch it, OR accept a longer expiry and
+> the revenue leak on cancellations. This is the one open design decision in the
+> billing model; everything else is built. (The webhook code itself is provider-agnostic
+> and done.)
+
 - [ ] **Generate the license signing keypair** — `python scripts/license.py keygen`
   (run once). Put the PUBLIC key in the build env (`SPORTSDATA_LICENSE_PUBKEY`) so
   shipped builds enforce; keep the PRIVATE key in the payment webhook secret only.

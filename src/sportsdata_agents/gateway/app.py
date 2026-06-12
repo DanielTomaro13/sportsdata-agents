@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -40,6 +41,25 @@ from sportsdata_agents.workspace import Workspace
 logger = logging.getLogger(__name__)
 
 RATE_LIMIT_PER_MINUTE = 30  # per tenant; cost ceilings guard spend, this guards abuse
+
+# The local daemon binds 127.0.0.1, but a Host header isn't the connection address:
+# a malicious web page can DNS-rebind its own domain to 127.0.0.1 and drive this API
+# from the user's browser (spending their model key, reading their data). Rejecting
+# non-local Host headers defeats that — a rebinding page still carries Host=attacker.
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", ""})
+
+
+def _allowed_hosts() -> frozenset[str]:
+    extra = os.environ.get("SPORTSDATA_GATEWAY_ALLOW_HOSTS", "")
+    return _LOCAL_HOSTS | {h.strip().lower() for h in extra.split(",") if h.strip()}
+
+
+def _host_of(header: str) -> str:
+    """The hostname from a Host header, dropping the port and any IPv6 brackets."""
+    h = (header or "").strip().lower()
+    if h.startswith("["):  # [::1]:8765
+        return h[1:].split("]", 1)[0]
+    return h.rsplit(":", 1)[0] if ":" in h else h
 
 
 # ─── request/response models ─────────────────────────────────────────────
@@ -401,6 +421,25 @@ def create_app(
         back into context yet (P2 backlog; durable facts flow via remember/recall)."""
         body.conversation_id = conversation_id
         return await message(body, request, tenant)
+
+    # ─── local-daemon hardening (P4): the non-demo gateway is localhost-only ───
+    # demo_only is the deliberately-public surface (its own gate below); the desktop
+    # daemon must NOT be drivable from a web page via DNS rebinding. We reject foreign
+    # Host headers and, when SPORTSDATA_GATEWAY_TOKEN is set, require it on mutating
+    # requests (defense-in-depth against other local processes). /healthz stays open
+    # for the .app launcher's readiness probe.
+    if not demo_only:
+        @app.middleware("http")
+        async def _local_guard(request: Request, call_next: Any) -> Any:
+            if request.url.path != "/healthz":
+                if _host_of(request.headers.get("host", "")) not in _allowed_hosts():
+                    return JSONResponse({"detail": "forbidden host"}, status_code=403)
+                token = os.environ.get("SPORTSDATA_GATEWAY_TOKEN")
+                if token and request.method not in ("GET", "HEAD", "OPTIONS"):
+                    sent = request.headers.get("x-sportsdata-token") or request.query_params.get("token")
+                    if sent != token:
+                        return JSONResponse({"detail": "missing or invalid token"}, status_code=401)
+            return await call_next(request)
 
     # ─── the web chat UI (M4.2) — served at / when not a public demo node ───
     # The full chat surface is a paid feature; gate it the same way the CLI gates

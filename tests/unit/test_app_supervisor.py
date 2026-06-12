@@ -89,3 +89,23 @@ async def test_conductor_loop_ticks_then_stops(monkeypatch: pytest.MonkeyPatch) 
     stop.set()
     await asyncio.wait_for(task, timeout=2)
     assert ticks and ticks[0]["pace"] == 120  # proximity pacing wired into the loop
+
+
+async def test_supervise_restarts_a_crashing_child_until_stop() -> None:
+    """A child that crashes is restarted with backoff (so a transient gateway error
+    doesn't take the whole app down); a clean stop ends the supervision."""
+    import sportsdata_agents.app.supervisor as sup
+
+    stop = asyncio.Event()
+    calls: list[int] = []
+
+    async def flaky() -> None:
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("boom")  # crash the first two runs
+        stop.set()  # the third run is healthy and we ask to shut down
+
+    await asyncio.wait_for(
+        sup._supervise("t", flaky, stop, base_backoff=0.001, max_backoff=0.005), timeout=2
+    )
+    assert len(calls) == 3  # crashed twice → restarted twice → then stop
