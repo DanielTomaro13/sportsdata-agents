@@ -165,3 +165,24 @@ def test_unlicensed_source_build_is_unrestricted_but_product_build_gates(
     assert ents_mod.current_entitlements().tier == "free"
     with pytest.raises(enforce.EntitlementError):
         enforce.require_full_app()
+
+
+def test_unknown_addons_are_ignored_defensively() -> None:
+    """A mis-issued or future-renamed add-on never silently grants a feature —
+    only catalogue add-ons survive resolution (signature stops injection; this
+    stops our own typos)."""
+    e = entitlements_for_tier("pro", frozenset({"slack", "god_mode", "extra_mcpz"}))
+    assert e.has_addon("slack")
+    assert not e.has_addon("god_mode") and not e.has_addon("extra_mcpz")
+    assert e.addons == frozenset({"slack"})
+
+
+def test_serve_chat_gate_is_independent_of_the_roster_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Base tier (no chat_ui) must not be able to run the chat gateway even
+    though the roster filter would still scope it — the product gate is separate."""
+    from sportsdata_agents.licensing.enforce import EntitlementError, require_chat_ui
+
+    base = entitlements_for_tier("base")
+    assert base.chat_ui is False
+    with pytest.raises(EntitlementError):
+        require_chat_ui(base)

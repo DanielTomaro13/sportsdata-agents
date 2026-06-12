@@ -38,11 +38,11 @@ class Entitlements:
         return self.agents is None or agent_id in self.agents
 
     def effective_mcp_quota(self) -> int:
-        """Base quota plus any purchased extra-MCP packs (each pack = +5)."""
+        """Base quota plus the extra-MCP pack count (license carries the count
+        as ``extra_mcps`` once + a ``packs`` field; today one add-on = one pack)."""
         if self.mcp_quota < 0:
             return -1
-        packs = sum(1 for a in self.addons if a.startswith("extra_mcps"))
-        return self.mcp_quota + packs * 5
+        return self.mcp_quota + (5 if "extra_mcps" in self.addons else 0)
 
 
 # The starter agent set for the entry chat tier — odds + stats + the conductor's
@@ -77,7 +77,11 @@ TIERS: dict[Tier, Entitlements] = {
 
 def entitlements_for_tier(tier: Tier, addons: frozenset[str] | None = None, seats: int = 1) -> Entitlements:
     base = TIERS[tier]
-    return replace(base, addons=addons or frozenset(), seats=seats)
+    # only ever honour add-ons in the catalogue — a mis-issued or unknown add-on
+    # never silently grants a capability (the signature already prevents injection;
+    # this guards against our own issuance typos and renamed add-ons).
+    known = frozenset(a for a in (addons or frozenset()) if a in ADDONS)
+    return replace(base, addons=known, seats=seats)
 
 
 # A source checkout / server deployment with NO baked-in public key is the
