@@ -166,7 +166,9 @@ agent-builder + Discord, the public site with a recorded demo, and **the conduct
 with event-proximity pacing (feeds tighten from 30min to 2min as a match approaches),
 nightly settle, weekly ops — and hands persistent failures to the incident_triage
 agent. Next (P4, gated on go/no-go + legal): multi-tenancy, auth, billing. See
-[`BUILD_PLAN.md`](./BUILD_PLAN.md) for the milestone log.
+[`BUILD_PLAN.md`](./BUILD_PLAN.md) for the milestone log and
+[`POST_DEV.md`](./POST_DEV.md) for everything built-but-switched-off
+(accounts, hosts, and one-command flips).
 
 ---
 
