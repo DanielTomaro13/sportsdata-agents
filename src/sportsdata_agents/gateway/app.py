@@ -275,6 +275,26 @@ def create_app(
         can show the plan and offer a one-click upgrade."""
         return _account_payload()
 
+    @app.get("/skills")
+    async def skills_route() -> dict[str, Any]:
+        """Every skill the platform knows — built-in + learned — so the UI can show
+        what the generalist has grown (learned entries carry a recall count)."""
+        from sportsdata_agents.tools.skillsmith import list_skills
+
+        return await list_skills({})
+
+    @app.post("/skills/remove")
+    async def skills_remove(body: dict[str, Any]) -> JSONResponse:
+        """Prune one LEARNED skill — the user clicking remove in the UI. Built-ins
+        are protected; deletion is deliberately user-initiated, never an agent tool."""
+        from sportsdata_agents.tools.skillsmith import remove_skill
+
+        try:
+            res = remove_skill(str(body.get("name", "")))
+        except ValueError as e:
+            return JSONResponse({"detail": str(e)}, status_code=400)
+        return JSONResponse(res)
+
     @app.post("/account/activate")
     async def activate(body: dict[str, Any]) -> JSONResponse:
         """Activate (or upgrade to) a licence key from the UI: verify it, store it in

@@ -5,6 +5,6 @@ Advisory only: no agent ever places a bet or moves money. See PLAN.md / BUILD_PL
 
 from __future__ import annotations
 
-__version__ = "0.26.1"
+__version__ = "0.27.0"
 
 __all__ = ["__version__"]

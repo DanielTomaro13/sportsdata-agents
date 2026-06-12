@@ -220,6 +220,29 @@ async def test_activate_a_valid_key_upgrades_the_plan(monkeypatch: Any, tmp_path
         assert (await c.get("/account")).json()["tier"] == "pro"
 
 
+async def test_skills_endpoints_list_and_prune(monkeypatch: Any, tmp_path: Any) -> None:
+    """The UI's learned-skills panel: GET /skills shows what the generalist grew,
+    POST /skills/remove prunes one, built-ins are protected."""
+    from sportsdata_agents.tools import skillsmith
+
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path))
+    await skillsmith.create_skill(
+        {"name": "grown", "description": "d", "triggers": ["t"], "body": "b"})
+
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+        listed = (await c.get("/skills")).json()["skills"]
+        mine = [s for s in listed if s["source"] == "user"]
+        assert [s["name"] for s in mine] == ["grown"] and mine[0]["recalls"] == 0
+
+        assert (await c.post("/skills/remove", json={"name": "vig_removal"})).status_code == 400
+        ok = await c.post("/skills/remove", json={"name": "grown"})
+        assert ok.status_code == 200 and ok.json()["removed"] is True
+        listed = (await c.get("/skills")).json()["skills"]
+        assert not [s for s in listed if s["source"] == "user"]
+
+
 async def test_foreign_host_is_rejected() -> None:
     """DNS-rebinding defense: a request whose Host isn't local is 403'd, but the
     .app launcher's /healthz probe stays open."""
