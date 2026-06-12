@@ -3,7 +3,7 @@
     "providers": 21,
     "groups": 68,
     "tools": 393,
-    "as_of": "2026-06-11"
+    "as_of": "2026-06-12"
   },
   "prompts": [
     {
@@ -13,6 +13,10 @@
     {
       "id": "find-value",
       "title": "💎 Find me value"
+    },
+    {
+      "id": "arb-scan",
+      "title": "⚡ Any arbitrage?"
     },
     {
       "id": "nba-finals",
@@ -27,7 +31,8 @@
     "compare-books": "Compare head-to-head odds for tonight's AFL game across the bookmakers.",
     "find-value": "Scan my models against current prices — any value out there? Watch it if so.",
     "nba-finals": "What's the latest NBA Finals result, and who leads the series?",
-    "platform-tour": "Give me the tour — what can this platform actually do?"
+    "platform-tour": "Give me the tour — what can this platform actually do?",
+    "arb-scan": "Scan for cross-book arbitrage right now — explain what you found, or why a clean board is the honest norm."
   },
   "runs": {
     "compare-books": {
@@ -138,7 +143,27 @@
           "latency_ms": 760
         }
       ],
-      "answer": "### The whole desk, in one place\n\n- **Cross-book pricing** — the same match under every bookmaker and prediction market (Kalshi, Polymarket), best price first, with full line-movement history\n- **Standing watches** — line moves, steam, and value alerts pushed to Slack or Discord the moment they fire\n- **Models & backtests** — train calibrated models on captured prices, then replay them honestly: entry at prediction time, CLV measured against the sharp close\n- **Fantasy optimiser** — projections plus a deterministic salary-cap solver, cash or GPP\n- **Build your own agents** — describe what you want in plain English; it wires the data, skills and budgets, versioned so upgrades never break you\n\nEvery answer is grounded in live tool results, with sources attached — across **21 providers, 40+ sports, 1,200+ markets**.\n\n_pick any other prompt above to see one of these in action_"
+      "answer": "### The whole desk, in one place\n\n- **Cross-book pricing** — the same match under every bookmaker and prediction market (Kalshi, Polymarket), best price first, with full line-movement history\n- **Standing watches** — line moves, steam, value and **cross-book arbitrage** alerts pushed to Slack the moment they fire, then re-measured for honesty\n- **Models & backtests** — train calibrated models on captured prices, then replay them honestly: entry at prediction time, CLV measured against the sharp close\n- **Fantasy optimiser** — projections plus a deterministic salary-cap solver, cash or GPP\n- **Build your own agents** — describe what you want in plain English; it wires the data, skills and budgets, versioned so upgrades never break you\n\nEvery answer is grounded in live tool results, with sources attached — across **21 providers, 40+ sports, 1,200+ markets**.\n\n_pick any other prompt above to see one of these in action_"
+    },
+    "arb-scan": {
+      "tool_calls": [
+        {
+          "tool": "arb_hunter",
+          "ok": true,
+          "latency_ms": 1480
+        },
+        {
+          "tool": "find_arbs",
+          "ok": true,
+          "latency_ms": 2350
+        },
+        {
+          "tool": "list_watches",
+          "ok": true,
+          "latency_ms": 45
+        }
+      ],
+      "answer": "### Scanned 312 fresh boards across 11 venues — no arbitrage right now\n\nThat's the honest norm: real arbs are rare and short-lived. Every \"monster margin\" a naive scanner would scream about is filtered here by construction:\n\n- **in-play games** (one stale leg + one live leg fakes huge margins no one can take)\n- **delisted markets** (every leg must have been seen *listed* in the last hour)\n- **mismatched events** (women's/U23 variants never merge with the senior fixture)\n\nWhen a genuine pre-game arb ≥1% appears — including **exchange-vs-book** (Kalshi contract one side, bookmaker the other) — the standing watch fires a Slack alert within 5 minutes, with per-leg books, odds and the equalised stake split. Five minutes later it re-measures the same board and records whether the margin was still takeable — so the weekly report tells you how actionable the alerts really are.\n\n_gross margins — exchange fees, limits and timing are never priced in_"
     }
   }
 }

@@ -9,7 +9,7 @@ agent:
   id: market_steward
   display_name: "Market Steward"
   description: "Audits the warehouse's market names and maintains the canonical dictionary (as data): safe aliases applied, rule-ambiguous ones reported."
-  version: 0.1.0
+  version: 0.1.1
   model_tier: fast
   system_prompt: |
     You maintain the market/sport dictionary that cross-book math depends on.
@@ -34,9 +34,12 @@ agent:
       rugby_league) the same way — event resolution groups by these.
     - Prediction markets (kalshi/polymarket) key markets by STABLE product names:
       a Kalshi series ticker ending in "GAME" (kxnbagame, kxmlbgame, kxuclgame …)
-      is that league's per-game winner line → alias it onto h2h (kxnbagame is
-      already seeded; settlement verified: each contract's YES is one team
-      winning). Series tickers for futures/awards/novelty products get their OWN
+      is that league's per-game winner line → alias it onto h2h (42 leagues
+      are seeded, NBA through World Cup to esports; settlement verified: each
+      contract's YES is one team winning). Watch for DERIVATIVES that merely
+      contain "game": kxwcgoaleverygame ("a goal in every game") is a novelty
+      market, NOT a winner line — deliberately unseeded; treat lookalikes the
+      same. Series tickers for futures/awards/novelty products get their OWN
       family or stay book-local — never h2h. Polymarket names arriving as
       "moneyline"/"spreads"/"totals" are Gamma's own types and the seed already
       maps them.

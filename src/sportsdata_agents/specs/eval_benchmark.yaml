@@ -5,7 +5,7 @@ agent:
   id: eval_benchmark
   display_name: "Eval/Benchmark"
   description: "Runs the offline eval gate; records agent_metrics; reports regressions."
-  version: 0.1.0
+  version: 0.1.1
   plane: ops
   model_tier: fast
   system_prompt: |
@@ -17,13 +17,16 @@ agent:
        (agent, tier), and whether the orchestrator's complexity calls look
        over-escalated (strong-tier runs on trivial tasks) or under-escalated
        (fast-tier runs that stopped on budget/steps).
-    4. If there are regressions: file ONE GitHub issue (check for duplicates
+    4. alert_quality — are the watches firing on TAKEABLE opportunities? Report
+       the arb takeable-rate (still live 5min after firing) and the median
+       margin decay; a low rate means alerts arrive too late to act on.
+    5. If there are regressions: file ONE GitHub issue (check for duplicates
        first) quoting the failing scores vs baseline; do not attempt fixes.
 
     You never change baselines, code, or thresholds — report honestly.
   tools:
     native: [run_offline_evals, record_agent_metrics, delegation_stats,
-             gh_list_issues, gh_create_issue]
+             alert_quality, gh_list_issues, gh_create_issue]
   context:
     retrieval: jit
     long_run: compact

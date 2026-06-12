@@ -310,3 +310,53 @@ async def find_arbs(
         "threshold_pct": threshold_pct,
         "note": note,
     }
+
+
+async def arb_margin_now(
+    session: AsyncSession,
+    *,
+    fixture_id: str,
+    market: str,
+    line: str = "",
+    hours: float = 1.0,
+    now: dt.datetime | None = None,
+) -> float | None:
+    """The CURRENT gross margin of one (fixture, market, line) board — the alert
+    outcome-tracking probe. None when the board is no longer complete (a leg
+    delisted, the event started and dropped off the snapshot window): the
+    opportunity is gone."""
+    fid = uuid.UUID(fixture_id)
+    fixture = await session.get(Fixture, fid)
+    if fixture is None:
+        return None
+    mappings = (
+        await session.execute(select(Event).where(Event.fixture_id == fid))
+    ).scalars().all()
+    cutoff = (now or dt.datetime.now(dt.UTC)) - dt.timedelta(hours=hours)
+    rows: list[dict[str, Any]] = []
+    latest: dict[tuple[str, str, str], tuple[float, str]] = {}
+    for m in mappings:
+        snap_rows = (
+            await session.execute(
+                select(OddsSnapshot.book, OddsSnapshot.selection,
+                       OddsSnapshot.odds, OddsSnapshot.event_name)
+                .where(
+                    OddsSnapshot.provider == m.provider,
+                    OddsSnapshot.event_external_id == m.external_id,
+                    OddsSnapshot.market == market,
+                    OddsSnapshot.captured_at >= cutoff,
+                )
+                .order_by(OddsSnapshot.captured_at)
+            )
+        ).all()
+        for book, selection, odds, event_name in snap_rows:  # last write wins
+            latest[(m.provider, book, selection)] = (float(odds), str(event_name or ""))
+    for (provider, book, selection), (odds, event_name) in latest.items():
+        rows.append({"provider": provider, "book": book, "selection": selection,
+                     "odds": odds, "event_name": event_name})
+    # threshold below any real margin: we want the CURRENT margin even when the
+    # board has decayed negative
+    for arb in arbs_for_fixture(fixture.name, market, rows, threshold_pct=-1000.0):
+        if arb["line"] == line:
+            return float(arb["margin_pct"])
+    return None

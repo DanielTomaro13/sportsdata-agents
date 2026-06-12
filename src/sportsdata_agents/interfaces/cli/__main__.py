@@ -562,7 +562,8 @@ def monitor(
     channel: str = typer.Option("log", "--channel", help='Push target for --add: Slack channel id or "log".'),
 ) -> None:
     """Run one monitoring pass: every active watch scans the price stream since its
-    cursor and fires push alerts (M3.2). Deterministic — no LLM. Cron every 5min."""
+    cursor and fires push alerts (M3.2). Deterministic — no LLM. The conductor
+    (`agents schedule`) runs this every 5 minutes."""
     import asyncio
 
     from dotenv import load_dotenv

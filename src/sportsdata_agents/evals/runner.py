@@ -173,8 +173,60 @@ async def eval_resolution() -> EvalScore:
     )
 
 
+def eval_arbitrage() -> EvalScore:
+    """Arb detection on golden boards: orientation flip and exchange NO-fold must
+    arb at the exact margin; an incomplete 3-way and a single-book artifact must
+    NOT. A regression here manufactures fake money or hides real edges."""
+    from sportsdata_agents.quant.arbitrage import arbs_for_fixture
+
+    data = _golden("arbitrage.json")
+    passed, failed = 0, []
+    for case in data["boards"]:
+        arbs = arbs_for_fixture(case["fixture"], case["market"], case["rows"],
+                                threshold_pct=0.5)
+        expect = case["expect"]
+        ok = len(arbs) == expect["arbs"]
+        if ok and expect["arbs"]:
+            arb = arbs[0]
+            ok = (abs(arb["margin_pct"] - expect["margin_pct"]) <= 0.02
+                  and sorted({leg["book"] for leg in arb["legs"]}) == expect["books"])
+        passed += ok
+        if not ok:
+            failed.append(case["name"])
+    return EvalScore(
+        name="arbitrage",
+        score=round(passed / len(data["boards"]), 6),
+        details={"boards": len(data["boards"]), "failed": failed},
+    )
+
+
+def eval_scheduler() -> EvalScore:
+    """The conductor's due logic across the week's slots: every tick fires
+    exactly the jobs the retired cron lines would have."""
+    import datetime as dt
+
+    from sportsdata_agents.operations.scheduler import due_jobs
+
+    data = _golden("scheduler.json")
+    period = float(data["period_s"])
+    passed, failed = 0, []
+    for case in data["cases"]:
+        now = dt.datetime.fromisoformat(case["now"])
+        names = sorted(j.name for j in due_jobs(now, period))
+        if names == sorted(case["due"]):
+            passed += 1
+        else:
+            failed.append({"now": case["now"], "got": names, "want": sorted(case["due"])})
+    return EvalScore(
+        name="scheduler",
+        score=round(passed / len(data["cases"]), 6),
+        details={"cases": len(data["cases"]), "failed": failed},
+    )
+
+
 async def run_offline_evals() -> list[EvalScore]:
-    return [eval_calibration(), await eval_clv_backtest(), eval_grounding(), await eval_resolution()]
+    return [eval_calibration(), await eval_clv_backtest(), eval_grounding(),
+            await eval_resolution(), eval_arbitrage(), eval_scheduler()]
 
 
 def load_baseline(path: Path | None = None) -> dict[str, float]:

@@ -1,0 +1,81 @@
+{
+  "period_s": 60,
+  "cases": [
+    {
+      "now": "2026-06-16T10:01:30",
+      "due": [
+        "ingest"
+      ]
+    },
+    {
+      "now": "2026-06-16T10:05:30",
+      "due": [
+        "ingest",
+        "monitor"
+      ]
+    },
+    {
+      "now": "2026-06-12T23:30:30",
+      "due": [
+        "ingest",
+        "monitor",
+        "resolve"
+      ]
+    },
+    {
+      "now": "2026-06-12T23:40:30",
+      "due": [
+        "ingest",
+        "monitor",
+        "results"
+      ]
+    },
+    {
+      "now": "2026-06-15T09:00:30",
+      "due": [
+        "ingest",
+        "monitor",
+        "steward"
+      ]
+    },
+    {
+      "now": "2026-06-15T09:30:30",
+      "due": [
+        "ingest",
+        "monitor",
+        "eval_benchmark"
+      ]
+    },
+    {
+      "now": "2026-06-15T10:00:30",
+      "due": [
+        "ingest",
+        "monitor",
+        "site_manager"
+      ]
+    },
+    {
+      "now": "2026-06-14T06:00:30",
+      "due": [
+        "ingest",
+        "monitor",
+        "refresh_books"
+      ]
+    },
+    {
+      "now": "2026-06-14T07:00:30",
+      "due": [
+        "ingest",
+        "monitor",
+        "ops_health"
+      ]
+    },
+    {
+      "now": "2026-06-16T09:00:30",
+      "due": [
+        "ingest",
+        "monitor"
+      ]
+    }
+  ]
+}

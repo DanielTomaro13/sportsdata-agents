@@ -36,7 +36,8 @@ OPS_TOOL_NAMES = {
     "gh_create_issue", "gh_list_issues", "gh_list_prs", "gh_pr_diff",
     "gh_review_pr", "list_repo_files", "read_repo_file", "propose_change",
     "run_doctor", "run_contract_suite", "feed_health", "remediate_feed",
-    "run_offline_evals", "record_agent_metrics", "delegation_stats", "escalate",
+    "run_offline_evals", "record_agent_metrics", "delegation_stats", "alert_quality",
+    "escalate",
     "site_status", "site_audit", "site_traffic", "post_ops_report",
 }
 
@@ -403,6 +404,51 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
             return {"action": "retry", "feed": feed, "report": report.get(feed)}
         return {"action": action, "feed": feed, "disabled_feeds": state["disabled_feeds"]}
 
+    async def alert_quality(args: dict[str, Any]) -> Any:
+        """{days?: 7} → are the watches firing on TAKEABLE opportunities?
+        Per kind: alerts fired; for arbs: how many were re-measured 5min later,
+        how many were still live, and the median margin decay. Aggregates only."""
+        if session_factory is None:
+            raise RuntimeError("alert_quality needs the database configured")
+        import statistics
+
+        from sportsdata_agents.data.models import Alert
+
+        days = float(args.get("days", 7))
+        cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
+        async with session_factory() as session:
+            rows = (
+                await session.execute(select(Alert).where(Alert.created_at >= cutoff))
+            ).scalars().all()
+        by_kind: dict[str, int] = {}
+        decays: list[float] = []
+        measured = still = 0
+        for alert in rows:
+            by_kind[alert.kind] = by_kind.get(alert.kind, 0) + 1
+            if alert.kind != "arb":
+                continue
+            payload = alert.payload or {}
+            outcome = payload.get("outcome")
+            if not outcome:
+                continue
+            measured += 1
+            if outcome.get("still_arb"):
+                still += 1
+            after = outcome.get("margin_pct_after")
+            before = payload.get("margin_pct")
+            if after is not None and before is not None:
+                decays.append(round(float(before) - float(after), 2))
+        return {
+            "days": days,
+            "fired_by_kind": by_kind,
+            "arb_measured": measured,
+            "arb_still_live_after_5m": still,
+            "takeable_rate": round(still / measured, 3) if measured else None,
+            "median_margin_decay_pct": (round(statistics.median(decays), 2) if decays else None),
+            "note": "decay = margin at fire minus margin 5min later; a high takeable "
+                    "rate means alerts arrive while the window is still open",
+        }
+
     async def delegation_stats(args: dict[str, Any]) -> Any:
         """{days?: 7} → how the orchestrator's complexity routing behaved: runs,
         cost and avg latency per (agent, tier) — is it over- or under-escalating?
@@ -678,6 +724,7 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
                "action": {"type": "string", "enum": list(REMEDIATION_ALLOW_LIST)}},
               ["feed", "action"]),
         _tool("delegation_stats", delegation_stats, {"days": {"type": "number"}}, []),
+        _tool("alert_quality", alert_quality, {"days": {"type": "number"}}, []),
         _tool("run_offline_evals", run_offline_evals, {}, []),
         _tool("record_agent_metrics", record_agent_metrics,
               {"agent": {"type": "string"}, "runs": {"type": "integer"},
