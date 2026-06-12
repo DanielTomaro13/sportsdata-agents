@@ -46,10 +46,24 @@ to "taking payments":
   Until this is done every build runs unrestricted (source) / free-tier (if a
   pubkey is set) — no one is gated yet, by design.
 - [ ] **Payment processor** — Paddle or LemonSqueezy (merchant-of-record: they
-  handle GST/VAT for downloadable software so you don't). On a successful charge
-  the webhook calls `sportsdata_agents.licensing.issue_license(privkey, tier=…,
-  issued_to=…, addons=…)` and emails the key; the customer runs `agents license
-  --activate <key>`. A ~50-line webhook is the only server the desktop model needs.
+  handle GST/VAT for downloadable software so you don't). **The webhook server is
+  CODE-COMPLETE and tested** — `src/sportsdata_agents/licensing/billing.py` +
+  `agents billing` (provider-agnostic: a thin adapter per processor verifies the
+  signature and extracts the purchase; the core maps product→tier and calls
+  `issue_license`). What's left is account-side, not code:
+  1. Create a Paddle/LemonSqueezy account, add the product/price for each tier+add-on.
+  2. Set env on the host running `agents billing`: `SPORTSDATA_LICENSE_PRIVKEY`
+     (the signing key from keygen), `SPORTSDATA_BILLING_PRODUCTS` (JSON mapping
+     `{provider: {product_id: {tier, addons, days}}}`), and the webhook secret
+     (`PADDLE_WEBHOOK_SECRET` / `LEMONSQUEEZY_WEBHOOK_SECRET`).
+  3. Point the processor's webhook at `https://…/webhook/paddle` (or
+     `/webhook/lemonsqueezy`) behind a TLS proxy. Signature + replay window are
+     enforced; bad signatures 401, unmapped products 400.
+  4. **Delivery**: today the issued key is appended to `issued-licenses.jsonl` and
+     logged (`deliver_license`). Wire a real email send there (it's the one
+     pluggable seam) so the buyer gets their key automatically; they then run
+     `agents license --activate <key>`. This is the only thing genuinely TODO in code.
+  This ~one small server is the only server the desktop model needs.
 - [ ] **Apple Developer ID** ($99/yr) — sign + notarize the Mac build so Gatekeeper
   doesn't warn on a direct download (NOT App Store review — just `codesign` with the
   Developer ID cert + `notarytool`). Build the bundle with `sh scripts/build-desktop.sh`,

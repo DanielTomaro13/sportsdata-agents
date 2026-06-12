@@ -219,6 +219,40 @@ def license(
 
 
 @app.command()
+def billing(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (put a TLS proxy in front)."),
+    port: int = typer.Option(8090, "--port"),
+) -> None:
+    """Run the payment webhook → license issuer (the one small server). Needs
+    SPORTSDATA_LICENSE_PRIVKEY, SPORTSDATA_BILLING_PRODUCTS, and the per-provider
+    *_WEBHOOK_SECRET. Point Paddle/LemonSqueezy at /webhook/<provider>."""
+    import os
+
+    import uvicorn
+    from dotenv import load_dotenv
+    from rich.console import Console
+
+    load_dotenv()
+    if not os.environ.get("SPORTSDATA_LICENSE_PRIVKEY"):
+        Console().print(
+            "[red]SPORTSDATA_LICENSE_PRIVKEY not set[/red] — generate a keypair with "
+            "`python scripts/license.py keygen` and bake the public half into the build."
+        )
+        raise typer.Exit(1)
+
+    from sportsdata_agents.licensing.billing import create_billing_app, product_map
+
+    providers = list(product_map().keys())
+    if not providers:
+        Console().print(
+            "[yellow]SPORTSDATA_BILLING_PRODUCTS is empty[/yellow] — no products are mapped to "
+            "tiers, so every webhook will 400. See POST_DEV for the JSON shape."
+        )
+    Console().print(f"billing webhook listening on http://{host}:{port}  providers={providers or '—'}")
+    uvicorn.run(create_billing_app(), host=host, port=port)
+
+
+@app.command()
 def setup() -> None:
     """First-run wizard: pick a model provider, store its key in the OS keychain.
     Run once on a fresh desktop install (the app prompts you if it's missing)."""
