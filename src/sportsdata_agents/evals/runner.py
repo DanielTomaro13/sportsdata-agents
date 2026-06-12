@@ -202,21 +202,25 @@ def eval_arbitrage() -> EvalScore:
 
 def eval_scheduler() -> EvalScore:
     """The conductor's due logic across the week's slots: every tick fires
-    exactly the jobs the retired cron lines would have."""
+    exactly the jobs the retired cron lines would have. Evaluated in OPERATOR mode
+    so the full registry (incl. the operator-only maintenance jobs) is covered."""
     import datetime as dt
+    import os
+    from unittest import mock
 
     from sportsdata_agents.operations.scheduler import due_jobs
 
     data = _golden("scheduler.json")
     period = float(data["period_s"])
     passed, failed = 0, []
-    for case in data["cases"]:
-        now = dt.datetime.fromisoformat(case["now"])
-        names = sorted(j.name for j in due_jobs(now, period))
-        if names == sorted(case["due"]):
-            passed += 1
-        else:
-            failed.append({"now": case["now"], "got": names, "want": sorted(case["due"])})
+    with mock.patch.dict(os.environ, {"SPORTSDATA_OPERATOR": "1"}):
+        for case in data["cases"]:
+            now = dt.datetime.fromisoformat(case["now"])
+            names = sorted(j.name for j in due_jobs(now, period))
+            if names == sorted(case["due"]):
+                passed += 1
+            else:
+                failed.append({"now": case["now"], "got": names, "want": sorted(case["due"])})
     return EvalScore(
         name="scheduler",
         score=round(passed / len(data["cases"]), 6),
