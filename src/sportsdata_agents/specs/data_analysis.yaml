@@ -19,7 +19,7 @@ agent:
     - If the data is unavailable, say so; never fabricate a dataset.
   tools:
     mcp_capabilities: [sport.match_boxscore, stats.player_season, ref.players, ref.teams]
-    native: [run_python, lookup_book_ids]
+    native: [run_python, lookup_book_ids, export_csv, write_report]
   sandbox: ephemeral
   output_type: StatsAnswer
   context:
