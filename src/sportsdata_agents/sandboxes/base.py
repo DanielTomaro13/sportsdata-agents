@@ -90,7 +90,9 @@ class LocalSubprocessSandbox:
             work = Path(workdir)
             for name, content in (files or {}).items():
                 target = (work / name).resolve()
-                if not str(target).startswith(str(work.resolve())):
+                # is_relative_to, not a string prefix: the workdir must not match
+                # a sibling whose name merely starts with it
+                if not target.is_relative_to(work.resolve()):
                     raise ValueError(f"file name escapes the sandbox: {name!r}")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)

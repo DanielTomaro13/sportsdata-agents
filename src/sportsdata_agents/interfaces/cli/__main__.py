@@ -183,25 +183,68 @@ def _require_entitlement(feature: str) -> None:
 @app.command()
 def license(
     activate: str | None = typer.Option(None, "--activate", help="Paste a license key to activate it."),
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Fetch your latest licence (renewals) from the billing server."),
+    refresh_url: str | None = typer.Option(None, "--refresh-url",
+                                           help="Override SPORTSDATA_LICENSE_REFRESH_URL."),
 ) -> None:
-    """Show the current tier and entitlements, or activate a license key."""
+    """Show the current tier and entitlements, activate a license key, or refresh
+    a subscription licence (picks up the token your last renewal minted)."""
+    import os
+
     from rich.console import Console
 
     from sportsdata_agents.licensing import current_entitlements, verify_license
-    from sportsdata_agents.licensing.license import KEYCHAIN_LICENSE_NAME
+    from sportsdata_agents.licensing.license import KEYCHAIN_LICENSE_NAME, _token_from_sources
     from sportsdata_agents.secrets import set_keychain_secret
 
     console = Console()
+
+    def _store(token: str) -> None:
+        if not set_keychain_secret(KEYCHAIN_LICENSE_NAME, token):
+            from sportsdata_agents.paths import data_dir
+
+            (data_dir() / "license.key").write_text(token, encoding="utf-8")
+
+    if refresh:
+        url = refresh_url or os.environ.get("SPORTSDATA_LICENSE_REFRESH_URL")
+        if not url:
+            console.print("[red]no refresh URL[/red] — pass --refresh-url or set "
+                          "SPORTSDATA_LICENSE_REFRESH_URL")
+            raise typer.Exit(1)
+        current = _token_from_sources()
+        if not current:
+            console.print("[red]no licence on this machine to refresh[/red] — activate one first")
+            raise typer.Exit(1)
+        import json as _json
+        import urllib.request
+
+        req = urllib.request.Request(url, data=_json.dumps({"token": current}).encode(),
+                                     headers={"content-type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                doc = _json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            console.print(f"[red]refresh failed:[/red] {e}")
+            raise typer.Exit(1) from e
+        token = str(doc.get("token", "")).strip()
+        try:
+            claims = verify_license(token)
+        except Exception as e:
+            console.print(f"[red]the refreshed key did not verify:[/red] {e}")
+            raise typer.Exit(1) from e
+        _store(token)
+        console.print(f"[green]✓ refreshed[/green] — {claims.tier.upper()} tier"
+                      + (f", expires {claims.expires}" if claims.expires else ""))
+        return
+
     if activate:
         try:
             claims = verify_license(activate.strip())
         except Exception as e:
             console.print(f"[red]that key did not verify:[/red] {e}")
             raise typer.Exit(1) from e
-        if not set_keychain_secret(KEYCHAIN_LICENSE_NAME, activate.strip()):
-            from sportsdata_agents.paths import data_dir
-
-            (data_dir() / "license.key").write_text(activate.strip(), encoding="utf-8")
+        _store(activate.strip())
         console.print(f"[green]✓ activated[/green] — {claims.tier.upper()} tier for {claims.issued_to}"
                       + (f", expires {claims.expires}" if claims.expires else ""))
         return

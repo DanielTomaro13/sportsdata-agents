@@ -141,3 +141,27 @@ async def test_escalate_is_durable(tmp_path: Any, monkeypatch: pytest.MonkeyPatc
     assert out["escalated"] is True and out["pushed"] is False
     state = read_ops_state()
     assert state["escalations"][0]["summary"] == "tab feed 401s"
+
+
+async def test_repo_file_access_rejects_prefix_sibling_escape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The repo confinement must be a real path containment check, not a string
+    prefix: '/repo' must NOT grant access to '/repo-evil'."""
+    import sportsdata_agents.tools.ops as ops_mod
+
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "ok.txt").write_text("inside", encoding="utf-8")
+    evil = tmp_path / "repo-evil"
+    evil.mkdir()
+    (evil / "secret.txt").write_text("outside", encoding="utf-8")
+
+    monkeypatch.setattr(ops_mod, "_repo_paths", lambda: {"repo": repo})
+    tools = {t.name: t for t in ops_tools()}
+
+    inside = await tools["read_repo_file"].execute({"repo": "repo", "path": "src/ok.txt"})
+    assert inside["content"] == "inside"
+    for path in ("../repo-evil/secret.txt", "../../repo-evil/secret.txt", "/etc/hosts"):
+        with pytest.raises(ValueError, match="escapes the repo"):
+            await tools["read_repo_file"].execute({"repo": "repo", "path": path})

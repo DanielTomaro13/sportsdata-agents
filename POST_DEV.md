@@ -40,17 +40,16 @@ The entitlement/licensing code is DONE and tested (`src/sportsdata_agents/licens
 `PRICING.md`). These three need your accounts/money to switch from "code-complete"
 to "taking payments":
 
-> **⚠ Subscription expiry (decide before launch).** Licences are Ed25519 tokens
-> verified OFFLINE — they cannot be revoked before they expire. For a **monthly**
-> subscription you MUST mint **short** tokens (set `days` ≈ 33 in the product map,
-> NOT 365) so a cancelled subscriber loses access within the period; the renewal
-> webhook (`subscription_updated` / `transaction.completed`) re-issues a fresh token
-> each cycle. Short tokens imply the customer needs the new token each month — wire
-> a **licence-refresh endpoint** (the billing server returns the latest token for an
-> authenticated subscriber) and have the app fetch it, OR accept a longer expiry and
-> the revenue leak on cancellations. This is the one open design decision in the
-> billing model; everything else is built. (The webhook code itself is provider-agnostic
-> and done.)
+> **✓ Subscription expiry (DECIDED, Daniel 2026-06-13).** Monthly subscriptions mint
+> **short tokens** — set `days: 33` in `SPORTSDATA_BILLING_PRODUCTS` for monthly
+> products (annual plans can use 370). Each renewal webhook re-issues a fresh token;
+> a **cancelled subscriber keeps access until their paid period ends** (the token
+> simply expires with it) — accepted behaviour, no revocation needed. Renewal pickup
+> is frictionless: the billing app exposes **`POST /licence/refresh`** (present the
+> current — even just-expired — token, get back the latest one issued to the same
+> buyer; it can never extend access, only deliver what renewals already minted), and
+> customers run **`agents license --refresh`** (`SPORTSDATA_LICENSE_REFRESH_URL`
+> points at the endpoint, baked into product builds). Nothing left to decide here.
 
 - [ ] **Generate the license signing keypair** — `python scripts/license.py keygen`
   (run once). Put the PUBLIC key in the build env (`SPORTSDATA_LICENSE_PUBKEY`) so

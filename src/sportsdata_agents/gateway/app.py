@@ -46,7 +46,8 @@ RATE_LIMIT_PER_MINUTE = 30  # per tenant; cost ceilings guard spend, this guards
 # a malicious web page can DNS-rebind its own domain to 127.0.0.1 and drive this API
 # from the user's browser (spending their model key, reading their data). Rejecting
 # non-local Host headers defeats that — a rebinding page still carries Host=attacker.
-_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", ""})
+# An ABSENT Host is rejected too (browsers always send one; HTTP/1.1 requires it).
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def _allowed_hosts() -> frozenset[str]:
@@ -484,8 +485,12 @@ def create_app(
                     return JSONResponse({"detail": "forbidden host"}, status_code=403)
                 token = os.environ.get("SPORTSDATA_GATEWAY_TOKEN")
                 if token and request.method not in ("GET", "HEAD", "OPTIONS"):
-                    sent = request.headers.get("x-sportsdata-token") or request.query_params.get("token")
-                    if sent != token:
+                    # header only (query strings leak into access logs); constant-time
+                    # compare so a local probe can't walk the token byte-by-byte
+                    import hmac as _hmac
+
+                    sent = request.headers.get("x-sportsdata-token") or ""
+                    if not _hmac.compare_digest(sent, token):
                         return JSONResponse({"detail": "missing or invalid token"}, status_code=401)
             return await call_next(request)
 

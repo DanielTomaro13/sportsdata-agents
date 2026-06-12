@@ -216,7 +216,8 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         if repo not in repos:
             raise ValueError(f"unknown repo {repo!r}; operator repos: {sorted(repos)}")
         target = (repos[repo] / str(args["path"])).resolve()
-        if not str(target).startswith(str(repos[repo].resolve())):
+        # is_relative_to, not a string prefix: "/repo" must not match "/repo-evil"
+        if not target.is_relative_to(repos[repo].resolve()):
             raise ValueError(f"refused: {args['path']!r} escapes the repo")
         if not target.is_file():
             raise FileNotFoundError(str(args["path"]))
@@ -268,7 +269,8 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         try:
             for f in files:
                 target = (repo_path / str(f["path"])).resolve()
-                if not str(target).startswith(str(repo_path.resolve())):
+                # is_relative_to, not a string prefix: "/repo" must not match "/repo-evil"
+                if not target.is_relative_to(repo_path.resolve()):
                     raise ValueError(f"refused: {f['path']!r} escapes the repo")
                 if "find" in f:  # surgical edit — never reproduce the whole file
                     text = target.read_text(encoding="utf-8")
