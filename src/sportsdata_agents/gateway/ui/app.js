@@ -175,7 +175,22 @@ function renderAccount() {
   ].map(([k, v]) => `<li><span>${k}</span><b>${esc(v)}</b></li>`).join("");
 }
 
-function openAccount() { renderAccount(); $("#acc-msg").textContent = ""; $("#account").hidden = false; }
+async function renderSkills() {
+  // the skills the generalist has authored as it learned this user's needs
+  let learned = [];
+  try {
+    const r = await fetch(`${API}/skills`);
+    if (r.ok) learned = ((await r.json()).skills || []).filter((s) => s.source === "user");
+  } catch { /* panel just stays hidden */ }
+  $("#acc-skills").hidden = learned.length === 0;
+  $("#acc-skill-list").innerHTML = learned.map((s) =>
+    `<li><span class="nm">${esc(s.name)}</span><span class="d">${esc(s.description)}</span>`
+    + (s.recalls ? `<span class="n">used ${s.recalls}×</span>` : "")
+    + `<span class="rm" data-name="${esc(s.name)}" title="Remove this learned skill">✕</span></li>`
+  ).join("");
+}
+
+function openAccount() { renderAccount(); renderSkills(); $("#acc-msg").textContent = ""; $("#account").hidden = false; }
 function closeAccount() { $("#account").hidden = true; }
 
 async function activateKey() {
@@ -215,5 +230,15 @@ $("#acc-close").addEventListener("click", closeAccount);
 $("#account").addEventListener("click", (e) => { if (e.target.id === "account") closeAccount(); });
 $("#acc-activate").addEventListener("click", activateKey);
 $("#acc-upgrade").addEventListener("click", () => { if (account?.upgrade_url) window.open(account.upgrade_url, "_blank"); });
+$("#acc-skill-list").addEventListener("click", async (e) => {
+  const name = e.target?.dataset?.name;
+  if (!name) return;
+  try {
+    await fetch(`${API}/skills/remove`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  } finally { renderSkills(); }
+});
 
 health(); loadAccount(); setInterval(health, 15000); input.focus();

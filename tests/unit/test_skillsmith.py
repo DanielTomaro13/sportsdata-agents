@@ -88,6 +88,43 @@ async def test_overwrite_reports_updated_and_dedupes_triggers(data_dir: Path) ->
     assert (await skillsmith.recall_skill({"name": "method"}))["description"] == "v2"
 
 
+async def test_repeated_recalls_nudge_promotion_to_an_agent(data_dir: Path) -> None:
+    """The growth ladder: a learned skill recalled PROMOTE_NUDGE_AT times starts
+    suggesting promotion into a dedicated agent. Built-in recalls are never counted."""
+    await skillsmith.create_skill(
+        {"name": "hot_method", "description": "d", "triggers": ["t"], "body": "b"})
+    for i in range(skillsmith.PROMOTE_NUDGE_AT - 1):
+        out = await skillsmith.recall_skill({"name": "hot_method"})
+        assert "note" not in out, f"nudged too early (recall {i + 1})"
+    nudged = await skillsmith.recall_skill({"name": "hot_method"})
+    assert "promoting it into a dedicated agent" in nudged["note"]
+
+    # the count is visible to the UI via list_skills
+    row = next(s for s in (await skillsmith.list_skills({}))["skills"] if s["name"] == "hot_method")
+    assert row["recalls"] == skillsmith.PROMOTE_NUDGE_AT
+
+    # built-in skills are curated, not learned — no count, no nudge
+    builtin = await skillsmith.recall_skill({"name": "vig_removal"})
+    assert "note" not in builtin
+
+
+async def test_corrupt_recall_counts_never_break_recall(data_dir: Path) -> None:
+    await skillsmith.create_skill(
+        {"name": "ok", "description": "d", "triggers": ["t"], "body": "b"})
+    (data_dir / "skills" / ".recalls.json").write_text("{not json", encoding="utf-8")
+    out = await skillsmith.recall_skill({"name": "ok"})  # count resets, recall works
+    assert out["name"] == "ok"
+
+
+async def test_large_library_hints_a_prune(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(skillsmith, "LIBRARY_HINT_AT", 2)
+    await skillsmith.create_skill({"name": "one", "description": "d", "triggers": ["t"], "body": "b"})
+    out = await skillsmith.create_skill({"name": "two", "description": "d", "triggers": ["t"], "body": "b"})
+    assert "prunes" in out["note"] and "2 learned skills" in out["note"]
+
+
 def test_remove_skill_is_user_only_and_builtin_protected(data_dir: Path) -> None:
     import asyncio
 

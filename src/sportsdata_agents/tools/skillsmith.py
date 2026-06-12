@@ -31,6 +31,11 @@ SKILLSMITH_TOOL_NAMES = {"create_skill", "list_skills", "recall_skill"}
 
 _NAME = re.compile(r"[a-z0-9][a-z0-9_-]{1,48}")
 
+# growth-loop hints: when a learned skill keeps getting recalled it's a recurring
+# need that may deserve its own agent; when the library sprawls, suggest a prune.
+PROMOTE_NUDGE_AT = 3
+LIBRARY_HINT_AT = 100
+
 
 def _validate_name(name: str) -> str:
     name = str(name).strip().lower()
@@ -51,6 +56,29 @@ def _user_skill_path(name: str) -> Any:
     from sportsdata_agents.paths import skills_dir
 
     return skills_dir() / name / "SKILL.md"
+
+
+def _recall_counts() -> dict[str, int]:
+    """How often each LEARNED skill has been recalled (the promotion signal).
+    A corrupt counts file resets — the count is a hint, never load-bearing."""
+    import json
+
+    from sportsdata_agents.paths import skills_dir
+
+    path = skills_dir() / ".recalls.json"
+    if path.is_file():
+        with contextlib.suppress(Exception):
+            return {str(k): int(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()}
+    return {}
+
+
+def _save_recall_counts(counts: dict[str, int]) -> None:
+    import json
+
+    from sportsdata_agents.paths import skills_dir
+
+    with contextlib.suppress(OSError):  # a hint, never worth failing a recall over
+        (skills_dir() / ".recalls.json").write_text(json.dumps(counts), encoding="utf-8")
 
 
 async def create_skill(args: dict[str, Any]) -> Any:
@@ -88,9 +116,13 @@ async def create_skill(args: dict[str, Any]) -> Any:
     updated = path.is_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-    return {"saved": str(path), "name": name, "updated": updated,
-            "note": ("refined an existing skill" if updated
-                     else "available to recall_skill from now on (this and future sessions)")}
+    note = ("refined an existing skill" if updated
+            else "available to recall_skill from now on (this and future sessions)")
+    library = sum(1 for e in path.parent.parent.iterdir() if (e / "SKILL.md").is_file())
+    if library >= LIBRARY_HINT_AT:
+        note += (f" · the library now holds {library} learned skills — suggest the user prunes "
+                 "stale ones (agents skills --remove <name>)")
+    return {"saved": str(path), "name": name, "updated": updated, "note": note}
 
 
 def remove_skill(name: str) -> dict[str, Any]:
@@ -111,6 +143,9 @@ def remove_skill(name: str) -> dict[str, Any]:
     # tidy up the now-empty skill directory (ignore anything else the user put there)
     with contextlib.suppress(OSError):
         skill_dir.rmdir()
+    counts = _recall_counts()
+    if counts.pop(name, None) is not None:
+        _save_recall_counts(counts)
     return {"removed": True, "name": name}
 
 
@@ -121,7 +156,8 @@ async def list_skills(args: dict[str, Any]) -> Any:
     from sportsdata_agents.agents.skills import builtin_skills_dir, parse_skill_md
     from sportsdata_agents.paths import skills_dir
 
-    out: list[dict[str, str]] = []
+    counts = _recall_counts()
+    out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for source, root in (("user", skills_dir()), ("builtin", builtin_skills_dir())):
         if not root.is_dir():
@@ -135,7 +171,10 @@ async def list_skills(args: dict[str, Any]) -> Any:
             except Exception:  # a malformed skill must not break discovery
                 continue
             seen.add(entry.name)
-            out.append({"name": skill.name, "description": skill.description, "source": source})
+            row: dict[str, Any] = {"name": skill.name, "description": skill.description, "source": source}
+            if source == "user":
+                row["recalls"] = counts.get(skill.name, 0)
+            out.append(row)
     return {"skills": out}
 
 
@@ -149,7 +188,18 @@ async def recall_skill(args: dict[str, Any]) -> Any:
     for root in (skills_dir(), builtin_skills_dir()):
         if (root / name / "SKILL.md").is_file():
             skill = load_skill(name, root)
-            return {"name": skill.name, "description": skill.description, "body": skill.body}
+            out: dict[str, Any] = {"name": skill.name, "description": skill.description, "body": skill.body}
+            if root == skills_dir():  # learned skill: count the recall as a promotion signal
+                counts = _recall_counts()
+                counts[name] = counts.get(name, 0) + 1
+                _save_recall_counts(counts)
+                if counts[name] >= PROMOTE_NUDGE_AT:
+                    out["note"] = (
+                        f"this skill has been recalled {counts[name]} times — a recurring need. "
+                        "Consider promoting it into a dedicated agent (draft_agent_spec → "
+                        "save_agent_spec) so it gets its own data scope and routine."
+                    )
+            return out
     raise FileNotFoundError(f"no skill named {name!r} — use list_skills to see what exists")
 
 

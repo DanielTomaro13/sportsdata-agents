@@ -158,12 +158,26 @@
     .modal .msg{font-size:12.5px;margin-top:10px;min-height:16px}
     .modal .msg.ok{color:#7cf5c8}.modal .msg.err{color:#ff8a8a}
     .modal .x{float:right;cursor:pointer;color:var(--muted,#8aa0bd);font-size:18px;line-height:1}
+    .modal .lsk{margin:0 0 16px}
+    .modal .lsk h3{margin:0 0 6px;font-size:13px;color:var(--muted,#8aa0bd);font-weight:600;
+      text-transform:uppercase;letter-spacing:.04em}
+    .modal .lsk li{display:flex;align-items:center;gap:8px;font-size:13px}
+    .modal .lsk .nm{color:#7cf5c8;font-weight:600;white-space:nowrap}
+    .modal .lsk .d{color:var(--muted,#8aa0bd);overflow:hidden;text-overflow:ellipsis;
+      white-space:nowrap;flex:1}
+    .modal .lsk .n{color:var(--muted,#8aa0bd);font-size:11.5px;white-space:nowrap}
+    .modal .lsk .rm{cursor:pointer;color:var(--muted,#8aa0bd);padding:0 2px}
+    .modal .lsk .rm:hover{color:#ff8a8a}
   </style>
   <div class="card">
     <span class="x" id="acc-close">✕</span>
     <h2>Your plan</h2>
     <div class="plan" id="acc-note"></div>
     <ul id="acc-list"></ul>
+    <div class="lsk" id="acc-skills" hidden>
+      <h3>Learned skills</h3>
+      <ul id="acc-skill-list"></ul>
+    </div>
     <input class="key" id="acc-key" placeholder="Paste a licence key to activate or upgrade" />
     <div class="row">
       <button class="btn primary" id="acc-activate">Activate</button>
