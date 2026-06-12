@@ -193,6 +193,87 @@ async function renderSkills() {
 function openAccount() { renderAccount(); renderSkills(); $("#acc-msg").textContent = ""; $("#account").hidden = false; }
 function closeAccount() { $("#account").hidden = true; }
 
+/* operator console — the panel only exists on the operator's own deployment
+   (the gateway 404s /operator/* unless SPORTSDATA_OPERATOR is set) */
+async function detectOperator() {
+  try {
+    const r = await fetch(`${API}/operator/overview`);
+    if (r.ok) $("#operator").hidden = false;
+  } catch { /* not the operator build — chip stays hidden */ }
+}
+
+function opIcon(status) {
+  return { ok: "✓", warn: "●", missing: "✗", info: "·" }[status] || "·";
+}
+
+async function renderOperator() {
+  const msg = $("#op-msg");
+  msg.textContent = "";
+  let d;
+  try {
+    const r = await fetch(`${API}/operator/overview`);
+    if (!r.ok) throw new Error(`gateway ${r.status}`);
+    d = await r.json();
+  } catch (e) {
+    msg.className = "msg err"; msg.textContent = "Couldn't load the console: " + e.message;
+    return;
+  }
+  $("#op-preflight").innerHTML = (d.preflight?.checks || []).map((c) =>
+    `<li><span class="st ${c.status}">${opIcon(c.status)}</span>` +
+    `<span class="lbl">${esc(c.label)}</span><span class="det">${esc(c.detail)}</span></li>`).join("");
+
+  const costs = d.costs;
+  let costsHtml = "<div class='kv'><span>spend unavailable (warehouse offline)</span></div>";
+  if (costs) {
+    costsHtml = `<div class="kv"><span>Total</span><b>$${costs.total_usd.toFixed(4)}</b></div>`
+      + `<div class="kv"><span>Ops / Product</span><b>$${costs.ops_usd.toFixed(4)} / $${costs.product_usd.toFixed(4)}</b></div>`
+      + Object.entries(costs.by_agent || {}).slice(0, 5).map(([a, v]) =>
+        `<div class="kv"><span>${esc(a)}</span><b>$${v.cost.toFixed(4)} <span style="opacity:.6">(${v.runs})</span></b></div>`).join("");
+    if (d.budget) {
+      const cls = d.budget.breached ? "breach" : "";
+      const spent = d.budget.spent_usd == null ? "?" : `$${d.budget.spent_usd.toFixed(2)}`;
+      const pct = d.budget.pct == null ? "" : ` — ${d.budget.pct}%`;
+      costsHtml += `<div class="kv ${cls}"><span>Budget (${esc(d.budget.period)})</span>` +
+        `<b>${spent} / $${d.budget.cap_usd.toFixed(2)}${pct}${d.budget.breached ? " OVER" : ""}</b></div>`;
+    }
+  }
+  $("#op-costs").innerHTML = costsHtml;
+
+  const ops = d.ops || {};
+  let opsHtml = "";
+  if ((ops.escalations || []).length) {
+    opsHtml += ops.escalations.map((e) =>
+      `<div class="kv"><span style="color:#ff8a8a">⚠ ${esc(e.summary || "?")}</span></div>`).join("");
+  }
+  if ((ops.disabled_feeds || []).length) {
+    opsHtml += `<div class="kv"><span>Disabled feeds</span><b>${esc(ops.disabled_feeds.join(", "))}</b></div>`;
+  }
+  opsHtml += Object.entries(ops.jobs || {}).map(([name, j]) => {
+    const fails = j.consecutive_failures ? ` <span style="color:#ff8a8a">${j.consecutive_failures} fails</span>` : "";
+    return `<div class="kv"><span>${esc(name)}</span><b style="font-weight:400;opacity:.75">${esc(j.schedule || "")}${fails}</b></div>`;
+  }).join("");
+  $("#op-ops").innerHTML = opsHtml || "<div class='kv'><span>nothing to report</span></div>";
+}
+
+function openOperator() { renderOperator(); $("#opmodal").hidden = false; }
+function closeOperator() { $("#opmodal").hidden = true; }
+
+async function setOperatorBudget() {
+  const cap = parseFloat($("#op-cap").value);
+  const msg = $("#op-msg");
+  if (!(cap >= 0)) { msg.className = "msg err"; msg.textContent = "Enter a cap in USD."; return; }
+  try {
+    const r = await fetch(`${API}/operator/budget`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cap_usd: cap, period: $("#op-period").value }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "Couldn't set the budget."; return; }
+    msg.className = "msg ok"; msg.textContent = `Budget set — $${d.budget.cap_usd}/${d.budget.period}.`;
+    renderOperator();
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+}
+
 async function activateKey() {
   const key = $("#acc-key").value.trim();
   const msg = $("#acc-msg");
@@ -241,4 +322,10 @@ $("#acc-skill-list").addEventListener("click", async (e) => {
   } finally { renderSkills(); }
 });
 
-health(); loadAccount(); setInterval(health, 15000); input.focus();
+// operator console wiring (the chip only appears on the operator's deployment)
+$("#operator").addEventListener("click", openOperator);
+$("#op-close").addEventListener("click", closeOperator);
+$("#opmodal").addEventListener("click", (e) => { if (e.target.id === "opmodal") closeOperator(); });
+$("#op-setbudget").addEventListener("click", setOperatorBudget);
+
+health(); loadAccount(); detectOperator(); setInterval(health, 15000); input.focus();
