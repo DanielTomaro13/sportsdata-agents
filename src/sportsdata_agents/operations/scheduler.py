@@ -55,6 +55,16 @@ class Job:
     at: tuple[int, int] | None = None  # (hour, minute) local time
     timeout_s: int = 1800
     paced: bool = False  # ingest only: gets the proximity --pace flag
+    # operator_only jobs maintain the PLATFORM (your site, your repo, your evals,
+    # the shipped catalogue) — they run only on the operator's deployment, never on
+    # a customer's installed app. Gated by SPORTSDATA_OPERATOR (see is_operator).
+    operator_only: bool = False
+
+
+def is_operator() -> bool:
+    """True on the OPERATOR's deployment (you), false on a customer install.
+    Flips the platform-maintenance jobs + the repo-improver escalation on."""
+    return os.environ.get("SPORTSDATA_OPERATOR", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 JOBS: tuple[Job, ...] = (
@@ -74,16 +84,16 @@ JOBS: tuple[Job, ...] = (
         args=("ops", "run", "eval_benchmark",
               "Run your standing weekly evaluation: offline evals vs baseline, "
               "agent_metrics rollups, and the delegation_stats routing-economics report."),
-        log="ops.log", weekday=0, at=(9, 30), timeout_s=1800),
+        log="ops.log", weekday=0, at=(9, 30), timeout_s=1800, operator_only=True),
     Job(name="site_manager",
         args=("ops", "run", "site_manager",
               "Weekly site run: check status, audit against the catalogue, and post "
               "the traffic report. Propose a PR only if there is real drift."),
-        log="site-manager.log", weekday=0, at=(10, 0), timeout_s=1800),
+        log="site-manager.log", weekday=0, at=(10, 0), timeout_s=1800, operator_only=True),
     Job(name="refresh_books", args=("refresh-books",),
-        log="cron.log", weekday=6, at=(6, 0), timeout_s=1800),
+        log="cron.log", weekday=6, at=(6, 0), timeout_s=1800, operator_only=True),
     Job(name="ops_health", args=("ops", "health"),
-        log="cron.log", weekday=6, at=(7, 0), timeout_s=900),
+        log="cron.log", weekday=6, at=(7, 0), timeout_s=900, operator_only=True),
 )
 
 # ─── event-proximity pacing ────────────────────────────────────────────────
@@ -157,8 +167,11 @@ def calendar_due(job: Job, now: dt.datetime, period_s: float) -> bool:
 
 
 def due_jobs(now: dt.datetime, period_s: float, jobs: Sequence[Job] = JOBS) -> list[Job]:
+    operator = is_operator()
     out = []
     for job in jobs:
+        if job.operator_only and not operator:
+            continue  # platform-maintenance jobs never run on a customer install
         if job.interval_s is not None:
             if interval_due(job.interval_s, now.timestamp(), period_s):
                 out.append(job)
@@ -319,6 +332,11 @@ def run_tick(
                 continue
             report.failed.append(job.name)
             logger.warning("job %s failed (rc=%s, %s consecutive)", job.name, returncode, failures)
+            # The self-healing handoff is OPERATOR maintenance (it runs ops agents and
+            # opens PRs to your repo). On a customer install a failed job is just logged
+            # + surfaced by the app's own health/alerts — never spawns an ops agent.
+            if not is_operator():
+                continue
             if failures >= HEALTH_AFTER_FAILURES and job.name != "ops_health":
                 health = next(j for j in jobs if j.name == "ops_health")
                 run(health, [binary, *health.args])

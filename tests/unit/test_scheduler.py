@@ -56,7 +56,8 @@ def test_calendar_due_daily_and_weekly() -> None:
     assert not calendar_due(weekly, monday - dt.timedelta(minutes=5), 60)  # too early
 
 
-def test_registry_covers_the_nine_retired_cron_lines() -> None:
+def test_registry_covers_the_nine_retired_cron_lines(monkeypatch: Any) -> None:
+    monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")  # operator: the full job set runs
     names = {j.name for j in JOBS}
     assert names == {"ingest", "monitor", "custodian", "resolve", "results", "steward",
                      "eval_benchmark", "site_manager", "refresh_books", "ops_health"}
@@ -72,6 +73,19 @@ def test_registry_covers_the_nine_retired_cron_lines() -> None:
     assert fired == names
 
 
+def test_operator_only_jobs_never_run_on_a_customer_install(monkeypatch: Any) -> None:
+    """The platform-maintenance jobs (your site/repo/evals/catalogue) run only on
+    the operator's deployment; a customer's conductor runs just the data plane."""
+    monkeypatch.delenv("SPORTSDATA_OPERATOR", raising=False)  # default = customer
+    operator_only = {"eval_benchmark", "site_manager", "refresh_books", "ops_health"}
+    start = dt.datetime(2026, 6, 15, 0, 0, 30)
+    fired: set[str] = set()
+    for minute in range(7 * 24 * 60):
+        fired |= {j.name for j in due_jobs(start + dt.timedelta(minutes=minute), 60)}
+    assert fired == {"ingest", "monitor", "custodian", "resolve", "results", "steward"}
+    assert not (fired & operator_only)
+
+
 def test_lock_skips_concurrent_run(tmp_path: Any, monkeypatch: Any) -> None:
     monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
     first = acquire_lock("jobx")
@@ -82,8 +96,10 @@ def test_lock_skips_concurrent_run(tmp_path: Any, monkeypatch: Any) -> None:
 
 
 def test_failure_handoff_to_the_error_agent(tmp_path: Any, monkeypatch: Any) -> None:
-    """Consecutive failures: deterministic health first, then ONE triage handoff."""
+    """Consecutive failures: deterministic health first, then ONE triage handoff.
+    The self-healing handoff is operator maintenance (runs ops agents, opens PRs)."""
     monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
+    monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")
     job = Job(name="ingest", args=("ingest", "--once"), log=str(tmp_path / "j.log"),
               interval_s=60, paced=True)
     health = Job(name="ops_health", args=("ops", "health"), log=str(tmp_path / "h.log"))
