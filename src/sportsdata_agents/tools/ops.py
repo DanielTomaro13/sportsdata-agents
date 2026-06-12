@@ -625,28 +625,25 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         return out
 
     async def post_ops_report(args: dict[str, Any]) -> Any:
-        """{title, body} → push an operator report to Slack (OPS_SLACK_CHANNEL).
-        For routine summaries — escalate() is for incidents."""
+        """{title, body} → push an operator report to every configured target
+        (Slack OPS_SLACK_CHANNEL, Discord OPS_DISCORD_WEBHOOK). For routine
+        summaries — escalate() is for incidents."""
+        from sportsdata_agents.observability.notify import operator_broadcast
+
         title = str(args["title"])
         body = str(args.get("body", ""))[:3000]
-        token = os.environ.get("SLACK_BOT_TOKEN")
-        channel = os.environ.get("OPS_SLACK_CHANNEL")
-        if not (token and channel):
-            return {"pushed": False, "reason": "SLACK_BOT_TOKEN/OPS_SLACK_CHANNEL not configured"}
-        import httpx
-
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                "https://slack.com/api/chat.postMessage",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"channel": channel, "text": f":bar_chart: *{title}*\n{body}"},
-            )
-        return {"pushed": bool(response.json().get("ok"))}
+        results = await operator_broadcast(f":bar_chart: *{title}*\n{body}")
+        if not results:
+            return {"pushed": False,
+                    "reason": "no operator target configured (OPS_SLACK_CHANNEL / OPS_DISCORD_WEBHOOK)"}
+        return {"pushed": any(results.values()), "targets": results}
 
     async def escalate(args: dict[str, Any]) -> Any:
         """{summary, details?} → report to the operator: durable ops-state entry +
-        Slack push when configured. The escape hatch for anything outside the
-        remediation allow-list."""
+        a push to every configured target (Slack/Discord). The escape hatch for
+        anything outside the remediation allow-list."""
+        from sportsdata_agents.observability.notify import operator_broadcast
+
         summary = str(args["summary"])
         state = read_ops_state()
         state.setdefault("escalations", []).append({
@@ -656,22 +653,10 @@ def ops_tools(session_factory: async_sessionmaker[AsyncSession] | None = None) -
         })
         state["escalations"] = state["escalations"][-100:]  # bounded — it's a log, not a DB
         write_ops_state(state)
-        pushed = False
-        token = os.environ.get("SLACK_BOT_TOKEN")
-        channel = os.environ.get("OPS_SLACK_CHANNEL")
-        if token and channel:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.post(
-                    "https://slack.com/api/chat.postMessage",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"channel": channel, "text": f":rotating_light: ops escalation: {summary}"},
-                )
-            pushed = bool(response.json().get("ok"))
+        results = await operator_broadcast(f":rotating_light: ops escalation: {summary}")
         logger.warning("ops escalation: %s", summary)
-        return {"escalated": True, "slack_pushed": pushed,
-                "state_file": str(ops_state_path())}
+        return {"escalated": True, "pushed": any(results.values()) if results else False,
+                "targets": results, "state_file": str(ops_state_path())}
 
     def _tool(name: str, fn: Any, props: dict[str, Any], required: list[str]) -> ToolDef:
         return ToolDef(

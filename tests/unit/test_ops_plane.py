@@ -84,14 +84,15 @@ async def test_post_ops_report_needs_config() -> None:
     import os
 
     tools = {t.name: t for t in ops_tools()}
-    saved = {k: os.environ.pop(k, None) for k in ("SLACK_BOT_TOKEN", "OPS_SLACK_CHANNEL")}
+    saved = {k: os.environ.pop(k, None)
+             for k in ("SLACK_BOT_TOKEN", "OPS_SLACK_CHANNEL", "OPS_DISCORD_WEBHOOK")}
     try:
         result = await tools["post_ops_report"].execute({"title": "t"})
     finally:
         for k, v in saved.items():
             if v is not None:
                 os.environ[k] = v
-    assert result == {"pushed": False, "reason": "SLACK_BOT_TOKEN/OPS_SLACK_CHANNEL not configured"}
+    assert result["pushed"] is False and "no operator target" in result["reason"]
 
 
 async def test_remediation_allow_list_is_closed() -> None:
@@ -132,10 +133,11 @@ async def test_propose_change_refuses_main_and_escapes(tmp_path: Any) -> None:
 async def test_escalate_is_durable(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
     monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("OPS_DISCORD_WEBHOOK", raising=False)
     from sportsdata_agents.tools.ops import read_ops_state
 
     tools = {t.name: t for t in ops_tools()}
     out = await tools["escalate"].execute({"summary": "tab feed 401s", "details": "HTTP 401 x3"})
-    assert out["escalated"] is True and out["slack_pushed"] is False
+    assert out["escalated"] is True and out["pushed"] is False
     state = read_ops_state()
     assert state["escalations"][0]["summary"] == "tab feed 401s"

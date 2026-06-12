@@ -346,6 +346,12 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 
 **Goal:** a second tenant on a paid tier with isolated data, enforced entitlements + budgets.
 
+- [ ] **Kalshi structured targets → player-prop resolution** (carried from the P3 reviews):
+  Kalshi's entity registry (`kalshi_structured_targets` — players, teams, companies with
+  source ids) can anchor PLAYER-level resolution the way fixtures anchor match-level —
+  player-prop markets across books joined to one entity, prop arbs and prop CLV on top.
+  Build when player props become a product surface; no consumer before then.
+
 ### M4.1 — Multi-tenancy hardening
 - [ ] Postgres **Row-Level Security** on; per-tenant isolation tests (a tenant cannot read another's rows).
 - [ ] Per-workspace secrets in **Vault/cloud KMS**; BYO keys vs platform keys separated (`§8.1`).

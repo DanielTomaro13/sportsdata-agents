@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -50,23 +49,12 @@ Pusher = Callable[[Subscription, str], Awaitable[bool]]
 
 
 async def slack_pusher(subscription: Subscription, message: str) -> bool:
-    """Push to the subscription's Slack channel; False (logged) when unconfigured."""
-    token = os.environ.get("SLACK_BOT_TOKEN")
-    if not token or subscription.channel in ("", "log"):
-        logger.info("alert (log): %s", message)
-        return False
-    import httpx
+    """Route the alert to the subscription's channel — a Slack channel id,
+    "discord[:ENV_VAR]" for a webhook, or "log". (The name predates Discord
+    parity; this is the platform router.)"""
+    from sportsdata_agents.observability.notify import push_to_channel
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": subscription.channel, "text": message},
-        )
-    ok = bool(response.json().get("ok"))
-    if not ok:
-        logger.warning("slack push failed: %s", response.text[:200])
-    return ok
+    return await push_to_channel(subscription.channel or "", message)
 
 
 def _pct_move(prev: float, new: float) -> float:
