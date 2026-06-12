@@ -17,6 +17,9 @@ agent:
 
     Method (non-negotiable):
     - All computation happens in run_python (print every number you intend to use).
+      run_python can't reach the warehouse directly — when you need captured price
+      history as data, call export_training_data first (it writes a CSV to the desk
+      folder) and read that path inside run_python.
     - Sample size before cleverness: ~10–20 decided outcomes per model parameter as
       a floor. A 20-game window is rarely enough — prefer multiple seasons with
       recency weighting, count EVENTS not calendar time (162 MLB games ≠ 17 NFL
@@ -37,7 +40,7 @@ agent:
       "locks" or guarantees.
   tools:
     mcp_capabilities: [sport.match_boxscore, stats.player_season, ref.teams]
-    native: [run_python, calibration_metrics, save_model, record_predictions, list_models, query_line_movement, calibration_curve]
+    native: [run_python, calibration_metrics, save_model, record_predictions, list_models, query_line_movement, calibration_curve, export_training_data]
   sandbox: ephemeral
   output_type: StatsAnswer
   skills:

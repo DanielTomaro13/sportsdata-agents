@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from sportsdata_agents.agents.harness import ToolDef
+from sportsdata_agents.tools.desk import DESK_TOOLS
 
 
 def _implied_probability(odds: float) -> float:
@@ -428,6 +429,8 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
         },
         execute=_optimize_lineup_tool,
     ),
+    # Desk-folder export tools (P4 §4.2) — session-less, always available.
+    **DESK_TOOLS,
 }
 
 

@@ -298,7 +298,45 @@ def setup() -> None:
     else:
         console.print(f"[yellow]verified, but no keychain available[/yellow] — set "
                       f"[bold]{provider.key_env}[/bold] in your environment or .env.")
+
+    from sportsdata_agents.paths import desk_dir, set_desk_dir
+
+    default_desk = desk_dir()
+    chosen = Prompt.ask("\nDesk folder for exports (boards, CSVs, reports)", default=str(default_desk))
+    if chosen and chosen != str(default_desk):
+        set_desk_dir(chosen)
+        console.print(f"[green]✓ desk folder set to[/green] [cyan]{chosen}[/cyan]")
     console.print("\nRun [bold]agents app[/bold] to start the desktop daemon.")
+
+
+@app.command()
+def desk(
+    set_path: str | None = typer.Option(None, "--set", help="Set the desk folder to this path (persisted)."),
+) -> None:
+    """Show (or set) the desk folder — where agents export boards, CSVs and
+    reports for you to open. The Cursor-workspace equivalent."""
+    import os
+
+    from rich.console import Console
+
+    from sportsdata_agents.paths import desk_dir, set_desk_dir
+
+    console = Console()
+
+    if set_path:
+        resolved = set_desk_dir(set_path)
+        console.print(f"[green]✓ desk folder set to[/green] [cyan]{resolved}[/cyan]")
+        return
+    current = desk_dir()
+    console.print(f"desk folder: [cyan]{current}[/cyan]")
+    if os.environ.get("SPORTSDATA_AGENTS_DESK_DIR"):
+        console.print("[dim](from SPORTSDATA_AGENTS_DESK_DIR — the env var overrides --set)[/dim]")
+    files = sorted(p.name for p in current.iterdir() if p.is_file()) if current.is_dir() else []
+    if files:
+        console.print(f"[dim]{len(files)} file(s): {', '.join(files[:10])}{' …' if len(files) > 10 else ''}[/dim]")
+    else:
+        console.print("[dim]empty — ask an agent to export a board or a report here.[/dim]")
+    console.print("Change it with [bold]agents desk --set /path/you/open[/bold].")
 
 
 @app.command(name="app")

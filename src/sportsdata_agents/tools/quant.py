@@ -28,6 +28,7 @@ QUANT_TOOL_NAMES = {
     "query_line_movement",
     "run_backtest",
     "record_result",
+    "export_training_data",
 }
 
 
@@ -209,6 +210,75 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         )
         return {"event_external_id": args["event_external_id"], "movement": moves}
 
+    async def export_training_data(args: dict[str, Any]) -> Any:
+        """{event_external_ids: [...], market?, book?, filename?} → write a flat
+        per-(event, market, selection, book) feature table to the DESK FOLDER and
+        return the path. The modelling sandbox (run_python, same machine) can't
+        reach the DB — this is the bridge: it reads the file to fit/calibrate.
+
+        Features per row: open/close/min/max odds, n_points (change-points seen),
+        drift_pct. The settled outcome (1/0) and winning_selection are joined when
+        the result is unambiguous; left blank otherwise (never guessed)."""
+        events = [str(e) for e in (args.get("event_external_ids") or []) if str(e).strip()]
+        if not events:
+            raise ValueError("event_external_ids must be a non-empty list")
+        market = args.get("market")
+        book = args.get("book")
+
+        # Results loaded once. The ext-id label is used only when every provider
+        # that reported this event agrees — a cross-provider disagreement (five
+        # books share one numeric id namespace) drops to unlabeled rather than guess.
+        async with session_factory() as session:
+            result_rows = (
+                await session.execute(
+                    select(EventResult).where(EventResult.event_external_id.in_(events))
+                )
+            ).scalars().all()
+        winner_by_ext: dict[str, str | None] = {}
+        for r in result_rows:
+            if r.event_external_id not in winner_by_ext:
+                winner_by_ext[r.event_external_id] = r.winning_selection
+            elif winner_by_ext[r.event_external_id] != r.winning_selection:
+                winner_by_ext[r.event_external_id] = None  # ambiguous → no label
+
+        out_rows: list[dict[str, Any]] = []
+        labeled = 0
+        for ext in events:
+            moves = await line_movement(session_factory, event_external_id=ext, market=market, book=book)
+            groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+            for m in moves:  # already ordered by changed_at
+                groups.setdefault((m["market"], m["selection"], m["book"]), []).append(m)
+            winner = winner_by_ext.get(ext)
+            for (mk, sel, bk), series in groups.items():
+                odds_vals = [s["odds"] for s in series]
+                open_odds, close_odds = series[0]["odds"], series[-1]["odds"]
+                outcome: int | str = ""
+                if winner is not None:
+                    outcome = 1 if str(sel).lower() == str(winner).lower() else 0
+                    labeled += 1
+                out_rows.append({
+                    "event_external_id": ext, "market": mk, "selection": sel, "book": bk,
+                    "n_points": len(series),
+                    "open_odds": round(open_odds, 4), "close_odds": round(close_odds, 4),
+                    "min_odds": round(min(odds_vals), 4), "max_odds": round(max(odds_vals), 4),
+                    "drift_pct": round((close_odds - open_odds) / open_odds * 100, 4) if open_odds else "",
+                    "first_seen": series[0]["changed_at"], "last_seen": series[-1]["changed_at"],
+                    "winning_selection": winner or "",
+                    "outcome": outcome,
+                })
+        if not out_rows:
+            raise ValueError("no captured prices for those events — nothing to export")
+
+        from sportsdata_agents.tools.desk import export_csv
+
+        columns = ["event_external_id", "market", "selection", "book", "n_points",
+                   "open_odds", "close_odds", "min_odds", "max_odds", "drift_pct",
+                   "first_seen", "last_seen", "winning_selection", "outcome"]
+        filename = str(args.get("filename") or "").strip() or f"training-{events[0]}.csv"
+        saved = await export_csv({"filename": filename, "rows": out_rows, "columns": columns})
+        return {**saved, "events": len(events), "labeled": labeled,
+                "note": "read this path in run_python (same machine) to fit/calibrate"}
+
     def _tool(name: str, fn: Any, props: dict[str, Any], required: list[str]) -> ToolDef:
         return ToolDef(
             name=name,
@@ -296,5 +366,20 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 "book": {"type": "string"},
             },
             ["event_external_id"],
+        ),
+        _tool(
+            "export_training_data",
+            export_training_data,
+            {
+                "event_external_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Events to export the captured price history for",
+                },
+                "market": {"type": "string", "description": "Optional market filter, e.g. 'h2h'"},
+                "book": {"type": "string", "description": "Optional bookmaker filter"},
+                "filename": {"type": "string", "description": "Desk-folder CSV name (default training-<event>.csv)"},
+            },
+            ["event_external_ids"],
         ),
     ]

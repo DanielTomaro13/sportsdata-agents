@@ -99,14 +99,55 @@ def log_path(name: str) -> Path:
     return logs_dir() / name
 
 
+def _desk_config_path() -> Path:
+    """Where `set_desk_dir` persists the user's chosen desk folder."""
+    return data_dir() / "desk_dir.txt"
+
+
 def desk_dir() -> Path:
     """The user-chosen 'desk' folder agents export reports/CSVs into — the
-    Cursor-workspace equivalent. Defaults under the data dir until the wizard
-    sets ``SPORTSDATA_AGENTS_DESK_DIR`` to somewhere the user actually opens."""
+    Cursor-workspace equivalent.
+
+    Resolution order: ``SPORTSDATA_AGENTS_DESK_DIR`` (env, for servers/tests) →
+    the persisted choice from ``agents desk --set`` → the default under the data
+    dir. The folder is created so callers can write into it immediately."""
     override = os.environ.get("SPORTSDATA_AGENTS_DESK_DIR")
-    path = Path(override) if override else data_dir() / "desk"
+    if override:
+        path = Path(override)
+    else:
+        config = _desk_config_path()
+        saved = config.read_text(encoding="utf-8").strip() if config.is_file() else ""
+        path = Path(saved) if saved else data_dir() / "desk"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def set_desk_dir(path: str | Path) -> Path:
+    """Persist the user's desk-folder choice (used by `agents desk --set` and the
+    setup wizard). The env var, when set, still wins at read time."""
+    resolved = Path(path).expanduser().resolve()
+    resolved.mkdir(parents=True, exist_ok=True)
+    _desk_config_path().write_text(str(resolved), encoding="utf-8")
+    return resolved
+
+
+def resolve_desk_path(name: str) -> Path:
+    """Resolve an agent-supplied filename to a path INSIDE the desk folder.
+
+    The export tools (§4.2) let agents write files the user opens — but an agent
+    must only ever write *into* the desk folder, never outside it. Subfolders are
+    allowed (``boards/afl.csv``); absolute paths and ``..`` traversal are rejected.
+    The parent directory is created so callers can just open the returned path.
+    """
+    name = str(name).strip()
+    if not name:
+        raise ValueError("a filename is required")
+    base = desk_dir().resolve()
+    candidate = (base / name).resolve()
+    if candidate == base or (base != candidate and base not in candidate.parents):
+        raise ValueError(f"{name!r} escapes the desk folder — use a plain filename")
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    return candidate
 
 
 def migrate_legacy_layout() -> list[str]:

@@ -163,6 +163,11 @@ usable end-to-end on a user machine.
   served from the daemon. *Exit gate: a full desk session — ask for arbs,
   watch the tool feed stream, manage a watch, export a board to the desk
   folder — entirely from the browser UI.*
+  **Delivered:** chat UI shipped (v0.16.0); the **desk folder + export tools**
+  shipped (v0.18.0) — `export_csv`/`write_report` (any agent, scoped to the
+  desk folder, traversal-safe) and `export_training_data` (the DB→file bridge
+  so the modelling sandbox can read captured price history). `agents desk
+  [--set]` + the setup wizard let the user pick where exports land.
 - **M4.3 — Package & sign (macOS arm64 first):** Tauri shell wrapping M4.2,
   sidecar bundling (python-build-standalone), menubar + start-at-login, DMG +
   notarization, auto-updater, brew cask. *Exit gate: a signed DMG installs on
