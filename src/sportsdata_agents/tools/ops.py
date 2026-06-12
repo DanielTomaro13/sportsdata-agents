@@ -58,9 +58,9 @@ _OUTPUT_CAP = 20_000  # chars of subprocess/diff output returned to the model
 
 
 def ops_state_path() -> Path:
-    root = Path(os.environ.get("SPORTSDATA_AGENTS_VAR_DIR", str(Path.home() / ".sportsdata-agents")))
-    root.mkdir(parents=True, exist_ok=True)
-    return root / "ops_state.json"
+    from sportsdata_agents.paths import ops_dir
+
+    return ops_dir() / "ops_state.json"
 
 
 def read_ops_state() -> dict[str, Any]:

@@ -19,7 +19,6 @@ from __future__ import annotations
 import datetime as dt
 import gzip
 import logging
-import os
 import shutil
 import sqlite3
 from pathlib import Path
@@ -75,10 +74,9 @@ def plan_retention(free_pct: float) -> int | None:
 
 
 def backups_dir() -> Path:
-    base = os.environ.get("SPORTSDATA_AGENTS_VAR_DIR") or str(Path.home() / ".sportsdata-agents")
-    path = Path(base) / "backups"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    from sportsdata_agents.paths import backups_dir as _backups
+
+    return _backups()
 
 
 def backup_warehouse(db_path: Path, *, keep: int = BACKUP_KEEP) -> Path | None:

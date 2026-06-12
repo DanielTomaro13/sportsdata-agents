@@ -27,7 +27,8 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.env == "dev"
     assert s.default_tenant == "local"
     assert s.mcp_command == ["sportsdata-mcp"]
-    assert "postgresql" in s.database_url
+    # desktop default: the durable sqlite warehouse under the OS data dir
+    assert s.database_url.startswith("sqlite+aiosqlite:///") and "warehouse.db" in s.database_url
 
 
 def test_settings_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:

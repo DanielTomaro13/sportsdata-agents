@@ -34,13 +34,14 @@ _TIER_LABELS = {"fast": "Fast", "balanced": "Balanced", "strong": "Smart"}
 
 
 def user_specs_dir() -> Path:
-    root = Path(os.environ.get(
-        "SPORTSDATA_AGENTS_USER_SPECS_DIR",
-        str(Path(os.environ.get("SPORTSDATA_AGENTS_VAR_DIR",
-                                str(Path.home() / ".sportsdata-agents"))) / "specs"),
-    ))
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    override = os.environ.get("SPORTSDATA_AGENTS_USER_SPECS_DIR")
+    if override:
+        root = Path(override)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    from sportsdata_agents.paths import specs_dir
+
+    return specs_dir()
 
 
 def capability_labels() -> dict[str, dict[str, str]]:
