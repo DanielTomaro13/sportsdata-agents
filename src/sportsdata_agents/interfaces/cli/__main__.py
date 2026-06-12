@@ -559,7 +559,8 @@ def migrate_warehouse_cmd(
 def monitor(
     watch: str | None = typer.Option(None, "--add", help='Create a watch inline: "name:kind:threshold" '
                                                          '(e.g. "big-moves:line_move:8").'),
-    channel: str = typer.Option("log", "--channel", help='Push target for --add: Slack channel id or "log".'),
+    channel: str = typer.Option("log", "--channel", help='Push target for --add: Slack channel id, '
+                                                         '"discord[:ENV_VAR]" (webhook), or "log".'),
 ) -> None:
     """Run one monitoring pass: every active watch scans the price stream since its
     cursor and fires push alerts (M3.2). Deterministic — no LLM. The conductor

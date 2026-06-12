@@ -59,20 +59,34 @@ DEMO_PROMPTS: list[dict[str, str]] = [
 
 class ToolTraceRecorder:
     """A RunRecorder that keeps tool NAMES + timings (the demo's 'watch it work'
-    feed) and never the arguments or results — nothing sensitive can leak."""
+    feed) and never the arguments or results — nothing sensitive can leak.
+    Forwards to ``inner`` (the DbRecorder when the DB is up) so the session gets
+    the DB-backed tools — without it the find-value/arb chips answer
+    "database unavailable" (found live re-recording the demo)."""
 
-    def __init__(self) -> None:
+    def __init__(self, inner: Any = None) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.inner = inner
+
+    def usage_sink(self, event: Any) -> None:
+        sink = getattr(self.inner, "usage_sink", None)
+        if sink is not None:
+            sink(event)
 
     async def on_run_start(self, **kw: Any) -> None:
-        return
+        if self.inner:
+            await self.inner.on_run_start(**kw)
 
     async def on_tool_call(self, *, run_id: uuid.UUID, tool: str, arguments: dict[str, Any],
                            ok: bool, latency_ms: int) -> None:
         self.calls.append({"tool": tool, "ok": ok, "latency_ms": latency_ms})
+        if self.inner:
+            await self.inner.on_tool_call(run_id=run_id, tool=tool, arguments=arguments,
+                                          ok=ok, latency_ms=latency_ms)
 
     async def on_run_end(self, **kw: Any) -> None:
-        return
+        if self.inner:
+            await self.inner.on_run_end(**kw)
 
 
 def demo_prompt(prompt_id: str) -> dict[str, str]:
@@ -84,11 +98,15 @@ def demo_prompt(prompt_id: str) -> dict[str, str]:
 
 async def run_demo(prompt_id: str) -> dict[str, Any]:
     """One curated demo run in a fresh, budget-capped session."""
-    from sportsdata_agents.gateway.service import TeamSession, detect_tier_overrides
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.repository import TenantScope
+    from sportsdata_agents.gateway.service import TeamSession, detect_tier_overrides, try_db_recorder
     from sportsdata_agents.workspace import Budgets, Workspace
 
     entry = demo_prompt(prompt_id)  # KeyError -> 404 at the route
-    trace = ToolTraceRecorder()
+    trace = ToolTraceRecorder(
+        inner=await try_db_recorder(get_settings(), TenantScope("demo", "demo"))
+    )
     workspace = Workspace(
         tenant_id="demo", workspace_id="demo",
         model_tiers=detect_tier_overrides(),

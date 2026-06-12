@@ -12,6 +12,7 @@ venv/
 # Env / secrets
 .env
 .env.*
+!.env.example
 *.local
 secrets/
 
