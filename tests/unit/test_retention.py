@@ -110,3 +110,37 @@ def test_backup_refuses_to_eat_the_last_headroom(
     monkeypatch.setattr(retention, "disk_status",
                         lambda p: {"db_bytes": 10_000, "free_bytes": 100, "free_pct": 1.0})
     assert retention.backup_warehouse(db) is None  # skipped, not forced
+
+
+async def test_hourly_runs_in_a_low_disk_tier_stay_quiet(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A box parked under pressure must not backup/VACUUM/page the operator
+    every hour — each heavy action carries its own cadence."""
+    monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
+    db_url = f"sqlite+aiosqlite:///{tmp_path}/wh.db"
+    await _seed_warehouse(db_url)
+    monkeypatch.setattr(retention, "disk_status",
+                        lambda p: {"db_bytes": 1000, "free_bytes": 10**9, "free_pct": 7.0})
+    pushes: list[str] = []
+
+    async def fake_broadcast(text: str) -> dict[str, bool]:
+        pushes.append(text)
+        return {"slack": True}
+
+    import sportsdata_agents.observability.notify as notify
+    monkeypatch.setattr(notify, "operator_broadcast", fake_broadcast)
+
+    t0 = dt.datetime.now(dt.UTC)
+    first = await retention.run_custodian(db_url, now=t0)
+    assert first["action"] == "prune" and first["pruned"] == 1
+    assert first["backup"].endswith(".db.gz") and first.get("vacuumed") is True
+    assert first.get("escalated") is True and len(pushes) == 1
+
+    # one hour later, same tier: no second backup, no VACUUM, no page
+    second = await retention.run_custodian(db_url, now=t0 + dt.timedelta(hours=1))
+    assert second["action"] == "prune"
+    assert "backup" not in second  # daily cadence holds it
+    assert "vacuumed" not in second  # weekly cadence (and nothing left to prune)
+    assert "escalated" not in second and len(pushes) == 1  # daily cooldown
+    assert len(list((tmp_path / "backups").glob("warehouse-*.db.gz"))) == 1
