@@ -10,6 +10,8 @@ console (`ops run`, `ops health`). Run `agents --help` for the full list.
 
 from __future__ import annotations
 
+from typing import Any
+
 import typer
 
 from sportsdata_agents import __version__
@@ -356,6 +358,87 @@ def setup(
         set_desk_dir(chosen)
         console.print(f"[green]✓ desk folder set to[/green] [cyan]{chosen}[/cyan]")
     console.print("\nRun [bold]agents app[/bold] to start the desktop daemon.")
+
+
+@app.command()
+def config(
+    verify: bool = typer.Option(False, "--verify", help="Also make one live model call to test the key."),
+) -> None:
+    """Inventory + validate the whole backend config — what's set, missing, or just
+    informational — grouped by what it's for. One screen of operator preflight."""
+    from rich.console import Console
+
+    from sportsdata_agents.operations.preflight import run_preflight, summarise
+
+    console = Console()
+    checks = run_preflight(verify=verify)
+    icon = {"ok": "[green]✓[/green]", "warn": "[yellow]●[/yellow]",
+            "missing": "[red]✗[/red]", "info": "[dim]·[/dim]"}
+    last_group = ""
+    for c in checks:
+        if c.group != last_group:
+            console.print(f"\n[bold]{c.group}[/bold]")
+            last_group = c.group
+        console.print(f"  {icon[c.status]} {c.label:30} [dim]{c.detail}[/dim]")
+    s = summarise(checks)
+    console.print(f"\n[bold]{s['ok']} ok[/bold] · {s['warn']} warn · "
+                  f"[red]{s['missing']} missing[/red] · {s['info']} info")
+
+
+@app.command()
+def costs(
+    days: int = typer.Option(7, "--days", help="Window for the spend report."),
+    set_budget: float | None = typer.Option(None, "--set-budget", help="Set a spend cap (USD)."),
+    period: str = typer.Option("monthly", "--period", help="Budget period: daily | weekly | monthly."),
+) -> None:
+    """Model spend — by day, agent and model, ops vs product — against your budget.
+    `--set-budget 50 --period monthly` sets a cap; the report flags a breach."""
+    import asyncio
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.operations import costs as cost_mod
+
+    console = Console()
+    if set_budget is not None:
+        try:
+            b = cost_mod.set_budget(set_budget, period)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1) from e
+        console.print(f"[green]✓ budget set[/green] — ${b['cap_usd']:.2f} / {b['period']}")
+        return
+
+    async def _run() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        engine = make_engine(get_settings().database_url)
+        try:
+            sf = make_sessionmaker(engine)
+            return await cost_mod.spend_report(sf, days=days), await cost_mod.budget_status(sf)
+        finally:
+            await engine.dispose()
+
+    report, budget = asyncio.run(_run())
+    console.print(f"[bold]Spend (last {days}d):[/bold] ${report['total_usd']:.4f}  "
+                  f"[dim]({report['runs']} runs · ops ${report['ops_usd']:.4f} · "
+                  f"product ${report['product_usd']:.4f})[/dim]")
+    if budget:
+        colour = "red" if budget["breached"] else ("yellow" if budget["pct"] >= 80 else "green")
+        console.print(f"[bold]Budget:[/bold] ${budget['spent_usd']:.2f} / ${budget['cap_usd']:.2f} "
+                      f"this {budget['period']} — [{colour}]{budget['pct']:.0f}%"
+                      f"{' · OVER BUDGET' if budget['breached'] else ''}[/{colour}]")
+    else:
+        console.print("[dim]no budget set — `agents costs --set-budget <USD>`[/dim]")
+    if report["by_agent"]:
+        console.print("\n[bold]Top agents:[/bold]")
+        for agent, v in list(report["by_agent"].items())[:8]:
+            err = f" [red]{v['errors']} err[/red]" if v["errors"] else ""
+            console.print(f"  {agent:24} ${v['cost']:.4f}  [dim]{v['runs']} runs{err}[/dim]")
+    if report["by_model"]:
+        console.print("\n[bold]By model:[/bold]")
+        for model, c in list(report["by_model"].items())[:6]:
+            console.print(f"  {model:36} ${c:.4f}")
 
 
 @app.command()
@@ -815,6 +898,75 @@ def ops_health() -> None:
             await engine.dispose()
 
     asyncio.run(_run())
+
+
+@ops_app.command(name="status")
+def ops_status(
+    limit: int = typer.Option(10, "--limit", help="How many recent ops runs to show."),
+) -> None:
+    """What the ops plane has been doing FOR YOU: recent ops-agent runs, open
+    incidents/escalations, disabled feeds, and the scheduled-job status."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    from rich.console import Console
+
+    from sportsdata_agents.operations.scheduler import is_operator
+    from sportsdata_agents.operations.scheduler import status as job_status
+    from sportsdata_agents.tools.ops import read_ops_state
+
+    console = Console()
+    mode = "[green]ON[/green]" if is_operator() else "[yellow]off[/yellow] (ops jobs paused on this install)"
+    console.print(f"[bold]Operator mode:[/bold] {mode}")
+
+    state = read_ops_state()
+    escalations = state.get("escalations") or []
+    disabled = state.get("disabled_feeds") or []
+    if escalations:
+        console.print(f"\n[bold red]Open escalations ({len(escalations)}):[/bold red]")
+        for e in escalations[-5:]:
+            console.print(f"  • {e.get('summary', '?')} [dim]{e.get('at', '')}[/dim]")
+    if disabled:
+        console.print(f"\n[yellow]Disabled feeds:[/yellow] {', '.join(disabled)}")
+
+    # recent ops-plane agent runs (tenant=platform)
+    async def _runs() -> list[Any]:
+        from sqlalchemy import desc, select
+
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.data.models import AgentRun
+
+        engine = make_engine(get_settings().database_url)
+        try:
+            async with make_sessionmaker(engine)() as s:
+                return list((await s.execute(
+                    select(AgentRun).where(AgentRun.tenant_id == "platform")
+                    .order_by(desc(AgentRun.created_at)).limit(limit)
+                )).scalars().all())
+        finally:
+            await engine.dispose()
+
+    try:
+        runs = asyncio.run(_runs())
+    except Exception as e:  # DB down → still show the rest
+        runs = []
+        console.print(f"[dim](recent runs unavailable: {e})[/dim]")
+    if runs:
+        console.print("\n[bold]Recent ops runs:[/bold]")
+        for r in runs:
+            mark = "[green]✓[/green]" if r.status == "ok" else ("[red]✗[/red]" if r.status == "error" else "·")
+            when = r.created_at.strftime("%m-%d %H:%M") if r.created_at else "?"
+            console.print(f"  {mark} {r.agent:18} ${float(r.cost_usd):.4f} [dim]{when}[/dim]")
+
+    console.print("\n[bold]Scheduled jobs:[/bold]")
+    for name, info in job_status().items():
+        last = info.get("last_run") or "never"
+        fails = info.get("consecutive_failures", 0)
+        flag = f" [red]{fails} fails[/red]" if fails else ""
+        console.print(f"  {name:18} [dim]{info.get('schedule', '')} · last {last}{flag}[/dim]")
 
 
 @app.command(name="dictionary-promote")
