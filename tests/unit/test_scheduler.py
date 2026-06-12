@@ -58,8 +58,10 @@ def test_calendar_due_daily_and_weekly() -> None:
 
 def test_registry_covers_the_nine_retired_cron_lines() -> None:
     names = {j.name for j in JOBS}
-    assert names == {"ingest", "monitor", "resolve", "results", "steward",
+    assert names == {"ingest", "monitor", "custodian", "resolve", "results", "steward",
                      "eval_benchmark", "site_manager", "refresh_books", "ops_health"}
+    custodian = next(j for j in JOBS if j.name == "custodian")
+    assert custodian.interval_s == 3600  # hourly pressure check; the run decides hold/prune
     ingest = next(j for j in JOBS if j.name == "ingest")
     assert ingest.paced and ingest.interval_s == 60
     # one full week at 60s ticks fires every job at least once
@@ -116,3 +118,17 @@ def test_failure_handoff_to_the_error_agent(tmp_path: Any, monkeypatch: Any) -> 
     from sportsdata_agents.tools.ops import read_ops_state
 
     assert read_ops_state()["job_failures"]["ingest"] == 0
+
+
+def test_paced_feeds_floor_only_the_fast_tiers() -> None:
+    """Flooring the 60-minute firehoses made one cycle outlast the racing
+    cadence (observed live: racing silent 40+min) — pace scopes to ≤15min."""
+    from sportsdata_agents.operations.ingestion import FEEDS
+    from sportsdata_agents.operations.ingestion.worker import paced_feeds
+
+    paced = {f.name: f.interval_s for f in paced_feeds(list(FEEDS.values()), 120)}
+    assert paced["unibet_all"] == 120  # hot tier accelerates
+    assert paced["kalshi_all"] == 120  # prediction tier accelerates
+    assert paced["fanduel_racing_win"] == 120  # already fast, floor is a no-op direction
+    assert paced["sportsbet_books"] == 3600  # firehose tiers NEVER accelerate
+    assert paced["tab_racing_futures"] == 3600

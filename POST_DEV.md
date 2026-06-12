@@ -43,11 +43,12 @@ any order, whenever. (Anything requiring actual code lives in
   with `--allow-nonempty`), point `SPORTSDATA_AGENTS_DATABASE_URL` at it,
   un-comment the conductor. The mover was dry-run-verified on 864k rows.
 - [ ] **Hosted gateway + live demo flip** — the site is playback-only
-  (`window.GATEWAY_URL = null`). Turn on: host `agents serve` somewhere
-  public, set `window.GATEWAY_URL` in `site/index.html`, redeploy. Before
-  flipping, do the one small dev item attached to this: bump the demo budget
-  (12 tool calls/16 steps truncates compare-books) and the two "Slack" →
-  "Slack or Discord" copy lines in `site/demo-fallback.json`.
+  (`window.GATEWAY_URL = null`). Turn on: host **`agents serve --demo-only`**
+  (⚠️ the ONLY mode safe to face the internet until P4 auth — the full
+  gateway trusts headers for tenancy and would be an open model-spend
+  endpoint), set `window.GATEWAY_URL` in `site/index.html`, redeploy. Before
+  flipping, bump the demo budget (12 tool calls/16 steps truncates
+  compare-books).
 - [ ] **Polymarket feed** — built, tested, ops-disabled because the Gamma edge
   geo-blocks AU. Turn on (from any non-blocked host): remove
   `polymarket_all` from `disabled_feeds` in `~/.sportsdata-agents/ops_state.json`

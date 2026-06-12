@@ -312,8 +312,14 @@ async def _watch_value(
                 f"{float(pred.prob):.0%} at {float(latest.odds):.2f} = +{edge:.1f}% edge"
                 + await _cross_book_line(session, latest)
             )
+            payload = {
+                "edge_pct": round(edge, 2), "prob": float(pred.prob),
+                "min_edge_pct": min_edge, "provider": latest.provider,
+                "book": latest.book, "event_external_id": pred.event_external_id,
+                "market": pred.market, "selection": pred.selection,
+            }
             if await _fire(session, sub, kind="value", key=key, message=message,
-                           payload={"edge_pct": round(edge, 2)}, pusher=pusher):
+                           payload=payload, pusher=pusher):
                 fired += 1
         elif previously is not None and previously.payload.get("edge_pct", 0) > 0:
             message = (
@@ -457,16 +463,16 @@ OUTCOME_MAX_AGE_S = 60 * 60  # too old to re-measure meaningfully
 
 
 async def measure_arb_outcomes(session: AsyncSession, *, now: dt.datetime) -> int:
-    """Honesty loop: 5+ minutes after an arb alert fires, re-measure the SAME
-    board and stamp the outcome into the alert payload — "the watch fired" only
-    matters if the margin was still there when a human could have acted. The
-    alert_quality ops tool aggregates these for the weekly eval."""
+    """Honesty loop: 5+ minutes after an arb or value alert fires, re-measure
+    the SAME opportunity and stamp the outcome into the payload — "the watch
+    fired" only matters if it was still takeable when a human could have acted.
+    The alert_quality ops tool aggregates these for the weekly eval."""
     from sportsdata_agents.quant.arbitrage import arb_margin_now
 
     pending = (
         await session.execute(
             select(Alert).where(
-                Alert.kind == "arb",
+                Alert.kind.in_(("arb", "value")),
                 Alert.created_at <= now - dt.timedelta(seconds=OUTCOME_MIN_AGE_S),
                 Alert.created_at >= now - dt.timedelta(seconds=OUTCOME_MAX_AGE_S),
             )
@@ -475,20 +481,50 @@ async def measure_arb_outcomes(session: AsyncSession, *, now: dt.datetime) -> in
     measured = 0
     for alert in pending:
         payload = dict(alert.payload or {})
-        if "outcome" in payload or not payload.get("fixture_id"):
+        if "outcome" in payload:
             continue
-        margin_after = await arb_margin_now(
-            session,
-            fixture_id=str(payload["fixture_id"]),
-            market=str(payload.get("market", "h2h")),
-            line=str(payload.get("line", "")),
-            now=now,
-        )
-        payload["outcome"] = {
-            "margin_pct_after": margin_after,
-            "still_arb": bool(margin_after is not None and margin_after > 0),
-            "measured_at": now.isoformat(),
-        }
+        if alert.kind == "arb":
+            if not payload.get("fixture_id"):
+                continue
+            margin_after = await arb_margin_now(
+                session,
+                fixture_id=str(payload["fixture_id"]),
+                market=str(payload.get("market", "h2h")),
+                line=str(payload.get("line", "")),
+                now=now,
+            )
+            payload["outcome"] = {
+                "margin_pct_after": margin_after,
+                "still_arb": bool(margin_after is not None and margin_after > 0),
+                "measured_at": now.isoformat(),
+            }
+        else:  # value: the edge at the CURRENT listed price
+            prob = payload.get("prob")
+            if prob is None or not payload.get("event_external_id"):
+                continue  # pre-enrichment alerts can't be re-measured
+            row = (
+                await session.execute(
+                    select(OddsSnapshot.odds)
+                    .where(
+                        OddsSnapshot.provider == str(payload.get("provider", "")),
+                        OddsSnapshot.event_external_id == str(payload["event_external_id"]),
+                        OddsSnapshot.market == str(payload.get("market", "")),
+                        OddsSnapshot.selection == str(payload.get("selection", "")),
+                        OddsSnapshot.captured_at >= now - dt.timedelta(hours=1),
+                    )
+                    .order_by(OddsSnapshot.captured_at.desc())
+                    .limit(1)
+                )
+            ).scalar()
+            edge_after = (float(prob) * float(row) - 1.0) * 100.0 if row is not None else None
+            payload["outcome"] = {
+                "edge_pct_after": round(edge_after, 2) if edge_after is not None else None,
+                "still_value": bool(
+                    edge_after is not None
+                    and edge_after >= float(payload.get("min_edge_pct", 0))
+                ),
+                "measured_at": now.isoformat(),
+            }
         alert.payload = payload  # reassign: JSON columns persist on attribute set
         measured += 1
     return measured
