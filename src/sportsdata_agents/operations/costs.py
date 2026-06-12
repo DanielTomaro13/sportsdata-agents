@@ -62,6 +62,12 @@ def _period_start(period: str, now: dt.datetime) -> dt.datetime:
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)  # monthly
 
 
+def period_start(period: str, now: dt.datetime | None = None) -> dt.datetime:
+    """Start of the budget window containing ``now`` (public; the guard tracks
+    rollovers by watching this value change)."""
+    return _period_start(period, now or dt.datetime.now(dt.UTC))
+
+
 async def spend_report(
     session_factory: async_sessionmaker[AsyncSession],
     *,

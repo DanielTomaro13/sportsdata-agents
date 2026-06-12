@@ -392,7 +392,9 @@ def costs(
     period: str = typer.Option("monthly", "--period", help="Budget period: daily | weekly | monthly."),
 ) -> None:
     """Model spend — by day, agent and model, ops vs product — against your budget.
-    `--set-budget 50 --period monthly` sets a cap; the report flags a breach."""
+    `--set-budget 50 --period monthly` sets a cap. The cap is ENFORCED, not just
+    reported: once the period's spend reaches it, the model gateway refuses further
+    calls (runs end as `budget_exhausted`) until the period rolls over."""
     import asyncio
 
     from rich.console import Console
@@ -408,7 +410,8 @@ def costs(
         except ValueError as e:
             console.print(f"[red]{e}[/red]")
             raise typer.Exit(1) from e
-        console.print(f"[green]✓ budget set[/green] — ${b['cap_usd']:.2f} / {b['period']}")
+        console.print(f"[green]✓ budget set[/green] — ${b['cap_usd']:.2f} / {b['period']} "
+                      f"[dim](enforced: model calls are refused once this is spent)[/dim]")
         return
 
     async def _run() -> tuple[dict[str, Any], dict[str, Any] | None]:

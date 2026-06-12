@@ -186,3 +186,63 @@ def test_serve_chat_gate_is_independent_of_the_roster_filter(monkeypatch: pytest
     assert base.chat_ui is False
     with pytest.raises(EntitlementError):
         require_chat_ui(base)
+
+
+# ─── operator grant: cryptographic, not an env var ────────────────────────────
+
+
+def test_operator_claim_round_trips_and_is_absent_by_default(keypair: tuple[str, str]) -> None:
+    """Only a token minted with operator=True carries the grant; ordinary
+    customer tokens never do (so they can never satisfy is_operator)."""
+    priv, pub = keypair
+    op = lic.verify_license(
+        lic.issue_license(priv, tier="pro", issued_to="owner", operator=True, days=0),
+        public_key_b64=pub,
+    )
+    cust = lic.verify_license(
+        lic.issue_license(priv, tier="pro", issued_to="alice", days=365),
+        public_key_b64=pub,
+    )
+    assert op.operator is True
+    assert cust.operator is False
+
+
+def test_is_operator_on_release_build_requires_a_signed_claim(
+    keypair: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The impenetrability guarantee: with a verification key baked (a release
+    build), the SPORTSDATA_OPERATOR env var is IGNORED and a customer licence
+    does NOT unlock operator mode — only the owner's signed operator claim does."""
+    from sportsdata_agents.operations import scheduler
+
+    priv, pub = keypair
+    op = lic.verify_license(
+        lic.issue_license(priv, tier="pro", issued_to="owner", operator=True, days=0),
+        public_key_b64=pub,
+    )
+    cust = lic.verify_license(
+        lic.issue_license(priv, tier="pro", issued_to="alice", days=365),
+        public_key_b64=pub,
+    )
+    monkeypatch.setattr(lic, "LICENSE_PUBLIC_KEY_B64", pub)  # release build
+    monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")  # a customer trying to self-grant
+
+    monkeypatch.setattr(lic, "load_license", lambda *a, **k: None)
+    assert scheduler.is_operator() is False  # env var alone: no
+    monkeypatch.setattr(lic, "load_license", lambda *a, **k: cust)
+    assert scheduler.is_operator() is False  # a paid customer licence: still no
+    monkeypatch.setattr(lic, "load_license", lambda *a, **k: op)
+    assert scheduler.is_operator() is True  # only the signed operator claim
+
+
+def test_is_operator_on_source_build_honours_the_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On an unsigned source/dev checkout (no key baked) the env var is the
+    operator's own-box convenience — that's not a shipped artifact."""
+    from sportsdata_agents.operations import scheduler
+
+    monkeypatch.setattr(lic, "LICENSE_PUBLIC_KEY_B64", "")  # source build
+    monkeypatch.setattr(lic, "load_license", lambda *a, **k: None)
+    monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")
+    assert scheduler.is_operator() is True
+    monkeypatch.delenv("SPORTSDATA_OPERATOR", raising=False)
+    assert scheduler.is_operator() is False

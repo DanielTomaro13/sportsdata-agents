@@ -57,14 +57,39 @@ class Job:
     paced: bool = False  # ingest only: gets the proximity --pace flag
     # operator_only jobs maintain the PLATFORM (your site, your repo, your evals,
     # the shipped catalogue) — they run only on the operator's deployment, never on
-    # a customer's installed app. Gated by SPORTSDATA_OPERATOR (see is_operator).
+    # a customer's installed app. Gated by is_operator() (a signed operator claim).
     operator_only: bool = False
 
 
-def is_operator() -> bool:
-    """True on the OPERATOR's deployment (you), false on a customer install.
-    Flips the platform-maintenance jobs + the repo-improver escalation on."""
+def _env_operator() -> bool:
     return os.environ.get("SPORTSDATA_OPERATOR", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_operator() -> bool:
+    """True only on the OPERATOR's own deployment (the product owner). Flips the
+    platform-maintenance jobs, the repo-improver escalation, and the in-app
+    operator panel on; False on every customer install.
+
+    Impenetrable on a RELEASE build: when a verification key is baked
+    (``SPORTSDATA_LICENSE_PUBKEY``), operator mode requires a *signed* licence
+    carrying the ``operator`` claim. Only the product owner can mint one — the
+    private key never ships — so on a release build the ``SPORTSDATA_OPERATOR``
+    env var is IGNORED and a customer cannot grant themselves operator access by
+    setting it.
+
+    On a source/dev checkout (no key baked) the env var is honoured as a local
+    convenience: that's the operator's own machine, not a shipped artifact."""
+    from sportsdata_agents.licensing.license import LICENSE_PUBLIC_KEY_B64, load_license
+
+    try:
+        claims = load_license()
+    except Exception:  # a broken keychain backend must never crash a tick
+        claims = None
+    if claims is not None and claims.operator:
+        return True
+    if LICENSE_PUBLIC_KEY_B64:  # release build: ONLY a signed operator claim unlocks it
+        return False
+    return _env_operator()  # unsigned dev build: env toggle is the operator's own box
 
 
 JOBS: tuple[Job, ...] = (

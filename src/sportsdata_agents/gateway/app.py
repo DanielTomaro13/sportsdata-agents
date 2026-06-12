@@ -299,10 +299,11 @@ def create_app(
             return JSONResponse({"detail": str(e)}, status_code=400)
         return JSONResponse(res)
 
-    # ─── the operator panel (owner-only: 404 unless SPORTSDATA_OPERATOR=1) ───
-    # The same switch that gates the platform-maintenance jobs gates this surface,
-    # so only the operator's own deployment ever serves it. Customers' installs
-    # return 404 — the panel doesn't exist for them.
+    # ─── the operator panel (owner-only: 404 for everyone but the operator) ───
+    # The same switch that gates the platform-maintenance jobs gates this surface
+    # (is_operator → a signed operator licence claim on a release build), so only
+    # the product owner's deployment ever serves it. Customers' installs return
+    # 404 — the panel doesn't exist for them, and a forged env var won't reveal it.
 
     def _operator_only() -> JSONResponse | None:
         from sportsdata_agents.operations.scheduler import is_operator

@@ -69,7 +69,8 @@ def run_preflight(*, verify: bool = False) -> list[Check]:
 
     add("Core", "Operator mode", "ok" if is_operator() else "info",
         "ON — platform-maintenance jobs run here" if is_operator()
-        else "off — set SPORTSDATA_OPERATOR=1 on YOUR deployment")
+        else "off — activate a signed operator licence (or SPORTSDATA_OPERATOR=1 "
+             "on a source build) on YOUR deployment")
 
     # ── Security: the daemon hardening ──
     add("Security", "Gateway token", "ok" if _env("SPORTSDATA_GATEWAY_TOKEN") else "info",

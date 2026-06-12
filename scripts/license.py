@@ -34,6 +34,12 @@ def main() -> int:
     issue.add_argument("--addons", default="", help="comma-separated add-ons")
     issue.add_argument("--seats", type=int, default=1)
     issue.add_argument("--days", type=int, default=365, help="validity; 0 = perpetual")
+    issue.add_argument(
+        "--operator",
+        action="store_true",
+        help="stamp the cryptographic operator grant (the product owner's own key; "
+        "unlocks the operator panel + platform-maintenance jobs on a release build)",
+    )
     args = parser.parse_args()
 
     if args.cmd == "keygen":
@@ -53,6 +59,7 @@ def main() -> int:
         addons=[a.strip() for a in args.addons.split(",") if a.strip()],
         seats=args.seats,
         days=args.days or None,
+        operator=args.operator,
     )
     print(token)
     return 0
