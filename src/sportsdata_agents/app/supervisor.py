@@ -7,6 +7,8 @@ import contextlib
 import datetime as dt
 import logging
 import signal
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sportsdata_agents.data.db import make_engine, make_sessionmaker
@@ -46,6 +48,37 @@ async def _conductor_loop(stop: asyncio.Event, *, tick_seconds: int = TICK_SECON
         elapsed = (dt.datetime.now() - started).total_seconds()
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=max(1.0, tick_seconds - elapsed))
+
+
+async def _supervise(
+    name: str,
+    factory: Callable[[], Awaitable[None]],
+    stop: asyncio.Event,
+    *,
+    base_backoff: float = 1.0,
+    max_backoff: float = 30.0,
+) -> None:
+    """Run ``factory()`` and RESTART it with exponential backoff if it exits or
+    crashes before ``stop`` is set — so a transient gateway error (a dropped port,
+    a bad upstream) doesn't take the whole desktop app down. A child that ran a
+    long time resets the backoff; rapid crashes escalate it (capped)."""
+    backoff = base_backoff
+    while not stop.is_set():
+        started = time.monotonic()
+        try:
+            await factory()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # the child crashed — log and retry, never propagate
+            logger.warning("%s crashed: %s", name, e)
+        if stop.is_set():
+            return
+        backoff = base_backoff if (time.monotonic() - started) > max_backoff else backoff
+        logger.info("%s exited; restarting in %.1fs", name, backoff)
+        with contextlib.suppress(TimeoutError):  # stop firing during backoff ends it cleanly
+            await asyncio.wait_for(stop.wait(), timeout=backoff)
+            return
+        backoff = min(backoff * 2, max_backoff)
 
 
 async def _serve_gateway(stop: asyncio.Event, *, host: str, port: int, demo_only: bool) -> None:
@@ -88,10 +121,14 @@ async def run_app_async(
             loop.add_signal_handler(sig, stop.set)
 
     tasks: list[asyncio.Task[Any]] = [
-        asyncio.create_task(_serve_gateway(stop, host=host, port=port, demo_only=demo_only))
+        asyncio.create_task(_supervise(
+            "gateway", lambda: _serve_gateway(stop, host=host, port=port, demo_only=demo_only), stop
+        ))
     ]
     if with_conductor and not demo_only:  # a public demo node never runs the user's jobs
-        tasks.append(asyncio.create_task(_conductor_loop(stop, tick_seconds=tick_seconds)))
+        tasks.append(asyncio.create_task(_supervise(
+            "conductor", lambda: _conductor_loop(stop, tick_seconds=tick_seconds), stop
+        )))
 
     logger.info("sportsdata app up on http://%s:%d (conductor=%s)",
                 host, port, with_conductor and not demo_only)

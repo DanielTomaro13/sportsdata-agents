@@ -24,7 +24,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     monkeypatch.setattr(demo_module, "run_demo", fake_run_demo)
     app = create_app(session=object())  # session injected -> lifespan skips opening a team
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")  # localhost Host passes the daemon guard
 
 
 def test_demo_prompts_are_curated_only(client: TestClient) -> None:
@@ -106,7 +106,7 @@ def test_chat_ui_is_served_for_an_entitled_build_and_gated_for_free() -> None:
     stub = type("StubSession", (), {"agent_name": "orchestrator"})()
 
     # entitled (no pubkey baked → dev-unrestricted): the UI is served at /
-    served = TestClient(create_app(session=stub))
+    served = TestClient(create_app(session=stub), base_url="http://127.0.0.1")
     assert served.get("/").status_code == 200
     assert "sports" in served.get("/").text.lower()
     assert served.get("/healthz").status_code == 200  # API routes still win
@@ -115,7 +115,7 @@ def test_chat_ui_is_served_for_an_entitled_build_and_gated_for_free() -> None:
     saved = lic.LICENSE_PUBLIC_KEY_B64
     lic.LICENSE_PUBLIC_KEY_B64 = "bakedkey"
     try:
-        gated = TestClient(create_app(session=stub))
+        gated = TestClient(create_app(session=stub), base_url="http://127.0.0.1")
         assert gated.get("/").status_code == 404  # no UI
         assert gated.get("/healthz").status_code == 200  # but the API is alive
     finally:
