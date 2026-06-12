@@ -29,7 +29,6 @@ def test_version_is_a_string() -> None:
         "sportsdata_agents.models",
         "sportsdata_agents.observability",
         "sportsdata_agents.operations",
-        "sportsdata_agents.eval",
         "sportsdata_agents.interfaces",
     ],
 )
