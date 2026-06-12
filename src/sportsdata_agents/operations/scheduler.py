@@ -119,6 +119,8 @@ JOBS: tuple[Job, ...] = (
         log="cron.log", weekday=6, at=(6, 0), timeout_s=1800, operator_only=True),
     Job(name="ops_health", args=("ops", "health"),
         log="cron.log", weekday=6, at=(7, 0), timeout_s=900, operator_only=True),
+    Job(name="budget_watch", args=("ops", "budget-watch"),
+        log="cron.log", interval_s=3600, timeout_s=300, operator_only=True),
 )
 
 # ─── event-proximity pacing ────────────────────────────────────────────────

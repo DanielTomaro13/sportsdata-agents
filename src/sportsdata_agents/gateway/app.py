@@ -345,6 +345,10 @@ def create_app(
             if configured:
                 budget = {**configured, "spent_usd": None, "pct": None, "breached": False}
         ops_state = read_ops_state()
+        ops_agents = sorted(
+            sid for sid, s in load_builtin_specs().items()
+            if getattr(s, "plane", "product") == "ops"
+        )
         return JSONResponse({
             "preflight": {"checks": checks, "summary": summarise(run_preflight())},
             "costs": spend,
@@ -353,6 +357,7 @@ def create_app(
                 "escalations": (ops_state.get("escalations") or [])[-5:],
                 "disabled_feeds": ops_state.get("disabled_feeds") or [],
                 "jobs": job_status(),
+                "agents": ops_agents,
             },
         })
 
@@ -370,6 +375,64 @@ def create_app(
         except (TypeError, ValueError) as e:
             return JSONResponse({"detail": str(e)}, status_code=422)
         return JSONResponse({"ok": True, "budget": budget})
+
+    @app.post("/operator/actions/health")
+    async def operator_run_health() -> JSONResponse:
+        """Run the deterministic platform health check (doctor + feeds + site) on
+        demand — the same check the `ops_health` conductor job runs, returned inline."""
+        denied = _operator_only()
+        if denied:
+            return denied
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.operations.health import run_health
+
+        engine = make_engine(get_settings().database_url)
+        try:
+            health = await run_health(make_sessionmaker(engine))
+        except Exception as e:  # warehouse/site unreachable: report, don't 500
+            logger.warning("operator health action failed (%s)", e)
+            return JSONResponse({"detail": f"health check failed: {e}"}, status_code=503)
+        finally:
+            await engine.dispose()
+        return JSONResponse({"ok": True, "health": health})
+
+    @app.post("/operator/actions/run-ops")
+    async def operator_run_ops(body: dict[str, Any]) -> JSONResponse:
+        """Trigger an ops-plane agent run — the operator's full trigger. Spawns the
+        same `agents ops run <agent> <prompt>` the conductor uses, detached; the
+        result lands in the ops run history (visible on the next overview refresh),
+        not this response. The agent must be a known ops-plane agent."""
+        denied = _operator_only()
+        if denied:
+            return denied
+        import subprocess
+
+        from sportsdata_agents.operations.scheduler import _agents_binary
+
+        agent = str(body.get("agent", "")).strip()
+        prompt = str(body.get("prompt", "")).strip()
+        ops_agents = {
+            sid for sid, s in load_builtin_specs().items()
+            if getattr(s, "plane", "product") == "ops"
+        }
+        if agent not in ops_agents:
+            return JSONResponse(
+                {"detail": f"unknown ops agent {agent!r}", "ops_agents": sorted(ops_agents)},
+                status_code=422,
+            )
+        if not prompt:
+            return JSONResponse({"detail": "an instruction/prompt is required"}, status_code=422)
+        # argv (not shell) — `prompt` can't inject; `agent` is allow-listed above.
+        # start_new_session detaches it so it outlives this request and is reaped by init.
+        try:
+            # argv form (not a shell string) + allow-listed agent ⇒ no injection surface.
+            subprocess.Popen(
+                [_agents_binary(), "ops", "run", agent, prompt],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+        except Exception as e:
+            return JSONResponse({"detail": f"could not start ops run: {e}"}, status_code=503)
+        return JSONResponse({"ok": True, "started": True, "agent": agent})
 
     @app.post("/account/activate")
     async def activate(body: dict[str, Any]) -> JSONResponse:

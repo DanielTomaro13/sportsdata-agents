@@ -131,7 +131,10 @@ operator panel**. It must be reachable by **exactly one person** — the owner.
   so it can't reach a customer.
 - **The panel doesn't exist for customers.** Every `/operator/*` route returns
   **404** unless `is_operator()` — the surface isn't merely hidden, it's absent,
-  and a forged env var won't reveal it on a release build.
+  and a forged env var won't reveal it on a release build. This includes the panel's
+  **action triggers** (`/operator/actions/health`, `/operator/actions/run-ops`):
+  run-ops only accepts an allow-listed ops-plane agent and spawns it via argv (no
+  shell), so there's no injection surface even for the operator.
 - **Credential isolation.** The operator's maintenance credentials
   (`OPS_GITHUB_TOKEN`, the site/repo targets) live only on the operator's
   deployment. Even if someone forced operator mode on, there is nothing of the

@@ -211,13 +211,25 @@
   <div class="card">
     <span class="x" id="op-close">✕</span>
     <h2>Operator console</h2>
-    <div class="plan">This panel exists only on your deployment (SPORTSDATA_OPERATOR).</div>
+    <div class="plan">This panel exists only on your deployment (operator licence). Live — auto-refreshes.</div>
     <h3>Config preflight</h3><ul id="op-preflight"></ul>
     <h3>Spend (7d)</h3><div id="op-costs"></div>
     <div class="brow">
       <input id="op-cap" type="number" min="0" step="1" placeholder="cap USD" />
       <select id="op-period"><option>monthly</option><option>weekly</option><option>daily</option></select>
       <button id="op-setbudget">Set budget</button>
+    </div>
+    <h3>Actions</h3>
+    <div class="brow">
+      <button id="op-health">Run health check</button>
+    </div>
+    <div id="op-health-out"></div>
+    <div class="brow">
+      <select id="op-agent" style="flex:1"></select>
+    </div>
+    <div class="brow">
+      <input id="op-prompt" style="flex:1;width:auto" placeholder="instruction for the ops agent…" />
+      <button id="op-runops">Run</button>
     </div>
     <h3>Ops plane</h3><div id="op-ops"></div>
     <div class="msg" id="op-msg"></div>

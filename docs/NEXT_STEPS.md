@@ -42,8 +42,6 @@ you — it can never extend access beyond what renewals minted). Details in
 - **Per-seat enforcement** — claims-only today (fine for single-user v1).
 - **Opt-in telemetry / crash reports** — the "every machine is a snowflake" support
   mitigation; needs a destination endpoint.
-- **Budget-breach push** — `agents costs` flags a breach in the report/panel; an
-  automatic Slack/Discord push needs a small operator-only conductor job.
 
 ## Health of the codebase
 

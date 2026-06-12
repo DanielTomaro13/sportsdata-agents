@@ -872,33 +872,48 @@ def ops_health() -> None:
     async def _run() -> None:
         from sportsdata_agents.config import get_settings
         from sportsdata_agents.data.db import make_engine, make_sessionmaker
-        from sportsdata_agents.tools.ops import ops_tools
+        from sportsdata_agents.operations.health import run_health, summarise_health
 
         engine = make_engine(get_settings().database_url)
         try:
-            tools = {t.name: t for t in ops_tools(make_sessionmaker(engine))}
-            doctor = await tools["run_doctor"].execute({})
-            console.print(f"doctor: {'✓ ok' if doctor['ok'] else '✗ FAILING'}")
-            if not doctor["ok"]:
-                console.print(doctor["output"][-2000:])
-            health = await tools["feed_health"].execute({"hours": 6})
-            console.print(f"providers active (6h): {len(health['providers'])}")
-            for stale in health["stale_feeds"]:
-                console.print(f"[yellow]stale:[/yellow] {stale['feed']} — {stale['reason']}")
-            if health["disabled_feeds"]:
-                console.print(f"[dim]disabled: {', '.join(health['disabled_feeds'])}[/dim]")
-            if not health["stale_feeds"]:
-                console.print("✓ no stale feeds")
-            site = await tools["site_status"].execute({})
-            if site["ok"]:
-                console.print(
-                    f"✓ site up ({site['latency_ms']}ms"
-                    f"{', playback' if site.get('playback_mode') else ''})"
-                )
-            else:
-                console.print(f"[red]✗ site DOWN:[/red] {site.get('error') or site.get('status_code')}")
+            health = await run_health(make_sessionmaker(engine))
+            for line in summarise_health(health):
+                console.print(line)
         finally:
             await engine.dispose()
+
+    asyncio.run(_run())
+
+
+@ops_app.command(name="budget-watch")
+def ops_budget_watch() -> None:
+    """Push an operator alert (Slack/Discord) if the period budget is breached.
+    Rate-limited; the conductor runs this hourly. Enforcement is separate — the
+    gateway already refuses calls over budget; this is just the heads-up."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    console = Console()
+
+    async def _run() -> None:
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.operations.budget_watch import push_budget_breach
+
+        engine = make_engine(get_settings().database_url)
+        try:
+            res = await push_budget_breach(make_sessionmaker(engine))
+        finally:
+            await engine.dispose()
+        if res.get("pushed"):
+            console.print(f"[red]budget breach pushed[/red] — targets: {res.get('targets')}")
+        else:
+            console.print(f"[dim]no push: {res.get('reason')}[/dim]")
 
     asyncio.run(_run())
 

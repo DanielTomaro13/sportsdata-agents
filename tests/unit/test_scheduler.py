@@ -60,7 +60,8 @@ def test_registry_covers_the_nine_retired_cron_lines(monkeypatch: Any) -> None:
     monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")  # operator: the full job set runs
     names = {j.name for j in JOBS}
     assert names == {"ingest", "monitor", "custodian", "resolve", "results", "steward",
-                     "eval_benchmark", "site_manager", "refresh_books", "ops_health"}
+                     "eval_benchmark", "site_manager", "refresh_books", "ops_health",
+                     "budget_watch"}
     custodian = next(j for j in JOBS if j.name == "custodian")
     assert custodian.interval_s == 3600  # hourly pressure check; the run decides hold/prune
     ingest = next(j for j in JOBS if j.name == "ingest")
@@ -77,7 +78,8 @@ def test_operator_only_jobs_never_run_on_a_customer_install(monkeypatch: Any) ->
     """The platform-maintenance jobs (your site/repo/evals/catalogue) run only on
     the operator's deployment; a customer's conductor runs just the data plane."""
     monkeypatch.delenv("SPORTSDATA_OPERATOR", raising=False)  # default = customer
-    operator_only = {"eval_benchmark", "site_manager", "refresh_books", "ops_health"}
+    operator_only = {"eval_benchmark", "site_manager", "refresh_books", "ops_health",
+                     "budget_watch"}
     start = dt.datetime(2026, 6, 15, 0, 0, 30)
     fired: set[str] = set()
     for minute in range(7 * 24 * 60):

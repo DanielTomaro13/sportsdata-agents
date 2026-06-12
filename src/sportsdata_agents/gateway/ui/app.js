@@ -253,10 +253,63 @@ async function renderOperator() {
     return `<div class="kv"><span>${esc(name)}</span><b style="font-weight:400;opacity:.75">${esc(j.schedule || "")}${fails}</b></div>`;
   }).join("");
   $("#op-ops").innerHTML = opsHtml || "<div class='kv'><span>nothing to report</span></div>";
+
+  const agentSel = $("#op-agent");
+  const cur = agentSel.value;
+  const agents = ops.agents || [];
+  agentSel.innerHTML = agents.length
+    ? agents.map((a) => `<option${a === cur ? " selected" : ""}>${esc(a)}</option>`).join("")
+    : `<option value="">no ops agents</option>`;
 }
 
-function openOperator() { renderOperator(); $("#opmodal").hidden = false; }
-function closeOperator() { $("#opmodal").hidden = true; }
+let opTimer = null;
+function openOperator() {
+  renderOperator();
+  $("#opmodal").hidden = false;
+  if (opTimer) clearInterval(opTimer);
+  opTimer = setInterval(renderOperator, 15000);  // live panel — auto-refresh
+}
+function closeOperator() {
+  $("#opmodal").hidden = true;
+  if (opTimer) { clearInterval(opTimer); opTimer = null; }
+}
+
+async function runHealthAction() {
+  const out = $("#op-health-out"), msg = $("#op-msg");
+  msg.textContent = "";
+  out.innerHTML = "<div class='kv'><span>running health check…</span></div>";
+  try {
+    const r = await fetch(`${API}/operator/actions/health`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) { out.innerHTML = ""; msg.className = "msg err"; msg.textContent = d.detail || "Health check failed."; return; }
+    const h = d.health;
+    const row = (label, ok, extra) =>
+      `<div class="kv ${ok ? "" : "breach"}"><span>${esc(label)}</span>` +
+      `<b>${ok ? "✓" : "✗"}${extra ? " " + esc(extra) : ""}</b></div>`;
+    out.innerHTML =
+      row("doctor", h.doctor.ok, "") +
+      row("feeds", h.feeds.stale_feeds.length === 0,
+        `${h.feeds.providers_active_6h} active${h.feeds.stale_feeds.length ? `, ${h.feeds.stale_feeds.length} stale` : ""}`) +
+      row("site", h.site.ok, h.site.ok ? `${h.site.latency_ms}ms` : String(h.site.error || "down"));
+  } catch (e) { out.innerHTML = ""; msg.className = "msg err"; msg.textContent = e.message; }
+}
+
+async function runOpsAction() {
+  const agent = $("#op-agent").value, prompt = $("#op-prompt").value.trim(), msg = $("#op-msg");
+  if (!agent) { msg.className = "msg err"; msg.textContent = "Pick an ops agent."; return; }
+  if (!prompt) { msg.className = "msg err"; msg.textContent = "Enter an instruction for the agent."; return; }
+  msg.className = "msg"; msg.textContent = `Starting ${agent}…`;
+  try {
+    const r = await fetch(`${API}/operator/actions/run-ops`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent, prompt }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "Couldn't start the run."; return; }
+    msg.className = "msg ok"; msg.textContent = `Started ${agent} — the result lands in Ops plane shortly.`;
+    $("#op-prompt").value = "";
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+}
 
 async function setOperatorBudget() {
   const cap = parseFloat($("#op-cap").value);
@@ -327,5 +380,7 @@ $("#operator").addEventListener("click", openOperator);
 $("#op-close").addEventListener("click", closeOperator);
 $("#opmodal").addEventListener("click", (e) => { if (e.target.id === "opmodal") closeOperator(); });
 $("#op-setbudget").addEventListener("click", setOperatorBudget);
+$("#op-health").addEventListener("click", runHealthAction);
+$("#op-runops").addEventListener("click", runOpsAction);
 
 health(); loadAccount(); detectOperator(); setInterval(health, 15000); input.focus();
