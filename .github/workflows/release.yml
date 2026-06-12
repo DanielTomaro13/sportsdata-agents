@@ -1,0 +1,99 @@
+name: Release (macOS)
+
+# Tag-triggered desktop release (P4 M4.3). On `vX.Y.Z` it builds the onedir
+# bundle, wraps it as sportsdata.app, and — WHEN the Apple signing secrets are
+# present — codesigns + notarizes + staples a DMG and attaches it to the GitHub
+# release. With no secrets it still builds and uploads an UNSIGNED .app zip, so
+# the pipeline is exercisable today and turns into a shippable DMG the moment the
+# Apple Developer ID + secrets exist. Nothing here needs the App Store.
+#
+# Secrets to add when the account is ready (Settings → Secrets → Actions):
+#   APPLE_CERT_P12_BASE64   base64 of the exported "Developer ID Application" .p12
+#   APPLE_CERT_PASSWORD     the .p12 export password
+#   APPLE_SIGNING_IDENTITY  "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_ID + APPLE_APP_PASSWORD + APPLE_TEAM_ID   (or the APPLE_API_* trio)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}   # manual unsigned test builds
+
+permissions:
+  contents: write          # attach assets to the release
+
+jobs:
+  build-macos:
+    runs-on: macos-14      # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install (editable + build extra)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[build]"
+
+      - name: Build onedir bundle + .app
+        # The sibling sportsdata-mcp isn't checked out here, so build-desktop.sh
+        # warns and ships without the bundled data plane — fine for a test build.
+        # A real release bundles it (see RELEASE.md).
+        run: |
+          sh scripts/build-desktop.sh
+          sh scripts/make-macos-app.sh
+
+      - name: Import signing certificate (when configured)
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERT_P12_BASE64" ]; then
+            echo "no APPLE_CERT_P12_BASE64 secret — this will be an UNSIGNED build"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          security create-keychain -p actions "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p actions "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions "$KEYCHAIN"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Sign + notarize (when configured), else zip unsigned
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          VERSION="$(.venv/bin/python -c 'import sportsdata_agents; print(sportsdata_agents.__version__)' 2>/dev/null \
+                     || python -c 'import sportsdata_agents; print(sportsdata_agents.__version__)')"
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            sh scripts/sign-and-notarize.sh
+          else
+            ( cd dist && zip -qr "sportsdata-$VERSION-macos-unsigned.zip" "sportsdata.app" )
+            echo "built UNSIGNED dist/sportsdata-$VERSION-macos-unsigned.zip"
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sportsdata-macos
+          path: |
+            dist/*.dmg
+            dist/*-unsigned.zip
+          if-no-files-found: error
+
+      - name: Attach to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.dmg
+            dist/*-unsigned.zip
+          fail_on_unmatched_files: false

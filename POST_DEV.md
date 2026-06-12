@@ -70,8 +70,12 @@ to "taking payments":
   This ~one small server is the only server the desktop model needs.
 - [ ] **Apple Developer ID** ($99/yr) — sign + notarize the Mac build so Gatekeeper
   doesn't warn on a direct download (NOT App Store review — just `codesign` with the
-  Developer ID cert + `notarytool`). Build the bundle with `sh scripts/build-desktop.sh`,
-  then sign/notarize/staple the result. Windows later wants an Authenticode cert.
+  Developer ID cert + `notarytool`). **The whole pipeline is built and waiting** —
+  `scripts/build-desktop.sh` → `scripts/make-macos-app.sh` → `scripts/sign-and-notarize.sh`,
+  plus a tag-triggered `.github/workflows/release.yml`. Just enrol, export the
+  Developer ID cert, add the repo secrets, and tag a release. **Full runbook:
+  `RELEASE.md`.** No remaining code — purely account setup. Windows later wants an
+  Authenticode cert (same `agents app` daemon).
 
 ## Infrastructure (host something, flip a switch)
 

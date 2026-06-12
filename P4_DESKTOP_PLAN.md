@@ -172,6 +172,16 @@ usable end-to-end on a user machine.
   sidecar bundling (python-build-standalone), menubar + start-at-login, DMG +
   notarization, auto-updater, brew cask. *Exit gate: a signed DMG installs on
   a clean Mac and survives an auto-update cycle.*
+  **Pipeline DELIVERED (v0.19.0, pending only the Apple Developer ID):** shipped
+  the **"daemon + browser UI" path (§3 option D, no Rust)** — `scripts/make-macos-app.sh`
+  wraps the onedir bundle as `sportsdata.app` (launcher starts `agents app` +
+  opens the chat UI; `agents setup --check` drives first-run), `scripts/sign-and-notarize.sh`
+  (Developer ID + hardened-runtime entitlements + notarytool + staple), and
+  `.github/workflows/release.yml` (tag-triggered: builds, signs+notarizes when
+  the Apple secrets exist, else uploads an unsigned `.app` zip). Runbook: `RELEASE.md`.
+  The **Tauri shell (§3 option A) is the remaining upgrade** — needs a Rust
+  toolchain; the daemon/UI it wraps are unchanged. Auto-updater + brew cask
+  follow the first signed release.
 - **M4.4 — License & distribute:** license endpoint + key entry in the wizard;
   download page on the marketing site (replacing "private beta" copy); opt-in
   telemetry/crash reports. *Exit gate: a stranger can pay, download, install,
