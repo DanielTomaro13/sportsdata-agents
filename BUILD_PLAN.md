@@ -343,9 +343,15 @@ packaged — essentially ready. The pre-flight checks below are **done**; the cl
 
 ---
 
-## Phase P4 — Productize (SaaS) — gated on go/no-go + legal (`D13`)
+## Phase P4 — Productize — REPLANNED as the desktop pivot (see [`P4_DESKTOP_PLAN.md`](./P4_DESKTOP_PLAN.md)) — gated on go/no-go + legal (`D13`)
 
-**Goal:** a second tenant on a paid tier with isolated data, enforced entitlements + budgets.
+**Goal (revised 2026-06-12):** a downloadable desktop app — the agent harness on the
+user's machine (their compute/storage/files, their own odds capture, BYO model key),
+a bundled chat UI, no central hosting of user data. Milestones M4.1–M4.5 in the plan
+doc supersede the SaaS milestones below; the hosted-tenant design is RETAINED below
+for a possible future cloud tier (the tenancy seams stay in the code).
+
+**Original SaaS goal (deferred):** a second tenant on a paid tier with isolated data, enforced entitlements + budgets.
 
 - [ ] **Kalshi structured targets → player-prop resolution** (carried from the P3 reviews):
   Kalshi's entity registry (`kalshi_structured_targets` — players, teams, companies with

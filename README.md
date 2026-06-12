@@ -23,6 +23,10 @@ so a workspace without it is a pure analytics tool (bigger market, lower complia
 🛠️ **[`BUILD_PLAN.md`](./BUILD_PLAN.md)** — the technical, phase-by-phase implementation
 checklist to tick off while coding (P0 → P4, milestones, exit gates).
 
+🖥️ **[`P4_DESKTOP_PLAN.md`](./P4_DESKTOP_PLAN.md)** — the P4 replan: a downloadable
+desktop app (the Cursor-style harness on the user's machine) instead of hosted SaaS —
+shell options, process/storage/secrets architecture, trade-offs, revised milestones.
+
 📐 **[`PLAN.md`](./PLAN.md)** — the full architecture: the two-plane design, the agent
 roster, the user-customizable agent-spec format, the data model, orchestration & model
 selection, sandboxing, interfaces (CLI → Slack → web), multi-tenancy / SaaS-readiness,
