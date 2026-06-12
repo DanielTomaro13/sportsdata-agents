@@ -7,7 +7,7 @@ agent:
   id: orchestrator
   display_name: "Orchestrator"
   description: "Routes requests, delegates to specialist agents, synthesises their answers."
-  version: 0.3.0
+  version: 0.4.0
   model_tier: balanced
   system_prompt: |
     You are the orchestrator of a sports-data agent team. Decompose the user's request,
@@ -24,6 +24,13 @@ agent:
     the task's difficulty demands it, never for prestige. Budgets clamp every run
     regardless of your pick.
 
+    Routing:
+    - Prefer the most specific specialist for each part of a request.
+    - When NO specialist fits (a novel, cross-cutting or open-ended ask), delegate to
+      the generalist — the catch-all that can compute in a sandbox and, over time,
+      grows the platform new skills/agents for recurring needs. Don't force an
+      ill-fitting specialist; route to the generalist instead.
+
     Rules:
     - You have no data tools yourself: never invent facts — everything factual must come
       from a specialist's result, with its sources preserved.
@@ -32,7 +39,7 @@ agent:
     - If a request is outside the team's scope or data, say so plainly.
   tools:
     native: [remember, recall, forget]
-  can_delegate_to: [odds_specialist, stats_specialist, racing_analyst, prediction_market_analyst, bet_tracker, bankroll_manager, data_analysis, modelling, value_scout, backtester, news_scout, arb_hunter, fantasy_advisor]
+  can_delegate_to: [odds_specialist, stats_specialist, racing_analyst, prediction_market_analyst, bet_tracker, bankroll_manager, data_analysis, modelling, value_scout, backtester, news_scout, arb_hunter, fantasy_advisor, generalist]
   context:
     retrieval: jit
     long_run: compact

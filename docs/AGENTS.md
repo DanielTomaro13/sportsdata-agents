@@ -29,12 +29,30 @@ design — every tool schema rides every call).
 | **news_scout** | fast | Pre-game intel from X + league news: injuries, team news, weather — confirmed vs chatter. |
 | **market_steward** | fast | Maintains the canonical market dictionary (as data); safe aliases applied, ambiguous reported. |
 | **concierge** | fast | Plain-language explainer of the team's findings. |
+| **generalist** | balanced | The **catch-all**: handles requests no specialist covers, computes in a sandbox, and **grows the platform** — writes reusable skills and builds new agents as it learns your needs. |
 | **agent_builder** | balanced | Builds a custom agent from a plain-English goal (drafts prompt, picks data + skills, versions it). |
 | **slack_manager** | fast | Slack workspace housekeeping (add-on). |
 
 **Advisory invariant:** no product agent places a bet or moves money. Sizing tools
 compute a *fraction* (`kelly_fraction`), never a stake; money-verb tool names are
 denied by construction.
+
+### The growth loop (the generalist)
+
+The platform learns. When the orchestrator gets a request no specialist fits, it
+routes to the **generalist**, which solves it with a sandbox + the data plane and
+then — only for genuinely reusable patterns — **crystallises** the result:
+
+- **`create_skill`** writes a prose playbook (SKILL.md) into the user's own skill
+  library (`<data_dir>/skills/`). Next time, `list_skills` + `recall_skill` pull it
+  back. Skills are markdown, never code — they guide the LLM and can't grant a tool
+  or bypass the advisory/no-money rules.
+- **`save_agent_spec`** (the agent_builder path) promotes a recurring need into a
+  dedicated, versioned agent that persists locally — run it with `agents run --agent <id>`.
+
+`agents skills` lists what's been learned. This is local-first: the platform grows on
+the user's machine, to the user's needs, and nothing leaves it. (Pro tier — capability
+creation is a power feature.)
 
 ## Ops plane (platform maintenance — never licence-gated)
 
