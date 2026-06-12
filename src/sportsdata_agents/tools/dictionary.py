@@ -100,14 +100,10 @@ def dictionary_tools(session_factory: async_sessionmaker[AsyncSession]) -> list[
                                       "must NOT be aliased into base families"}
 
     async def get_market_dictionary(args: dict[str, Any]) -> Any:
-        """The current dictionary: packaged seed families + local overrides."""
-        from importlib import resources
+        """The current dictionary: seed families (OTA overlay or packaged) + local overrides."""
+        from sportsdata_agents.operations.datafeed import data_text
 
-        seed = json.loads(
-            resources.files("sportsdata_agents.operations.resolution")
-            .joinpath("market_dictionary.json")
-            .read_text(encoding="utf-8")
-        )
+        seed = json.loads(data_text("market_dictionary"))
         return {"seed": {k: v for k, v in seed.items() if not k.startswith("_")},
                 "overrides": _read_overrides(), "overrides_path": _overrides_path()}
 

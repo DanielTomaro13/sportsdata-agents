@@ -345,6 +345,42 @@ def desk(
     console.print("Change it with [bold]agents desk --set /path/you/open[/bold].")
 
 
+@app.command(name="update-data")
+def update_data(
+    url: str | None = typer.Option(None, "--url", help="Feed URL (default: SPORTSDATA_DATA_FEED_URL)."),
+    check: bool = typer.Option(False, "--check", help="Just print the applied overlay version, don't fetch."),
+) -> None:
+    """Pull the latest signed data bundle (market dictionary, capability labels)
+    and apply it as an overlay — refreshes the data plane between app releases.
+    Verified offline against the baked SPORTSDATA_DATA_PUBKEY."""
+    import os
+
+    from rich.console import Console
+
+    from sportsdata_agents.operations.datafeed import DataFeedError, applied_version, fetch_and_apply
+
+    console = Console()
+    if check:
+        version = applied_version()
+        console.print(f"data overlay: [cyan]{version or 'none (running packaged data)'}[/cyan]")
+        return
+
+    feed = url or os.environ.get("SPORTSDATA_DATA_FEED_URL")
+    if not feed:
+        console.print("[red]no feed URL[/red] — pass --url or set SPORTSDATA_DATA_FEED_URL")
+        raise typer.Exit(1)
+    try:
+        result = fetch_and_apply(feed)
+    except DataFeedError as e:
+        console.print(f"[red]update failed:[/red] {e}")
+        raise typer.Exit(1) from e
+    except Exception as e:  # network/parse — actionable, not a stack trace
+        console.print(f"[red]could not fetch the data feed:[/red] {e}")
+        raise typer.Exit(1) from e
+    applied = ", ".join(result["applied"]) or "nothing"
+    console.print(f"[green]✓ applied[/green] {applied} (version {result['version']})")
+
+
 @app.command(name="app")
 def app_cmd(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host (localhost-only by default)."),
