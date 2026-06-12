@@ -61,6 +61,44 @@ async def test_recall_unknown_raises(data_dir: Path) -> None:
         await skillsmith.recall_skill({"name": "does-not-exist"})
 
 
+async def test_frontmatter_injection_is_neutralised(data_dir: Path) -> None:
+    """A trigger/description carrying newlines + a fake YAML key must NOT inject
+    frontmatter (string-built YAML used to let it through). The skill stays valid,
+    recallable, and keeps its real name."""
+    await skillsmith.create_skill({
+        "name": "safe_one",
+        "description": "has: a colon\nand a newline",
+        "triggers": ["ok\n  - sneaky\nname: hijacked", "ok"],  # newlines + dup
+        "body": "playbook",
+    })
+    recalled = await skillsmith.recall_skill({"name": "safe_one"})  # must not raise
+    assert recalled["name"] == "safe_one"                          # name not hijacked
+    assert "\n" not in recalled["description"]                     # collapsed to one line
+    listed = {s["name"] for s in (await skillsmith.list_skills({}))["skills"]}
+    assert "safe_one" in listed and "hijacked" not in listed
+
+
+async def test_overwrite_reports_updated_and_dedupes_triggers(data_dir: Path) -> None:
+    first = await skillsmith.create_skill({
+        "name": "method", "description": "v1", "triggers": ["a", "a", "b"], "body": "x"})
+    assert first["updated"] is False
+    again = await skillsmith.create_skill({
+        "name": "method", "description": "v2", "triggers": ["c"], "body": "y"})
+    assert again["updated"] is True
+    assert (await skillsmith.recall_skill({"name": "method"}))["description"] == "v2"
+
+
+def test_remove_skill_is_user_only_and_builtin_protected(data_dir: Path) -> None:
+    import asyncio
+
+    asyncio.run(skillsmith.create_skill(
+        {"name": "throwaway", "description": "d", "triggers": ["t"], "body": "b"}))
+    assert skillsmith.remove_skill("throwaway") == {"removed": True, "name": "throwaway"}
+    assert skillsmith.remove_skill("throwaway")["removed"] is False  # gone, no error
+    with pytest.raises(ValueError, match="cannot be removed"):
+        skillsmith.remove_skill("vig_removal")  # a built-in
+
+
 def test_generalist_loads_is_pro_only_and_reachable() -> None:
     from sportsdata_agents.licensing.entitlements import entitlements_for_tier
 

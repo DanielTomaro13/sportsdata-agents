@@ -359,16 +359,31 @@ def setup(
 
 
 @app.command()
-def skills() -> None:
+def skills(
+    remove: str | None = typer.Option(None, "--remove", help="Delete a learned skill by name (built-ins protected)."),
+) -> None:
     """List every skill the platform knows — the built-in playbooks plus the ones
-    the generalist has authored as it learned your needs."""
+    the generalist has authored as it learned your needs. --remove prunes one."""
     import asyncio
 
     from rich.console import Console
 
     from sportsdata_agents.tools.skillsmith import list_skills as _list_skills
+    from sportsdata_agents.tools.skillsmith import remove_skill
 
     console = Console()
+    if remove:
+        try:
+            res = remove_skill(remove)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1) from e
+        if res["removed"]:
+            console.print(f"[green]✓ removed[/green] learned skill [bold]{res['name']}[/bold]")
+        else:
+            console.print(f"[yellow]no learned skill named[/yellow] {res['name']!r}")
+        return
+
     result = asyncio.run(_list_skills({}))
     learned = [s for s in result["skills"] if s["source"] == "user"]
     builtin = [s for s in result["skills"] if s["source"] == "builtin"]

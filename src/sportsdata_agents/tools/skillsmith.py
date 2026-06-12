@@ -19,8 +19,11 @@ skills are never shadowed; names are slug-validated (no path traversal).
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import Any
+
+import yaml
 
 from sportsdata_agents.agents.harness import ToolDef
 
@@ -38,6 +41,12 @@ def _validate_name(name: str) -> str:
     return name
 
 
+def _one_line(value: str, cap: int) -> str:
+    """Collapse whitespace to a single line and cap length. Frontmatter fields are
+    one-liners; a newline in one would otherwise break out of the YAML block."""
+    return " ".join(str(value).split())[:cap]
+
+
 def _user_skill_path(name: str) -> Any:
     from sportsdata_agents.paths import skills_dir
 
@@ -51,9 +60,10 @@ async def create_skill(args: dict[str, Any]) -> Any:
     from sportsdata_agents.agents.skills import builtin_skills_dir, parse_skill_md
 
     name = _validate_name(args.get("name", ""))
-    description = str(args.get("description", "")).strip()
+    description = _one_line(args.get("description", ""), 200)
     body = str(args.get("body", "")).strip()
-    triggers = [str(t).strip() for t in (args.get("triggers") or []) if str(t).strip()]
+    # one line each, deduped, capped count — a trigger is a keyword, not a sentence
+    triggers = list(dict.fromkeys(t for t in (_one_line(t, 60) for t in (args.get("triggers") or [])) if t))[:12]
     if not description:
         raise ValueError("description is required (one line — what the skill is for)")
     if not body:
@@ -65,18 +75,43 @@ async def create_skill(args: dict[str, Any]) -> Any:
     if len(body) > 20_000:
         raise ValueError("body too long — a skill is a tight playbook, not a document")
 
-    text = (
-        "---\n"
-        f"name: {name}\n"
-        f"description: {description}\n"
-        "triggers:\n" + "".join(f"  - {t}\n" for t in triggers) + "---\n\n" + body + "\n"
-    )
+    # Build the frontmatter with safe_dump, NOT string concatenation: a newline or a
+    # colon in a value would otherwise break out of the YAML block (inject a key).
+    front = yaml.safe_dump(
+        {"name": name, "description": description, "triggers": triggers},
+        sort_keys=False, allow_unicode=True, default_flow_style=False,
+    ).strip()
+    text = f"---\n{front}\n---\n\n{body}\n"
     parse_skill_md(text, source=f"<create_skill {name}>")  # validate before writing
+
     path = _user_skill_path(name)
+    updated = path.is_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-    return {"saved": str(path), "name": name,
-            "note": "available to recall_skill from now on (this and future sessions)"}
+    return {"saved": str(path), "name": name, "updated": updated,
+            "note": ("refined an existing skill" if updated
+                     else "available to recall_skill from now on (this and future sessions)")}
+
+
+def remove_skill(name: str) -> dict[str, Any]:
+    """Delete a USER skill by name. Built-in skills are protected. Returns whether
+    a file was removed. Destructive, so this is user-initiated (the `agents skills
+    --remove` CLI), not an agent tool."""
+    from sportsdata_agents.agents.skills import builtin_skills_dir
+    from sportsdata_agents.paths import skills_dir
+
+    name = _validate_name(name)
+    if (builtin_skills_dir() / name / "SKILL.md").is_file():
+        raise ValueError(f"{name!r} is a built-in skill — it cannot be removed")
+    skill_dir = skills_dir() / name
+    doc = skill_dir / "SKILL.md"
+    if not doc.is_file():
+        return {"removed": False, "name": name, "note": "no such learned skill"}
+    doc.unlink()
+    # tidy up the now-empty skill directory (ignore anything else the user put there)
+    with contextlib.suppress(OSError):
+        skill_dir.rmdir()
+    return {"removed": True, "name": name}
 
 
 async def list_skills(args: dict[str, Any]) -> Any:
