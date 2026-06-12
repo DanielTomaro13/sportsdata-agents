@@ -151,7 +151,9 @@ async def resolve_tenant(
     x_workspace_id: str | None = Header(default=None),
 ) -> Tenant:
     """Local no-op auth (§12 seam): headers override the configured defaults.
-    Real authentication replaces this dependency at P4 without touching routes."""
+    The desktop model is single-user localhost (the host guard + optional token
+    protect the daemon); a future hosted tier replaces this dependency with real
+    authentication without touching routes."""
     settings = get_settings()
     return Tenant(
         tenant_id=x_tenant_id or settings.default_tenant,
@@ -187,8 +189,10 @@ def create_app(
     conversation store) for the app lifetime.
 
     ``demo_only`` exposes nothing but /healthz, /demo/* and /leads — the
-    abuse-hardened public surface. Until P4 replaces resolve_tenant with real
-    auth, the full gateway trusts headers and must not face the internet."""
+    abuse-hardened public surface, and the only mode meant to face the internet.
+    The full gateway is the LOCAL desktop daemon: localhost-bound, foreign-Host
+    rejected, optional bearer token — but still single-user header-trust, so it
+    must not be reverse-proxied to the public internet."""
 
     state: dict[str, Any] = {"session": session, "convstore": conversation_store}
     tasks = TaskStore()

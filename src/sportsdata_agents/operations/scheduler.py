@@ -348,7 +348,7 @@ def run_tick(
                     f"feed_health first — remediate within your allow-list, or escalate."
                 )
                 triage = Job(name="incident_triage", args=("ops", "run", "incident_triage", prompt),
-                             log="/tmp/agents-ops.log", timeout_s=1800)
+                             log="ops.log", timeout_s=1800)
                 run(triage, [binary, *triage.args])
                 report.triage_triggered.append(job.name)
         finally:

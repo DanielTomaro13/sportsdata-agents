@@ -3,7 +3,7 @@
 Every item here is **fully built and tested**; nothing blocks development. Each
 needs only an account, a credential, a host, or a single command — do them in
 any order, whenever. (Anything requiring actual code lives in
-[`BUILD_PLAN.md`](./BUILD_PLAN.md), not here.)
+[`BUILD_PLAN.md`](docs/history/BUILD_PLAN.md), not here.)
 
 ## Accounts & credentials (create once, paste into `.env`, done)
 
@@ -98,9 +98,9 @@ to "taking payments":
   un-comment the conductor. The mover was dry-run-verified on 864k rows.
 - [ ] **Hosted gateway + live demo flip** — the site is playback-only
   (`window.GATEWAY_URL = null`). Turn on: host **`agents serve --demo-only`**
-  (⚠️ the ONLY mode safe to face the internet until P4 auth — the full
-  gateway trusts headers for tenancy and would be an open model-spend
-  endpoint), set `window.GATEWAY_URL` in `site/index.html`, redeploy. Before
+  (⚠️ the ONLY mode meant to face the internet — the full gateway is the
+  localhost desktop daemon and would be an open model-spend endpoint if
+  reverse-proxied), set `window.GATEWAY_URL` in `site/index.html`, redeploy. Before
   flipping, bump the demo budget (12 tool calls/16 steps truncates
   compare-books).
 - [ ] **Polymarket feed** — built, tested, ops-disabled because the Gamma edge
