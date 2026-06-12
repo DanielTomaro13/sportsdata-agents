@@ -38,8 +38,11 @@ RETENTION_LADDER: tuple[tuple[float, int | None], ...] = (
     (0.0, 14),
 )
 ESCALATE_BELOW_PCT = 10.0  # the operator hears about it before it becomes an outage
+ESCALATE_COOLDOWN_S = 24 * 3600  # …once a day, not once an hour
 BACKUP_KEEP = 3
 WEEKLY_BACKUP_S = 7 * 24 * 3600
+PRUNE_BACKUP_S = 24 * 3600  # a prune that deletes rows wants a backup ≤1 day old
+VACUUM_MIN_INTERVAL_S = 7 * 24 * 3600  # VACUUM is heavy I/O against the live writer
 VACUUM_HEADROOM = 1.3  # VACUUM only when free > db_size * this
 GZ_RATIO_GUESS = 0.20  # text-heavy sqlite compresses well; sizing guard only
 
@@ -147,25 +150,26 @@ async def run_custodian(
     keep_days = force_days if force_days is not None else plan_retention(status["free_pct"])
     report["keep_days"] = keep_days
 
-    last_backup = custodian.get("last_backup_at")
-    backup_due = (
-        last_backup is None
-        or (now - dt.datetime.fromisoformat(last_backup).replace(tzinfo=dt.UTC)).total_seconds()
-        > WEEKLY_BACKUP_S
+    def _age_s(key: str) -> float:
+        stamp = custodian.get(key)
+        if stamp is None:
+            return float("inf")
+        return (now - dt.datetime.fromisoformat(stamp).replace(tzinfo=dt.UTC)).total_seconds()
+
+    # the custodian runs HOURLY — every heavy action carries its own cadence so a
+    # box parked in a low-disk tier doesn't backup/VACUUM/page the operator 24x a day
+    backup_due = _age_s("last_backup_at") > (
+        PRUNE_BACKUP_S if keep_days is not None else WEEKLY_BACKUP_S
     )
 
-    if keep_days is None:
-        if backup_due:
-            path = backup_warehouse(db_path)
-            report["backup"] = str(path) if path else "skipped (headroom)"
-            if path:
-                custodian["last_backup_at"] = now.isoformat()
-    else:
-        report["action"] = "prune"
+    if backup_due:
         path = backup_warehouse(db_path)
         report["backup"] = str(path) if path else "skipped (headroom)"
         if path:
             custodian["last_backup_at"] = now.isoformat()
+
+    if keep_days is not None:
+        report["action"] = "prune"
 
         from sportsdata_agents.data.db import make_engine, make_sessionmaker
         from sportsdata_agents.operations.ingestion import prune_snapshots
@@ -177,10 +181,13 @@ async def run_custodian(
             )
         finally:
             await engine.dispose()
-        report["vacuumed"] = maybe_vacuum(db_path)
+        if report["pruned"] and _age_s("last_vacuum_at") > VACUUM_MIN_INTERVAL_S:
+            report["vacuumed"] = maybe_vacuum(db_path)
+            if report["vacuumed"]:
+                custodian["last_vacuum_at"] = now.isoformat()
         report["disk_after"] = disk_status(db_path)
 
-        if status["free_pct"] < ESCALATE_BELOW_PCT:
+        if status["free_pct"] < ESCALATE_BELOW_PCT and _age_s("last_escalated_at") > ESCALATE_COOLDOWN_S:
             from sportsdata_agents.observability.notify import operator_broadcast
 
             await operator_broadcast(
@@ -188,6 +195,7 @@ async def run_custodian(
                 f"{report.get('pruned', 0)} snapshots to a {keep_days}d window. "
                 f"The Postgres move (POST_DEV.md) retires this pressure for good."
             )
+            custodian["last_escalated_at"] = now.isoformat()
             report["escalated"] = True
 
     custodian["last_run_at"] = now.isoformat()
