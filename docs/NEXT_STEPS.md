@@ -32,8 +32,6 @@ deliberately-deferred items.
   per-OS shell/installer + an Authenticode cert (Windows).
 - **Tauri native shell** — a native window/menubar replacing the browser (same
   sidecar). Pure upgrade over the current "daemon + browser UI" model; needs Rust.
-- **Web-UI licence activation + account screen** — let a user paste a key / see their
-  plan / upgrade in the browser instead of the CLI (smoother self-serve upgrades).
 - **Bundled-quota subscription** — proxy model calls so users don't BYO key. The one
   feature that genuinely needs a server.
 - **OTA: book catalogue** — fold `CATALOGUE.json` into the data feed (it's currently

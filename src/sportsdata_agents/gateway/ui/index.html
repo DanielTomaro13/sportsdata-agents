@@ -116,7 +116,7 @@
 
 <header>
   <div class="wordmark">sports<span>data</span></div>
-  <div class="tier" id="tier">…</div>
+  <div class="tier" id="tier" title="View your plan" style="cursor:pointer">…</div>
   <div class="status"><span class="dot" id="dot"></span><span id="statustext">connecting…</span></div>
 </header>
 
@@ -136,6 +136,41 @@
     <button class="send" id="send" title="Send">↑</button>
   </div>
   <div class="foot">Grounded in live tool results · advisory only — not betting or financial advice</div>
+</div>
+
+<div class="modal" id="account" hidden>
+  <style>
+    .modal{position:fixed;inset:0;background:rgba(2,6,14,.62);backdrop-filter:blur(3px);
+      display:flex;align-items:center;justify-content:center;z-index:50}
+    .modal .card{background:var(--card,#0b1320);border:1px solid var(--border,#21304a);
+      border-radius:16px;padding:24px;width:min(440px,92vw);box-shadow:0 24px 80px rgba(0,0,0,.5)}
+    .modal h2{margin:0 0 4px;font-size:19px}
+    .modal .plan{font-size:13px;color:var(--muted,#8aa0bd);margin-bottom:16px}
+    .modal ul{list-style:none;padding:0;margin:0 0 18px;font-size:14px}
+    .modal li{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border,#1a2740)}
+    .modal li b{color:var(--ink,#e7eefb);font-weight:600}
+    .modal .key{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;
+      border:1px solid var(--border,#21304a);background:rgba(255,255,255,.03);color:inherit;font-size:13px}
+    .modal .row{display:flex;gap:10px;margin-top:10px}
+    .modal .btn{flex:1;padding:10px;border-radius:10px;border:0;cursor:pointer;font-weight:650;font-size:14px}
+    .modal .btn.primary{background:linear-gradient(90deg,var(--acc2,#6e8bff),var(--acc3,#7cf5c8));color:#06101f}
+    .modal .btn.ghost{background:transparent;border:1px solid var(--border,#21304a);color:var(--ink,#e7eefb)}
+    .modal .msg{font-size:12.5px;margin-top:10px;min-height:16px}
+    .modal .msg.ok{color:#7cf5c8}.modal .msg.err{color:#ff8a8a}
+    .modal .x{float:right;cursor:pointer;color:var(--muted,#8aa0bd);font-size:18px;line-height:1}
+  </style>
+  <div class="card">
+    <span class="x" id="acc-close">✕</span>
+    <h2>Your plan</h2>
+    <div class="plan" id="acc-note"></div>
+    <ul id="acc-list"></ul>
+    <input class="key" id="acc-key" placeholder="Paste a licence key to activate or upgrade" />
+    <div class="row">
+      <button class="btn primary" id="acc-activate">Activate</button>
+      <button class="btn ghost" id="acc-upgrade">Upgrade plan ↗</button>
+    </div>
+    <div class="msg" id="acc-msg"></div>
+  </div>
 </div>
 
 <script src="app.js"></script>

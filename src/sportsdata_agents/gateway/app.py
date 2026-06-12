@@ -248,6 +248,54 @@ def create_app(
             for spec in load_builtin_specs().values()
         }
 
+    def _account_payload() -> dict[str, Any]:
+        from sportsdata_agents.licensing import current_entitlements
+
+        ent = current_entitlements()
+        return {
+            "tier": ent.tier,
+            "mcp_quota": ent.effective_mcp_quota(),
+            "chat_ui": ent.chat_ui,
+            "full_app": ent.full_app,
+            "agents": "all" if ent.agents is None else list(ent.agents),
+            "addons": sorted(ent.addons),
+            "seats": ent.seats,
+            "note": ent.note,
+            "version": pkg_version,
+            "upgrade_url": os.environ.get(
+                "SPORTSDATA_UPGRADE_URL",
+                "https://danieltomaro13.github.io/sportsdata-site/#pricing",
+            ),
+        }
+
+    @app.get("/account")
+    async def account() -> dict[str, Any]:
+        """The running install's tier + entitlements + where to upgrade — so the UI
+        can show the plan and offer a one-click upgrade."""
+        return _account_payload()
+
+    @app.post("/account/activate")
+    async def activate(body: dict[str, Any]) -> JSONResponse:
+        """Activate (or upgrade to) a licence key from the UI: verify it, store it in
+        the OS keychain, and return the refreshed entitlements. Self-serve upgrade —
+        buy → paste the emailed key → instantly on the new tier."""
+        from sportsdata_agents.licensing import verify_license
+        from sportsdata_agents.licensing.license import KEYCHAIN_LICENSE_NAME
+        from sportsdata_agents.secrets import set_keychain_secret
+
+        key = str(body.get("key", "")).strip()
+        if not key:
+            return JSONResponse({"detail": "a licence key is required"}, status_code=422)
+        try:
+            claims = verify_license(key)
+        except Exception as e:  # bad signature / expired / no pubkey baked (dev build)
+            return JSONResponse({"detail": f"that key did not verify: {e}"}, status_code=400)
+        if not set_keychain_secret(KEYCHAIN_LICENSE_NAME, key):
+            from sportsdata_agents.paths import data_dir
+
+            (data_dir() / "license.key").write_text(key, encoding="utf-8")
+        return JSONResponse({"ok": True, "issued_to": claims.issued_to, "account": _account_payload()})
+
     @app.post("/message", response_model=None)
     async def message(
         body: MessageIn,

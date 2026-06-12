@@ -147,12 +147,56 @@ async function finish(taskId, body, think) {
   busy = false; send.disabled = false; input.focus();
 }
 
-async function tier() {
-  // the gateway exposes the tier via /healthz isn't guaranteed; show a friendly default
+/* account: show the tier in the header chip; click it to view/upgrade the plan */
+let account = null;
+
+async function loadAccount() {
   try {
-    const r = await fetch(`${API}/agents`);
-    if (r.ok) { const d = await r.json(); $("#tier").textContent = `${(d.agents || d).length || ""} agents`.trim() || "Pro"; }
+    const r = await fetch(`${API}/account`);
+    if (!r.ok) { $("#tier").textContent = ""; return; }
+    account = await r.json();
+    $("#tier").textContent = account.tier ? account.tier.toUpperCase() : "";
   } catch { $("#tier").textContent = ""; }
+}
+
+function renderAccount() {
+  if (!account) return;
+  $("#acc-note").textContent = account.note || "";
+  const quota = account.mcp_quota < 0 ? "unlimited" : account.mcp_quota;
+  const agents = account.agents === "all" ? "all" : (account.agents || []).length;
+  const addons = (account.addons || []).join(", ") || "none";
+  $("#acc-list").innerHTML = [
+    ["Tier", account.tier.toUpperCase()],
+    ["MCP provider groups", quota],
+    ["Chat interface", account.chat_ui ? "yes" : "no"],
+    ["Desktop app", account.full_app ? "yes" : "no"],
+    ["Agents", agents],
+    ["Add-ons", addons],
+  ].map(([k, v]) => `<li><span>${k}</span><b>${esc(v)}</b></li>`).join("");
+}
+
+function openAccount() { renderAccount(); $("#acc-msg").textContent = ""; $("#account").hidden = false; }
+function closeAccount() { $("#account").hidden = true; }
+
+async function activateKey() {
+  const key = $("#acc-key").value.trim();
+  const msg = $("#acc-msg");
+  if (!key) { msg.className = "msg err"; msg.textContent = "Paste your licence key first."; return; }
+  msg.className = "msg"; msg.textContent = "Activating…";
+  try {
+    const r = await fetch(`${API}/account/activate`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "That key did not activate."; return; }
+    account = d.account; renderAccount();
+    $("#tier").textContent = account.tier.toUpperCase();
+    $("#acc-key").value = "";
+    msg.className = "msg ok"; msg.textContent = `Activated — you're on ${account.tier.toUpperCase()}.`;
+  } catch (e) {
+    msg.className = "msg err"; msg.textContent = "Couldn't reach the app: " + e.message;
+  }
 }
 
 // wire up
@@ -165,4 +209,11 @@ input.addEventListener("keydown", (e) => {
 function resize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; }
 input.addEventListener("input", resize);
 
-health(); tier(); setInterval(health, 15000); input.focus();
+// account modal wiring
+$("#tier").addEventListener("click", openAccount);
+$("#acc-close").addEventListener("click", closeAccount);
+$("#account").addEventListener("click", (e) => { if (e.target.id === "account") closeAccount(); });
+$("#acc-activate").addEventListener("click", activateKey);
+$("#acc-upgrade").addEventListener("click", () => { if (account?.upgrade_url) window.open(account.upgrade_url, "_blank"); });
+
+health(); loadAccount(); setInterval(health, 15000); input.focus();
