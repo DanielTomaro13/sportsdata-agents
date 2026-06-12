@@ -189,6 +189,16 @@ usable end-to-end on a user machine.
 - **M4.5 — Windows, then Linux; OTA data feed:** second/third platforms;
   spec/dictionary update channel. *Exit gate: same wizard-to-alert flow on
   Windows.*
+  **OTA data feed DELIVERED (v0.20.0):** `operations/datafeed.py` ships the
+  market dictionary + capability labels as an **Ed25519-signed bundle** a running
+  app fetches with `agents update-data` and applies as an **overlay** under the
+  data dir (the loaders — normalizer, builder, dictionary tool — prefer it over
+  the packaged seed via `data_text()`). Verified offline against a baked
+  `SPORTSDATA_DATA_PUBKEY` (no key = dev build applies unverified with a warning;
+  product build refuses a forged/unsigned bundle). Published by
+  `scripts/publish-data-bundle.py` (signs with `SPORTSDATA_DATA_PRIVKEY`), uploaded
+  as a release asset by the release workflow when the key secret is set. Windows/
+  Linux packaging is the remaining M4.5 work (needs the per-OS shell).
 
 Sequencing note: M4.1+M4.2 are pure Python on the existing codebase and
 deliver a usable "downloadable" product (pipx/installer script) before any

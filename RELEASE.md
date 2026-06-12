@@ -80,6 +80,23 @@ Point the marketing site's "Download for macOS" button at the release asset
 (`https://github.com/DanielTomaro13/sportsdata-agents/releases/latest`). Until the
 first signed release, it links to the releases page.
 
+## OTA data feed (optional, M4.5)
+
+The market dictionary and capability labels can refresh **between** app releases —
+no rebuild. Generate a data-signing keypair (same tool as the licence key:
+`python scripts/license.py keygen`), bake the public half into builds as
+`SPORTSDATA_DATA_PUBKEY`, and keep the private half as the `SPORTSDATA_DATA_PRIVKEY`
+repo secret. The release workflow then publishes `data-bundle.json` as a release
+asset automatically. Point clients at it:
+
+```sh
+export SPORTSDATA_DATA_FEED_URL="https://github.com/DanielTomaro13/sportsdata-agents/releases/latest/download/data-bundle.json"
+agents update-data            # fetch → verify (offline) → apply overlay
+agents update-data --check    # show the applied overlay version
+```
+
+To cut a bundle by hand: `SPORTSDATA_DATA_PRIVKEY=… python scripts/publish-data-bundle.py`.
+
 ## Later (not blockers)
 
 - **Tauri shell** (§3 option A) — a native window/menubar instead of the browser,

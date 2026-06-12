@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import os
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -45,11 +44,11 @@ def user_specs_dir() -> Path:
 
 
 def capability_labels() -> dict[str, dict[str, str]]:
-    return json.loads(
-        resources.files("sportsdata_agents.agents")
-        .joinpath("capability_labels.json")
-        .read_text(encoding="utf-8")
-    )
+    # The OTA overlay (if applied via `agents update-data`) wins over the packaged
+    # default, so new capability labels can ship without a full app release.
+    from sportsdata_agents.operations.datafeed import data_text
+
+    return json.loads(data_text("capability_labels"))
 
 
 def builder_tools() -> list[ToolDef]:

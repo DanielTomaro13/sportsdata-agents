@@ -80,6 +80,16 @@ jobs:
             echo "built UNSIGNED dist/sportsdata-$VERSION-macos-unsigned.zip"
           fi
 
+      - name: Publish OTA data bundle (when the data key is configured)
+        env:
+          SPORTSDATA_DATA_PRIVKEY: ${{ secrets.SPORTSDATA_DATA_PRIVKEY }}
+        run: |
+          if [ -z "$SPORTSDATA_DATA_PRIVKEY" ]; then
+            echo "no SPORTSDATA_DATA_PRIVKEY secret — skipping the data bundle"
+            exit 0
+          fi
+          .venv/bin/python scripts/publish-data-bundle.py || python scripts/publish-data-bundle.py
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -87,6 +97,7 @@ jobs:
           path: |
             dist/*.dmg
             dist/*-unsigned.zip
+            dist/data-bundle.json
           if-no-files-found: error
 
       - name: Attach to the GitHub release
@@ -96,4 +107,5 @@ jobs:
           files: |
             dist/*.dmg
             dist/*-unsigned.zip
+            dist/data-bundle.json
           fail_on_unmatched_files: false

@@ -56,16 +56,16 @@ def _norm_name(name: Any) -> str:
 
 
 def _load_dictionary() -> dict[str, dict[str, str]]:
-    """alias → family reverse maps for markets and sports (seed + local overrides)."""
+    """alias → family reverse maps for markets and sports (seed + local overrides).
+
+    The seed is the OTA overlay if one has been applied (`agents update-data`),
+    else the packaged default — `datafeed.data_text` resolves that order."""
     import json
     import os
-    from importlib import resources
 
-    seed = json.loads(
-        resources.files("sportsdata_agents.operations.resolution")
-        .joinpath("market_dictionary.json")
-        .read_text(encoding="utf-8")
-    )
+    from sportsdata_agents.operations.datafeed import data_text
+
+    seed = json.loads(data_text("market_dictionary"))
     overrides_path = os.environ.get(
         "SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES", "market_dictionary.local.json"
     )
