@@ -103,3 +103,62 @@ def test_webhook_app_rejects_bad_signature_and_accepts_good(env: tuple[str, str]
     good_sig = hmac.new(b"ls-secret", body, hashlib.sha256).hexdigest()
     ok = client.post("/webhook/lemonsqueezy", content=body, headers={"x-signature": good_sig})
     assert ok.status_code == 200 and ok.json()["issued"] is True
+
+
+def test_deliver_emails_when_smtp_configured(env: tuple[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, timeout: float | None = None) -> None:
+            captured["host"], captured["port"] = host, port
+
+        def __enter__(self) -> FakeSMTP:
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+        def starttls(self) -> None:
+            captured["tls"] = True
+
+        def login(self, user: str, password: str) -> None:
+            captured["login"] = (user, password)
+
+        def send_message(self, msg: Any) -> None:
+            captured["msg"] = msg
+
+    monkeypatch.setattr("smtplib.SMTP", FakeSMTP)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USER", "u@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "pw")
+    monkeypatch.setenv("BILLING_FROM_EMAIL", "billing@sportsdata.app")
+
+    billing.deliver_license("buyer@x.com", "TOK.SIG", plan={"tier": "pro", "addons": ["slack"]})
+
+    assert captured["host"] == "smtp.example.com" and captured["tls"] is True
+    assert captured["login"] == ("u@example.com", "pw")
+    msg = captured["msg"]
+    assert msg["To"] == "buyer@x.com" and msg["From"] == "billing@sportsdata.app"
+    assert "TOK.SIG" in msg.get_content() and "agents license --activate" in msg.get_content()
+
+
+def test_deliver_without_smtp_only_audits(env: tuple[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    from sportsdata_agents.paths import data_dir
+
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    billing.deliver_license("a@b.com", "T.S", plan={"tier": "base", "addons": []})  # must not raise
+    assert "a@b.com" in (data_dir() / "issued-licenses.jsonl").read_text()
+
+
+def test_deliver_swallows_email_failure(env: tuple[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    from sportsdata_agents.paths import data_dir
+
+    class BoomSMTP:
+        def __init__(self, *a: object, **k: object) -> None:
+            raise RuntimeError("connection refused")
+
+    monkeypatch.setattr("smtplib.SMTP", BoomSMTP)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    # a dead SMTP must NOT raise — the key is still in the audit log to send manually
+    billing.deliver_license("c@d.com", "T.S", plan={"tier": "plus", "addons": []})
+    assert "c@d.com" in (data_dir() / "issued-licenses.jsonl").read_text()

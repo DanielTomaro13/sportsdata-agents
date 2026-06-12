@@ -11,8 +11,10 @@ Run it with ``agents billing`` next to:
   id to ``{tier, addons, days}``,
 - ``PADDLE_WEBHOOK_SECRET`` / ``LEMONSQUEEZY_WEBHOOK_SECRET`` — the signing secrets.
 
-Delivery (emailing the key to the buyer) is a pluggable seam; the default logs
-and appends to an audit file. Wiring a real email provider is a POST_DEV step.
+Delivery always journals the key to an audit file, and **emails it when SMTP is
+configured** (``SMTP_HOST`` + friends, ``BILLING_FROM_EMAIL``); with no SMTP set
+you send keys from the audit log manually. A send failure falls back to the log
+and never 500s the webhook.
 """
 
 from __future__ import annotations
@@ -128,13 +130,65 @@ def extract_paddle(payload: dict[str, Any]) -> Purchase | None:
     return Purchase("paddle", email, product_id, event)
 
 
-# ── delivery (pluggable; default = audit log) ────────────────────────────────
+# ── delivery: audit log (always) + email (when SMTP is configured) ───────────
+
+
+def smtp_config() -> dict[str, Any] | None:
+    """SMTP settings from the env, or None when email delivery isn't configured.
+
+    With no ``SMTP_HOST`` the webhook still works — the key lands in the audit log
+    and you email it manually. Set host/port/user/password + ``BILLING_FROM_EMAIL``
+    to have :func:`deliver_license` send it automatically."""
+    host = os.environ.get("SMTP_HOST")
+    if not host:
+        return None
+    user = os.environ.get("SMTP_USER", "")
+    return {
+        "host": host,
+        "port": int(os.environ.get("SMTP_PORT", "587")),
+        "user": user,
+        "password": os.environ.get("SMTP_PASSWORD", ""),
+        "from_addr": os.environ.get("BILLING_FROM_EMAIL") or user,
+        "starttls": os.environ.get("SMTP_STARTTLS", "1") != "0",
+    }
+
+
+def _license_email_body(token: str, plan: dict[str, Any]) -> str:
+    tier = plan.get("tier", "")
+    addons = ", ".join(plan.get("addons") or []) or "none"
+    return (
+        "Thanks for subscribing to sportsdata.\n\n"
+        f"Your licence ({tier}, add-ons: {addons}):\n\n{token}\n\n"
+        "Activate it on the machine where you installed the app:\n\n"
+        "    agents license --activate <the key above>\n\n"
+        "It verifies offline — nothing phones home. Keep this email; re-activate "
+        "anytime with the same key.\n"
+    )
+
+
+def send_license_email(cfg: dict[str, Any], to_addr: str, token: str, plan: dict[str, Any]) -> None:
+    """Send the issued key over SMTP (STARTTLS by default). Raises on transport
+    failure — :func:`deliver_license` is responsible for swallowing it."""
+    import smtplib
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg["From"] = cfg["from_addr"]
+    msg["To"] = to_addr
+    msg["Subject"] = "Your sportsdata licence key"
+    msg.set_content(_license_email_body(token, plan))
+    with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
+        if cfg["starttls"]:
+            server.starttls()
+        if cfg["user"]:
+            server.login(cfg["user"], cfg["password"])
+        server.send_message(msg)
 
 
 def deliver_license(email: str, token: str, *, plan: dict[str, Any]) -> None:
-    """Get the key to the buyer. The default appends to an audit file and logs;
-    a real email integration replaces this (POST_DEV). Never raises — a delivery
-    failure must not 500 the webhook (the processor would retry forever)."""
+    """Get the key to the buyer: always journal it to the audit file, and email it
+    when SMTP is configured. Never raises — a delivery failure must not 500 the
+    webhook (the processor would retry forever); the audit log is the backstop."""
     from sportsdata_agents.paths import data_dir
 
     try:
@@ -145,9 +199,19 @@ def deliver_license(email: str, token: str, *, plan: dict[str, Any]) -> None:
         })
         with (data_dir() / "issued-licenses.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
-        logger.info("license issued for %s (%s) — deliver via email (POST_DEV)", email, plan.get("tier"))
     except Exception as e:
-        logger.error("license delivery side-effect failed: %s", e)
+        logger.error("license audit-log write failed: %s", e)
+
+    cfg = smtp_config()
+    if cfg is None:
+        logger.info("license issued for %s (%s) — SMTP not set, deliver from the audit log",
+                    email, plan.get("tier"))
+        return
+    try:
+        send_license_email(cfg, email, token, plan)
+        logger.info("license emailed to %s (%s)", email, plan.get("tier"))
+    except Exception as e:
+        logger.error("license email to %s failed (key is in the audit log): %s", email, e)
 
 
 # ── the agnostic handler ─────────────────────────────────────────────────────
