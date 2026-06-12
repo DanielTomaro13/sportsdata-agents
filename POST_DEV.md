@@ -59,10 +59,14 @@ to "taking payments":
   3. Point the processor's webhook at `https://…/webhook/paddle` (or
      `/webhook/lemonsqueezy`) behind a TLS proxy. Signature + replay window are
      enforced; bad signatures 401, unmapped products 400.
-  4. **Delivery**: today the issued key is appended to `issued-licenses.jsonl` and
-     logged (`deliver_license`). Wire a real email send there (it's the one
-     pluggable seam) so the buyer gets their key automatically; they then run
-     `agents license --activate <key>`. This is the only thing genuinely TODO in code.
+  4. **Delivery**: the issued key is always journaled to `issued-licenses.jsonl`,
+     and **emailed automatically when SMTP is configured** (`deliver_license` /
+     `send_license_email`). Set `SMTP_HOST` (+ `SMTP_PORT`/`SMTP_USER`/
+     `SMTP_PASSWORD`/`BILLING_FROM_EMAIL`, STARTTLS on by default) on the host
+     running `agents billing` and the buyer gets their key with `agents license
+     --activate <key>` instructions; a send failure falls back to the audit log
+     (never 500s the webhook). With no SMTP set you just email keys from the log
+     manually. No remaining code TODO — this step is purely account/credential setup.
   This ~one small server is the only server the desktop model needs.
 - [ ] **Apple Developer ID** ($99/yr) — sign + notarize the Mac build so Gatekeeper
   doesn't warn on a direct download (NOT App Store review — just `codesign` with the
