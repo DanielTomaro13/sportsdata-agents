@@ -244,6 +244,24 @@
     .hero { padding-top: 44px; }
     .answer { overflow-x: auto; }
   }
+  /* ── pricing tiers ── */
+  .tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px; margin-top: 8px; }
+  .tier { position: relative; background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 18px; padding: 26px 24px; display: flex; flex-direction: column; gap: 10px;
+    transition: transform .3s var(--ease), border-color .3s; }
+  .tier:hover { transform: translateY(-4px); border-color: rgba(255,255,255,.2); }
+  .tier.feat { border-color: rgba(61,214,245,.4); box-shadow: 0 12px 40px rgba(61,214,245,.12); }
+  .tier .tname { font-family: var(--mono); font-size: 12px; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--acc2); }
+  .tier .tprice { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+  .tier .tprice span { font-size: 15px; font-weight: 500; color: var(--dim); }
+  .tier .tdesc { color: var(--dim); font-size: 14px; }
+  .tier ul { list-style: none; margin-top: 4px; display: flex; flex-direction: column; gap: 7px; }
+  .tier li { font-size: 13.5px; padding-left: 20px; position: relative; }
+  .tier li::before { content: "✓"; position: absolute; left: 0; color: var(--acc3); font-weight: 700; }
+  .tnote { text-align: center; color: var(--dim); font-size: 13px; margin-top: 18px; }
+  .tnote a { color: var(--acc2); text-decoration: none; }
 </style>
 </head>
 <body>
@@ -263,7 +281,7 @@
     It does the legwork; <b>you make the calls</b>.</p>
     <div class="ctas">
       <a class="btn primary" href="#demo">Watch it work</a>
-      <a class="btn ghost" href="#how">How it works</a>
+      <a class="btn ghost" href="#pricing">Pricing</a>
     </div>
     <div class="llms">works with any LLM —
       <span class="l">Claude</span><span class="l">GPT</span><span class="l">Gemini</span>
@@ -359,9 +377,34 @@
     </div>
   </section>
 
+  <section id="pricing">
+    <div class="sec-head"><h2>Three ways in</h2></div>
+    <div class="tiers">
+      <div class="tier">
+        <div class="tname">Base</div>
+        <div class="tprice">$15<span>/mo</span></div>
+        <div class="tdesc">The data plane + a setup client. Wire the MCPs straight into your own client (Claude Desktop, Cursor…).</div>
+        <ul><li>5 MCP provider groups</li><li>Raw tools, your client</li><li>Bring your own model key</li></ul>
+      </div>
+      <div class="tier feat">
+        <div class="tname">Plus</div>
+        <div class="tprice">$39<span>/mo</span></div>
+        <div class="tdesc">Adds the chat interface to the agent team — ask, get grounded answers with sources.</div>
+        <ul><li>12 MCP provider groups</li><li>The core agent team</li><li>Chat interface</li></ul>
+      </div>
+      <div class="tier">
+        <div class="tname">Pro</div>
+        <div class="tprice">$89<span>/mo</span></div>
+        <div class="tdesc">The full downloadable app — every agent, the always-on conductor, standing arbitrage &amp; value alerts.</div>
+        <ul><li>Unlimited MCPs, every agent</li><li>The odds warehouse + conductor</li><li>Slack / Discord add-ons</li></ul>
+      </div>
+    </div>
+    <div class="tnote">Downloadable for macOS (Windows next) · BYO model key · cancel anytime · <a href="#demo">see it work first</a></div>
+  </section>
+
   <footer>
     <div class="wordmark">sports<span>data</span></div>
-    <div>Private beta — sign-ups open with the live demo · Informational only · © 2026</div>
+    <div>Private beta — request access below · Informational only · © 2026</div>
   </footer>
 </main>
 

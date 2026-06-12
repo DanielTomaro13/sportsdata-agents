@@ -149,6 +149,73 @@ def serve(
     _serve(host=host, port=port, demo_only=demo_only)
 
 
+def _require_addon(name: str) -> None:
+    from sportsdata_agents.licensing.enforce import EntitlementError, require_addon
+
+    try:
+        require_addon(name)
+    except EntitlementError as e:
+        from rich.console import Console
+
+        Console().print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+
+def _require_entitlement(feature: str) -> None:
+    from sportsdata_agents.licensing.enforce import (
+        EntitlementError,
+        require_chat_ui,
+        require_full_app,
+    )
+
+    check = {"chat_ui": require_chat_ui, "full_app": require_full_app}[feature]
+    try:
+        check()
+    except EntitlementError as e:
+        from rich.console import Console
+
+        Console().print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def license(
+    activate: str | None = typer.Option(None, "--activate", help="Paste a license key to activate it."),
+) -> None:
+    """Show the current tier and entitlements, or activate a license key."""
+    from rich.console import Console
+
+    from sportsdata_agents.licensing import current_entitlements, verify_license
+    from sportsdata_agents.licensing.license import KEYCHAIN_LICENSE_NAME
+    from sportsdata_agents.secrets import set_keychain_secret
+
+    console = Console()
+    if activate:
+        try:
+            claims = verify_license(activate.strip())
+        except Exception as e:
+            console.print(f"[red]that key did not verify:[/red] {e}")
+            raise typer.Exit(1) from e
+        if not set_keychain_secret(KEYCHAIN_LICENSE_NAME, activate.strip()):
+            from sportsdata_agents.paths import data_dir
+
+            (data_dir() / "license.key").write_text(activate.strip(), encoding="utf-8")
+        console.print(f"[green]✓ activated[/green] — {claims.tier.upper()} tier for {claims.issued_to}"
+                      + (f", expires {claims.expires}" if claims.expires else ""))
+        return
+
+    ent = current_entitlements()
+    console.print(f"[bold]Tier:[/bold] {ent.tier.upper()}")
+    quota = "unlimited" if ent.effective_mcp_quota() < 0 else ent.effective_mcp_quota()
+    console.print(f"  MCP quota: {quota}")
+    console.print(f"  Chat interface: {'yes' if ent.chat_ui else 'no'}")
+    console.print(f"  Desktop app: {'yes' if ent.full_app else 'no'}")
+    console.print(f"  Agents: {'all' if ent.agents is None else ', '.join(ent.agents)}")
+    console.print(f"  Add-ons: {', '.join(sorted(ent.addons)) or 'none'}")
+    if ent.note:
+        console.print(f"  [dim]{ent.note}[/dim]")
+
+
 @app.command()
 def setup() -> None:
     """First-run wizard: pick a model provider, store its key in the OS keychain.
@@ -221,15 +288,18 @@ def app_cmd(
 
         Console().print("[yellow]No model key found — run [bold]agents setup[/bold] first.[/yellow]")
         raise typer.Exit(1)
+    _require_entitlement("full_app")
     run_app(host=host, port=port, with_conductor=not no_conductor)
 
 
 @app.command()
 def slack() -> None:
-    """Run the Slack adapter (Socket Mode). Needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN."""
+    """Run the Slack adapter (Socket Mode). Needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN
+    and the 'slack' add-on (Pro tier)."""
     from dotenv import load_dotenv
 
     load_dotenv()
+    _require_addon("slack")
     from sportsdata_agents.interfaces.slack.app import serve_socket_mode
 
     serve_socket_mode()
@@ -238,10 +308,12 @@ def slack() -> None:
 @app.command()
 def discord() -> None:
     """Run the Discord adapter. Needs DISCORD_BOT_TOKEN + a running gateway
-    (`agents serve`). Install the extra: pip install 'sportsdata-agents[discord]'."""
+    (`agents serve`). Install the extra: pip install 'sportsdata-agents[discord]'.
+    Needs the 'discord' add-on (Pro tier)."""
     from dotenv import load_dotenv
 
     load_dotenv()
+    _require_addon("discord")
     from sportsdata_agents.interfaces.discord.app import serve_bot
 
     serve_bot()
