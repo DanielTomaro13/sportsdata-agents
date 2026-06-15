@@ -39,7 +39,9 @@ fi
   --onedir \
   --console \
   --collect-all sportsdata_agents \
-  --collect-submodules litellm \
+  --collect-all litellm \
+  --collect-all tiktoken \
+  --hidden-import tiktoken_ext.openai_public \
   --copy-metadata sportsdata-agents \
   $ADD_MCP \
   --noconfirm \
