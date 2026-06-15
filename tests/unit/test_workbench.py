@@ -1,0 +1,114 @@
+"""M4.5 — the workbench read surfaces: enriched /agents, /files, /settings, /mcp/groups.
+
+Store-backed history (/conversations) is covered by the integration suite (needs a
+warehouse); here we assert shapes and the graceful-empty contract with no store/data
+plane, plus the desk-folder sandbox."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+import pytest
+
+from sportsdata_agents.gateway.app import create_app
+
+pytestmark = pytest.mark.unit
+
+
+class FakeSession:
+    agent_name = "orchestrator"
+    recorder = None
+
+    async def run(self, prompt: str, *, recorder: Any = None) -> Any:  # pragma: no cover - unused here
+        raise NotImplementedError
+
+
+@pytest.fixture
+async def client(tmp_path, monkeypatch):
+    # an empty, isolated desk folder so /files is deterministic
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DESK_DIR", str(tmp_path / "desk"))
+    app = create_app(session=FakeSession())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
+        yield c
+
+
+async def test_agents_enriched(client: httpx.AsyncClient) -> None:
+    agents = (await client.get("/agents")).json()
+    assert "orchestrator" in agents
+    a = agents["orchestrator"]
+    # the workbench Agents view needs these fields
+    for field in ("display_name", "description", "tier", "plane", "capabilities", "delegates_to", "skills"):
+        assert field in a, f"missing {field}"
+    assert isinstance(a["capabilities"], list)
+    assert a["plane"] in ("product", "ops")
+
+
+async def test_files_empty_desk(client: httpx.AsyncClient, tmp_path) -> None:
+    body = (await client.get("/files")).json()
+    assert body["files"] == []
+    assert "desk" in body["desk_dir"]
+
+
+async def test_files_lists_written_files(client: httpx.AsyncClient, tmp_path) -> None:
+    desk = tmp_path / "desk"
+    desk.mkdir(parents=True, exist_ok=True)
+    (desk / "report.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (desk / ".hidden").write_text("x", encoding="utf-8")  # dotfiles excluded
+    body = (await client.get("/files")).json()
+    names = [f["name"] for f in body["files"]]
+    assert "report.csv" in names
+    assert ".hidden" not in names
+    csv = next(f for f in body["files"] if f["name"] == "report.csv")
+    assert csv["ext"] == "csv" and csv["size"] > 0
+
+
+async def test_file_raw_serves_and_sandboxes(client: httpx.AsyncClient, tmp_path) -> None:
+    desk = tmp_path / "desk"
+    desk.mkdir(parents=True, exist_ok=True)
+    (desk / "ok.txt").write_text("hello", encoding="utf-8")
+    assert (await client.get("/files/raw", params={"name": "ok.txt"})).text == "hello"
+    # path traversal must be rejected by resolve_desk_path
+    esc = await client.get("/files/raw", params={"name": "../../etc/passwd"})
+    assert esc.status_code == 400
+    assert (await client.get("/files/raw", params={"name": "nope.txt"})).status_code == 404
+
+
+async def test_settings_snapshot_shape(client: httpx.AsyncClient) -> None:
+    s = (await client.get("/settings")).json()
+    for field in ("provider", "model_key_configured", "data_dir", "warehouse", "desk_dir", "account"):
+        assert field in s, f"missing {field}"
+    assert isinstance(s["model_key_configured"], bool)
+    assert isinstance(s["account"], dict) and "tier" in s["account"]
+
+
+async def test_conversations_empty_without_store(client: httpx.AsyncClient) -> None:
+    # no convstore injected (and FakeSession owns none) → graceful empty, never 500
+    assert (await client.get("/conversations")).json() == {"conversations": []}
+    assert (await client.get("/conversations/web-x/messages")).json() == {"messages": []}
+
+
+async def test_mcp_groups_groups_by_provider(client: httpx.AsyncClient, monkeypatch) -> None:
+    """The catalogue groups raw MCP groups under their provider. We stub the data
+    plane so the unit test never spawns a subprocess."""
+    import sportsdata_agents.mcp.manager as mgr
+
+    class FakeManager:
+        def __init__(self, *a: Any, **k: Any) -> None: ...
+        async def __aenter__(self) -> FakeManager:
+            return self
+        async def __aexit__(self, *a: Any) -> None: ...
+        async def call_tool(self, name: str, args: dict) -> dict:
+            return {"available": {
+                "afl.core": {"provider": "afl", "tools": 20},
+                "afl.cfs": {"provider": "afl", "tools": 5},
+                "sportsbet.sports": {"provider": "sportsbet", "tools": 12},
+            }}
+
+    monkeypatch.setattr(mgr, "MCPManager", FakeManager)
+    data = (await client.get("/mcp/groups")).json()
+    provs = {p["provider"]: p for p in data["providers"]}
+    assert set(provs) == {"afl", "sportsbet"}
+    assert provs["afl"]["tools"] == 25
+    assert len(provs["afl"]["groups"]) == 2

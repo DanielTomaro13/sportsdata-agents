@@ -57,3 +57,40 @@ async def test_conversations_are_tenant_scoped(db_sessionmaker: async_sessionmak
 def test_threaded_prompt_stateless_without_context() -> None:
     assert threaded_prompt(None, "hi") == "hi"
     assert threaded_prompt("", "hi") == "hi"
+
+
+# ─── M4.5 workbench history: list + reload ───────────────────────────────
+
+
+async def test_list_conversations_titles_and_order(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    store = ConversationStore(db_sessionmaker, SCOPE)
+    await store.append_turn("web-aaa", "older question about AFL", "answer A")
+    await store.append_turn("web-bbb", "newer question about NBA", "answer B")
+    rows = await store.list_conversations()
+    assert {r["key"] for r in rows} == {"web-aaa", "web-bbb"}
+    # title = first user line; newest activity first
+    assert rows[0]["key"] == "web-bbb"
+    assert rows[0]["title"] == "newer question about NBA"
+    assert rows[0]["messages"] == 2  # user + assistant
+
+
+async def test_list_conversations_filters_channel(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    store = ConversationStore(db_sessionmaker, SCOPE)
+    await store.append_turn("web-1", "from the chat UI", "a")
+    await store.append_turn("slack-C1-2", "from slack", "a")  # channel='slack'
+    keys = {r["key"] for r in await store.list_conversations()}  # default channel='web'
+    assert keys == {"web-1"}
+    all_keys = {r["key"] for r in await store.list_conversations(channel=None)}
+    assert {"web-1", "slack-C1-2"} <= all_keys
+
+
+async def test_messages_for_roundtrip_and_unknown(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    store = ConversationStore(db_sessionmaker, SCOPE)
+    await store.append_turn("web-z", "q1", "a1")
+    await store.append_turn("web-z", "q2", "a2")
+    msgs = await store.messages_for("web-z")
+    assert msgs is not None
+    assert [(m["role"], m["content"]) for m in msgs] == [
+        ("user", "q1"), ("assistant", "a1"), ("user", "q2"), ("assistant", "a2"),
+    ]
+    assert await store.messages_for("web-does-not-exist") is None

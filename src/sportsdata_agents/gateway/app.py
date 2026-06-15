@@ -197,6 +197,7 @@ def create_app(
     state: dict[str, Any] = {"session": session, "convstore": conversation_store}
     tasks = TaskStore()
     limiter = RateLimiter()
+    _mcp_cache: dict[str, Any] = {}  # the MCP provider catalogue (5-min TTL)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -248,8 +249,21 @@ def create_app(
 
     @app.get("/agents")
     async def agents() -> dict[str, Any]:
+        """Every agent the install knows, with enough detail for the workbench's
+        Agents view to show what each one does and what it can reach."""
         return {
-            spec.id: {"display_name": spec.display_name, "tier": spec.model_tier, "version": spec.version}
+            spec.id: {
+                "display_name": spec.display_name,
+                "description": spec.description,
+                "tier": spec.model_tier,
+                "version": spec.version,
+                "plane": getattr(spec, "plane", "product"),
+                "capabilities": list(spec.tools.mcp_capabilities),
+                "native_tools": list(spec.tools.native),
+                "delegates_to": list(spec.can_delegate_to),
+                "skills": list(spec.skills),
+                "deprecated": spec.deprecated,
+            }
             for spec in load_builtin_specs().values()
         }
 
@@ -298,6 +312,135 @@ def create_app(
         except ValueError as e:
             return JSONResponse({"detail": str(e)}, status_code=400)
         return JSONResponse(res)
+
+    # ─── workbench: chat history, files, settings (M4.5) ────────────────────
+    # Read-only surfaces the desktop shell renders as its Chats / Files / Settings
+    # panes. All degrade to empty (never 500) so a missing warehouse or data plane
+    # just shows an empty pane, matching the degradation contract elsewhere.
+
+    @app.get("/conversations")
+    async def list_conversations() -> dict[str, Any]:
+        """The chat-history sidebar: past 'web' conversations, newest first."""
+        store = state["convstore"]
+        if store is None:
+            return {"conversations": []}
+        try:
+            return {"conversations": await store.list_conversations()}
+        except Exception as e:  # warehouse hiccup → empty history, not a 500
+            logger.warning("conversation list unavailable (%s: %s)", type(e).__name__, e)
+            return {"conversations": []}
+
+    @app.get("/conversations/{key}/messages")
+    async def conversation_messages(key: str) -> JSONResponse:
+        """Reload one past conversation's turns (oldest first)."""
+        store = state["convstore"]
+        if store is None:
+            return JSONResponse({"messages": []})
+        try:
+            msgs = await store.messages_for(key)
+        except Exception as e:
+            logger.warning("conversation load failed (%s: %s)", type(e).__name__, e)
+            return JSONResponse({"messages": []})
+        if msgs is None:
+            return JSONResponse({"detail": "unknown conversation"}, status_code=404)
+        return JSONResponse({"messages": msgs})
+
+    @app.get("/files")
+    async def list_desk_files() -> dict[str, Any]:
+        """The Files pane: everything agents have written to the user's desk folder
+        (charts, CSVs, reports), newest first."""
+        from datetime import UTC, datetime
+
+        from sportsdata_agents.paths import desk_dir
+
+        base = desk_dir()
+        files: list[dict[str, Any]] = []
+        if base.is_dir():
+            for p in base.rglob("*"):
+                if not p.is_file() or p.name.startswith("."):
+                    continue
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                files.append({
+                    "name": str(p.relative_to(base)),
+                    "size": st.st_size,
+                    "modified": datetime.fromtimestamp(st.st_mtime, UTC).isoformat(),
+                    "ext": p.suffix.lower().lstrip("."),
+                })
+        files.sort(key=lambda f: f["modified"], reverse=True)
+        return {"desk_dir": str(base), "files": files}
+
+    @app.get("/files/raw")
+    async def desk_file_raw(name: str):
+        """Serve one desk file for preview/download — sandboxed to the desk folder
+        (``resolve_desk_path`` rejects any path that escapes it)."""
+        from fastapi.responses import FileResponse
+
+        from sportsdata_agents.paths import resolve_desk_path
+
+        try:
+            path = resolve_desk_path(name)
+        except ValueError:
+            raise HTTPException(400, detail="bad path") from None
+        if not path.is_file():
+            raise HTTPException(404, detail="not found")
+        # no forced-download filename → images/text/PDF preview inline in a new tab
+        return FileResponse(str(path))
+
+    @app.get("/settings")
+    async def settings_snapshot() -> dict[str, Any]:
+        """The Settings pane: where data lives, which model provider is configured,
+        and the desk folder — a read-only snapshot (mutation lands in a later PR)."""
+        from sportsdata_agents.app.wizard import configured_provider
+        from sportsdata_agents.paths import data_dir, desk_dir, warehouse_path
+
+        provider = None
+        try:
+            provider = configured_provider()  # only returns a provider that HAS a key
+        except Exception as e:  # never let a config probe 500 the pane
+            logger.warning("provider probe failed (%s: %s)", type(e).__name__, e)
+        sess = state["session"]
+        return {
+            "provider": provider.label if provider else None,
+            "model_key_configured": provider is not None,
+            "root_agent": sess.agent_name if sess else None,
+            "data_dir": str(data_dir()),
+            "warehouse": str(warehouse_path()),
+            "desk_dir": str(desk_dir()),
+            "account": _account_payload(),
+        }
+
+    @app.get("/mcp/groups")
+    async def mcp_groups() -> JSONResponse:
+        """The MCP provider catalogue (groups + tool counts) from the live data
+        plane. Cached for 5 min — it moves slowly and the call spawns a subprocess.
+        Empty payload (not an error) when the data plane is unreachable."""
+        cached = _mcp_cache.get("groups")
+        if cached and time.monotonic() - _mcp_cache.get("at", 0.0) < 300:
+            return JSONResponse(cached)
+        payload: dict[str, Any] = {"providers": [], "available": {}}
+        try:
+            from sportsdata_agents.mcp.manager import MCPManager
+
+            async with MCPManager(groups=["*"], command=get_settings().mcp_command) as manager:
+                got = await asyncio.wait_for(manager.call_tool("list_available_groups", {}), timeout=20)
+            available = got.get("available") or {}
+            by_provider: dict[str, dict[str, Any]] = {}
+            for group, info in available.items():
+                prov = str(info.get("provider", group.split(".")[0]))
+                entry = by_provider.setdefault(prov, {"provider": prov, "groups": [], "tools": 0})
+                entry["groups"].append({"group": group, "tools": int(info.get("tools", 0))})
+                entry["tools"] += int(info.get("tools", 0))
+            payload = {
+                "providers": sorted(by_provider.values(), key=lambda e: e["provider"]),
+                "available": available,
+            }
+            _mcp_cache.update(groups=payload, at=time.monotonic())
+        except Exception as e:  # data plane down / slow → empty catalogue, not a 500
+            logger.warning("mcp group listing unavailable (%s: %s)", type(e).__name__, e)
+        return JSONResponse(payload)
 
     # ─── the operator panel (owner-only: 404 for everyone but the operator) ───
     # The same switch that gates the platform-maintenance jobs gates this surface

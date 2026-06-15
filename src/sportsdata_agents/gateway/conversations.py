@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid as _uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.data.models import Conversation, Message
@@ -21,6 +21,18 @@ from sportsdata_agents.data.repository import TenantScope
 
 MAX_CONTEXT_TURNS = 6  # user+assistant pairs threaded back in
 MAX_TURN_CHARS = 600  # per stored message slice quoted into context
+HISTORY_LIMIT = 60  # conversations listed in the sidebar
+TITLE_CHARS = 90  # the first user line, trimmed, becomes the sidebar title
+
+
+def _iso(value: dt.datetime | None) -> str | None:
+    """A naive/aware datetime → ISO string the browser can sort and render."""
+    if value is None:
+        return None
+    try:
+        return value.isoformat()
+    except Exception:  # pragma: no cover - defensive
+        return str(value)
 
 
 class ConversationStore:
@@ -81,6 +93,84 @@ class ConversationStore:
             return None
         lines = [f"{m.role}: {m.content[:MAX_TURN_CHARS]}" for m in reversed(rows)]
         return "\n".join(lines)
+
+    async def list_conversations(
+        self, *, channel: str | None = "web", limit: int = HISTORY_LIMIT
+    ) -> list[dict[str, object]]:
+        """The sidebar history: most-recently-active first, each with a title taken
+        from its first user message. Scoped to one ``channel`` (the chat UI's own
+        'web' threads) so CLI/Slack/ops runs don't clutter the desktop history."""
+        async with self._sf() as session:
+            q = select(Conversation).where(
+                Conversation.tenant_id == self._scope.tenant_id,
+                Conversation.workspace_id == self._scope.workspace_id,
+            )
+            if channel:
+                q = q.where(Conversation.channel == channel)
+            convs = (
+                (await session.execute(q.order_by(Conversation.created_at.desc()).limit(limit)))
+                .scalars()
+                .all()
+            )
+            if not convs:
+                return []
+            ids = [c.id for c in convs]
+            # one aggregate query for last-activity + turn count …
+            activity = {
+                cid: (last, count)
+                for cid, last, count in (
+                    await session.execute(
+                        select(Message.conversation_id, func.max(Message.created_at), func.count())
+                        .where(Message.conversation_id.in_(ids))
+                        .group_by(Message.conversation_id)
+                    )
+                ).all()
+            }
+            # … and the first user line per conversation, for the title.
+            title: dict[_uuid.UUID, str] = {}
+            for cid, content in (
+                await session.execute(
+                    select(Message.conversation_id, Message.content)
+                    .where(Message.conversation_id.in_(ids), Message.role == "user")
+                    .order_by(Message.created_at.asc(), Message.id.asc())
+                )
+            ).all():
+                title.setdefault(cid, content)
+        rows: list[dict[str, object]] = []
+        for c in convs:
+            last, count = activity.get(c.id, (c.created_at, 0))
+            head = (title.get(c.id) or "New conversation").strip().splitlines()
+            rows.append({
+                "key": c.external_id or str(c.id),
+                "title": (head[0] if head else "New conversation")[:TITLE_CHARS],
+                "channel": c.channel,
+                "created_at": _iso(c.created_at),
+                "last_at": _iso(last),
+                "messages": int(count),
+            })
+        rows.sort(key=lambda r: str(r["last_at"] or ""), reverse=True)
+        return rows
+
+    async def messages_for(self, key: str, *, limit: int = 400) -> list[dict[str, object]] | None:
+        """A conversation's turns, oldest first, for reloading a past chat. ``None``
+        when the conversation key is unknown (a fresh thread that never persisted)."""
+        async with self._sf() as session:
+            conv_id = await self._conversation_id(session, key, create=False)
+            if conv_id is None:
+                return None
+            rows = (
+                (
+                    await session.execute(
+                        select(Message)
+                        .where(Message.conversation_id == conv_id)
+                        .order_by(Message.created_at.asc(), Message.id.asc())
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return [{"role": m.role, "content": m.content, "created_at": _iso(m.created_at)} for m in rows]
 
     async def append_turn(self, key: str, user_text: str, answer_text: str) -> None:
         async with self._sf() as session:
