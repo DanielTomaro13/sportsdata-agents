@@ -42,6 +42,9 @@ fi
   --collect-all litellm \
   --collect-all tiktoken \
   --hidden-import tiktoken_ext.openai_public \
+  --collect-all webview \
+  --hidden-import aiosqlite \
+  --hidden-import asyncpg \
   --copy-metadata sportsdata-agents \
   $ADD_MCP \
   --noconfirm \

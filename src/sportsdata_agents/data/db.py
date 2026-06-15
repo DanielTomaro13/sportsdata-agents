@@ -54,6 +54,22 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return _sessionmaker
 
 
+async def ensure_schema(engine: AsyncEngine | None = None) -> None:
+    """Create any missing warehouse tables from the ORM models — the desktop app's
+    self-contained SQLite warehouse has no alembic step at runtime, so it creates
+    its own schema on first launch. ``create_all`` only ADDS missing tables (never
+    drops or alters), and we gate it to SQLite so the Postgres/server path stays
+    alembic-managed and untouched."""
+    engine = engine or get_engine()
+    if not str(engine.url).startswith("sqlite"):
+        return  # server/Postgres schema is alembic's job, not create_all's
+    from sportsdata_agents.data import models  # noqa: F401 — registers tables on Base.metadata
+    from sportsdata_agents.data.base import Base
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
     """Transactional session: commit on success, rollback on error."""

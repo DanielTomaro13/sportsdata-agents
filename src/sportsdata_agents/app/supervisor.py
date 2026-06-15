@@ -7,6 +7,7 @@ import contextlib
 import datetime as dt
 import logging
 import signal
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -106,19 +107,44 @@ async def run_app_async(
     demo_only: bool = False,
     with_conductor: bool = True,
     tick_seconds: int = TICK_SECONDS,
+    install_signals: bool = True,
+    external_stop: threading.Event | None = None,
 ) -> None:
-    """Start the gateway and (optionally) the conductor loop; run until a signal."""
+    """Start the gateway and (optionally) the conductor loop; run until stopped.
+
+    ``install_signals`` registers SIGINT/SIGTERM handlers (only valid on the main
+    thread — the desktop-window mode runs this in a worker thread and passes False).
+    ``external_stop`` is a ``threading.Event`` the caller (the native window) sets
+    when it wants the daemon to shut down — bridged to the internal asyncio stop."""
     from sportsdata_agents.paths import data_dir, migrate_legacy_layout
 
     moved = migrate_legacy_layout()
     if moved:
         logger.info("migrated legacy data into %s: %s", data_dir(), ", ".join(moved))
 
+    # Self-create the desktop SQLite warehouse schema on first launch (no-op when it
+    # already exists or on the alembic-managed server path). Guarded: a DB hiccup
+    # degrades to no-audit, it never blocks the app from starting.
+    try:
+        from sportsdata_agents.data.db import ensure_schema
+        await ensure_schema()
+    except Exception as e:
+        logger.warning("could not ensure warehouse schema: %s", e)
+
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        with contextlib.suppress(NotImplementedError):  # Windows lacks SIGTERM
-            loop.add_signal_handler(sig, stop.set)
+    if install_signals:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):  # Windows lacks SIGTERM
+                loop.add_signal_handler(sig, stop.set)
+
+    bridge_task: asyncio.Task[Any] | None = None
+    if external_stop is not None:
+        async def _bridge() -> None:
+            while not external_stop.is_set():
+                await asyncio.sleep(0.25)
+            stop.set()
+        bridge_task = asyncio.create_task(_bridge())
 
     tasks: list[asyncio.Task[Any]] = [
         asyncio.create_task(_supervise(
@@ -136,9 +162,11 @@ async def run_app_async(
         await asyncio.gather(*tasks)
     finally:
         stop.set()
+        if bridge_task is not None:
+            bridge_task.cancel()
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, *( [bridge_task] if bridge_task else [] ), return_exceptions=True)
 
 
 def run_app(**kwargs: Any) -> None:
