@@ -169,22 +169,94 @@ function timeAgo(iso) {
   return Math.floor(d / 86400) + "d";
 }
 
+let showArchived = false;
 async function loadHistory() {
   let convs = [];
   try {
-    const r = await fetch(`${API}/conversations`, { cache: "no-store" });
+    const r = await fetch(`${API}/conversations?include_archived=1`, { cache: "no-store" });
     if (r.ok) convs = (await r.json()).conversations || [];
   } catch { /* sidebar just stays empty */ }
+  const active = convs.filter((c) => !c.archived);
+  const archived = convs.filter((c) => c.archived);
   const hist = $("#hist");
   if (!convs.length) { hist.innerHTML = `<div class="empty">No conversations yet</div>`; return; }
-  hist.innerHTML = `<div class="lbl">RECENT</div>` + convs.map((c) =>
-    `<button class="citem" data-key="${esc(c.key)}" title="${esc(c.title)} · ${timeAgo(c.last_at)}">${esc(c.title)}</button>`
-  ).join("");
+  const row = (c) => `<div class="crow" data-key="${esc(c.key)}">
+      <button class="citem" data-key="${esc(c.key)}" title="${esc(c.title)} · ${timeAgo(c.last_at)}">${esc(c.title)}</button>
+      <button class="ckebab" data-key="${esc(c.key)}" data-archived="${c.archived ? 1 : 0}" title="More">⋯</button>
+    </div>`;
+  let html = active.length ? `<div class="lbl">RECENT</div>` + active.map(row).join("") : "";
+  if (archived.length) {
+    html += `<button class="arch-toggle" id="arch-toggle">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transform:rotate(${showArchived ? 90 : 0}deg);transition:transform .15s"><path d="M9 6l6 6-6 6"/></svg>
+        Archived (${archived.length})</button>`;
+    if (showArchived) html += archived.map(row).join("");
+  }
+  hist.innerHTML = html || `<div class="empty">No conversations yet</div>`;
   markActiveConversation();
 }
 
 function markActiveConversation() {
-  $$("#hist .citem").forEach((b) => b.classList.toggle("active", b.dataset.key === convId));
+  $$("#hist .crow").forEach((b) => b.classList.toggle("active", b.dataset.key === convId));
+}
+
+/* per-conversation actions: a shared ⋯ menu, inline rename, two-click delete */
+function openChatMenu(kebab) {
+  const menu = $("#cmenu");
+  const key = kebab.dataset.key, archived = kebab.dataset.archived === "1";
+  menu.dataset.key = key; menu.dataset.archived = archived ? "1" : "0";
+  $("#cmenu-archive-label").textContent = archived ? "Unarchive" : "Archive";
+  $("#cmenu-delete-label").textContent = "Delete";  // reset any prior confirm state
+  menu.querySelector('[data-act="delete"]').classList.remove("confirm");
+  const r = kebab.getBoundingClientRect();
+  menu.hidden = false;
+  // place below-right of the kebab, clamped to the viewport
+  menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 8) + "px";
+  menu.style.top = Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8) + "px";
+  $$(".ckebab").forEach((k) => k.classList.toggle("open", k === kebab));
+}
+function closeChatMenu() {
+  $("#cmenu").hidden = true;
+  $$(".ckebab").forEach((k) => k.classList.remove("open"));
+}
+
+async function archiveConv(key, archived) {
+  try {
+    await fetch(`${API}/conversations/${encodeURIComponent(key)}/archive`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived }),
+    });
+  } finally { loadHistory(); }
+}
+async function deleteConv(key) {
+  try {
+    await fetch(`${API}/conversations/${encodeURIComponent(key)}`, { method: "DELETE" });
+  } finally {
+    if (key === convId) newChat(); else loadHistory();
+  }
+}
+function startRename(key) {
+  const row = $(`.crow[data-key="${CSS.escape(key)}"]`);
+  if (!row) return;
+  const btn = row.querySelector(".citem");
+  const cur = btn.textContent;
+  const input = document.createElement("input");
+  input.className = "cedit"; input.value = cur;
+  row.replaceChild(input, btn); input.focus(); input.select();
+  const commit = async (save) => {
+    const title = input.value.trim();
+    if (save && title && title !== cur) {
+      try {
+        await fetch(`${API}/conversations/${encodeURIComponent(key)}/rename`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }),
+        });
+      } catch { /* fall through to reload */ }
+    }
+    loadHistory();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(true); }
+    else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+  });
+  input.addEventListener("blur", () => commit(true));
 }
 
 async function openConversation(key) {
@@ -501,7 +573,25 @@ input.addEventListener("input", resize);
 
 // sidebar: new chat + history + nav
 $("#newchat").addEventListener("click", newChat);
-$("#hist").addEventListener("click", (e) => { const b = e.target.closest(".citem"); if (b) openConversation(b.dataset.key); });
+$("#hist").addEventListener("click", (e) => {
+  const kebab = e.target.closest(".ckebab");
+  if (kebab) { e.stopPropagation(); openChatMenu(kebab); return; }
+  if (e.target.closest("#arch-toggle")) { showArchived = !showArchived; loadHistory(); return; }
+  const item = e.target.closest(".citem");
+  if (item) openConversation(item.dataset.key);
+});
+$("#cmenu").addEventListener("click", (e) => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  const menu = $("#cmenu"), key = menu.dataset.key, act = btn.dataset.act;
+  if (act === "rename") { closeChatMenu(); startRename(key); }
+  else if (act === "archive") { closeChatMenu(); archiveConv(key, menu.dataset.archived !== "1"); }
+  else if (act === "delete") {
+    if (!btn.classList.contains("confirm")) {  // two-click delete (no native confirm())
+      btn.classList.add("confirm"); $("#cmenu-delete-label").textContent = "Click again to delete";
+    } else { closeChatMenu(); deleteConv(key); }
+  }
+});
+document.addEventListener("click", (e) => { if (!e.target.closest("#cmenu") && !e.target.closest(".ckebab")) closeChatMenu(); });
 $("#nav").addEventListener("click", (e) => { const b = e.target.closest("button[data-pane]"); if (b) showPane(b.dataset.pane); });
 
 // agents/files pane delegation

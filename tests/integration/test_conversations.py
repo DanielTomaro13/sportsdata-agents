@@ -94,3 +94,34 @@ async def test_messages_for_roundtrip_and_unknown(db_sessionmaker: async_session
         ("user", "q1"), ("assistant", "a1"), ("user", "q2"), ("assistant", "a2"),
     ]
     assert await store.messages_for("web-does-not-exist") is None
+
+
+async def test_archive_hides_then_unhides(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    store = ConversationStore(db_sessionmaker, SCOPE)
+    await store.append_turn("web-a", "q", "a")
+    assert await store.set_archived("web-a", True) is True
+    assert [r["key"] for r in await store.list_conversations()] == []  # hidden by default
+    arch = await store.list_conversations(include_archived=True)
+    assert arch[0]["key"] == "web-a" and arch[0]["archived"] is True
+    await store.set_archived("web-a", False)
+    assert [r["key"] for r in await store.list_conversations()] == ["web-a"]
+    assert await store.set_archived("web-missing", True) is False
+
+
+async def test_rename_overrides_title_then_clears(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    store = ConversationStore(db_sessionmaker, SCOPE)
+    await store.append_turn("web-t", "original question text", "a")
+    assert await store.set_title("web-t", "My renamed chat") is True
+    assert (await store.list_conversations())[0]["title"] == "My renamed chat"
+    await store.set_title("web-t", "")  # empty clears → back to the first-message title
+    assert (await store.list_conversations())[0]["title"] == "original question text"
+    assert await store.set_title("web-missing", "x") is False
+
+
+async def test_delete_removes_conversation_and_messages(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    store = ConversationStore(db_sessionmaker, SCOPE)
+    await store.append_turn("web-d", "q", "a")
+    assert await store.delete_conversation("web-d") is True
+    assert await store.messages_for("web-d") is None
+    assert [r["key"] for r in await store.list_conversations()] == []
+    assert await store.delete_conversation("web-missing") is False
