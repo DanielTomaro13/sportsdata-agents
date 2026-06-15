@@ -26,6 +26,9 @@ def test_keychain_round_trips_through_a_fake_backend(monkeypatch: pytest.MonkeyP
             store[(service, name)] = value
 
     monkeypatch.setattr(secrets, "_keyring", lambda: FakeKeyring)
+    # the app-private file store is consulted before the keychain; neutralise it so
+    # a real secrets.json on the dev's machine can't shadow this keychain test.
+    monkeypatch.setattr(secrets, "get_file_secret", lambda name: None)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
     assert secrets.set_keychain_secret("ANTHROPIC_API_KEY", "sk-kc") is True
@@ -51,6 +54,9 @@ def test_wizard_provider_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(wizard, "get_keychain_secret", lambda name: None, raising=False)
     import sportsdata_agents.secrets as secrets
     monkeypatch.setattr(secrets, "get_keychain_secret", lambda name: None)
+    # also neutralise the file store (env → file → keychain), else a real
+    # secrets.json on the dev machine makes the "nothing configured" case fail.
+    monkeypatch.setattr(secrets, "get_file_secret", lambda name: None)
     for p in wizard.PROVIDERS:
         monkeypatch.delenv(p.key_env, raising=False)
     assert wizard.configured_provider() is None

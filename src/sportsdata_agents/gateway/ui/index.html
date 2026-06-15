@@ -7,53 +7,87 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236e8bff'/%3E%3Cstop offset='1' stop-color='%237cf5c8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%2305080f'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='url(%23g)' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root{
-    --bg:#05080f; --panel:rgba(255,255,255,.035); --border:rgba(255,255,255,.08);
-    --ink:#eef2ff; --dim:#8e97b3; --acc1:#6e8bff; --acc2:#3dd6f5; --acc3:#7cf5c8;
-    --ok:#4ade80; --warn:#fbbf24; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-    --ease:cubic-bezier(.22,1,.36,1);
+    --bg:#05080f; --panel:rgba(255,255,255,.035); --panel2:rgba(255,255,255,.06);
+    --border:rgba(255,255,255,.08); --border2:rgba(255,255,255,.14);
+    --ink:#eef2ff; --dim:#8e97b3; --faint:#62748f;
+    --acc1:#6e8bff; --acc2:#3dd6f5; --acc3:#7cf5c8;
+    --ok:#4ade80; --warn:#fbbf24; --bad:#ff7a7a;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --ease:cubic-bezier(.22,1,.36,1); --side:236px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  /* the `hidden` attribute MUST win over any display rule (modals/panes set
+     display, which would otherwise keep a hidden element visible). */
+  [hidden]{display:none!important}
   body{background:var(--bg);color:var(--ink);height:100vh;overflow:hidden;
     font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
-    -webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+    -webkit-font-smoothing:antialiased;display:flex}
   .orbs{position:fixed;inset:0;z-index:-1;overflow:hidden}
-  .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.25}
+  .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.22}
   .orb.a{width:520px;height:520px;background:#2741b8;top:-160px;left:-120px}
   .orb.b{width:440px;height:440px;background:#0c5a6e;bottom:-180px;right:-140px}
+  button{font:inherit}
 
-  /* top bar */
-  header{display:flex;align-items:center;gap:14px;padding:13px 20px;
-    border-bottom:1px solid var(--border);backdrop-filter:blur(8px)}
-  .wordmark{font-weight:800;font-size:17px;letter-spacing:-.3px}
+  /* ─── sidebar ─────────────────────────────────────────────── */
+  .sidebar{width:var(--side);flex:0 0 auto;display:flex;flex-direction:column;
+    border-right:1px solid var(--border);background:rgba(8,11,20,.55);backdrop-filter:blur(8px)}
+  .brand{display:flex;align-items:center;gap:9px;padding:15px 16px 12px}
+  .wordmark{font-weight:800;font-size:16px;letter-spacing:-.3px}
   .wordmark span{background:linear-gradient(90deg,var(--acc1),var(--acc2));
     -webkit-background-clip:text;background-clip:text;color:transparent}
-  .status{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--dim);
-    border:1px solid var(--border);border-radius:999px;padding:5px 13px;margin-left:auto}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
-  .dot.up{background:var(--ok);animation:pulse 2.2s ease infinite}
-  .dot.down{background:#ef4444}
+  .sdot{width:7px;height:7px;border-radius:50%;background:var(--dim);margin-left:auto}
+  .sdot.up{background:var(--ok);animation:pulse 2.2s ease infinite}
+  .sdot.down{background:#ef4444}
   @keyframes pulse{50%{opacity:.4;transform:scale(.8)}}
-  .tier{font-size:12px;color:var(--acc3);border:1px solid var(--border);
-    border-radius:999px;padding:5px 12px}
+  .newchat{margin:4px 12px 6px;display:flex;align-items:center;gap:8px;cursor:pointer;
+    border:0;border-radius:10px;padding:9px 12px;font-size:13.5px;font-weight:650;color:#06121f;
+    background:linear-gradient(135deg,var(--acc2),var(--acc3));transition:transform .15s var(--ease)}
+  .newchat:hover{transform:translateY(-1px)}
+  .hist{flex:1;overflow-y:auto;padding:8px 8px 6px}
+  .hist .lbl{font-size:10.5px;letter-spacing:.5px;color:var(--faint);padding:8px 8px 4px}
+  .citem{display:block;width:100%;text-align:left;border:0;background:none;cursor:pointer;
+    color:var(--dim);font-size:13px;padding:7px 9px;border-radius:8px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .12s,color .12s}
+  .citem:hover{background:var(--panel);color:var(--ink)}
+  .citem.active{background:var(--panel2);color:var(--ink)}
+  .hist .empty{font-size:12px;color:var(--faint);padding:8px 9px}
+  .nav{border-top:1px solid var(--border);padding:8px;display:flex;flex-direction:column;gap:1px}
+  .nav button{display:flex;align-items:center;gap:10px;border:0;background:none;cursor:pointer;
+    color:var(--dim);font-size:13.5px;padding:8px 9px;border-radius:8px;text-align:left;
+    transition:background .12s,color .12s}
+  .nav button:hover{background:var(--panel);color:var(--ink)}
+  .nav button.active{background:var(--panel2);color:var(--ink)}
+  .nav button .ic{width:17px;height:17px;flex:0 0 auto;opacity:.85}
+  .nav button.active .ic{opacity:1}
+  .nav .tierchip{margin-top:4px;font-size:11.5px;color:var(--acc3)}
+  .nav .opchip{color:var(--acc2)}
 
-  /* layout */
-  main{flex:1;display:flex;min-height:0}
-  .thread{flex:1;overflow-y:auto;padding:28px 0 0}
+  /* ─── main column ─────────────────────────────────────────── */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .pane{flex:1;min-height:0;display:none;flex-direction:column}
+  .pane.show{display:flex}
+  .ptop{display:flex;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid var(--border)}
+  .ptop h2{font-size:15px;font-weight:650}
+  .ptop .sub{font-size:12px;color:var(--dim)}
+  .pscroll{flex:1;overflow-y:auto}
+  .pwrap{max-width:860px;margin:0 auto;padding:22px 24px 40px}
+  .pscroll::-webkit-scrollbar,.hist::-webkit-scrollbar{width:9px}
+  .pscroll::-webkit-scrollbar-thumb,.hist::-webkit-scrollbar-thumb{background:var(--border);border-radius:9px}
+
+  /* ─── chat pane ───────────────────────────────────────────── */
+  .thread{flex:1;overflow-y:auto;padding:26px 0 0}
+  .thread::-webkit-scrollbar{width:9px}.thread::-webkit-scrollbar-thumb{background:var(--border);border-radius:9px}
   .wrap{max-width:780px;margin:0 auto;padding:0 24px}
-
-  /* empty state */
   .welcome{text-align:center;padding:7vh 24px}
-  .welcome h1{font-size:30px;font-weight:800;letter-spacing:-1px}
+  .welcome h1{font-size:29px;font-weight:800;letter-spacing:-1px}
   .welcome h1 .g{background:linear-gradient(90deg,var(--acc1),var(--acc2) 50%,var(--acc3));
     -webkit-background-clip:text;background-clip:text;color:transparent}
   .welcome p{color:var(--dim);margin-top:10px}
-  .chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:26px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:24px}
   .chip{cursor:pointer;border:1px solid var(--border);background:var(--panel);
     border-radius:12px;padding:11px 16px;font-size:13.5px;color:#d6ddf5;
     transition:border-color .2s,transform .2s var(--ease)}
-  .chip:hover{border-color:rgba(255,255,255,.22);transform:translateY(-2px)}
-
-  /* messages */
+  .chip:hover{border-color:var(--border2);transform:translateY(-2px)}
   .msg{margin-bottom:22px;display:flex;gap:13px}
   .avatar{width:30px;height:30px;border-radius:9px;flex:0 0 auto;display:grid;
     place-items:center;font-size:13px;font-weight:700}
@@ -63,44 +97,32 @@
   .msg.user .body{color:#d6ddf5}
   .body h3{font-size:1.05em;margin:.7em 0 .3em}
   .body p{margin:.5em 0}
-  .body ul{margin:.4em 0;padding-left:1.3em}
-  .body li{margin:.2em 0}
+  .body ul{margin:.4em 0;padding-left:1.3em}.body li{margin:.2em 0}
   .body strong{color:#fff}
-  .body code{font-family:var(--mono);font-size:.88em;background:rgba(255,255,255,.06);
-    padding:2px 6px;border-radius:5px}
+  .body code{font-family:var(--mono);font-size:.88em;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:5px}
   .body table{border-collapse:collapse;margin:.7em 0;font-size:.92em;width:100%}
   .body th,.body td{border:1px solid var(--border);padding:6px 11px;text-align:left}
   .body th{color:var(--dim);font-weight:600;font-size:.85em;text-transform:uppercase;letter-spacing:.5px}
   .body td.best{color:var(--acc3);font-weight:700}
   .src{font-size:12px;color:var(--dim);margin-top:8px;font-family:var(--mono)}
-
-  /* tool feed */
   .tools{margin:6px 0 4px;display:flex;flex-direction:column;gap:5px}
-  .tool{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;
-    color:var(--dim);padding:5px 11px;background:rgba(255,255,255,.025);
-    border:1px solid var(--border);border-radius:9px;width:fit-content;max-width:100%}
-  .tool .spin{width:11px;height:11px;border:2px solid var(--border);
-    border-top-color:var(--acc2);border-radius:50%;animation:spin .7s linear infinite;flex:0 0 auto}
+  .tool{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;color:var(--dim);
+    padding:5px 11px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:9px;width:fit-content;max-width:100%}
+  .tool .spin{width:11px;height:11px;border:2px solid var(--border);border-top-color:var(--acc2);
+    border-radius:50%;animation:spin .7s linear infinite;flex:0 0 auto}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .tool .check{color:var(--ok)}
-  .tool .fail{color:#ef4444}
-  .tool .nm{color:#c3cbe8}
+  .tool .check{color:var(--ok)}.tool .fail{color:#ef4444}.tool .nm{color:#c3cbe8}
   .meta{font-size:11.5px;color:var(--dim);font-family:var(--mono);margin-top:7px}
   .meta .adv{color:var(--warn)}
   .shimmer{display:inline-block;background:linear-gradient(90deg,var(--dim),#fff,var(--dim));
     background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;
     animation:sh 1.4s linear infinite;font-size:13px}
   @keyframes sh{to{background-position:200% center}}
-
-  /* composer */
-  .composer{border-top:1px solid var(--border);padding:14px 24px 18px;background:rgba(5,8,15,.6);
-    backdrop-filter:blur(8px)}
+  .composer{border-top:1px solid var(--border);padding:14px 24px 18px;background:rgba(5,8,15,.6);backdrop-filter:blur(8px)}
   .cbox{max-width:780px;margin:0 auto;display:flex;gap:10px;align-items:flex-end;
-    border:1px solid var(--border);background:var(--panel);border-radius:16px;padding:9px 9px 9px 16px;
-    transition:border-color .2s}
+    border:1px solid var(--border);background:var(--panel);border-radius:16px;padding:9px 9px 9px 16px;transition:border-color .2s}
   .cbox:focus-within{border-color:rgba(61,214,245,.4)}
-  textarea{flex:1;background:none;border:0;color:var(--ink);font:inherit;resize:none;
-    outline:none;max-height:160px;padding:6px 0}
+  textarea{flex:1;background:none;border:0;color:var(--ink);font:inherit;resize:none;outline:none;max-height:160px;padding:6px 0}
   textarea::placeholder{color:var(--dim)}
   .send{flex:0 0 auto;width:38px;height:38px;border:0;border-radius:11px;cursor:pointer;
     background:linear-gradient(135deg,var(--acc2),var(--acc3));color:#06101f;font-size:17px;
@@ -108,77 +130,150 @@
   .send:hover{transform:translateY(-1px)}
   .send:disabled{opacity:.4;cursor:not-allowed;transform:none}
   .foot{max-width:780px;margin:8px auto 0;text-align:center;font-size:11.5px;color:var(--dim)}
-  .thread::-webkit-scrollbar{width:9px}.thread::-webkit-scrollbar-thumb{background:var(--border);border-radius:9px}
+
+  /* ─── cards / generic pane content ────────────────────────── */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+  .card{border:1px solid var(--border);background:var(--panel);border-radius:13px;padding:14px 15px;transition:border-color .15s,transform .15s var(--ease)}
+  .card.click{cursor:pointer}.card.click:hover{border-color:var(--border2);transform:translateY(-2px)}
+  .card h3{font-size:14px;font-weight:650;display:flex;align-items:center;gap:8px}
+  .card .desc{font-size:12.5px;color:var(--dim);margin-top:6px;line-height:1.5}
+  .badge{font-size:10.5px;font-weight:600;border-radius:999px;padding:2px 8px;border:1px solid var(--border2);color:var(--dim)}
+  .badge.ops{color:var(--warn);border-color:rgba(251,191,36,.35)}
+  .badge.product{color:var(--acc3);border-color:rgba(124,245,200,.3)}
+  .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+  .tag{font-size:11px;font-family:var(--mono);color:var(--dim);background:rgba(255,255,255,.04);
+    border:1px solid var(--border);border-radius:6px;padding:2px 7px}
+  .section-lbl{font-size:11px;letter-spacing:.5px;color:var(--faint);text-transform:uppercase;margin:22px 0 10px}
+  .kv{display:flex;justify-content:space-between;gap:14px;font-size:13.5px;padding:9px 0;border-bottom:1px solid var(--border)}
+  .kv span{color:var(--dim)}.kv b{font-weight:600;text-align:right;word-break:break-all}
+  .kv code{font-family:var(--mono);font-size:12px}
+  .muted{color:var(--dim);font-size:13px}
+  .pane-empty{text-align:center;color:var(--faint);padding:14vh 20px;font-size:13.5px}
+  .filerow{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);
+    background:var(--panel);border-radius:10px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+  .filerow:hover{border-color:var(--border2)}
+  .filerow .fic{width:30px;height:30px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;
+    font-size:11px;font-weight:700;font-family:var(--mono);background:rgba(110,139,255,.15);color:var(--acc1)}
+  .filerow .fn{flex:1;min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .filerow .fmeta{font-size:11.5px;color:var(--faint);font-family:var(--mono);white-space:nowrap}
+  .prov{border:1px solid var(--border);background:var(--panel);border-radius:11px;padding:12px 14px;margin-bottom:10px}
+  .prov .ph{display:flex;align-items:center;gap:10px}
+  .prov .pn{font-size:14px;font-weight:650;text-transform:capitalize}
+  .prov .pc{font-size:11.5px;color:var(--faint);font-family:var(--mono);margin-left:auto}
+  .prov .pg{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .backlink{cursor:pointer;color:var(--acc2);font-size:13px;display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:0}
+
+  /* ─── modals (account + operator) ─────────────────────────── */
+  .modal{position:fixed;inset:0;background:rgba(2,6,14,.62);backdrop-filter:blur(3px);
+    display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal .mcard{background:#0b1320;border:1px solid #21304a;border-radius:16px;padding:24px;
+    width:min(440px,92vw);box-shadow:0 24px 80px rgba(0,0,0,.5)}
+  .modal h2{margin:0 0 4px;font-size:19px}
+  .modal .plan{font-size:13px;color:#8aa0bd;margin-bottom:16px}
+  .modal ul{list-style:none;padding:0;margin:0 0 18px;font-size:14px}
+  .modal .mlist li{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #1a2740}
+  .modal .mlist li b{color:#e7eefb;font-weight:600}
+  .modal .key{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;
+    border:1px solid #21304a;background:rgba(255,255,255,.03);color:inherit;font-size:13px}
+  .modal .row{display:flex;gap:10px;margin-top:10px}
+  .modal .btn{flex:1;padding:10px;border-radius:10px;border:0;cursor:pointer;font-weight:650;font-size:14px}
+  .modal .btn.primary{background:linear-gradient(90deg,var(--acc1),var(--acc3));color:#06101f}
+  .modal .btn.ghost{background:transparent;border:1px solid #21304a;color:#e7eefb}
+  .modal .msg{font-size:12.5px;margin-top:10px;min-height:16px}
+  .modal .msg.ok{color:#7cf5c8}.modal .msg.err{color:#ff8a8a}
+  .modal .x{float:right;cursor:pointer;color:#8aa0bd;font-size:18px;line-height:1}
+  .modal .lsk{margin:0 0 16px}
+  .modal .lsk h3{margin:0 0 6px;font-size:13px;color:#8aa0bd;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .modal .lsk li{display:flex;align-items:center;gap:8px;font-size:13px}
+  .modal .lsk .nm{color:#7cf5c8;font-weight:600;white-space:nowrap}
+  .modal .lsk .d{color:#8aa0bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .modal .lsk .n{color:#8aa0bd;font-size:11.5px;white-space:nowrap}
+  .modal .lsk .rm{cursor:pointer;color:#8aa0bd;padding:0 2px}.modal .lsk .rm:hover{color:#ff8a8a}
+  #opmodal .mcard{width:min(560px,94vw);max-height:84vh;overflow-y:auto}
+  #opmodal h3{margin:14px 0 6px;font-size:13px;color:#8aa0bd;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  #opmodal .ol li{display:flex;align-items:baseline;gap:8px;font-size:13px;padding:3px 0;border:0}
+  #opmodal .st{width:14px;text-align:center;flex:none}
+  #opmodal .st.ok{color:#7cf5c8}.st.warn{color:#ffd479}.st.missing{color:#ff8a8a}.st.info{color:#8aa0bd}
+  #opmodal .lbl{white-space:nowrap;font-weight:600}
+  #opmodal .det{color:#8aa0bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  #opmodal .okv{display:flex;justify-content:space-between;font-size:13px;padding:4px 0}
+  #opmodal .okv b{font-weight:600}
+  #opmodal .brow{display:flex;gap:8px;margin-top:8px}
+  #opmodal .brow input,#opmodal .brow select{padding:8px 10px;border-radius:8px;border:1px solid #21304a;background:rgba(255,255,255,.03);color:inherit;font-size:13px}
+  #opmodal .brow input{width:110px}
+  #opmodal .brow button{padding:8px 14px;border-radius:8px;border:0;cursor:pointer;font-weight:650;background:linear-gradient(90deg,var(--acc1),var(--acc3));color:#06101f}
+  #opmodal .breach{color:#ff8a8a;font-weight:700}
 </style>
 </head>
 <body>
 <div class="orbs"><div class="orb a"></div><div class="orb b"></div></div>
 
-<header>
-  <div class="wordmark">sports<span>data</span></div>
-  <div class="tier" id="operator" title="Operator console" style="cursor:pointer" hidden>OPERATOR</div>
-  <div class="tier" id="tier" title="View your plan" style="cursor:pointer">…</div>
-  <div class="status"><span class="dot" id="dot"></span><span id="statustext">connecting…</span></div>
-</header>
+<!-- ─── sidebar ─── -->
+<aside class="sidebar">
+  <div class="brand">
+    <div class="wordmark">sports<span>data</span></div>
+    <span class="sdot" id="dot" title="connecting…"></span>
+  </div>
+  <button class="newchat" id="newchat"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
+  <div class="hist" id="hist"><div class="empty">No conversations yet</div></div>
+  <nav class="nav" id="nav">
+    <button data-pane="chat" class="active"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chats</button>
+    <button data-pane="agents"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><path d="M3 21v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1M16 3.1a3 3 0 0 1 0 5.8M21 21v-1a5 5 0 0 0-3-4.6"/></svg>Agents</button>
+    <button data-pane="files"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h4l2 3h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>Files</button>
+    <button data-pane="settings"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
+    <button id="operator" class="opchip" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6z"/></svg>Operator console</button>
+    <button id="tier" class="tierchip"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 12 0v1"/></svg><span id="tier-label">…</span></button>
+  </nav>
+</aside>
 
-<main>
-  <div class="thread" id="thread">
-    <div class="welcome" id="welcome">
-      <h1>Your <span class="g">sports-data desk</span></h1>
-      <p>Ask the agent team — cross-book odds, models, arbitrage, fantasy. Every answer is grounded in live tool results.</p>
-      <div class="chips" id="chips"></div>
+<!-- ─── main column ─── -->
+<div class="main">
+
+  <!-- chat pane -->
+  <section class="pane show" id="pane-chat">
+    <div class="thread" id="thread">
+      <div class="welcome" id="welcome">
+        <h1>Your <span class="g">sports-data desk</span></h1>
+        <p>Ask the agent team — cross-book odds, models, arbitrage, fantasy. Every answer is grounded in live tool results.</p>
+        <div class="chips" id="chips"></div>
+      </div>
     </div>
-  </div>
-</main>
+    <div class="composer">
+      <div class="cbox">
+        <textarea id="input" rows="1" placeholder="Ask the desk anything…"></textarea>
+        <button class="send" id="send" title="Send">↑</button>
+      </div>
+      <div class="foot">Grounded in live tool results · advisory only — not betting or financial advice</div>
+    </div>
+  </section>
 
-<div class="composer">
-  <div class="cbox">
-    <textarea id="input" rows="1" placeholder="Ask the desk anything…"></textarea>
-    <button class="send" id="send" title="Send">↑</button>
-  </div>
-  <div class="foot">Grounded in live tool results · advisory only — not betting or financial advice</div>
+  <!-- agents pane -->
+  <section class="pane" id="pane-agents">
+    <div class="ptop"><h2>Agents</h2><span class="sub" id="agents-sub"></span></div>
+    <div class="pscroll"><div class="pwrap" id="agents-body"><div class="muted">Loading…</div></div></div>
+  </section>
+
+  <!-- files pane -->
+  <section class="pane" id="pane-files">
+    <div class="ptop"><h2>Files</h2><span class="sub" id="files-sub"></span></div>
+    <div class="pscroll"><div class="pwrap" id="files-body"><div class="muted">Loading…</div></div></div>
+  </section>
+
+  <!-- settings pane -->
+  <section class="pane" id="pane-settings">
+    <div class="ptop"><h2>Settings</h2><span class="sub">Read-only snapshot · provider toggles arrive next</span></div>
+    <div class="pscroll"><div class="pwrap" id="settings-body"><div class="muted">Loading…</div></div></div>
+  </section>
+
 </div>
 
+<!-- account modal -->
 <div class="modal" id="account" hidden>
-  <style>
-    /* the `hidden` attribute MUST win over any display rule below (a `.modal` has
-       display:flex, which would otherwise keep it visible when hidden — that broke
-       the ✕ close and let the operator panel/chip linger). */
-    [hidden]{display:none!important}
-    .modal{position:fixed;inset:0;background:rgba(2,6,14,.62);backdrop-filter:blur(3px);
-      display:flex;align-items:center;justify-content:center;z-index:50}
-    .modal .card{background:var(--card,#0b1320);border:1px solid var(--border,#21304a);
-      border-radius:16px;padding:24px;width:min(440px,92vw);box-shadow:0 24px 80px rgba(0,0,0,.5)}
-    .modal h2{margin:0 0 4px;font-size:19px}
-    .modal .plan{font-size:13px;color:var(--muted,#8aa0bd);margin-bottom:16px}
-    .modal ul{list-style:none;padding:0;margin:0 0 18px;font-size:14px}
-    .modal li{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border,#1a2740)}
-    .modal li b{color:var(--ink,#e7eefb);font-weight:600}
-    .modal .key{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;
-      border:1px solid var(--border,#21304a);background:rgba(255,255,255,.03);color:inherit;font-size:13px}
-    .modal .row{display:flex;gap:10px;margin-top:10px}
-    .modal .btn{flex:1;padding:10px;border-radius:10px;border:0;cursor:pointer;font-weight:650;font-size:14px}
-    .modal .btn.primary{background:linear-gradient(90deg,var(--acc2,#6e8bff),var(--acc3,#7cf5c8));color:#06101f}
-    .modal .btn.ghost{background:transparent;border:1px solid var(--border,#21304a);color:var(--ink,#e7eefb)}
-    .modal .msg{font-size:12.5px;margin-top:10px;min-height:16px}
-    .modal .msg.ok{color:#7cf5c8}.modal .msg.err{color:#ff8a8a}
-    .modal .x{float:right;cursor:pointer;color:var(--muted,#8aa0bd);font-size:18px;line-height:1}
-    .modal .lsk{margin:0 0 16px}
-    .modal .lsk h3{margin:0 0 6px;font-size:13px;color:var(--muted,#8aa0bd);font-weight:600;
-      text-transform:uppercase;letter-spacing:.04em}
-    .modal .lsk li{display:flex;align-items:center;gap:8px;font-size:13px}
-    .modal .lsk .nm{color:#7cf5c8;font-weight:600;white-space:nowrap}
-    .modal .lsk .d{color:var(--muted,#8aa0bd);overflow:hidden;text-overflow:ellipsis;
-      white-space:nowrap;flex:1}
-    .modal .lsk .n{color:var(--muted,#8aa0bd);font-size:11.5px;white-space:nowrap}
-    .modal .lsk .rm{cursor:pointer;color:var(--muted,#8aa0bd);padding:0 2px}
-    .modal .lsk .rm:hover{color:#ff8a8a}
-  </style>
-  <div class="card">
+  <div class="mcard">
     <span class="x" id="acc-close">✕</span>
     <h2>Your plan</h2>
     <div class="plan" id="acc-note"></div>
-    <ul id="acc-list"></ul>
+    <ul class="mlist" id="acc-list"></ul>
     <div class="lsk" id="acc-skills" hidden>
       <h3>Learned skills</h3>
       <ul id="acc-skill-list"></ul>
@@ -192,31 +287,13 @@
   </div>
 </div>
 
+<!-- operator console modal -->
 <div class="modal" id="opmodal" hidden>
-  <style>
-    #opmodal .card{width:min(560px,94vw);max-height:84vh;overflow-y:auto}
-    #opmodal h3{margin:14px 0 6px;font-size:13px;color:var(--muted,#8aa0bd);font-weight:600;
-      text-transform:uppercase;letter-spacing:.04em}
-    #opmodal li{display:flex;align-items:baseline;gap:8px;font-size:13px;padding:3px 0;border:0}
-    #opmodal .st{width:14px;text-align:center;flex:none}
-    #opmodal .st.ok{color:#7cf5c8}.st.warn{color:#ffd479}.st.missing{color:#ff8a8a}.st.info{color:var(--muted,#8aa0bd)}
-    #opmodal .lbl{white-space:nowrap;font-weight:600}
-    #opmodal .det{color:var(--muted,#8aa0bd);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-    #opmodal .kv{display:flex;justify-content:space-between;font-size:13px;padding:4px 0}
-    #opmodal .kv b{font-weight:600}
-    #opmodal .brow{display:flex;gap:8px;margin-top:8px}
-    #opmodal .brow input,#opmodal .brow select{padding:8px 10px;border-radius:8px;
-      border:1px solid var(--border,#21304a);background:rgba(255,255,255,.03);color:inherit;font-size:13px}
-    #opmodal .brow input{width:110px}
-    #opmodal .brow button{padding:8px 14px;border-radius:8px;border:0;cursor:pointer;font-weight:650;
-      background:linear-gradient(90deg,var(--acc2,#6e8bff),var(--acc3,#7cf5c8));color:#06101f}
-    #opmodal .breach{color:#ff8a8a;font-weight:700}
-  </style>
-  <div class="card">
+  <div class="mcard">
     <span class="x" id="op-close">✕</span>
     <h2>Operator console</h2>
     <div class="plan">This panel exists only on your deployment (operator licence). Live — auto-refreshes.</div>
-    <h3>Config preflight</h3><ul id="op-preflight"></ul>
+    <h3>Config preflight</h3><ul class="ol" id="op-preflight"></ul>
     <h3>Spend (7d)</h3><div id="op-costs"></div>
     <div class="brow">
       <input id="op-cap" type="number" min="0" step="1" placeholder="cap USD" />
@@ -224,13 +301,9 @@
       <button id="op-setbudget">Set budget</button>
     </div>
     <h3>Actions</h3>
-    <div class="brow">
-      <button id="op-health">Run health check</button>
-    </div>
+    <div class="brow"><button id="op-health">Run health check</button></div>
     <div id="op-health-out"></div>
-    <div class="brow">
-      <select id="op-agent" style="flex:1"></select>
-    </div>
+    <div class="brow"><select id="op-agent" style="flex:1"></select></div>
     <div class="brow">
       <input id="op-prompt" style="flex:1;width:auto" placeholder="instruction for the ops agent…" />
       <button id="op-runops">Run</button>

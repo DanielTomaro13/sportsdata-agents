@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sportsdata-agents"
-version = "0.33.1"
+version = "0.34.0"
 description = "Agentic platform over the sportsdata-mcp tool catalogue — a configurable team of LLM agents for sports research, odds intelligence, modelling, fantasy and tracking. Advisory only."
 readme = "README.md"
 requires-python = ">=3.12"
