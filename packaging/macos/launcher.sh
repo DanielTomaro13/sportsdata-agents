@@ -1,21 +1,15 @@
 #!/bin/bash
-# sportsdata.app launcher (P4 M4.3, "daemon + browser UI" model).
+# sportsdata.app launcher ("native window" model, P4).
 #
-# This is the .app's main executable. It starts the local daemon (`sportsdata
-# app` — gateway + conductor in one process) and opens the chat UI in the
-# default browser. The daemon is a CHILD of this script, so quitting the app
-# (or the script exiting) tears the daemon down with it.
-#
-# Everything runs on the user's machine: their compute, their warehouse, their
-# BYO model key. No network egress beyond model-API calls and the user's own
-# Slack/Discord.
+# This is the .app's main executable. It launches the app in its OWN native
+# window (`sportsdata desktop` — gateway + conductor behind an OS web view, no
+# browser). Closing the window quits the app; everything runs on the user's
+# machine (their compute, their warehouse, their BYO model key).
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"                 # …/Contents/MacOS
 APP_ROOT="$(cd "$HERE/.." && pwd)"                    # …/Contents
 BIN="$APP_ROOT/Resources/sportsdata/sportsdata"       # the bundled onedir binary
-PORT="${SPORTSDATA_PORT:-8765}"
-URL="http://127.0.0.1:${PORT}/"
 LOG_DIR="${HOME}/Library/Logs"
 LOG="${LOG_DIR}/sportsdata-app.log"
 mkdir -p "$LOG_DIR"
@@ -25,25 +19,14 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 
-# First run with no model key configured → open Terminal on the setup wizard,
-# which is interactive and can't run inside the .app. The daemon still starts;
-# the chat UI shows a configure-a-key hint until a key is stored.
+# First run with no model key configured → run the interactive setup wizard in
+# Terminal (it can't run inside the app window), then stop. The user pastes their
+# key and re-opens the app, which then launches straight into the window.
 if ! "$BIN" setup --check >/dev/null 2>&1; then
   osascript -e "tell application \"Terminal\" to do script \"'$BIN' setup\"" >/dev/null 2>&1 || true
+  osascript -e 'display dialog "Finish setup in the Terminal window (paste your model API key), then re-open sportsdata." buttons {"OK"} with title "sportsdata — first run" default button "OK"' >/dev/null 2>&1 || true
+  exit 0
 fi
 
-# Start the daemon; tear it down when this launcher exits (app quit / logout).
-"$BIN" app --port "$PORT" >>"$LOG" 2>&1 &
-DAEMON=$!
-trap 'kill "$DAEMON" 2>/dev/null' EXIT INT TERM
-
-# Wait (≤30s) for the daemon to answer health, then open the UI.
-i=0
-while [ "$i" -lt 60 ]; do
-  if curl -fs "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then break; fi
-  i=$((i + 1))
-  sleep 0.5
-done
-open "$URL" >/dev/null 2>&1 || true
-
-wait "$DAEMON"
+# Launch the native window; it owns the app lifecycle (blocks until closed).
+exec "$BIN" desktop >>"$LOG" 2>&1

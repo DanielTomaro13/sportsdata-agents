@@ -579,6 +579,33 @@ def app_cmd(
     run_app(host=host, port=port, with_conductor=not no_conductor)
 
 
+@app.command(name="desktop")
+def desktop_cmd(
+    port: int = typer.Option(8765, "--port", help="Preferred local port (auto-picks a free one if taken)."),
+    no_conductor: bool = typer.Option(False, "--no-conductor",
+                                      help="Gateway only — don't run ingest/monitor/custodian."),
+) -> None:
+    """The desktop app in its OWN native window (no web browser). Starts the
+    gateway + conductor behind a native web view; closing the window quits."""
+    import logging
+
+    from dotenv import load_dotenv
+
+    from sportsdata_agents.app.wizard import configured_provider
+
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if configured_provider() is None:
+        from rich.console import Console
+
+        Console().print("[yellow]No model key found — run [bold]agents setup[/bold] first.[/yellow]")
+        raise typer.Exit(1)
+    _require_entitlement("full_app")
+    from sportsdata_agents.app.desktop import run_desktop
+
+    run_desktop(port=port, with_conductor=not no_conductor)
+
+
 @app.command()
 def slack() -> None:
     """Run the Slack adapter (Socket Mode). Needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN
