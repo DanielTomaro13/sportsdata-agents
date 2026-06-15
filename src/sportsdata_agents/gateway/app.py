@@ -294,6 +294,123 @@ def create_app(
             for spec in load_builtin_specs().values()
         }
 
+    def _audit_sessionmaker() -> Any | None:
+        """The warm warehouse sessionmaker (from the live recorder, else the app
+        engine) for reading run history. None when there's no warehouse."""
+        sess = state["session"]
+        sf = getattr(getattr(sess, "recorder", None), "session_factory", None)
+        if sf is not None:
+            return sf
+        try:
+            from sportsdata_agents.data.db import get_sessionmaker
+
+            return get_sessionmaker()
+        except Exception:
+            return None
+
+    @app.get("/agents/{agent_id}/runs")
+    async def agent_runs(agent_id: str) -> dict[str, Any]:
+        """An agent's recent activity — what it's been working on (M4.5). Newest first."""
+        from sqlalchemy import select
+
+        from sportsdata_agents.data.models import AgentRun
+
+        sf = _audit_sessionmaker()
+        if sf is None:
+            return {"runs": []}
+        s = get_settings()
+        try:
+            async with sf() as session:
+                rows = (
+                    (
+                        await session.execute(
+                            select(AgentRun)
+                            .where(
+                                AgentRun.agent == agent_id,
+                                AgentRun.tenant_id == s.default_tenant,
+                                AgentRun.workspace_id == s.default_workspace,
+                            )
+                            .order_by(AgentRun.created_at.desc())
+                            .limit(40)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+        except Exception as e:  # warehouse hiccup → empty, not a 500
+            logger.warning("agent runs unavailable (%s: %s)", type(e).__name__, e)
+            return {"runs": []}
+        return {
+            "runs": [
+                {
+                    "id": str(r.id),
+                    "status": r.status,
+                    "task": r.input_task,
+                    "cost_usd": float(r.cost_usd or 0),
+                    "tokens_in": r.tokens_in,
+                    "tokens_out": r.tokens_out,
+                    "latency_ms": r.latency_ms,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "is_delegation": r.parent_run_id is not None,
+                }
+                for r in rows
+            ]
+        }
+
+    @app.get("/runs/{run_id}")
+    async def run_trace(run_id: str) -> JSONResponse:
+        """One run's full trace: its transcript (the model's reasoning + tool results),
+        the tool calls it made, and the sub-agents it delegated to (M4.5)."""
+        import uuid as _uuid
+
+        from sqlalchemy import select
+
+        from sportsdata_agents.data.models import AgentRun, RunTranscript, ToolCall
+
+        sf = _audit_sessionmaker()
+        if sf is None:
+            return JSONResponse({"detail": "no warehouse"}, status_code=503)
+        try:
+            rid = _uuid.UUID(run_id)
+        except ValueError:
+            return JSONResponse({"detail": "bad run id"}, status_code=400)
+        s = get_settings()
+        async with sf() as session:
+            run = await session.get(AgentRun, rid)
+            if run is None or run.tenant_id != s.default_tenant or run.workspace_id != s.default_workspace:
+                return JSONResponse({"detail": "unknown run"}, status_code=404)
+            tx = await session.scalar(select(RunTranscript).where(RunTranscript.agent_run_id == rid))
+            tools = (
+                (await session.execute(
+                    select(ToolCall).where(ToolCall.agent_run_id == rid).order_by(ToolCall.created_at.asc())
+                )).scalars().all()
+            )
+            children = (
+                (await session.execute(
+                    select(AgentRun).where(AgentRun.parent_run_id == rid).order_by(AgentRun.created_at.asc())
+                )).scalars().all()
+            )
+        return JSONResponse({
+            "id": str(run.id),
+            "agent": run.agent,
+            "status": run.status,
+            "task": run.input_task,
+            "cost_usd": float(run.cost_usd or 0),
+            "tokens_in": run.tokens_in,
+            "tokens_out": run.tokens_out,
+            "error": run.error,
+            "created_at": run.created_at.isoformat() if run.created_at else None,
+            "transcript": (tx.messages if tx else []),
+            "tool_calls": [
+                {"tool": t.tool, "args": t.args, "ok": t.ok, "latency_ms": t.latency_ms}
+                for t in tools
+            ],
+            "delegations": [
+                {"id": str(c.id), "agent": c.agent, "task": c.input_task, "status": c.status}
+                for c in children
+            ],
+        })
+
     def _account_payload() -> dict[str, Any]:
         from sportsdata_agents.licensing import current_entitlements
 

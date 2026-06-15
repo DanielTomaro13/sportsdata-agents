@@ -315,8 +315,10 @@ async function loadAgents() {
     (ops.length ? `<div class="section-lbl">Ops agents — platform maintenance (operator only)</div><div class="grid">${ops.map(card).join("")}</div>` : "");
 }
 
+let currentAgentId = null;
 function showAgentDetail(id) {
   const a = agentCache?.[id]; if (!a) return;
+  currentAgentId = id;
   const body = $("#agents-body");
   const list = (label, arr) => arr && arr.length
     ? `<div class="section-lbl">${label}</div><div class="tags">${arr.map((x) => `<span class="tag">${esc(x)}</span>`).join("")}</div>` : "";
@@ -329,8 +331,59 @@ function showAgentDetail(id) {
     ${list("Data capabilities (MCP)", a.capabilities)}
     ${list("Native tools", a.native_tools)}
     ${list("Can delegate to", a.delegates_to)}
-    ${list("Skills", a.skills)}`;
+    ${list("Skills", a.skills)}
+    <div class="section-lbl">Recent activity</div>
+    <div id="agent-runs"><div class="muted">Loading activity…</div></div>`;
   $("#agents-back").addEventListener("click", loadAgents);
+  loadAgentRuns(id);
+}
+
+async function loadAgentRuns(id) {
+  const el = $("#agent-runs"); if (!el) return;
+  let runs = [];
+  try {
+    const r = await fetch(`${API}/agents/${encodeURIComponent(id)}/runs`, { cache: "no-store" });
+    if (r.ok) runs = (await r.json()).runs || [];
+  } catch { /* leave the loading text replaced below */ }
+  if (!runs.length) {
+    el.innerHTML = `<div class="muted">No runs recorded yet. Ask this agent something in chat, then come back to see what it did.</div>`;
+    return;
+  }
+  el.innerHTML = runs.map((r) =>
+    `<div class="runrow" data-run="${esc(r.id)}">
+      <span class="rstat ${r.status === "ok" ? "ok" : r.status === "error" ? "error" : "running"}"></span>
+      <span class="rtask">${esc(r.task || "(no task recorded)")}</span>
+      <span class="rmeta">${r.is_delegation ? "delegated · " : ""}$${(r.cost_usd || 0).toFixed(4)} · ${timeAgo(r.created_at)}</span>
+    </div>`).join("");
+}
+
+async function showRunTrace(runId, backAgentId) {
+  const body = $("#agents-body");
+  let d;
+  try {
+    const r = await fetch(`${API}/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
+    d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "not found");
+  } catch (e) {
+    body.innerHTML = `<button class="backlink" id="trace-back">← Back</button><div class="muted" style="margin-top:12px">Couldn't load the trace (${esc(e.message)}).</div>`;
+    $("#trace-back").addEventListener("click", () => showAgentDetail(backAgentId || currentAgentId));
+    return;
+  }
+  const roleLabel = (r) => r === "assistant" ? "thinking / reply" : r === "tool" ? "tool result" : r === "user" ? "task" : r;
+  const msg = (m) =>
+    `<div class="tmsg ${esc(m.role)}"><div class="trole">${esc(roleLabel(m.role))}</div>${esc(m.content || "")}` +
+    `${m.tools && m.tools.length ? `<div class="ttools">${m.tools.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}</div>`;
+  const deleg = (c) =>
+    `<div class="deleg" data-run="${esc(c.id)}" data-agent="${esc(c.agent)}"><span class="badge product">${esc(c.agent)}</span>` +
+    `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.task || "")}</span><span class="rmeta">${esc(c.status)}</span></div>`;
+  body.innerHTML = `<button class="backlink" id="trace-back">← ${esc(d.agent)} activity</button>
+    <h2 style="margin:14px 0 4px;font-size:18px">${esc(d.task || "Run")}</h2>
+    <div class="muted">${esc(d.agent)} · ${esc(d.status)} · $${(d.cost_usd || 0).toFixed(4)} · ${d.tokens_in || 0}/${d.tokens_out || 0} tok</div>
+    ${d.error ? `<div class="kv"><span>Error</span><b style="color:var(--bad)">${esc(d.error)}</b></div>` : ""}
+    ${(d.delegations || []).length ? `<div class="section-lbl">Delegated to other agents (click to follow)</div>${d.delegations.map(deleg).join("")}` : ""}
+    <div class="section-lbl">Trace — what it did and said to itself</div>
+    <div class="trace">${(d.transcript || []).map(msg).join("") || `<div class="muted">No transcript recorded for this run.</div>`}</div>`;
+  $("#trace-back").addEventListener("click", () => showAgentDetail(backAgentId || currentAgentId));
 }
 
 /* ─── files pane ───────────────────────────────────────────── */
@@ -604,7 +657,12 @@ document.addEventListener("click", (e) => { if (!e.target.closest("#cmenu") && !
 $("#nav").addEventListener("click", (e) => { const b = e.target.closest("button[data-pane]"); if (b) showPane(b.dataset.pane); });
 
 // agents/files pane delegation
-$("#agents-body").addEventListener("click", (e) => { const c = e.target.closest("[data-agent]"); if (c) showAgentDetail(c.dataset.agent); });
+$("#agents-body").addEventListener("click", (e) => {
+  const runEl = e.target.closest("[data-run]");  // run rows + delegation rows (check first)
+  if (runEl) { showRunTrace(runEl.dataset.run, runEl.dataset.agent || currentAgentId); return; }
+  const c = e.target.closest("[data-agent]");
+  if (c) showAgentDetail(c.dataset.agent);
+});
 $("#files-body").addEventListener("click", (e) => { const f = e.target.closest("[data-file]"); if (f) window.open(`${API}/files/raw?name=${encodeURIComponent(f.dataset.file)}`, "_blank"); });
 
 // account + operator modals

@@ -83,6 +83,9 @@ class AgentRun(TenantScopedModel):
     # self-referential FKs complicate cross-dialect batch ALTERs for no integrity gain here.
     parent_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     agent: Mapped[str] = mapped_column(String(128), index=True)
+    # The task this run was asked to do (M4.5 observability) — the first user message,
+    # stored so the activity list can show "what it was working on" without the transcript.
+    input_task: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     tier: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="running")  # running | ok | error | paused
@@ -102,6 +105,18 @@ class ToolCall(TenantScopedModel):
     result_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ok: Mapped[bool] = mapped_column(Boolean, default=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class RunTranscript(TenantScopedModel):
+    """The distilled message transcript of one agent run (M4.5 observability): the
+    task, the model's reasoning/narration between tool calls, and tool results — what
+    the run actually did and "said to itself". One row per run; long contents are
+    truncated. Lets the workbench show a run's trace and an agent's activity history."""
+
+    __tablename__ = "run_transcripts"
+    __table_args__ = (UniqueConstraint("agent_run_id", name="uq_transcript_run"),)
+    agent_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_runs.id"), index=True)
+    messages: Mapped[list] = mapped_column(JSON, default=list)
 
 
 # ─── Cost / budgets / metrics (§16.1) ────────────────────────────────────

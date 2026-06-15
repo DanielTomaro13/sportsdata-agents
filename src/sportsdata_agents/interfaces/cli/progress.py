@@ -47,9 +47,10 @@ class ConsoleProgressRecorder:
 
     async def on_run_end(
         self, *, run_id: uuid.UUID, agent: str, status: str, cost_usd: float, latency_ms: int,
-        error: str | None = None,
+        error: str | None = None, transcript: list[dict[str, Any]] | None = None,
     ) -> None:
         if self.inner is not None:
             await self.inner.on_run_end(
-                run_id=run_id, agent=agent, status=status, cost_usd=cost_usd, latency_ms=latency_ms, error=error
+                run_id=run_id, agent=agent, status=status, cost_usd=cost_usd, latency_ms=latency_ms,
+                error=error, transcript=transcript,
             )

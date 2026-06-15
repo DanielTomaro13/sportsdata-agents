@@ -568,7 +568,8 @@ class Harness:
         status = "ok" if result.stop_reason == "done" else result.stop_reason
         try:
             await recorder.on_run_end(
-                run_id=run_id, agent=self.spec.id, status=status, cost_usd=result.cost_usd, latency_ms=latency_ms
+                run_id=run_id, agent=self.spec.id, status=status, cost_usd=result.cost_usd,
+                latency_ms=latency_ms, transcript=result.messages,  # M4.5: persist the run's trace
             )
         except Exception as e:
             logger.warning("recorder.on_run_end failed: %s: %s", type(e).__name__, e)
