@@ -63,6 +63,33 @@ def _host_of(header: str) -> str:
     return h.rsplit(":", 1)[0] if ":" in h else h
 
 
+def _secret_configured(name: str) -> bool:
+    """Whether a secret resolves WITHOUT prompting — env or the app-private file.
+    Deliberately skips the keychain tier so opening Settings can't trigger a macOS
+    keychain prompt; the desktop wizard writes keys to the file store anyway."""
+    from sportsdata_agents.secrets import get_file_secret
+
+    return bool(os.environ.get(name) or get_file_secret(name))
+
+
+def _provider_status(provider: str, auth: dict[str, Any]) -> dict[str, Any]:
+    """Classify a provider ready / needs_key from its declared auth requirements and
+    whether the keys are configured — instant, no network. The geo/bot-blocked case
+    isn't detectable without a live probe (a later 'check connectivity' action), so an
+    open or already-keyed provider shows 'ready' here."""
+    envs = [str(e) for e in (auth.get("auth_env") or [])]
+    required = bool(auth.get("auth_required"))
+    optional = bool(auth.get("auth_optional"))
+    configured = bool(envs) and all(_secret_configured(e) for e in envs)
+    return {
+        "status": "needs_key" if (required and not configured) else "ready",
+        "auth_required": required,
+        "auth_optional": optional,
+        "auth_env": envs,
+        "key_configured": configured,
+    }
+
+
 # ─── request/response models ─────────────────────────────────────────────
 
 
@@ -464,12 +491,15 @@ def create_app(
             async with MCPManager(groups=["*"], command=get_settings().mcp_command) as manager:
                 got = await asyncio.wait_for(manager.call_tool("list_available_groups", {}), timeout=20)
             available = got.get("available") or {}
+            auth = got.get("providers") or {}  # provider → {auth_env, auth_required, auth_optional}
             by_provider: dict[str, dict[str, Any]] = {}
             for group, info in available.items():
                 prov = str(info.get("provider", group.split(".")[0]))
                 entry = by_provider.setdefault(prov, {"provider": prov, "groups": [], "tools": 0})
                 entry["groups"].append({"group": group, "tools": int(info.get("tools", 0))})
                 entry["tools"] += int(info.get("tools", 0))
+            for prov, entry in by_provider.items():
+                entry.update(_provider_status(prov, auth.get(prov, {})))
             payload = {
                 "providers": sorted(by_provider.values(), key=lambda e: e["provider"]),
                 "available": available,
