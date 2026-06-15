@@ -141,6 +141,10 @@
 
 <div class="modal" id="account" hidden>
   <style>
+    /* the `hidden` attribute MUST win over any display rule below (a `.modal` has
+       display:flex, which would otherwise keep it visible when hidden — that broke
+       the ✕ close and let the operator panel/chip linger). */
+    [hidden]{display:none!important}
     .modal{position:fixed;inset:0;background:rgba(2,6,14,.62);backdrop-filter:blur(3px);
       display:flex;align-items:center;justify-content:center;z-index:50}
     .modal .card{background:var(--card,#0b1320);border:1px solid var(--border,#21304a);
