@@ -12,6 +12,7 @@ let busy = false;
 const STARTERS = [
   "Compare tonight's AFL head-to-head odds across the books",
   "Scan for cross-book arbitrage right now",
+  "Show the current Premier League table and top scorers",
   "What's the latest NBA Finals result and who leads the series?",
   "What can this platform actually do?",
 ];

@@ -1,7 +1,9 @@
 spec_version: 1
 
 # Tier-1 domain specialist (§6): sports statistics across every league the data plane
-# carries (MLB, AFL, NBA, NRL, cricket, F1, golf, ESPN's multi-sport surface).
+# carries (MLB, AFL, NBA, NRL, cricket, F1, golf, soccer — EPL/LaLiga/Serie A — and
+# ESPN's multi-sport surface). League-agnostic: new providers exposing the same
+# capabilities (ladders, fixtures, player/team stats) are picked up automatically.
 agent:
   id: stats_specialist
   display_name: "Stats Specialist"

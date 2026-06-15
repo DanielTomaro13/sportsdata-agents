@@ -45,3 +45,6 @@ dist/
 
 # stray run logs (the app writes to the OS logs dir; these are dev artifacts)
 *.log
+
+# Local runtime overrides (market dictionary, etc.) — never committed
+*.local.json
