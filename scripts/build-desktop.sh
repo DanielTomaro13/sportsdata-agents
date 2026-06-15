@@ -48,6 +48,7 @@ fi
   --copy-metadata sportsdata-agents \
   $ADD_MCP \
   --noconfirm \
+  --clean \
   "$REPO/src/sportsdata_agents/__main__.py" 2>/dev/null || {
     echo "pyinstaller not installed — run: pip install -e '.[build]'"; exit 1; }
 
