@@ -25,6 +25,22 @@ def _default_database_url() -> str:
     return warehouse_url()
 
 
+def _default_mcp_command() -> list[str]:
+    """How to launch the data plane. In a PyInstaller bundle, prefer the
+    ``sportsdata-mcp`` binary shipped alongside the app (``sys._MEIPASS``) so the
+    desktop app is self-contained and needs nothing on PATH; otherwise resolve
+    ``sportsdata-mcp`` from PATH (dev / ``pip install``)."""
+    import sys
+
+    if getattr(sys, "frozen", False):
+        from pathlib import Path
+
+        bundled = Path(getattr(sys, "_MEIPASS", "")) / "sportsdata-mcp"
+        if bundled.exists():
+            return [str(bundled)]
+    return ["sportsdata-mcp"]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SPORTSDATA_AGENTS_",
@@ -46,8 +62,9 @@ class Settings(BaseSettings):
     default_tenant: str = "local"
     default_workspace: str = "local"
 
-    # ── data plane: how to launch sportsdata-mcp (stdio subprocess, resolved from PATH) ──
-    mcp_command: Annotated[list[str], NoDecode] = ["sportsdata-mcp"]
+    # ── data plane: how to launch sportsdata-mcp (stdio subprocess). Bundled binary
+    #    when frozen, else `sportsdata-mcp` from PATH; env var overrides either. ──
+    mcp_command: Annotated[list[str], NoDecode] = Field(default_factory=_default_mcp_command)
 
     # ── observability (D8) ──
     logfire_token: SecretStr | None = None
