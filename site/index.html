@@ -299,21 +299,21 @@
 <main>
   <nav>
     <div class="wordmark">sports<span>data</span></div>
-    <div class="chip">Now <b>downloadable</b></div>
+    <div class="chip">Data plane <b>available now</b></div>
   </nav>
 
   <div class="hero">
     <div class="eyebrow"><span class="dot"></span> Capturing live prices from 10 bookmakers and 2 prediction markets right now</div>
-    <h1>Every sport. Every book.<br><span class="grad">One agent team.</span></h1>
-    <p class="sub">A team of LLM agents over a live sports data plane — cross-book odds,
-    official stats and results, calibrated models, backtests and alerts.
-    It does the legwork; <b>you make the calls</b>.</p>
+    <h1>Every sport. Every book.<br><span class="grad">In your own AI tool.</span></h1>
+    <p class="sub">A live sports data plane as <b>MCP tools</b> — cross-book odds, official
+    stats and results — wired straight into the AI client you already use (Claude Desktop,
+    Cursor, and more). The full agent app is <b>coming soon</b>.</p>
     <div class="ctas">
-      <a class="btn primary" href="https://github.com/DanielTomaro13/sportsdata-site/releases/latest">Download for macOS</a>
+      <a class="btn primary" href="#pricing">Get MCP access</a>
       <a class="btn ghost" href="#demo">Watch it work</a>
     </div>
-    <div class="llms">works with any LLM —
-      <span class="l">Claude</span><span class="l">GPT</span><span class="l">Gemini</span>
+    <div class="llms">works with any MCP client —
+      <span class="l">Claude</span><span class="l">Cursor</span><span class="l">GPT</span>
       bring your own key
     </div>
   </div>
@@ -407,10 +407,11 @@
   </section>
 
   <section id="app">
-    <div class="sec-head"><h2>The app on your machine</h2></div>
+    <div class="sec-head"><h2>The app on your machine <span style="font-size:.5em;vertical-align:middle;color:var(--warn,#fbbf24);border:1px solid rgba(251,191,36,.35);border-radius:999px;padding:3px 10px;letter-spacing:.04em;text-transform:uppercase">Coming soon</span></h2></div>
     <p style="text-align:center;color:var(--dim);max-width:560px;margin:-6px auto 26px">
-      Download it, bring your own model key, and the whole agent team runs locally — your data,
-      your compute, your files. Chat, watch the tools work, get grounded answers.</p>
+      Coming soon: bring your own model key and the whole agent team runs locally — your data,
+      your compute, your files. Chat, watch the tools work, get grounded answers. For now,
+      <a href="#pricing">get the MCP data plane</a> in your own client.</p>
     <div class="appwrap">
       <div class="window">
         <div class="winbar">
@@ -443,37 +444,87 @@
   </section>
 
   <section id="pricing">
-    <div class="sec-head"><h2>Three ways in</h2></div>
+    <style>
+      .tier.soon{opacity:.62}
+      .tier .soonbadge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;
+        text-transform:uppercase;color:var(--warn,#fbbf24);border:1px solid rgba(251,191,36,.35);
+        border-radius:999px;padding:2px 9px;margin-bottom:10px}
+      .tier .buy{display:inline-block;width:100%;box-sizing:border-box;text-align:center;margin-top:14px;
+        padding:10px;border-radius:10px;font-weight:650;font-size:14px;cursor:pointer;text-decoration:none;border:0}
+      .tier .buy.primary{background:linear-gradient(90deg,var(--acc1,#6e8bff),var(--acc3,#7cf5c8));color:#06101f}
+      .tier .buy.disabled{background:rgba(255,255,255,.06);color:var(--dim,#8e97b3);cursor:not-allowed;border:1px solid var(--border,rgba(255,255,255,.08))}
+      .addons{max-width:760px;margin:22px auto 0;border:1px solid var(--border,rgba(255,255,255,.08));
+        border-radius:14px;padding:18px 20px;background:var(--panel,rgba(255,255,255,.035))}
+      .addons h3{font-size:14px;margin:0 0 4px}
+      .addons .ah{font-size:12.5px;color:var(--dim,#8e97b3);margin-bottom:12px}
+      .addons .arow{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--border,rgba(255,255,255,.08))}
+      .addons .an{flex:1;font-size:13.5px}
+      .addons .an small{color:var(--dim,#8e97b3);display:block;font-size:12px}
+      .addons .ap{font-weight:650;font-size:14px;white-space:nowrap}
+      .addons .ap span{color:var(--dim,#8e97b3);font-weight:400;font-size:12px}
+    </style>
+    <div class="sec-head"><h2>Get the data plane</h2><p>Wire the sports MCPs into your own AI client today. The agent app is coming soon.</p></div>
     <div class="tiers">
-      <div class="tier">
+      <div class="tier feat">
         <div class="tname">Base</div>
         <div class="tprice">$15<span>/mo</span></div>
-        <div class="tdesc">The data plane + a setup client. Wire the MCPs straight into your own client (Claude Desktop, Cursor…).</div>
-        <ul><li>5 MCP provider groups</li><li>Raw tools, your client</li><li>Bring your own model key</li></ul>
+        <div class="tdesc">The data plane as MCP tools — wire them straight into your own client (Claude Desktop, Cursor, any MCP host).</div>
+        <ul><li><b>5 sport data MCPs</b> of your choice</li><li>Raw tools, your client</li><li>Bring your own model key</li></ul>
+        <a class="buy primary" id="buy-base" href="#">Get access →</a>
       </div>
-      <div class="tier feat">
+      <div class="tier soon">
+        <div class="soonbadge">Coming soon</div>
         <div class="tname">Plus</div>
         <div class="tprice">$39<span>/mo</span></div>
-        <div class="tdesc">Adds the chat interface to the agent team — ask, get grounded answers with sources.</div>
-        <ul><li>12 MCP provider groups</li><li>The core agent team</li><li>Chat interface</li></ul>
+        <div class="tdesc">The downloadable app: the agent team + a chat interface — ask, get grounded answers with sources.</div>
+        <ul><li>More MCP groups</li><li>The core agent team</li><li>Chat interface</li></ul>
+        <span class="buy disabled">Not available yet</span>
       </div>
-      <div class="tier">
+      <div class="tier soon">
+        <div class="soonbadge">Coming soon</div>
         <div class="tname">Pro</div>
         <div class="tprice">$89<span>/mo</span></div>
-        <div class="tdesc">The full downloadable app — every agent, the always-on conductor, standing arbitrage &amp; value alerts.</div>
-        <ul><li>Unlimited MCPs, every agent</li><li>The odds warehouse + conductor</li><li>Slack / Discord add-ons</li></ul>
+        <div class="tdesc">The full app — every agent, the always-on conductor, standing arbitrage &amp; value alerts.</div>
+        <ul><li>Every agent + warehouse</li><li>The conductor + alerts</li><li>Slack / Discord</li></ul>
+        <span class="buy disabled">Not available yet</span>
       </div>
     </div>
-    <div class="tnote"><a href="https://github.com/DanielTomaro13/sportsdata-site/releases/latest">Download for macOS</a> (Windows next) · BYO model key · cancel anytime · <a href="#demo">see it work first</a></div>
+
+    <div class="addons">
+      <h3>Add more to Base</h3>
+      <div class="ah">Stack onto your $15/mo — pick exactly the feeds you need.</div>
+      <div class="arow"><div class="an">Extra sport data MCP<small>Each feed beyond your first 5 (AFL, NBA, ESPN, cricket, F1…)</small></div><div class="ap">+$5<span>/mo each</span></div></div>
+      <div class="arow"><div class="an">Gambling / odds MCP<small>Live bookmaker &amp; exchange odds — Sportsbet, TAB, Betfair, Pinnacle…</small></div><div class="ap">+$15<span>/mo each</span></div></div>
+      <div class="arow"><div class="an">All-access<small>Every sport <b>and</b> every gambling MCP — the whole catalogue</small></div><div class="ap">$99<span>/mo</span></div></div>
+    </div>
+
+    <div class="tnote">BYO model key · cancel anytime · advisory only — not betting or financial advice · <a href="#demo">see it work first</a></div>
   </section>
 
   <footer>
     <div class="wordmark">sports<span>data</span></div>
-    <div>Download for macOS · BYO model key · Informational only · © 2026</div>
+    <div>MCP data plane available now · app coming soon · BYO model key · Informational only · © 2026</div>
   </footer>
 </main>
 
 <script>
+/* Stripe Checkout wiring (no backend — Stripe-hosted Payment Links on a static site).
+   `setup-stripe.py` creates the products + Payment Links and writes their URLs to
+   stripe.json (deployed alongside this page). Until that file exists, the Base button
+   stays honest ("being set up") rather than dead-linking. */
+(async () => {
+  const btn = document.getElementById("buy-base");
+  if (!btn) return;
+  try {
+    const links = await (await fetch("stripe.json", { cache: "no-store" })).json();
+    if (links && links.base) { btn.href = links.base; return; }
+  } catch { /* no stripe.json yet */ }
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    alert("Checkout is being set up — it'll be live here shortly. Thanks for the interest!");
+  });
+})();
+
 // null = PLAYBACK MODE (GitHub Pages, no gateway): baked counters, recorded
 // demo runs. Set a gateway URL here to go live.
 window.GATEWAY_URL = null;
