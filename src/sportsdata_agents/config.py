@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     default_tenant: str = "local"
     default_workspace: str = "local"
 
-    # ── data plane: how to launch sportsdata-mcp (stdio subprocess; pinned v0.1.0) ──
+    # ── data plane: how to launch sportsdata-mcp (stdio subprocess, resolved from PATH) ──
     mcp_command: Annotated[list[str], NoDecode] = ["sportsdata-mcp"]
 
     # ── observability (D8) ──

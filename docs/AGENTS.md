@@ -71,7 +71,7 @@ tool. This is the self-improvement loop: telemetry → proposal → CI → human
 
 ## Data capabilities
 
-Agents leverage ~37 of the data plane's ~60 capabilities (`agents/capability_labels.json`):
+Agents leverage 37 of the data plane's 63 capabilities (`agents/capability_labels.json`):
 all of `racing.*`, all of `prediction.*`, the priced surfaces (`sport.prices`,
 `event_markets`, `same_game_multi`), the stats surfaces (game logs, head-to-head,
 play-by-play, advanced metrics, injuries, ladders, leaders), `ref.*`, `social.*` and
