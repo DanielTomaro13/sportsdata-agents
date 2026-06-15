@@ -194,13 +194,18 @@ async function renderSkills() {
 function openAccount() { renderAccount(); renderSkills(); $("#acc-msg").textContent = ""; $("#account").hidden = false; }
 function closeAccount() { $("#account").hidden = true; }
 
-/* operator console — the panel only exists on the operator's own deployment
-   (the gateway 404s /operator/* unless SPORTSDATA_OPERATOR is set) */
+/* operator console — the chip only appears on the operator's own deployment (the
+   gateway 404s /operator/* otherwise). Always reflect the LIVE answer: show on a
+   200, HIDE on anything else, and bypass any cache so a stale page can't keep a
+   ghost chip visible. The modal is also closed when not the operator. */
 async function detectOperator() {
+  let isOp = false;
   try {
-    const r = await fetch(`${API}/operator/overview`);
-    if (r.ok) $("#operator").hidden = false;
-  } catch { /* not the operator build — chip stays hidden */ }
+    const r = await fetch(`${API}/operator/overview`, { cache: "no-store" });
+    isOp = r.ok;
+  } catch { isOp = false; }
+  $("#operator").hidden = !isOp;
+  if (!isOp) $("#opmodal").hidden = true;  // never leave the admin panel open for a non-operator
 }
 
 function opIcon(status) {

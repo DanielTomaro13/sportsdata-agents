@@ -663,11 +663,22 @@ def create_app(
 
         from sportsdata_agents.licensing.enforce import EntitlementError, require_chat_ui
 
+        class _NoCacheStatic(StaticFiles):
+            """Serve the UI with ``Cache-Control: no-store`` so a client (browser or
+            the desktop window's web view) never shows a STALE page — a cached
+            operator chip or an old build kept reappearing otherwise. It's a
+            localhost app, so there's no bandwidth cost to always-fresh."""
+
+            async def get_response(self, path: str, scope: Any) -> Any:
+                response = await super().get_response(path, scope)
+                response.headers["Cache-Control"] = "no-store, must-revalidate"
+                return response
+
         ui_dir = Path(__file__).parent / "ui"
         try:
             require_chat_ui()
             if ui_dir.is_dir():
-                app.mount("/", StaticFiles(directory=str(ui_dir), html=True), name="ui")
+                app.mount("/", _NoCacheStatic(directory=str(ui_dir), html=True), name="ui")
         except EntitlementError:
             logger.info("chat UI not served: the tier doesn't include it (API still available)")
 
