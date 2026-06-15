@@ -393,10 +393,19 @@ async function loadMcpGroups() {
   } catch { el.innerHTML = `<div class="muted">Data plane unreachable.</div>`; return; }
   const provs = data.providers || [];
   if (!provs.length) { el.innerHTML = `<div class="muted">No providers reported — the data plane may be starting. Reopen Settings in a moment.</div>`; return; }
-  el.innerHTML = `<div class="muted" style="margin-bottom:10px">${provs.length} providers · ${provs.reduce((n, p) => n + p.tools, 0)} tools. Per-provider live/needs-key status and on/off toggles arrive in the next update.</div>` +
+  const needs = provs.filter((p) => p.status === "needs_key").length;
+  const ready = provs.length - needs;
+  const badge = (p) => p.status === "needs_key"
+    ? `<span class="pstat needs">needs key</span>`
+    : `<span class="pstat ready">ready</span>`;
+  el.innerHTML =
+    `<div class="muted" style="margin-bottom:12px">${ready} ready · ${needs} need a key. Open providers work without a key, though a few can be geo- or bot-blocked from your network. On/off toggles arrive next.</div>` +
     provs.map((p) =>
-      `<div class="prov"><div class="ph"><span class="pn">${esc(p.provider)}</span><span class="pc">${p.tools} tools · ${p.groups.length} group${p.groups.length === 1 ? "" : "s"}</span></div>
-       <div class="pg">${p.groups.map((g) => `<span class="tag">${esc(g.group)}</span>`).join("")}</div></div>`
+      `<div class="prov">
+        <div class="ph"><span class="pn">${esc(p.provider)}</span>${badge(p)}<span class="pc">${p.tools} tools · ${p.groups.length} group${p.groups.length === 1 ? "" : "s"}</span></div>
+        ${p.status === "needs_key" ? `<div class="pneed">add ${esc((p.auth_env || []).join(" + "))} to enable</div>` : ""}
+        <div class="pg">${p.groups.map((g) => `<span class="tag">${esc(g.group)}</span>`).join("")}</div>
+      </div>`
     ).join("");
 }
 

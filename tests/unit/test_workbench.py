@@ -155,15 +155,44 @@ async def test_mcp_groups_groups_by_provider(client: httpx.AsyncClient, monkeypa
             return self
         async def __aexit__(self, *a: Any) -> None: ...
         async def call_tool(self, name: str, args: dict) -> dict:
-            return {"available": {
-                "afl.core": {"provider": "afl", "tools": 20},
-                "afl.cfs": {"provider": "afl", "tools": 5},
-                "sportsbet.sports": {"provider": "sportsbet", "tools": 12},
-            }}
+            return {
+                "available": {
+                    "afl.core": {"provider": "afl", "tools": 20},
+                    "afl.cfs": {"provider": "afl", "tools": 5},
+                    "datagolf.general": {"provider": "datagolf", "tools": 12},
+                },
+                "providers": {
+                    "afl": {"auth_env": [], "auth_required": False, "auth_optional": False},
+                    "datagolf": {"auth_env": ["ZZ_DATAGOLF"], "auth_required": True, "auth_optional": False},
+                },
+            }
 
     monkeypatch.setattr(mgr, "MCPManager", FakeManager)
+    monkeypatch.delenv("ZZ_DATAGOLF", raising=False)
     data = (await client.get("/mcp/groups")).json()
     provs = {p["provider"]: p for p in data["providers"]}
-    assert set(provs) == {"afl", "sportsbet"}
+    assert set(provs) == {"afl", "datagolf"}
     assert provs["afl"]["tools"] == 25
     assert len(provs["afl"]["groups"]) == 2
+    # status: open provider is ready; required-key provider with no key is needs_key
+    assert provs["afl"]["status"] == "ready"
+    assert provs["datagolf"]["status"] == "needs_key"
+    assert provs["datagolf"]["auth_env"] == ["ZZ_DATAGOLF"]
+
+
+def test_provider_status_classification(monkeypatch) -> None:
+    from sportsdata_agents.gateway.app import _provider_status
+
+    # no auth declared → ready
+    assert _provider_status("espn", {})["status"] == "ready"
+    # required + unconfigured → needs_key
+    monkeypatch.delenv("ZZ_KEY", raising=False)
+    s = _provider_status("x", {"auth_env": ["ZZ_KEY"], "auth_required": True})
+    assert s["status"] == "needs_key" and s["key_configured"] is False
+    # required + configured (env) → ready
+    monkeypatch.setenv("ZZ_KEY", "set")
+    s = _provider_status("x", {"auth_env": ["ZZ_KEY"], "auth_required": True})
+    assert s["status"] == "ready" and s["key_configured"] is True
+    # optional (kalshi) → ready even without a key
+    monkeypatch.delenv("ZZ_OPT", raising=False)
+    assert _provider_status("kalshi", {"auth_env": ["ZZ_OPT"], "auth_optional": True})["status"] == "ready"
