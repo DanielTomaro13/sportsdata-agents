@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -54,12 +55,47 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return _sessionmaker
 
 
+def _add_missing_columns(conn: Connection) -> None:
+    """Additively reconcile EXISTING SQLite tables with the ORM models: for every
+    mapped column a table is missing, ``ALTER TABLE … ADD COLUMN``. SQLite's
+    ``create_all`` only adds whole tables, so without this a model that grew a column
+    (e.g. ``conversations.archived``) would break queries against an older warehouse.
+    Only additive, only nullable or constant-default'd columns — never drops, retypes,
+    or touches keys. Each ALTER is independent; one failure can't block the rest."""
+    import logging
+
+    from sqlalchemy import inspect
+
+    from sportsdata_agents.data.base import Base
+
+    log = logging.getLogger(__name__)
+    insp = inspect(conn)
+    existing = set(insp.get_table_names())
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing:
+            continue  # create_all just made it complete
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in have:
+                continue
+            coltype = col.type.compile(dialect=conn.dialect)
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}'
+            sd = getattr(col.server_default, "arg", None)
+            if sd is not None:  # a constant default lets SQLite back-fill existing rows
+                default_sql = str(getattr(sd, "text", sd))
+                ddl += (" NOT NULL" if not col.nullable else "") + f" DEFAULT {default_sql}"
+            try:
+                conn.exec_driver_sql(ddl)
+                log.info("warehouse: added missing column %s.%s", table.name, col.name)
+            except Exception as e:  # a partial/odd column must not abort startup
+                log.warning("warehouse: could not add %s.%s (%s)", table.name, col.name, e)
+
+
 async def ensure_schema(engine: AsyncEngine | None = None) -> None:
-    """Create any missing warehouse tables from the ORM models — the desktop app's
-    self-contained SQLite warehouse has no alembic step at runtime, so it creates
-    its own schema on first launch. ``create_all`` only ADDS missing tables (never
-    drops or alters), and we gate it to SQLite so the Postgres/server path stays
-    alembic-managed and untouched."""
+    """Bring the desktop's self-contained SQLite warehouse up to the current ORM
+    schema at launch (no runtime alembic). ``create_all`` adds any missing TABLES;
+    ``_add_missing_columns`` then adds any missing COLUMNS to existing tables. Gated
+    to SQLite so the Postgres/server path stays alembic-managed and untouched."""
     engine = engine or get_engine()
     if not str(engine.url).startswith("sqlite"):
         return  # server/Postgres schema is alembic's job, not create_all's
@@ -68,6 +104,7 @@ async def ensure_schema(engine: AsyncEngine | None = None) -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
 
 
 @asynccontextmanager

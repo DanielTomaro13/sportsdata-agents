@@ -62,6 +62,10 @@ class Conversation(TenantScopedModel):
     __tablename__ = "conversations"
     channel: Mapped[str] = mapped_column(String(32), default="cli")  # cli | slack | discord | web
     external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Workbench chat management (M4.5): a user-set title (overrides the first-message
+    # title) and an archive flag (hidden from the sidebar unless archived is shown).
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
 
 class Message(TenantScopedModel):

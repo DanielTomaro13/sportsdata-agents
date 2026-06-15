@@ -6,7 +6,7 @@ plane, plus the desk-folder sandbox."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 import pytest
@@ -87,6 +87,61 @@ async def test_conversations_empty_without_store(client: httpx.AsyncClient) -> N
     # no convstore injected (and FakeSession owns none) → graceful empty, never 500
     assert (await client.get("/conversations")).json() == {"conversations": []}
     assert (await client.get("/conversations/web-x/messages")).json() == {"messages": []}
+
+
+class StubStore:
+    """A minimal ConversationStore for endpoint-wiring tests (no DB)."""
+
+    known: ClassVar[set[str]] = {"web-1"}
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, object]] = []
+
+    async def list_conversations(self, *, include_archived: bool = False) -> list:
+        return []
+
+    async def messages_for(self, key: str):
+        return None
+
+    async def set_archived(self, key: str, archived: bool) -> bool:
+        self.calls.append(("archive", key, archived))
+        return key in self.known
+
+    async def set_title(self, key: str, title: str) -> bool:
+        self.calls.append(("rename", key, title))
+        return key in self.known
+
+    async def delete_conversation(self, key: str) -> bool:
+        self.calls.append(("delete", key, None))
+        return key in self.known
+
+
+@pytest.fixture
+async def store_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DESK_DIR", str(tmp_path / "desk"))
+    app = create_app(session=FakeSession(), conversation_store=StubStore())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
+        yield c
+
+
+async def test_archive_rename_delete_wiring(store_client: httpx.AsyncClient) -> None:
+    # archive
+    assert (await store_client.post("/conversations/web-1/archive", json={"archived": True})).status_code == 200
+    assert (await store_client.post("/conversations/nope/archive", json={"archived": True})).status_code == 404
+    # rename
+    assert (await store_client.post("/conversations/web-1/rename", json={"title": "Renamed"})).status_code == 200
+    assert (await store_client.post("/conversations/web-1/rename", json={"title": "  "})).status_code == 422
+    assert (await store_client.post("/conversations/nope/rename", json={"title": "x"})).status_code == 404
+    # delete
+    assert (await store_client.delete("/conversations/web-1")).status_code == 200
+    assert (await store_client.delete("/conversations/nope")).status_code == 404
+
+
+async def test_manage_endpoints_503_without_store(client: httpx.AsyncClient) -> None:
+    # the default `client` fixture has no conversation store
+    assert (await client.post("/conversations/web-1/archive", json={"archived": True})).status_code == 503
+    assert (await client.delete("/conversations/web-1")).status_code == 503
 
 
 async def test_mcp_groups_groups_by_provider(client: httpx.AsyncClient, monkeypatch) -> None:

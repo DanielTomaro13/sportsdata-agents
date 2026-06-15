@@ -319,16 +319,53 @@ def create_app(
     # just shows an empty pane, matching the degradation contract elsewhere.
 
     @app.get("/conversations")
-    async def list_conversations() -> dict[str, Any]:
-        """The chat-history sidebar: past 'web' conversations, newest first."""
+    async def list_conversations(include_archived: bool = False) -> dict[str, Any]:
+        """The chat-history sidebar: past 'web' conversations, newest first.
+        ``?include_archived=1`` also returns archived threads (each carries its flag)."""
         store = state["convstore"]
         if store is None:
             return {"conversations": []}
         try:
-            return {"conversations": await store.list_conversations()}
+            return {"conversations": await store.list_conversations(include_archived=include_archived)}
         except Exception as e:  # warehouse hiccup → empty history, not a 500
             logger.warning("conversation list unavailable (%s: %s)", type(e).__name__, e)
             return {"conversations": []}
+
+    @app.post("/conversations/{key}/archive")
+    async def archive_conversation(key: str, body: dict[str, Any]) -> JSONResponse:
+        """Archive (hide from the sidebar) or unarchive a conversation."""
+        store = state["convstore"]
+        if store is None:
+            return JSONResponse({"detail": "no conversation store"}, status_code=503)
+        ok = await store.set_archived(key, bool(body.get("archived", True)))
+        if not ok:
+            return JSONResponse({"detail": "unknown conversation"}, status_code=404)
+        return JSONResponse({"ok": True})
+
+    @app.post("/conversations/{key}/rename")
+    async def rename_conversation(key: str, body: dict[str, Any]) -> JSONResponse:
+        """Set a custom title for a conversation (overrides the first-message title)."""
+        store = state["convstore"]
+        if store is None:
+            return JSONResponse({"detail": "no conversation store"}, status_code=503)
+        title = str(body.get("title", "")).strip()
+        if not title:
+            return JSONResponse({"detail": "a title is required"}, status_code=422)
+        ok = await store.set_title(key, title)
+        if not ok:
+            return JSONResponse({"detail": "unknown conversation"}, status_code=404)
+        return JSONResponse({"ok": True})
+
+    @app.delete("/conversations/{key}")
+    async def delete_conversation(key: str) -> JSONResponse:
+        """Permanently delete a conversation and its messages."""
+        store = state["convstore"]
+        if store is None:
+            return JSONResponse({"detail": "no conversation store"}, status_code=503)
+        ok = await store.delete_conversation(key)
+        if not ok:
+            return JSONResponse({"detail": "unknown conversation"}, status_code=404)
+        return JSONResponse({"ok": True})
 
     @app.get("/conversations/{key}/messages")
     async def conversation_messages(key: str) -> JSONResponse:

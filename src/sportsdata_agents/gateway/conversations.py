@@ -95,11 +95,13 @@ class ConversationStore:
         return "\n".join(lines)
 
     async def list_conversations(
-        self, *, channel: str | None = "web", limit: int = HISTORY_LIMIT
+        self, *, channel: str | None = "web", limit: int = HISTORY_LIMIT, include_archived: bool = False
     ) -> list[dict[str, object]]:
-        """The sidebar history: most-recently-active first, each with a title taken
-        from its first user message. Scoped to one ``channel`` (the chat UI's own
-        'web' threads) so CLI/Slack/ops runs don't clutter the desktop history."""
+        """The sidebar history: most-recently-active first, each with a title (the
+        user's custom title if set, else its first user message). Scoped to one
+        ``channel`` (the chat UI's own 'web' threads). Archived threads are hidden
+        unless ``include_archived`` — and each row carries its ``archived`` flag so
+        the UI can show an Archived section."""
         async with self._sf() as session:
             q = select(Conversation).where(
                 Conversation.tenant_id == self._scope.tenant_id,
@@ -107,6 +109,8 @@ class ConversationStore:
             )
             if channel:
                 q = q.where(Conversation.channel == channel)
+            if not include_archived:
+                q = q.where(Conversation.archived.is_(False))
             convs = (
                 (await session.execute(q.order_by(Conversation.created_at.desc()).limit(limit)))
                 .scalars()
@@ -139,17 +143,59 @@ class ConversationStore:
         rows: list[dict[str, object]] = []
         for c in convs:
             last, count = activity.get(c.id, (c.created_at, 0))
+            custom = (c.title or "").strip()
             head = (title.get(c.id) or "New conversation").strip().splitlines()
             rows.append({
                 "key": c.external_id or str(c.id),
-                "title": (head[0] if head else "New conversation")[:TITLE_CHARS],
+                "title": (custom or (head[0] if head else "New conversation"))[:TITLE_CHARS],
                 "channel": c.channel,
+                "archived": bool(c.archived),
                 "created_at": _iso(c.created_at),
                 "last_at": _iso(last),
                 "messages": int(count),
             })
         rows.sort(key=lambda r: str(r["last_at"] or ""), reverse=True)
         return rows
+
+    async def set_archived(self, key: str, archived: bool) -> bool:
+        """Archive (hide) or unarchive a conversation. False = unknown key."""
+        async with self._sf() as session:
+            conv_id = await self._conversation_id(session, key, create=False)
+            if conv_id is None:
+                return False
+            conv = await session.get(Conversation, conv_id)
+            if conv is None:
+                return False
+            conv.archived = archived
+            await session.commit()
+            return True
+
+    async def set_title(self, key: str, title: str) -> bool:
+        """Rename a conversation (a custom title that overrides the first-message
+        one). An empty title clears the override. False = unknown key."""
+        async with self._sf() as session:
+            conv_id = await self._conversation_id(session, key, create=False)
+            if conv_id is None:
+                return False
+            conv = await session.get(Conversation, conv_id)
+            if conv is None:
+                return False
+            conv.title = title.strip()[:200] or None
+            await session.commit()
+            return True
+
+    async def delete_conversation(self, key: str) -> bool:
+        """Permanently remove a conversation and its messages. False = unknown key."""
+        from sqlalchemy import delete as _delete
+
+        async with self._sf() as session:
+            conv_id = await self._conversation_id(session, key, create=False)
+            if conv_id is None:
+                return False
+            await session.execute(_delete(Message).where(Message.conversation_id == conv_id))
+            await session.execute(_delete(Conversation).where(Conversation.id == conv_id))
+            await session.commit()
+            return True
 
     async def messages_for(self, key: str, *, limit: int = 400) -> list[dict[str, object]] | None:
         """A conversation's turns, oldest first, for reloading a past chat. ``None``
