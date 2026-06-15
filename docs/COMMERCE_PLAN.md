@@ -150,6 +150,41 @@ command (the MCP server) and pass two env vars —
 > `/Applications/sportsdata-mcp.app/Contents/MacOS/sportsdata-mcp`. With the
 > downloadable build the customer needs **no Python at all**.
 
+### The customer never hand-writes any of this — we auto-generate it
+
+The moment they **select their feeds** (in the app's Feeds screen, or a web account
+page), we generate three things automatically:
+
+1. **The exact config block** for their chosen client, pre-filled with their selected
+   groups + their licence key — e.g. for Claude Desktop:
+   ```json
+   { "mcpServers": { "sportsdata": {
+       "command": "uvx",
+       "args": ["sportsdata-mcp"],
+       "env": { "SPORTSDATA_MCP_GROUPS": "afl.public.core,espn.scores,nba.core",
+                "SPORTSDATA_LICENSE": "sd_live_xxxx" } } } }
+   ```
+2. **Tailored, numbered instructions** for that client — exact config-file path, where to
+   paste, and "fully quit and reopen" the app.
+3. A **Copy** button — and in the downloadable app, a **"Set it up for me"** button that
+   writes the config file directly, so there's no paste at all.
+
+**The generator's inputs:** selected groups · target client (Claude Desktop / Cursor /
+VS Code / other) · licence key · `command` (`uvx` vs the bundled-binary path).
+**Outputs:** the filled JSON block + the per-client steps.
+
+**One generator, used everywhere:**
+- the **in-app Feeds screen** (shows the block + a "Set it up for me" button),
+- the **fulfilment email** (the welcome email already contains their ready-to-paste
+  block + steps — so even manual Phase-0 onboarding is one paste for them),
+- a re-printable **"Setup" view** on the account page.
+
+When they **buy a new feed**, the generator re-runs with the updated
+`SPORTSDATA_MCP_GROUPS` — they just re-paste (or hit "Set it up for me" again) and
+restart. That regeneration *is* the last step of the "add a feed" loop in §4.
+
+The exact per-client blocks it produces:
+
 ### Claude Desktop
 Config file:
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
@@ -247,9 +282,14 @@ self-host is the launch choice.)
 | **0 — Manual MVP** | Payment Links (done) + you email licence + download by hand | this week — validates demand, **zero new infra** |
 | **1 — Entitlement service** | Cloudflare Worker + D1; Stripe webhook; `/entitlement`; key issuance | the always-on cheap piece |
 | **2 — Licence gate in MCP** | resolve + verify + scope groups; offline cache | enforcement |
-| **3 — Downloadable build** | standalone bundle + first-run setup + self-register + notarization | the polished installer |
-| **4 — Self-serve add-ons** | in-app Feeds screen → Checkout/Portal → webhook → refresh loop | the "buy more" UX |
-| **5 — Fulfilment automation** | webhook → issue key → email download + setup | hands-off |
+| **3 — Downloadable build** | standalone bundle + first-run setup + **config generator** ("Set it up for me" writes the client config) + notarization | the polished installer |
+| **4 — Self-serve add-ons** | in-app Feeds screen → Checkout/Portal → webhook → regenerate config → refresh loop | the "buy more" UX |
+| **5 — Fulfilment automation** | webhook → issue key → email with the **generated config block + steps** + download link | hands-off |
+
+> The **config generator** (selected feeds + client + key → ready-to-paste block +
+> per-client instructions, with copy / "set it up for me") is a small shared utility
+> used by Phases 3, 4 and 5 — and even Phase 0's manual emails. Worth building early so
+> every onboarding path is one paste (or one click).
 
 A good order: **ship Phase 0 to get paying customers now**, build 1→5 underneath, and
 flip each on as it's ready.
