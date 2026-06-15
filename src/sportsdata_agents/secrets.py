@@ -1,19 +1,22 @@
 """Secret references + resolution.
 
 Specs and configs hold a **named reference** to a secret, never the value (§13). The
-value is resolved at run time from the environment first, then the **OS keychain**
-(the desktop app's secret store — never a plaintext file), then a caller-supplied
-map (per-workspace / settings secrets — a local-dev convenience). Resolved values
-are wrapped in ``SecretStr`` so they don't leak into logs or reprs.
+value is resolved at run time in this order: the **environment**, then an
+**app-private file** under the data dir (``secrets.json``, 0600), then the **OS
+keychain**, then a caller-supplied map (per-workspace / settings secrets). Resolved
+values are wrapped in ``SecretStr`` so they don't leak into logs or reprs.
 
-The keychain tier is optional: ``keyring`` is an extra, and a server/CI deployment
-with everything in the environment never reaches it. On a desktop install the
-first-run wizard writes keys to the keychain via :func:`set_keychain_secret`, so a
-user's API keys live encrypted in the OS store, not in a `.env` on disk.
+Why the file BEFORE the keychain: an *unsigned* desktop app reading the keychain
+triggers a macOS permission prompt (and the launcher could hang on it). The wizard
+writes the key to the data-dir file (owner-only) AND best-effort to the keychain, so
+the app reads its own key without ever prompting. The data dir is user-private; for a
+single-user BYO-key desktop app that's the right trade. The keychain tier stays as a
+fallback and ``keyring`` remains optional (servers/CI keep everything in the env).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Mapping
@@ -69,13 +72,18 @@ def get_keychain_secret(name: str) -> str | None:
 
 
 def set_keychain_secret(name: str, value: str) -> bool:
-    """Store one secret in the OS keychain (the wizard's writer). False when the
-    keyring extra is missing — the caller then falls back to .env guidance."""
+    """Store one secret in the OS keychain (best-effort secondary store). False when
+    the keyring extra is missing or the write fails — the file store is primary, so
+    a keychain hiccup is non-fatal."""
     kr = _keyring()
     if kr is None:
         return False
-    kr.set_password(KEYCHAIN_SERVICE, name, value)
-    return True
+    try:
+        kr.set_password(KEYCHAIN_SERVICE, name, value)
+        return True
+    except Exception as e:  # a locked/unavailable keychain must not crash setup
+        logger.warning("keychain write failed for %s: %s", name, e)
+        return False
 
 
 def delete_keychain_secret(name: str) -> bool:
@@ -89,11 +97,71 @@ def delete_keychain_secret(name: str) -> bool:
         return False
 
 
+# ─── app-private file store (the desktop default) ──────────────────────────────
+# An UNSIGNED desktop app reading the OS keychain triggers a macOS permission
+# prompt (and the launcher could hang on it). So the wizard ALSO writes the key to
+# an owner-only (0600) file in the app's private data dir, and resolution checks it
+# BEFORE the keychain — the app reads its key without ever prompting. The data dir
+# is user-private; for a single-user BYO-key desktop app this is the right trade.
+
+
+def _secrets_file() -> Any:
+    from sportsdata_agents.paths import data_dir
+
+    return data_dir() / "secrets.json"
+
+
+def _read_secrets_file() -> dict[str, str]:
+    path = _secrets_file()
+    try:
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except (ValueError, OSError):
+        pass
+    return {}
+
+
+def get_file_secret(name: str) -> str | None:
+    """Read one secret from the app-private data-dir file (never prompts)."""
+    v = _read_secrets_file().get(name)
+    return str(v) if v is not None else None
+
+
+def set_file_secret(name: str, value: str) -> bool:
+    """Persist one secret to an owner-only (0600) file under the data dir."""
+    try:
+        path = _secrets_file()
+        data = _read_secrets_file()
+        data[name] = value
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.chmod(path, 0o600)
+        return True
+    except OSError as e:
+        logger.warning("could not write the secrets file: %s", e)
+        return False
+
+
+def delete_file_secret(name: str) -> bool:
+    try:
+        data = _read_secrets_file()
+        if name in data:
+            del data[name]
+            path = _secrets_file()
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            os.chmod(path, 0o600)
+        return True
+    except OSError:
+        return False
+
+
 def resolve_secret(ref: SecretRef | str, extra: Mapping[str, str] | None = None) -> SecretStr:
     """Resolve a secret by name: environment first, then the OS keychain, then
     ``extra``; else raise. Returns a ``SecretStr`` so the value is not printed."""
     name = ref.name if isinstance(ref, SecretRef) else ref
     value = os.environ.get(name)
+    if value is None:
+        value = get_file_secret(name)  # app-private file first — never prompts
     if value is None:
         value = get_keychain_secret(name)
     if value is None and extra is not None:

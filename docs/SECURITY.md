@@ -154,13 +154,21 @@ The local daemon (`gateway/app.py`) is defended even though it binds locally:
 
 ## 5. Secrets
 
-- Keys live in `.env` (git-ignored) or the OS keychain, **never** committed. The
-  private licence-signing key is an issuer-side secret that never enters the app
-  or the repo.
-- Paid data keys (e.g. DataGolf) are environment-only and never persisted by the
-  app.
+- **Where keys live.** Resolution order is **env → app-private file → OS keychain →
+  workspace map**. The desktop wizard writes the model API key to an owner-only
+  (`0600`) `secrets.json` under the app's private data dir, and best-effort to the
+  keychain. The file is checked *before* the keychain on purpose: an **unsigned**
+  desktop app reading the keychain triggers a macOS permission prompt (and could
+  hang the launcher), so reading from the app-private file avoids that entirely. The
+  data dir is user-private; for a single-user BYO-key desktop app this is the right
+  trade. A signed release build can rely on the keychain without friction.
+- Nothing is ever committed: `.env`, the data-dir `secrets.json`, and config files
+  are git-ignored. The private licence-signing key is an issuer-side secret that
+  never enters the app or the repo.
+- Paid data keys (e.g. DataGolf) are environment-only and never persisted by the app.
 - **If a key is exposed** (pasted in a chat, committed by accident): rotate it at
-  the provider, update `.env`/keychain, and never reuse the old value.
+  the provider, update the env / data-dir file / keychain, and never reuse the old
+  value.
 
 ---
 
