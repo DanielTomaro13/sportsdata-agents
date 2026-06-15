@@ -31,12 +31,15 @@ PROVIDERS: tuple[Provider, ...] = (
 
 
 def configured_provider() -> Provider | None:
-    """The first provider that already has a key (env or keychain) — used to
-    decide whether the wizard needs to run at all."""
-    from sportsdata_agents.secrets import get_keychain_secret
+    """The first provider that already has a key (env, app-private file, or
+    keychain) — used to decide whether the wizard needs to run. Checks the file
+    before the keychain so the unsigned desktop app never triggers a prompt."""
+    from sportsdata_agents.secrets import get_file_secret, get_keychain_secret
 
     for provider in PROVIDERS:
-        if os.environ.get(provider.key_env) or get_keychain_secret(provider.key_env):
+        if (os.environ.get(provider.key_env)
+                or get_file_secret(provider.key_env)
+                or get_keychain_secret(provider.key_env)):
             return provider
     return None
 
@@ -62,10 +65,11 @@ async def verify_key(provider: Provider, key: str) -> tuple[bool, str]:
 
 
 def store_key(provider: Provider, key: str) -> str:
-    """Persist the verified key. Keychain first; on a headless/no-keyring box,
-    report that the caller should set the env var instead."""
-    from sportsdata_agents.secrets import set_keychain_secret
+    """Persist the verified key. Writes the app-private data-dir file (the desktop
+    default — read without an OS prompt), plus the keychain best-effort. Reports
+    where it landed; 'env' means neither store was writable (set the env var)."""
+    from sportsdata_agents.secrets import set_file_secret, set_keychain_secret
 
-    if set_keychain_secret(provider.key_env, key):
-        return "keychain"
-    return "env"  # caller falls back to .env guidance
+    wrote_file = set_file_secret(provider.key_env, key)
+    set_keychain_secret(provider.key_env, key)  # best-effort; fine if it prompts/fails later
+    return "file" if wrote_file else "env"

@@ -14,6 +14,7 @@ the server is the one pushed to a worker thread.
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import threading
 import time
@@ -89,7 +90,11 @@ def run_desktop(
     if not _wait_healthz(base_url):
         logger.error("gateway did not answer health in time — opening the window anyway")
 
-    webview.create_window(title, base_url, width=1200, height=820, min_size=(900, 600))
+    # Cache-bust per launch so the web view can't reuse a stale page (an old build
+    # or a cached operator chip) from a previous session. The gateway also sends
+    # `Cache-Control: no-store`, but a fresh URL guarantees it across the upgrade.
+    window_url = f"{base_url}?_={os.getpid()}"
+    webview.create_window(title, window_url, width=1200, height=820, min_size=(900, 600))
     try:
         webview.start()  # blocks on the main thread until the window is closed
     finally:
