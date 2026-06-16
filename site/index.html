@@ -394,7 +394,7 @@
     try { cat = await (await fetch("catalogue.json", { cache: "no-store" })).json(); }
     catch { provsEl.innerHTML = '<div class="tb-empty">catalogue unavailable</div>'; return; }
     const provs = cat.providers, total = provs.reduce((n, p) => n + p.count, 0);
-    const BYOKEY = new Set(["datagolf", "laliga", "twitter"]);  // feeds needing the customer's own provider key
+    const BYOKEY = new Set(["twitter"]);  // feeds that need the customer's OWN provider key (DataGolf + La Liga keys are provided)
     if (searchEl) searchEl.placeholder = `Search ${total} tools…`;
     const item = p => `<button class="tb-prov" data-id="${esc(p.id)}"><span>${esc(p.name)}</span>${p.kind === "gambling" ? '<span class="geo">⚠</span>' : ''}${BYOKEY.has(p.id) ? '<span class="byo" title="needs your own provider key">🔑</span>' : ''}<span class="pc">${p.count}</span></button>`;
     const sport = provs.filter(p => p.kind === "sport"), gamb = provs.filter(p => p.kind === "gambling");

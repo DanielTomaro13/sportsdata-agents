@@ -372,10 +372,13 @@ can't be waived) — wording still wants a professional eye.
 - **Licence key travels in a header, never the query string.** The entitlement endpoint
   takes the key via an `Authorization` header (or POST body) so keys never land in
   access logs. (Built in Phase 1.)
-- **BYO upstream key, where required.** A few feeds need the *customer's own* provider
-  key — **DataGolf**, **La Liga**, **X/Twitter** (and the authenticated Kalshi tier). The
-  catalogue marks these "needs your own key"; the feed picker prompts for it. (Site:
-  done. App picker: Phase 4.)
+- **BYO upstream key.** Only **X/Twitter** needs the *customer's own* provider key; the
+  catalogue marks it 🔑 and the feed picker prompts for it (Phase 4). **DataGolf** and
+  **La Liga** keys are **provided by us** (La Liga's is a public key; DataGolf uses our
+  key). ⚠ **Self-host caveat:** shipping *our* DataGolf (paid) key inside customer builds
+  would expose it — for self-host, either proxy DataGolf through the entitlement service,
+  or treat DataGolf as "use our hosted access / BYO key", not an embedded secret. Decide
+  in Phase 2/3.
 - **Tight revocation.** The ≈7-day offline grace is for honest outages only — revoke
   immediately on `customer.subscription.deleted`, and use a **short grace (≤24h) on
   chargebacks / payment failure**. (Built in Phases 1–2.)
