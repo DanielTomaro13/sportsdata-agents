@@ -20,6 +20,15 @@ to know anything about our catalogue.
 
 ## 1. Pricing & SKUs
 
+> **What Base actually is — the product boundary.** Base = the **`sportsdata-mcp` data
+> plane only**: the data *tools*, wired into the customer's own AI client (Claude
+> Desktop, Cursor, ChatGPT…) with their own model key. It includes **no agents, no chat
+> UI, nothing from `sportsdata-agents`**. The "downloadable build" for Base is a small
+> **MCP-only setup utility** — *not* the agent workbench. The full app (agent team, chat,
+> conductor, alerts) is the **Plus/Pro** product, coming soon, and a **separate download**.
+> The site states this plainly and lists exactly what each feed provides; the same
+> capability list should appear in the fulfilment email / account page.
+
 Delivery is **self-host** (the customer runs the MCP on their own machine), so our
 infra cost is ~$0 and the scraped/gambling feeds run from the customer's own IP (far
 less blocking). See §7 for the full cost picture.
