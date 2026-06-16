@@ -361,6 +361,17 @@
       .tb-tool{padding:9px 0;border-top:1px solid var(--border,rgba(255,255,255,.08))}
       .tb-tool .tn{font-family:var(--mono,monospace);font-size:12.5px;color:var(--acc3,#7cf5c8);word-break:break-all}
       .tb-tool .td{font-size:12.5px;color:var(--dim,#8e97b3);margin-top:3px;line-height:1.45}
+      .tb-args{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+      .tb-args .arg{font-family:var(--mono,monospace);font-size:10.5px;background:rgba(255,255,255,.05);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:6px;padding:1px 7px;color:var(--dim,#8e97b3)}
+      .tb-args .arg i{color:var(--faint,#62748f);font-style:normal;margin-left:4px}
+      .tb-args .arg.req{border-color:rgba(110,139,255,.45);color:var(--ink,#eef2ff)}
+      .tb-args .arg.none{border:0;background:none;color:var(--faint,#62748f);padding:0;font-style:italic}
+      .tb-ex{margin-top:8px}
+      .tb-ex summary{cursor:pointer;font-size:11.5px;color:var(--acc2,#3dd6f5);list-style:none;user-select:none}
+      .tb-ex summary::-webkit-details-marker{display:none}
+      .tb-ex summary::before{content:"▸ "}
+      .tb-ex[open] summary::before{content:"▾ "}
+      .tb-ex pre{margin:7px 0 0;background:rgba(0,0,0,.32);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:8px;padding:10px 12px;font-family:var(--mono,monospace);font-size:11px;color:var(--dim,#8e97b3);overflow:auto;max-height:240px;line-height:1.45;white-space:pre}
       .tb-empty{color:var(--faint,#62748f);font-size:13px;padding:24px;text-align:center}
     </style>
     <div class="sec-head"><h2>Browse every tool</h2><p>Pick an MCP to see exactly what it gives you — every tool, across 24 data providers.</p></div>
@@ -392,7 +403,13 @@
       const tt = q ? p.tools.filter(t => t.name.includes(q) || (t.desc || "").toLowerCase().includes(q)) : p.tools;
       rightEl.innerHTML = `<div class="tb-rhead"><h3>${esc(p.name)}</h3><span class="k ${p.kind}">${esc(p.kind)}</span></div>`
         + `<div class="tb-rsub">${p.count} tools${p.kind === "gambling" ? " · may be geo-restricted in your region" : ""}</div>`
-        + (tt.length ? tt.map(t => `<div class="tb-tool"><div class="tn">${esc(t.name)}</div><div class="td">${esc(t.desc || "")}</div></div>`).join("") : '<div class="tb-empty">no tools match</div>');
+        + (tt.length ? tt.map(t => {
+            const args = (t.args && t.args.length)
+              ? `<div class="tb-args">${t.args.map(a => `<span class="arg${a.r ? " req" : ""}">${esc(a.n)}<i>${esc(a.t)}</i></span>`).join("")}</div>`
+              : `<div class="tb-args"><span class="arg none">no parameters</span></div>`;
+            const ex = t.example ? `<details class="tb-ex"><summary>sample response</summary><pre>${esc(t.example)}</pre></details>` : "";
+            return `<div class="tb-tool"><div class="tn">${esc(t.name)}</div><div class="td">${esc(t.desc || "")}</div>${args}${ex}</div>`;
+          }).join("") : '<div class="tb-empty">no tools match</div>');
     };
     renderTools(current); mark();
     provsEl.addEventListener("click", e => { const b = e.target.closest(".tb-prov"); if (!b) return; current = provs.find(p => p.id === b.dataset.id); renderTools(current, (searchEl.value || "").trim().toLowerCase()); mark(); });
