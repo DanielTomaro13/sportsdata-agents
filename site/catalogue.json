@@ -1,0 +1,2028 @@
+{
+ "providers": [
+  {
+   "id": "afl",
+   "name": "AFL",
+   "kind": "sport",
+   "count": 42,
+   "tools": [
+    {
+     "name": "afl_broadcast_channels",
+     "desc": "List broadcast channels (272) with media types (VIDEO/AUDIO/TEXT)."
+    },
+    {
+     "name": "afl_broadcast_event_get",
+     "desc": "Get a single broadcast event by id."
+    },
+    {
+     "name": "afl_broadcast_events",
+     "desc": "Broadcast schedule \u2014 one entry per match per channel."
+    },
+    {
+     "name": "afl_broadcast_match_events",
+     "desc": "Broadcast events scoped to one (compseason, round)."
+    },
+    {
+     "name": "afl_broadcast_region_get",
+     "desc": "Get a single broadcast region by id."
+    },
+    {
+     "name": "afl_broadcast_regions",
+     "desc": "List broadcast regions (26) with timezones."
+    },
+    {
+     "name": "afl_broadcasters_list",
+     "desc": "List broadcasters (49: Foxtel, Channel 7, BBC, ESPN, \u2026)."
+    },
+    {
+     "name": "afl_cfs_call",
+     "desc": "Call any of the AFL CFS premium operations (api.afl.com.au/cfs/afl/...)."
+    },
+    {
+     "name": "afl_club_get",
+     "desc": "Get a single club by id."
+    },
+    {
+     "name": "afl_clubs_list",
+     "desc": "List AFL/AFLW clubs (32)."
+    },
+    {
+     "name": "afl_competition_compseasons",
+     "desc": "List comp seasons within one competition."
+    },
+    {
+     "name": "afl_competition_get",
+     "desc": "Get a single competition by integer id."
+    },
+    {
+     "name": "afl_competitions_list",
+     "desc": "List all AFL competitions (AFL, AFLW, VFL, SANFL, \u2026)."
+    },
+    {
+     "name": "afl_compseason_get",
+     "desc": "Get a single comp season (embeds its full rounds array + currentRoundNumber)."
+    },
+    {
+     "name": "afl_compseasons_list",
+     "desc": "List comp seasons across all competitions (2012\u2013present)."
+    },
+    {
+     "name": "afl_content_photo_get",
+     "desc": "Get a single photo content item by id."
+    },
+    {
+     "name": "afl_content_photo_list",
+     "desc": "List photo content."
+    },
+    {
+     "name": "afl_content_promo_get",
+     "desc": "Get a single promo content item by id."
+    },
+    {
+     "name": "afl_content_promo_list",
+     "desc": "List promo / marketing cards (each embeds a links[] of CTAs)."
+    },
+    {
+     "name": "afl_content_text_get",
+     "desc": "Get a single text article by id."
+    },
+    {
+     "name": "afl_content_text_list",
+     "desc": "List text articles (news) with reference/tag filters."
+    },
+    {
+     "name": "afl_content_video_get",
+     "desc": "Get a single video content item by id."
+    },
+    {
+     "name": "afl_content_video_list",
+     "desc": "List video content (highlights, replays, press conferences)."
+    },
+    {
+     "name": "afl_keyserver_url_signing",
+     "desc": "Sign an AFL HLS video URL for playback (returns a token-signed CDN URL)."
+    },
+    {
+     "name": "afl_ladders_get",
+     "desc": "Competition ladder up to a comp season's current round."
+    },
+    {
+     "name": "afl_live_audio",
+     "desc": "Live AFL audio streams (empty when no game is live)."
+    },
+    {
+     "name": "afl_live_video",
+     "desc": "Live AFL video streams (empty when no game is live)."
+    },
+    {
+     "name": "afl_match_get",
+     "desc": "Get a single match by integer id (teams, venue, time, score when started)."
+    },
+    {
+     "name": "afl_matches_idmap",
+     "desc": "Map every match providerId (CD_M*) to its integer id (~48 KB)."
+    },
+    {
+     "name": "afl_matches_list",
+     "desc": "List matches with filters (competition, season, round, team, status, date)."
+    },
+    {
+     "name": "afl_player_get",
+     "desc": "Get a single player by id (bio, draft, height/weight)."
+    },
+    {
+     "name": "afl_players_idmap",
+     "desc": "Map every player providerId (CD_I*) to its integer id (~98 KB, 17k+)."
+    },
+    {
+     "name": "afl_players_list",
+     "desc": "List players (17k+ all-time catalogue)."
+    },
+    {
+     "name": "afl_rounds_list",
+     "desc": "List rounds for a comp season (incl. byes, start/end times)."
+    },
+    {
+     "name": "afl_season_get",
+     "desc": "Get a single calendar-year season by id."
+    },
+    {
+     "name": "afl_seasons_list",
+     "desc": "List calendar-year season records."
+    },
+    {
+     "name": "afl_statspro_call",
+     "desc": "Call any of the AFL StatsPro operations (api.afl.com.au/statspro/...)."
+    },
+    {
+     "name": "afl_team_get",
+     "desc": "Get a single team by id (incl. social/home-venue metadata)."
+    },
+    {
+     "name": "afl_teams_idmap",
+     "desc": "Map CD_T* team providerIds to integer aflapi ids (and vice versa)."
+    },
+    {
+     "name": "afl_teams_list",
+     "desc": "List teams (150 incl. AFL men, AFLW, state leagues, historical)."
+    },
+    {
+     "name": "afl_venue_get",
+     "desc": "Get a single venue by id."
+    },
+    {
+     "name": "afl_venues_list",
+     "desc": "List venues (191) incl. location, state, timezone, landOwner."
+    }
+   ]
+  },
+  {
+   "id": "betfair",
+   "name": "Betfair",
+   "kind": "gambling",
+   "count": 8,
+   "tools": [
+    {
+     "name": "betfair_event_details",
+     "desc": "In-play event details (event name, competition, primary market, runners, start time) for one or more events."
+    },
+    {
+     "name": "betfair_event_timeline",
+     "desc": "Live timeline + running score/state for one in-play event."
+    },
+    {
+     "name": "betfair_event_timelines",
+     "desc": "Live timelines + running scores for several in-play events at once (batch)."
+    },
+    {
+     "name": "betfair_market_prices",
+     "desc": "Exchange back/lay prices + state for one or more markets (the core odds feed)."
+    },
+    {
+     "name": "betfair_markets_by_event",
+     "desc": "All markets + back/lay prices for one or more events (by event id, when you don't have market ids yet)."
+    },
+    {
+     "name": "betfair_navigation",
+     "desc": "Navigation graph by node \u2014 traverse sport \u2192 group \u2192 event \u2192 market. Feed market ids into betfair_market_prices."
+    },
+    {
+     "name": "betfair_scores",
+     "desc": "Live scores for one or more in-play events (per-sport score detail)."
+    },
+    {
+     "name": "betfair_scores_broadcast",
+     "desc": "Live scores plus broadcast/streaming availability for one or more events."
+    }
+   ]
+  },
+  {
+   "id": "betr",
+   "name": "BetR",
+   "kind": "gambling",
+   "count": 19,
+   "tools": [
+    {
+     "name": "betr_all_promotions",
+     "desc": "All visible promotions (name, description, dates)."
+    },
+    {
+     "name": "betr_event_types",
+     "desc": "All event types (sports + racing) with event counts and SGM availability."
+    },
+    {
+     "name": "betr_fav4",
+     "desc": "Featured 'Fav 4' upcoming races for a race-type filter."
+    },
+    {
+     "name": "betr_featured_racing",
+     "desc": "Editorially featured racing events (carousel order, promo titles)."
+    },
+    {
+     "name": "betr_grouped_racecard",
+     "desc": "All meetings + their races for a day offset, grouped by code."
+    },
+    {
+     "name": "betr_market_movers",
+     "desc": "Racing market movers \u2014 runners whose fixed prices are shortening/drifting."
+    },
+    {
+     "name": "betr_master_category",
+     "desc": "Master categories (competitions) for one event type, optionally with levelled markets."
+    },
+    {
+     "name": "betr_master_event",
+     "desc": "One sport match's detail header (teams, start time, live/SGM/futures flags) by master event id."
+    },
+    {
+     "name": "betr_next5_races",
+     "desc": "Next races about to jump, with time-to-jump, for a race-type + country filter."
+    },
+    {
+     "name": "betr_pop_sgm_bet_data",
+     "desc": "Popular Same Game Multi suggestions for one master event."
+    },
+    {
+     "name": "betr_pop_sgm_category",
+     "desc": "Categories that currently have Popular Same Game Multis."
+    },
+    {
+     "name": "betr_popular_market_links",
+     "desc": "Popular market quick-links (specials, featured competitions) for navigation."
+    },
+    {
+     "name": "betr_promotions",
+     "desc": "Active promotions with metadata (title, end date, linked master events)."
+    },
+    {
+     "name": "betr_race",
+     "desc": "Full racecard for one race: runners, prices, allowed bet types, results once run."
+    },
+    {
+     "name": "betr_race_flucs",
+     "desc": "Price fluctuation history per runner for one race (fixed-odds movements)."
+    },
+    {
+     "name": "betr_race_form",
+     "desc": "Detailed form guide for one race (runner history, comments, ratings)."
+    },
+    {
+     "name": "betr_sports_category",
+     "desc": "Events + markets for one sport category (competition)."
+    },
+    {
+     "name": "betr_statwars_events",
+     "desc": "Statwars master events (head-to-head stats promo events)."
+    },
+    {
+     "name": "betr_todays_races",
+     "desc": "Today's races grouped by code (Thoroughbred / Greyhound / Harness), for the homepage."
+    }
+   ]
+  },
+  {
+   "id": "cricketaustralia",
+   "name": "Cricket Australia",
+   "kind": "sport",
+   "count": 12,
+   "tools": [
+    {
+     "name": "cricketaustralia_competitions",
+     "desc": "Competition catalogue \u2014 series / tournaments with id, name, dates and artwork."
+    },
+    {
+     "name": "cricketaustralia_content",
+     "desc": "Pulselive CMS content list by type \u2014 VIDEO (highlights/replays), TEXT (articles), AUDIO, or PLAYLIST (curated collections). Paginated."
+    },
+    {
+     "name": "cricketaustralia_fixtures",
+     "desc": "Match list (the /matches feed) \u2014 fixtures with teams, venue, competition, status, toss and result. Filter by competition, completed/live, et"
+    },
+    {
+     "name": "cricketaustralia_players",
+     "desc": "Player profiles for a batch of player ids \u2014 name, DOB, birthplace, batting/bowling hand + type, height, image. Pass a list of playerIds."
+    },
+    {
+     "name": "cricketaustralia_playlist",
+     "desc": "A single Pulselive playlist by id \u2014 a curated collection of videos (e.g. a match's highlights playlist)."
+    },
+    {
+     "name": "cricketaustralia_runs_graph",
+     "desc": "Run-progression (worm/manhattan) data per innings for a fixture \u2014 the series behind cricket.com.au's run graphs."
+    },
+    {
+     "name": "cricketaustralia_scorecard",
+     "desc": "Full match scorecard \u2014 per-innings batting, bowling and fall-of-wickets, plus the players[] lookup for the fixture."
+    },
+    {
+     "name": "cricketaustralia_standings",
+     "desc": "Competition ladder \u2014 per-team played/won/lost/drawn/tied/no-result, points, net run rate. Needs competitionId (empty for competitions withou"
+    },
+    {
+     "name": "cricketaustralia_streams",
+     "desc": "Live video stream entries for a fixture (populated during live matches; empty array otherwise)."
+    },
+    {
+     "name": "cricketaustralia_teams",
+     "desc": "Team catalogue \u2014 id, name, short name, colours, logo/badge URLs across all CA competitions."
+    },
+    {
+     "name": "cricketaustralia_tours",
+     "desc": "Tours / series with status flags \u2014 each tour groups its competitions and is flagged upcoming / in-progress / completed. The feed behind the "
+    },
+    {
+     "name": "cricketaustralia_venue",
+     "desc": "Venue detail for one venueId \u2014 name, city, country, state, coordinates. Resolve a fixture's venueId (one venue per call)."
+    }
+   ]
+  },
+  {
+   "id": "datagolf",
+   "name": "DataGolf",
+   "kind": "sport",
+   "count": 26,
+   "tools": [
+    {
+     "name": "datagolf_approach_skill",
+     "desc": "Detailed approach-play skill per player across yardage/lie buckets \u2014 SG per shot, proximity, GIR, good-shot and poor-shot-avoidance rates."
+    },
+    {
+     "name": "datagolf_fantasy_projections",
+     "desc": "DFS fantasy-points projections + salaries/ownership for a site + slate."
+    },
+    {
+     "name": "datagolf_field_updates",
+     "desc": "Current event field \u2014 players entered, tee times, withdrawals, current round."
+    },
+    {
+     "name": "datagolf_hist_dfs_event_list",
+     "desc": "List of historical events with DFS salary/ownership/points data for a site."
+    },
+    {
+     "name": "datagolf_hist_dfs_points",
+     "desc": "Historical DFS points + salary + ownership per player for a past event."
+    },
+    {
+     "name": "datagolf_hist_event_list",
+     "desc": "List of historical events that have raw round-level data available (event_id + year to pass to the rounds feed)."
+    },
+    {
+     "name": "datagolf_hist_matchups",
+     "desc": "Historical matchup / 3-ball odds for a past event from one sportsbook."
+    },
+    {
+     "name": "datagolf_hist_odds_event_list",
+     "desc": "List of historical events that have archived bookmaker odds available."
+    },
+    {
+     "name": "datagolf_hist_outrights",
+     "desc": "Historical opening/closing outright odds for a past event from one sportsbook."
+    },
+    {
+     "name": "datagolf_hist_results",
+     "desc": "Historical event-level results for a past tournament \u2014 finish position, earnings, FedExCup points and DG Points per player."
+    },
+    {
+     "name": "datagolf_hist_results_event_list",
+     "desc": "List of tournaments with historical event-level results data (finishes/earnings/points) \u2014 the id lookup for datagolf_hist_results."
+    },
+    {
+     "name": "datagolf_hist_rounds",
+     "desc": "Historical round-by-round scoring + strokes-gained for every player in a past event."
+    },
+    {
+     "name": "datagolf_in_play",
+     "desc": "Live (in-play) model predictions during a tournament \u2014 current position/score + updated win probabilities."
+    },
+    {
+     "name": "datagolf_live_hole_stats",
+     "desc": "Live per-hole scoring distributions for the in-progress event (avg score, birdie/bogey rates by hole, AM/PM wave)."
+    },
+    {
+     "name": "datagolf_live_strokes_gained",
+     "desc": "Live strokes-gained breakdown for every player during PGA Tour events (raw, or relative to the model's pre-round expectations)."
+    },
+    {
+     "name": "datagolf_live_tournament_stats",
+     "desc": "Live per-player tournament stats (strokes-gained by category, accuracy, etc.) for the requested round."
+    },
+    {
+     "name": "datagolf_matchups",
+     "desc": "Tournament / round / 3-ball matchup odds across sportsbooks, plus Data Golf's model line."
+    },
+    {
+     "name": "datagolf_matchups_all_pairings",
+     "desc": "All possible tournament matchup pairings for the current event with Data Golf's model odds (every player-vs-player price)."
+    },
+    {
+     "name": "datagolf_outrights",
+     "desc": "Outright (win / top-N / make-cut) odds for the current event across ~13 sportsbooks, plus Data Golf's model line."
+    },
+    {
+     "name": "datagolf_player_decompositions",
+     "desc": "Per-player skill decomposition for the current event \u2014 how each skill (driving, approach, putting, course-fit) contributes to the prediction"
+    },
+    {
+     "name": "datagolf_player_list",
+     "desc": "Full player list with Data Golf ids (dg_id), name, country, amateur flag."
+    },
+    {
+     "name": "datagolf_pre_tournament",
+     "desc": "Pre-tournament model predictions \u2014 win / top-5/10/20 / make-cut probabilities per player."
+    },
+    {
+     "name": "datagolf_pre_tournament_archive",
+     "desc": "Archived pre-tournament predictions for a past event (what the model said beforehand)."
+    },
+    {
+     "name": "datagolf_rankings",
+     "desc": "Data Golf player rankings (top ~500) with skill estimate and OWGR rank."
+    },
+    {
+     "name": "datagolf_schedule",
+     "desc": "Tour schedule \u2014 the season's events with dates, courses and locations."
+    },
+    {
+     "name": "datagolf_skill_ratings",
+     "desc": "Player skill ratings \u2014 strokes-gained components (off-tee, approach, around-green, putting) + driving acc/dist."
+    }
+   ]
+  },
+  {
+   "id": "entain",
+   "name": "Entain",
+   "kind": "gambling",
+   "count": 15,
+   "tools": [
+    {
+     "name": "entain_cms_entries",
+     "desc": "Contentful CMS entries (promotions, major-event nav) via the www CDN proxy."
+    },
+    {
+     "name": "entain_event_market_rules",
+     "desc": "Settlement rules for every named market, indexed by rule id."
+    },
+    {
+     "name": "entain_event_market_type_group_maps",
+     "desc": "Join table between market types and market-type groups (dedup by pair)."
+    },
+    {
+     "name": "entain_event_market_type_groups",
+     "desc": "Market-tab group definitions for a sport category (lower priority renders first)."
+    },
+    {
+     "name": "entain_featured_slider",
+     "desc": "Featured slider events (homepage hero carousel)."
+    },
+    {
+     "name": "entain_graphql_call",
+     "desc": "Call any of Entain's 127 persisted GraphQL operations against"
+    },
+    {
+     "name": "entain_metadata_by_url",
+     "desc": "SEO metadata (page title) for a given URL path."
+    },
+    {
+     "name": "entain_quicklinks_list",
+     "desc": "Navigation quick-links (racing/sports nav tiles)."
+    },
+    {
+     "name": "entain_racing_future_markets",
+     "desc": "Legacy v1 racing RPC selector (future-markets races feed)."
+    },
+    {
+     "name": "entain_racing_meeting",
+     "desc": "All race meetings + races for one date (normalised UUID-keyed tables)."
+    },
+    {
+     "name": "entain_racing_next_races",
+     "desc": "Next races about to jump, grouped per racing category."
+    },
+    {
+     "name": "entain_racing_search",
+     "desc": "Racing search facets (barrier/country/jockey/trainer buckets); optional full-text."
+    },
+    {
+     "name": "entain_sport_event_card",
+     "desc": "Complete event card \u2014 every market, selection and price for one sport event."
+    },
+    {
+     "name": "entain_sport_event_request",
+     "desc": "Bulk events + markets + prices for one or more sport categories."
+    },
+    {
+     "name": "entain_video_channels",
+     "desc": "Racing live-video channels (HLS .m3u8 URLs; verify token expires within minutes)."
+    }
+   ]
+  },
+  {
+   "id": "espn",
+   "name": "ESPN",
+   "kind": "sport",
+   "count": 9,
+   "tools": [
+    {
+     "name": "espn_cdn_call",
+     "desc": "Gateway to the ESPN CDN core live feed (cdn.espn.com). Fast, lightly-cached"
+    },
+    {
+     "name": "espn_core_call",
+     "desc": "Gateway to the ESPN core data model (sports.core.api.espn.com). The deepest,"
+    },
+    {
+     "name": "espn_game_summary",
+     "desc": "Full summary for one game: box score, scoring plays, drives/play-by-play,"
+    },
+    {
+     "name": "espn_news",
+     "desc": "League news feed: recent articles (headline, description, links, images,"
+    },
+    {
+     "name": "espn_scoreboard",
+     "desc": "Scoreboard for one league: today's (or a given date's) games with status,"
+    },
+    {
+     "name": "espn_site_call",
+     "desc": "Gateway to the ESPN site API resource families (site.api.espn.com). Supply an"
+    },
+    {
+     "name": "espn_standings",
+     "desc": "League standings / ladder: per-team wins, losses, win %, conference/division"
+    },
+    {
+     "name": "espn_teams",
+     "desc": "Team catalogue for one league: every team with id, name, abbreviation, colours"
+    },
+    {
+     "name": "espn_web_call",
+     "desc": "Gateway to the ESPN web API (site.web.api.espn.com): site-wide search across"
+    }
+   ]
+  },
+  {
+   "id": "fanduel",
+   "name": "FanDuel",
+   "kind": "gambling",
+   "count": 6,
+   "tools": [
+    {
+     "name": "fanduel_racing_call",
+     "desc": "Call any FanDuel Racing (TVG) GraphQL operation by name + variables against"
+    },
+    {
+     "name": "fanduel_racing_messages",
+     "desc": "Site message strings (disclaimers, informational copy) for a namespace."
+    },
+    {
+     "name": "fanduel_racing_promotions",
+     "desc": "Structured racing promotions / placements (POST; empty body returns all)."
+    },
+    {
+     "name": "fanduel_racing_quicklinks",
+     "desc": "Homepage quick-link tiles for the racing site."
+    },
+    {
+     "name": "fanduel_sb_call",
+     "desc": "Fetch a FanDuel Sportsbook (US, NJ) REST resource by operation name. Carries"
+    },
+    {
+     "name": "fanduel_sb_live_score",
+     "desc": "Live score + period state for one sportsbook event (NJ)."
+    }
+   ]
+  },
+  {
+   "id": "openf1",
+   "name": "Formula 1 (OpenF1)",
+   "kind": "sport",
+   "count": 18,
+   "tools": [
+    {
+     "name": "openf1_car_data",
+     "desc": "Car telemetry at ~3.7 Hz \u2014 speed, throttle, brake, gear, RPM, DRS. HIGH VOLUME: always pass session_key + driver_number."
+    },
+    {
+     "name": "openf1_championship_drivers",
+     "desc": "Drivers' championship standings around a race \u2014 points and position before/after the session."
+    },
+    {
+     "name": "openf1_championship_teams",
+     "desc": "Constructors' championship standings around a race \u2014 points and position before/after the session."
+    },
+    {
+     "name": "openf1_drivers",
+     "desc": "Drivers entered in a session \u2014 number, name, acronym, team and colours. Pass session_key (or 'latest')."
+    },
+    {
+     "name": "openf1_intervals",
+     "desc": "Live gap data during a race \u2014 each driver's gap to the leader and interval to the car ahead, sampled over time."
+    },
+    {
+     "name": "openf1_laps",
+     "desc": "Per-lap timing for a driver \u2014 lap + sector durations, speed-trap (i1/i2/st) speeds, mini-sector segment colours, pit-out flag."
+    },
+    {
+     "name": "openf1_location",
+     "desc": "Car (x, y, z) track position at ~3.7 Hz. HIGH VOLUME: always pass session_key + driver_number (and ideally a date window on the raw API)."
+    },
+    {
+     "name": "openf1_meetings",
+     "desc": "Grand Prix weekends (meetings). Filter by year/country, or pass meeting_key=latest for the current event."
+    },
+    {
+     "name": "openf1_overtakes",
+     "desc": "Overtake events in a race \u2014 who passed whom, when, and for which position."
+    },
+    {
+     "name": "openf1_pit",
+     "desc": "Pit stops \u2014 lap, total time in pit lane and stationary stop duration per driver."
+    },
+    {
+     "name": "openf1_position",
+     "desc": "Driver track position over time \u2014 position changes throughout a session."
+    },
+    {
+     "name": "openf1_race_control",
+     "desc": "Race-control messages \u2014 flags, safety cars, incidents, investigations, penalties \u2014 the official message feed."
+    },
+    {
+     "name": "openf1_session_result",
+     "desc": "Final classification of a session \u2014 per-driver position, laps, points, gap, DNF/DNS/DSQ flags."
+    },
+    {
+     "name": "openf1_sessions",
+     "desc": "F1 sessions (Practice / Qualifying / Sprint / Race). This is the fixtures feed \u2014 filter by year, country or session_name to find a session_k"
+    },
+    {
+     "name": "openf1_starting_grid",
+     "desc": "Race starting grid \u2014 per-driver grid position and lap time. (Sparse feed: OpenF1 returns a 404 'No results found' for sessions where no grid"
+    },
+    {
+     "name": "openf1_stints",
+     "desc": "Tyre stints \u2014 compound and tyre age per driving period (lap_start \u2192 lap_end)."
+    },
+    {
+     "name": "openf1_team_radio",
+     "desc": "Team-radio clips \u2014 recording URLs of driver/pit-wall radio exchanges during a session."
+    },
+    {
+     "name": "openf1_weather",
+     "desc": "Track weather, updated ~once a minute \u2014 air/track temperature, humidity, pressure, wind, rainfall."
+    }
+   ]
+  },
+  {
+   "id": "kalshi",
+   "name": "Kalshi",
+   "kind": "gambling",
+   "count": 18,
+   "tools": [
+    {
+     "name": "kalshi_candlesticks",
+     "desc": "OHLC price candlesticks for one market over a time window (1m/1h/1d periods)."
+    },
+    {
+     "name": "kalshi_candlesticks_batch",
+     "desc": "OHLC candlesticks for MANY markets in one call \u2014 pass the tickers as a list."
+    },
+    {
+     "name": "kalshi_event",
+     "desc": "One event by ticker, optionally with its markets embedded."
+    },
+    {
+     "name": "kalshi_events",
+     "desc": "Event catalogue (an event groups related markets) \u2014 filter by series or status. Paginated by cursor."
+    },
+    {
+     "name": "kalshi_exchange_announcements",
+     "desc": "Active exchange-wide announcements."
+    },
+    {
+     "name": "kalshi_exchange_schedule",
+     "desc": "Standard trading hours + maintenance windows."
+    },
+    {
+     "name": "kalshi_exchange_status",
+     "desc": "Is the exchange up and trading right now."
+    },
+    {
+     "name": "kalshi_market",
+     "desc": "One market's full detail by ticker \u2014 quotes, volume, rules, strike, timing."
+    },
+    {
+     "name": "kalshi_markets",
+     "desc": "Prediction-market catalogue with current quotes \u2014 filter by event/series ticker or status. Paginated by cursor."
+    },
+    {
+     "name": "kalshi_milestones",
+     "desc": "Milestones \u2014 dated catalysts (data releases, games, decisions) linked to the event tickers they resolve."
+    },
+    {
+     "name": "kalshi_mve_collection",
+     "desc": "One multivariate event collection by ticker."
+    },
+    {
+     "name": "kalshi_mve_collections",
+     "desc": "Multivariate event collections \u2014 the parlay-style combo products that many KXMVE* markets belong to (a market's mve_collection_ticker points"
+    },
+    {
+     "name": "kalshi_orderbook",
+     "desc": "Order book for one market \u2014 resting yes/no bids by price level (dollar-denominated)."
+    },
+    {
+     "name": "kalshi_series",
+     "desc": "One series by ticker \u2014 title, category, settlement sources, fee structure."
+    },
+    {
+     "name": "kalshi_series_list",
+     "desc": "All series in a category (Sports, Politics, Economics, Financials, Climate and Weather, Entertainment, \u2026) \u2014 the top of the id chain."
+    },
+    {
+     "name": "kalshi_structured_target",
+     "desc": "One structured target (entity) by id."
+    },
+    {
+     "name": "kalshi_structured_targets",
+     "desc": "Structured targets \u2014 Kalshi's entity registry (players, companies, people) that markets resolve against. Paginated by cursor; page size via "
+    },
+    {
+     "name": "kalshi_trades",
+     "desc": "Recent public trades, optionally for one market ticker. Paginated by cursor."
+    }
+   ]
+  },
+  {
+   "id": "laliga",
+   "name": "La Liga",
+   "kind": "sport",
+   "count": 14,
+   "tools": [
+    {
+     "name": "laliga_competition",
+     "desc": "One competition by SLUG (e.g. primera-division). Numeric id 404s \u2014 use the slug."
+    },
+    {
+     "name": "laliga_competitions",
+     "desc": "All LaLiga competitions (men's/women's, primera/segunda, across history), each with slug, opta_id, name."
+    },
+    {
+     "name": "laliga_match",
+     "desc": "One match by SLUG (from laliga_matches; the long temporada-\u2026 slug, not the numeric id which 404s). For a played match adds scores + formatio"
+    },
+    {
+     "name": "laliga_matches",
+     "desc": "Matches feed. IMPORTANT: pass competition= to get a competition's matches \u2014 subscription= alone returns a mixed bag (incl. World Cup placeho"
+    },
+    {
+     "name": "laliga_player",
+     "desc": "One player profile by SLUG \u2014 name, firstname/lastname, date_of_birth, country, current team + squad, roles."
+    },
+    {
+     "name": "laliga_player_stats",
+     "desc": "One player's Opta stats[] by SLUG."
+    },
+    {
+     "name": "laliga_players_stats",
+     "desc": "EVERY player in a season (\u2248749) with full Opta stats[] (name/stat pairs) + position + team + opta_id. Page with limit (max 100) + offset."
+    },
+    {
+     "name": "laliga_rounds",
+     "desc": "Rounds / matchweeks structure for a season (gameweeks, groups)."
+    },
+    {
+     "name": "laliga_squad",
+     "desc": "A club's CURRENT squad \u2014 each entry has person (name, date_of_birth, country, height), photos, position id, shirt_number, opta_id, loan stat"
+    },
+    {
+     "name": "laliga_standing",
+     "desc": "Full league table for a season \u2014 20 entries with played/won/drawn/lost/goals_for/goals_against/goal_difference/points/position + full team o"
+    },
+    {
+     "name": "laliga_subscription",
+     "desc": "One season instance by slug \u2014 competition, year, season name, current gameweek, rounds, and `teams` (the authoritative 20 teams in that seas"
+    },
+    {
+     "name": "laliga_subscriptions",
+     "desc": "Season instances (a 'subscription' = one competition's season), paginated 20/page. Each has slug, competition, year, current_gameweek, date "
+    },
+    {
+     "name": "laliga_team",
+     "desc": "One team by SLUG \u2014 club info, colours, foundation, socials, competitions, venue."
+    },
+    {
+     "name": "laliga_teams",
+     "desc": "Global team directory across all competitions (~1541), paginated \u2014 use it to resolve a team's slug/id/opta_id. NOTE: NOT season-scoped; for "
+    }
+   ]
+  },
+  {
+   "id": "mlb",
+   "name": "MLB",
+   "kind": "sport",
+   "count": 62,
+   "tools": [
+    {
+     "name": "mlb_allstar_ballot",
+     "desc": "All-Star Game ballot candidates for a league + season."
+    },
+    {
+     "name": "mlb_allstar_final_vote",
+     "desc": "All-Star 'Final Vote' candidates for a league + season."
+    },
+    {
+     "name": "mlb_allstar_writeins",
+     "desc": "All-Star write-in candidates for a league + season."
+    },
+    {
+     "name": "mlb_attendance",
+     "desc": "Attendance figures for a team or league/season \u2014 per-game and aggregate home/away/total gate."
+    },
+    {
+     "name": "mlb_awards",
+     "desc": "Recipients of an award \u2014 e.g. MLBHOF (Hall of Fame), ALMVP/NLMVP, ALCY/NLCY (Cy Young), ALROY/NLROY (Rookie of the Year). Discover awardIds "
+    },
+    {
+     "name": "mlb_awards_list",
+     "desc": "Award definitions catalogue \u2014 every awardId with name, description and sport (the id lookup for mlb_awards)."
+    },
+    {
+     "name": "mlb_boxscore",
+     "desc": "Full game boxscore \u2014 both teams' batting + pitching lines per player, team totals, officials and top performers."
+    },
+    {
+     "name": "mlb_conferences",
+     "desc": "Conference catalogue (used by some leagues / amateur levels)."
+    },
+    {
+     "name": "mlb_datacasters",
+     "desc": "Datacaster (official scorer-adjacent stringer) assignments."
+    },
+    {
+     "name": "mlb_divisions",
+     "desc": "Division catalogue (AL/NL East, Central, West) with their league + sport links."
+    },
+    {
+     "name": "mlb_draft",
+     "desc": "MLB Rule 4 draft results for a year \u2014 picks with player, school/team, position and signing info. Filter by round."
+    },
+    {
+     "name": "mlb_draft_prospects",
+     "desc": "Draft prospects for a year (the pre-draft prospect board)."
+    },
+    {
+     "name": "mlb_free_agents",
+     "desc": "Free agents for a season \u2014 players and their from/to-team signing info."
+    },
+    {
+     "name": "mlb_game_changes",
+     "desc": "Games changed since a timestamp \u2014 a polling helper to detect updated games."
+    },
+    {
+     "name": "mlb_game_content",
+     "desc": "Editorial / media content for a game \u2014 highlights, recap, media, and (when present) the box-score-and-storylines bundle."
+    },
+    {
+     "name": "mlb_game_context_metrics",
+     "desc": "Context metrics for a game \u2014 leverage, win-probability and run-expectancy context for the current/most-recent state."
+    },
+    {
+     "name": "mlb_game_pace",
+     "desc": "Game-pace / tempo metrics for a season (pitches per game, time of game, etc.), optionally by team."
+    },
+    {
+     "name": "mlb_game_uniforms",
+     "desc": "Uniforms worn in one or more games."
+    },
+    {
+     "name": "mlb_game_win_probability",
+     "desc": "Win-probability time series for a game \u2014 WP after each play, with leverage index."
+    },
+    {
+     "name": "mlb_high_low",
+     "desc": "High / low stat records for an org level \u2014 top and bottom performances for a sortStat in a season."
+    },
+    {
+     "name": "mlb_home_run_derby",
+     "desc": "Home Run Derby bracket + results for a derby gamePk."
+    },
+    {
+     "name": "mlb_jobs",
+     "desc": "People holding a job type for a season \u2014 jobType e.g. UMPR (umpires), SCORER, DATACASTER, BROADCASTER, COACH."
+    },
+    {
+     "name": "mlb_leaders",
+     "desc": "League leaders for one or more categories (homeRuns, battingAverage, era, strikeouts, wins, saves, ...)."
+    },
+    {
+     "name": "mlb_leagues",
+     "desc": "League catalogue \u2014 e.g. American League (103) and National League (104). Pass sportId=1 for MLB."
+    },
+    {
+     "name": "mlb_linescore",
+     "desc": "Game linescore \u2014 runs per inning, R/H/E totals, current inning + state, and on-base/defense for live games."
+    },
+    {
+     "name": "mlb_live_feed",
+     "desc": "The complete live game feed (v1.1) \u2014 gameData (teams, players, venue, weather, probables) + liveData (boxscore, linescore, full plays). The "
+    },
+    {
+     "name": "mlb_meta",
+     "desc": "Meta lookup \u2014 fetch the valid values for a parameter used elsewhere (stat types, positions, game types, pitch codes, etc.). One tool over th"
+    },
+    {
+     "name": "mlb_official_scorers",
+     "desc": "Official scorer assignments."
+    },
+    {
+     "name": "mlb_people",
+     "desc": "Batch player profiles for a list of personIds (the multi-id form of mlb_player)."
+    },
+    {
+     "name": "mlb_people_changes",
+     "desc": "Player records changed since a timestamp \u2014 a polling/sync helper (the people-side sibling of mlb_game_changes)."
+    },
+    {
+     "name": "mlb_playbyplay",
+     "desc": "Pitch-by-pitch / play-by-play log \u2014 every plate appearance with result, pitches, counts, runners and scoring-play flags."
+    },
+    {
+     "name": "mlb_player",
+     "desc": "Player biographical profile \u2014 name, DOB, bats/throws, height/weight, position, debut, current team. One personId."
+    },
+    {
+     "name": "mlb_player_game_stats",
+     "desc": "One player's stat line for one specific game (batting/pitching/fielding for that gamePk)."
+    },
+    {
+     "name": "mlb_player_search",
+     "desc": "Find players by name \u2014 resolves a name to personId(s) and basic bio."
+    },
+    {
+     "name": "mlb_player_stats",
+     "desc": "One player's stats \u2014 by type (season / career / yearByYear / gameLog) and group (hitting/pitching/fielding)."
+    },
+    {
+     "name": "mlb_schedule",
+     "desc": "Game schedule \u2014 by single date or startDate/endDate range, optionally for one team. Each game carries gamePk, status, teams and score."
+    },
+    {
+     "name": "mlb_schedule_postseason",
+     "desc": "Postseason schedule \u2014 all playoff games (optionally a single season / series type)."
+    },
+    {
+     "name": "mlb_schedule_postseason_series",
+     "desc": "Postseason series view \u2014 games grouped by series (e.g. ALDS, NLCS, World Series)."
+    },
+    {
+     "name": "mlb_schedule_postseason_tunein",
+     "desc": "Postseason broadcast 'tune-in' info (where/when to watch playoff games)."
+    },
+    {
+     "name": "mlb_schedule_tied",
+     "desc": "Tie-breaker / tied games for a season."
+    },
+    {
+     "name": "mlb_season",
+     "desc": "Single season detail by seasonId \u2014 key dates and game-count info."
+    },
+    {
+     "name": "mlb_seasons",
+     "desc": "Season catalogue with key dates (regular-season start/end, postseason, etc.). Pass sportId=1."
+    },
+    {
+     "name": "mlb_seasons_all",
+     "desc": "Every season in MLB history (151+) with key dates \u2014 the /seasons/all catalogue. (Plain /seasons only returns the current season; an ?all=tru"
+    },
+    {
+     "name": "mlb_sports",
+     "desc": "Sport catalogue \u2014 the sportId lookup (1 = Major League Baseball; others are MiLB levels, college, international)."
+    },
+    {
+     "name": "mlb_sports_players",
+     "desc": "All players in a sport for a season \u2014 the full player catalogue (name \u2192 id resolution). sportId=1 for MLB."
+    },
+    {
+     "name": "mlb_standings",
+     "desc": "Division standings \u2014 per-team W/L, pct, GB, streak, run differential, wild-card and division ranks. Pass leagueId (103=AL, 104=NL)."
+    },
+    {
+     "name": "mlb_stats",
+     "desc": "Season stats query across players \u2014 by group (hitting/pitching/fielding) and type (season, career, byDateRange, ...). Sort + limit for top-N"
+    },
+    {
+     "name": "mlb_team",
+     "desc": "Single team detail by id \u2014 name, league/division, venue, colours, founding."
+    },
+    {
+     "name": "mlb_team_alumni",
+     "desc": "Former players (alumni) for a team in a season + group (hitting/pitching/fielding)."
+    },
+    {
+     "name": "mlb_team_coaches",
+     "desc": "A team's coaching staff \u2014 manager, hitting/pitching/bench coaches, etc."
+    },
+    {
+     "name": "mlb_team_leaders",
+     "desc": "A team's statistical leaders for given categories (e.g. homeRuns, era) in a season."
+    },
+    {
+     "name": "mlb_team_personnel",
+     "desc": "A team's front-office / non-uniformed personnel."
+    },
+    {
+     "name": "mlb_team_roster",
+     "desc": "A team's roster \u2014 players with position and jersey number. rosterType selects active / 40-man / full-season / depth chart."
+    },
+    {
+     "name": "mlb_team_stats",
+     "desc": "One team's aggregate stats \u2014 by season + group (hitting/pitching/fielding) and stat type."
+    },
+    {
+     "name": "mlb_team_uniforms",
+     "desc": "Uniform assets / descriptions for one or more teams."
+    },
+    {
+     "name": "mlb_teams",
+     "desc": "Team catalogue \u2014 id, name, abbreviation, location, league/division, home venue. Pass sportId=1 for the 30 MLB clubs."
+    },
+    {
+     "name": "mlb_teams_affiliates",
+     "desc": "A club's affiliated teams across the minor-league levels."
+    },
+    {
+     "name": "mlb_teams_history",
+     "desc": "Franchise history (name/league/division changes over time) for one or more teams."
+    },
+    {
+     "name": "mlb_teams_stats",
+     "desc": "Aggregate stats across all teams \u2014 league-wide team leaderboard by season + group. Sort + limit for top-N."
+    },
+    {
+     "name": "mlb_transactions",
+     "desc": "Roster transactions \u2014 signings, trades, call-ups, IL moves, DFA, etc. Filter by team, player, single date or date range."
+    },
+    {
+     "name": "mlb_umpires",
+     "desc": "Current umpire crew list."
+    },
+    {
+     "name": "mlb_venues",
+     "desc": "Venue detail for one or more venueIds \u2014 name, location, field/roof info."
+    }
+   ]
+  },
+  {
+   "id": "nba",
+   "name": "NBA",
+   "kind": "sport",
+   "count": 7,
+   "tools": [
+    {
+     "name": "nba_boxscore",
+     "desc": "Live/final box score for one game from the CDN: per-player and per-team stat"
+    },
+    {
+     "name": "nba_daily_lineups",
+     "desc": "Projected/confirmed starting lineups for a date's games, from the stats.nba.com"
+    },
+    {
+     "name": "nba_odds_today",
+     "desc": "Sportsbook odds for today's games from the live CDN odds feed (spread, money"
+    },
+    {
+     "name": "nba_playbyplay",
+     "desc": "Event-level play-by-play log for one game from the CDN: every action with clock,"
+    },
+    {
+     "name": "nba_schedule",
+     "desc": "Full league schedule for the current season (every game, date, broadcasters,"
+    },
+    {
+     "name": "nba_scoreboard_today",
+     "desc": "Today's games from the live CDN scoreboard: matchups, period/clock state, live"
+    },
+    {
+     "name": "nba_stats_call",
+     "desc": "Gateway to the stats.nba.com /stats/ analytics API (138 operations). Supply an"
+    }
+   ]
+  },
+  {
+   "id": "nrl",
+   "name": "NRL",
+   "kind": "sport",
+   "count": 4,
+   "tools": [
+    {
+     "name": "nrl_application_settings",
+     "desc": "NRL match-centre application config: the current-season competition list"
+    },
+    {
+     "name": "nrl_competitions",
+     "desc": "Global Champion Data competition catalogue. Returns every competition id"
+    },
+    {
+     "name": "nrl_fixture",
+     "desc": "Full fixture + results for one competition. One entry per match with round,"
+    },
+    {
+     "name": "nrl_match",
+     "desc": "Full match file: per-player match statistics (tries, tackles, runMetres,"
+    }
+   ]
+  },
+  {
+   "id": "pinnacle",
+   "name": "Pinnacle",
+   "kind": "gambling",
+   "count": 17,
+   "tools": [
+    {
+     "name": "pinnacle_carousel",
+     "desc": "Featured matchups carousel across all sports (homepage highlights)."
+    },
+    {
+     "name": "pinnacle_enums",
+     "desc": "Reference enums (countries, currencies, occupations, etc.) used across the API."
+    },
+    {
+     "name": "pinnacle_labels",
+     "desc": "Per-sport market-label dictionary \u2014 decodes market keys/types into human names (moneyline \u2192 'Match Odds', etc.)."
+    },
+    {
+     "name": "pinnacle_league_matchups",
+     "desc": "All matchups for one league (competition) \u2014 e.g. every NBA game on the board."
+    },
+    {
+     "name": "pinnacle_league_matchups_live",
+     "desc": "Live (in-play) matchups for one league (competition)."
+    },
+    {
+     "name": "pinnacle_matchup",
+     "desc": "One matchup's detail: participants, league, periods, start time, state."
+    },
+    {
+     "name": "pinnacle_matchup_markets",
+     "desc": "All straight (non-parlay) markets + American-odds prices for one matchup and its related markets."
+    },
+    {
+     "name": "pinnacle_matchup_parlay_markets",
+     "desc": "Parlay (same-game multi) markets + prices for one matchup and its related markets."
+    },
+    {
+     "name": "pinnacle_matchup_related",
+     "desc": "Matchups related to one matchup (the same event's sub-matchups / alternative lines)."
+    },
+    {
+     "name": "pinnacle_sport_leagues",
+     "desc": "Leagues (competitions) for one sport, with feature/group info."
+    },
+    {
+     "name": "pinnacle_sport_matchups",
+     "desc": "Highlighted matchups for one sport (teams, league, start time, market flags)."
+    },
+    {
+     "name": "pinnacle_sport_matchups_all",
+     "desc": "All matchups for one sport (the full list, not just highlighted)."
+    },
+    {
+     "name": "pinnacle_sport_matchups_live",
+     "desc": "Live (in-play) matchups for one sport."
+    },
+    {
+     "name": "pinnacle_sports",
+     "desc": "All sports with their matchup counts and primary market type."
+    },
+    {
+     "name": "pinnacle_sports_live",
+     "desc": "Sports that currently have live (in-play) matchups."
+    },
+    {
+     "name": "pinnacle_status",
+     "desc": "API system status (online/offline + per-service health)."
+    },
+    {
+     "name": "pinnacle_teasers",
+     "desc": "Teaser bet definitions (point teasers by sport group and team count)."
+    }
+   ]
+  },
+  {
+   "id": "pointsbet",
+   "name": "PointsBet",
+   "kind": "gambling",
+   "count": 24,
+   "tools": [
+    {
+     "name": "pointsbet_competition_events",
+     "desc": "Featured events for one competition (paged) with their insight/featured markets."
+    },
+    {
+     "name": "pointsbet_content_call",
+     "desc": "Fetch one of PointsBet's static CMS / navigation JSON assets from"
+    },
+    {
+     "name": "pointsbet_event",
+     "desc": "Full event detail: all fixed-odds markets + selections + prices, SGM, team stats, insights."
+    },
+    {
+     "name": "pointsbet_event_search",
+     "desc": "Search sport events by class / competition, optionally with historic head-to-head stats."
+    },
+    {
+     "name": "pointsbet_events_nextup",
+     "desc": "Next-up sport events across all codes, ordered by start time (homepage feed)."
+    },
+    {
+     "name": "pointsbet_inplay_streaming",
+     "desc": "In-play events that carry a live video stream, grouped by sport."
+    },
+    {
+     "name": "pointsbet_preprice_multis",
+     "desc": "Pre-priced \"5 for $25\" multi suggestions (one pre-built multi per featured event)."
+    },
+    {
+     "name": "pointsbet_promo_code",
+     "desc": "Sign-up splash content (info text + hero image) for a named promo code."
+    },
+    {
+     "name": "pointsbet_promotions",
+     "desc": "Live promotions for a display surface (carousel, etc.) from the promotions service."
+    },
+    {
+     "name": "pointsbet_racing_featured",
+     "desc": "Featured races across codes with a preview of their top runners."
+    },
+    {
+     "name": "pointsbet_racing_form",
+     "desc": "Detailed form guide for one race: tips, predicted order and per-runner history."
+    },
+    {
+     "name": "pointsbet_racing_futures",
+     "desc": "Racing futures markets (Cup/Carnival outrights and other long-running racing markets)."
+    },
+    {
+     "name": "pointsbet_racing_hourly_quaddie",
+     "desc": "Hourly Quaddie schedule \u2014 the four-leg quaddie races grouped by hour."
+    },
+    {
+     "name": "pointsbet_racing_insights",
+     "desc": "Editorial form insights for one race (may be empty / 204 before they are published)."
+    },
+    {
+     "name": "pointsbet_racing_meeting",
+     "desc": "One race meeting by id: venue, conditions, and the full list of its races."
+    },
+    {
+     "name": "pointsbet_racing_meetings",
+     "desc": "All race meetings (every code) for a date window, each with its races."
+    },
+    {
+     "name": "pointsbet_racing_race",
+     "desc": "Full racecard for one race: runners, prices, track/conditions, plus results + dividends once run."
+    },
+    {
+     "name": "pointsbet_racing_races",
+     "desc": "Racecards for several races in one call (batch by race ids)."
+    },
+    {
+     "name": "pointsbet_racing_srm",
+     "desc": "Same Race Multi (SRM) market for one race (availability + legs/prices when open)."
+    },
+    {
+     "name": "pointsbet_racing_tips",
+     "desc": "Tipster selections for a racing code + country for today, grouped by venue."
+    },
+    {
+     "name": "pointsbet_sport_competitions",
+     "desc": "Competitions for one sport, grouped by locale (Featured / country buckets)."
+    },
+    {
+     "name": "pointsbet_sport_featured_events",
+     "desc": "Featured (highlighted) events for one sport (event headers; call pointsbet_event for markets)."
+    },
+    {
+     "name": "pointsbet_sports_inplay",
+     "desc": "Sports currently in-play, with a live event count per sport."
+    },
+    {
+     "name": "pointsbet_sports_list",
+     "desc": "Full catalogue of sports and their competitions (every code, featured flags)."
+    }
+   ]
+  },
+  {
+   "id": "polymarket",
+   "name": "Polymarket",
+   "kind": "gambling",
+   "count": 17,
+   "tools": [
+    {
+     "name": "polymarket_book",
+     "desc": "Full order book (bids + asks with sizes) for one outcome token."
+    },
+    {
+     "name": "polymarket_clob_markets",
+     "desc": "CLOB market catalogue (condition ids, token pairs, tick sizes) \u2014 cursor-paginated; the trading-plane view of the same markets."
+    },
+    {
+     "name": "polymarket_event",
+     "desc": "One event by Gamma id, with all its markets."
+    },
+    {
+     "name": "polymarket_events",
+     "desc": "Event catalogue (an event groups related markets, e.g. one game or election) with nested markets."
+    },
+    {
+     "name": "polymarket_holders",
+     "desc": "Top holders of a market's outcome tokens."
+    },
+    {
+     "name": "polymarket_market",
+     "desc": "One market's full detail by Gamma id \u2014 question, outcomes + prices, CLOB token ids, volume/liquidity, resolution source."
+    },
+    {
+     "name": "polymarket_markets",
+     "desc": "Market catalogue with current outcome prices \u2014 filter/sort by activity, volume, liquidity, tag or slug."
+    },
+    {
+     "name": "polymarket_midpoint",
+     "desc": "Midpoint (between best bid and best ask) for one outcome token."
+    },
+    {
+     "name": "polymarket_price",
+     "desc": "Best price for one outcome token on one side of the book."
+    },
+    {
+     "name": "polymarket_price_history",
+     "desc": "Historical price series for one outcome token \u2014 by named interval or an explicit ts window."
+    },
+    {
+     "name": "polymarket_search",
+     "desc": "Site-wide search over events/markets/profiles by free-text query."
+    },
+    {
+     "name": "polymarket_series",
+     "desc": "One series by Gamma id, with its events."
+    },
+    {
+     "name": "polymarket_series_list",
+     "desc": "Series catalogue \u2014 a series groups recurring events (e.g. a league's season of games); the top of Gamma's series \u2192 events \u2192 markets hierarch"
+    },
+    {
+     "name": "polymarket_sports",
+     "desc": "Sports metadata catalogue \u2014 each sport with its tag ids, league/resolution links and series, the entry point for sports markets (feed tag_id"
+    },
+    {
+     "name": "polymarket_spread",
+     "desc": "Bid-ask spread for one outcome token."
+    },
+    {
+     "name": "polymarket_tags",
+     "desc": "Tag catalogue (Sports, Politics, Crypto, NBA, \u2026) \u2014 tag ids feed the tag_id filters."
+    },
+    {
+     "name": "polymarket_trades",
+     "desc": "Public trade tape \u2014 recent fills, optionally for one market (condition id) or user."
+    }
+   ]
+  },
+  {
+   "id": "premierleague",
+   "name": "Premier League",
+   "kind": "sport",
+   "count": 43,
+   "tools": [
+    {
+     "name": "pl_awards",
+     "desc": "Season awards \u2014 Player/Manager of the Month and other honours for a season."
+    },
+    {
+     "name": "pl_broadcast_match_events",
+     "desc": "Broadcast events for a specific match (sportDataId = SDP match id)."
+    },
+    {
+     "name": "pl_broadcasting_events",
+     "desc": "TV/broadcast schedule for a date range (ISO 8601 UTC)."
+    },
+    {
+     "name": "pl_clubs_metadata",
+     "desc": "Club metadata (names, stadiums, websites, colours) for theming \u2014 static config blob."
+    },
+    {
+     "name": "pl_competition",
+     "desc": "One competition by id (8 = Premier League)."
+    },
+    {
+     "name": "pl_competitions",
+     "desc": "All competitions on the platform (Premier League = id 8). Paginated."
+    },
+    {
+     "name": "pl_content",
+     "desc": "Content list/search (articles, video, photos) \u2014 filter by content types, entity references (SDP_FOOTBALL_MATCH/PLAYER/TEAM) and tags."
+    },
+    {
+     "name": "pl_content_item",
+     "desc": "One content item by type + id (TEXT/VIDEO/PHOTO/PLAYLIST/PROMO/AUDIO)."
+    },
+    {
+     "name": "pl_country",
+     "desc": "Echoes the caller's detected country (used by the site for content geo-gating)."
+    },
+    {
+     "name": "pl_current_gameweek",
+     "desc": "The current matchweek number (static config blob)."
+    },
+    {
+     "name": "pl_match",
+     "desc": "Single match detail (match centre) \u2014 richer than the list item; adds seasonInfo."
+    },
+    {
+     "name": "pl_match_commentary",
+     "desc": "Live text commentary feed for a match (paginated)."
+    },
+    {
+     "name": "pl_match_events",
+     "desc": "Match events \u2014 goals, cards, subs split by home/away team, each with playerId, time, period, timestamp."
+    },
+    {
+     "name": "pl_match_lineups",
+     "desc": "Match lineups \u2014 home_team/away_team players[] with formation and subs."
+    },
+    {
+     "name": "pl_match_officials",
+     "desc": "Match officials \u2014 referee, assistants, fourth official, VAR."
+    },
+    {
+     "name": "pl_match_stats",
+     "desc": "Full team match stats \u2014 one block per side with ~200 granular Opta metrics (possession, shots, xG, passes, tackles, \u2026)."
+    },
+    {
+     "name": "pl_matches",
+     "desc": "Primary fixtures/results feed \u2014 filter by competition, season, matchweek, team, period (PreMatch/Live/FullTime) or a kickoff date range. Pag"
+    },
+    {
+     "name": "pl_matchweek_matches",
+     "desc": "Matches for one matchweek (v1 path alternative to pl_matches?matchweek=)."
+    },
+    {
+     "name": "pl_metadata",
+     "desc": "Generic entity metadata (external/fantasy profile links). type \u2208 SDP_FOOTBALL_PLAYER, SDP_FOOTBALL_TEAM."
+    },
+    {
+     "name": "pl_news_latest",
+     "desc": "Latest news, smart-ranked (homepage feed)."
+    },
+    {
+     "name": "pl_news_popular",
+     "desc": "Popular news over the last `recency` hours, smart-ranked."
+    },
+    {
+     "name": "pl_player",
+     "desc": "Full player career \u2014 one entry per club/season spell with dates, height/weight, shirtNum, preferredFoot, position."
+    },
+    {
+     "name": "pl_player_basic",
+     "desc": "Lightweight player profile \u2014 name, position, country, currentTeam."
+    },
+    {
+     "name": "pl_player_comp_stats",
+     "desc": "A player's career stats aggregated across the competition (all seasons)."
+    },
+    {
+     "name": "pl_player_info",
+     "desc": "Player bio scoped to a season \u2014 team/shirt/dates as they were that season."
+    },
+    {
+     "name": "pl_player_leaderboard",
+     "desc": "Player stat leaderboard for a season \u2014 sort by any Opta metric (goals, goal_assists, clean_sheets, total_passes, \u2026); filter by position. Eac"
+    },
+    {
+     "name": "pl_player_season_stats",
+     "desc": "A player's stats for one season."
+    },
+    {
+     "name": "pl_players",
+     "desc": "Player directory for a season (paginated; the Players index page)."
+    },
+    {
+     "name": "pl_players_by_id",
+     "desc": "Batch player lookup by a list of ids (hydrates lineups/squads)."
+    },
+    {
+     "name": "pl_season_teams",
+     "desc": "The teams in a given season (the 20 in that season's table)."
+    },
+    {
+     "name": "pl_squad",
+     "desc": "Full squad for a team in a season \u2014 players[] with name, shirtNum, position, height/weight, dates, country."
+    },
+    {
+     "name": "pl_standings",
+     "desc": "The league table for a season. Each entry has overall/home/away blocks (position, played, won, drawn, lost, GF, GA, points). live=true folds"
+    },
+    {
+     "name": "pl_structure",
+     "desc": "Season structure \u2014 current phase + phase/matchweek layout for one season."
+    },
+    {
+     "name": "pl_team",
+     "desc": "One team within a competition by id."
+    },
+    {
+     "name": "pl_team_form",
+     "desc": "One team's recent matches/form within a season."
+    },
+    {
+     "name": "pl_team_leaderboard",
+     "desc": "Team stat leaderboard \u2014 sort by any Opta team metric. NOTE: season is a query param here, not a path segment. Each row: {teamMetadata, stats"
+    },
+    {
+     "name": "pl_team_next_fixture",
+     "desc": "A team's next scheduled fixture. Returns 404 when none is scheduled (e.g. off-season)."
+    },
+    {
+     "name": "pl_team_stats",
+     "desc": "Team aggregate stats (all-time in the competition) \u2014 ~130 Opta metrics."
+    },
+    {
+     "name": "pl_teamform",
+     "desc": "Every team's form for the season in one call (the table's form guide) \u2014 recent results + next fixture per team."
+    },
+    {
+     "name": "pl_teams",
+     "desc": "All teams that have played the competition, each with seasons[], stadium, name, shortName, abbr, id. Paginated."
+    },
+    {
+     "name": "pl_teams_by_id",
+     "desc": "Batch team lookup by a list of ids."
+    },
+    {
+     "name": "pl_video_latest",
+     "desc": "Latest video, smart-ranked."
+    },
+    {
+     "name": "pl_video_popular",
+     "desc": "Popular video over the last `recency` hours."
+    }
+   ]
+  },
+  {
+   "id": "racingandsports",
+   "name": "Racing & Sports",
+   "kind": "gambling",
+   "count": 3,
+   "tools": [
+    {
+     "name": "racingandsports_match_list",
+     "desc": "Sports match list (the site's non-racing fixtures feed). Cloudflare-challenged from datacenter IPs."
+    },
+    {
+     "name": "racingandsports_race_odds",
+     "desc": "Bookmaker odds for one race. Needs a per-race `token` (issued by the form-guide page); raceId + token come from the form-guide view."
+    },
+    {
+     "name": "racingandsports_todays_racing",
+     "desc": "Today's race meetings across all codes (thoroughbred / harness / greyhound), grouped by country, each meeting with its form-guide / results "
+    }
+   ]
+  },
+  {
+   "id": "seriea",
+   "name": "Serie A",
+   "kind": "sport",
+   "count": 9,
+   "tools": [
+    {
+     "name": "seriea_competitions",
+     "desc": "All Lega Serie A competitions (Serie A, Coppa Italia, Super Cup, Primavera, \u2026), each with its SDP competitionId."
+    },
+    {
+     "name": "seriea_match_lineups",
+     "desc": "Lineups for one match \u2014 per side: tacticalFormation, the fielded XI (with average pitch positions, captain/GK flags, per-player events), the"
+    },
+    {
+     "name": "seriea_matches",
+     "desc": "All 380 matches for a season \u2014 scores, status, kickoff, stadium, matchday. Season-scoped. NOTE: returns the WHOLE season in one ~1.2 MB payl"
+    },
+    {
+     "name": "seriea_players",
+     "desc": "Every player in a season with identity AND full Opta stats[] (~279 {statsId, statsValue} pairs) \u2014 no separate squad call needed. Paginated 3"
+    },
+    {
+     "name": "seriea_season",
+     "desc": "One season's detail by seasonId."
+    },
+    {
+     "name": "seriea_seasons",
+     "desc": "All 41 Serie A seasons (1986/87 \u2192 2026/27) with seasonId + seasonName. The Serie A competition id is baked in \u2014 start here to get a seasonId"
+    },
+    {
+     "name": "seriea_standings",
+     "desc": "League table for a season. Returns three tables \u2014 standings[0]=overall, [1]=home, [2]=away \u2014 each with 20 teams; each team carries stats[] k"
+    },
+    {
+     "name": "seriea_team_stats",
+     "desc": "Team stat leaderboard for a season \u2014 all 20 teams with full Opta team stats[] (~402 {statsId, statsValue} pairs: games-played, total-points,"
+    },
+    {
+     "name": "seriea_teams",
+     "desc": "The 20 teams in a season, with identity + imagery (logos). Season-scoped."
+    }
+   ]
+  },
+  {
+   "id": "sportsbet",
+   "name": "Sportsbet",
+   "kind": "gambling",
+   "count": 44,
+   "tools": [
+    {
+     "name": "sportsbet_bet_live",
+     "desc": "BetLive feed \u2014 events currently in-play and bettable live."
+    },
+    {
+     "name": "sportsbet_class_coupon",
+     "desc": "Coupon (grouped markets) for a whole sport class."
+    },
+    {
+     "name": "sportsbet_cms_messages",
+     "desc": "Sitewide CMS messages (banners, notices)."
+    },
+    {
+     "name": "sportsbet_cms_page",
+     "desc": "CMS page block by competition id or page path (one of the two is required)."
+    },
+    {
+     "name": "sportsbet_cms_settings",
+     "desc": "Global CMS settings / feature flags for the app."
+    },
+    {
+     "name": "sportsbet_competition_matches",
+     "desc": "Match-type events for a sport competition."
+    },
+    {
+     "name": "sportsbet_competition_outrights",
+     "desc": "Outright (futures) events for a sport competition."
+    },
+    {
+     "name": "sportsbet_event_commentary",
+     "desc": "Live score + text commentary for one or more sport events."
+    },
+    {
+     "name": "sportsbet_event_markets",
+     "desc": "All markets + selections + live prices for one sport event."
+    },
+    {
+     "name": "sportsbet_event_results",
+     "desc": "Results for a finished sport event (final score + settled markets)."
+    },
+    {
+     "name": "sportsbet_event_status",
+     "desc": "Live status flags for a sport event (suspended, in-play, settled)."
+    },
+    {
+     "name": "sportsbet_graphql_call",
+     "desc": "Call any of Sportsbet's persisted GraphQL operations against"
+    },
+    {
+     "name": "sportsbet_league_ladder",
+     "desc": "League ladder / standings for a sport competition."
+    },
+    {
+     "name": "sportsbet_match_preview",
+     "desc": "Editorial match preview (text + video) for one sport event."
+    },
+    {
+     "name": "sportsbet_multiple_racecards",
+     "desc": "Racecards for several races in one call (batch by event ids)."
+    },
+    {
+     "name": "sportsbet_nav_hierarchy",
+     "desc": "Sports navigation hierarchy (class \u2192 competition tree for menus)."
+    },
+    {
+     "name": "sportsbet_page_content",
+     "desc": "Homepage tab content (sports or racing landing modules)."
+    },
+    {
+     "name": "sportsbet_popular_promotions",
+     "desc": "Trending / popular promotions for a promo provider + client."
+    },
+    {
+     "name": "sportsbet_race_preview",
+     "desc": "Editorial race preview (text + video) for one race."
+    },
+    {
+     "name": "sportsbet_racecard",
+     "desc": "Racecard for one race: runners, prices, scratchings."
+    },
+    {
+     "name": "sportsbet_racecard_with_context",
+     "desc": "Racecard plus surrounding context (meeting, results, related markets) for one race."
+    },
+    {
+     "name": "sportsbet_racing_allracing",
+     "desc": "All race meetings (every code) for one date, grouped by meeting."
+    },
+    {
+     "name": "sportsbet_racing_best_bets",
+     "desc": "Editorially-selected best bets across racing."
+    },
+    {
+     "name": "sportsbet_racing_best_bets_with_events",
+     "desc": "Best bets with their full parent event objects inlined."
+    },
+    {
+     "name": "sportsbet_racing_challenges",
+     "desc": "All racing challenges / promotions feed."
+    },
+    {
+     "name": "sportsbet_racing_competition",
+     "desc": "Racing competition (meeting) detail by competition id."
+    },
+    {
+     "name": "sportsbet_racing_event_meeting",
+     "desc": "Meeting context for one racing event (parent meeting + sibling races)."
+    },
+    {
+     "name": "sportsbet_racing_futures",
+     "desc": "Racing futures markets (Cup outrights and other long-running racing markets)."
+    },
+    {
+     "name": "sportsbet_racing_megabets",
+     "desc": "Racing Megabets (large multi suggestions across races)."
+    },
+    {
+     "name": "sportsbet_racing_multis_events",
+     "desc": "Events available for racing multis, ordered by start (next-to-jump style feed)."
+    },
+    {
+     "name": "sportsbet_racing_popular_srms",
+     "desc": "Popular Same Race Multi (SRM) combinations for races / meetings."
+    },
+    {
+     "name": "sportsbet_racing_resulted_events",
+     "desc": "Resulted races (placings + dividends) for a racing competition + class + date."
+    },
+    {
+     "name": "sportsbet_racing_top_jockeys",
+     "desc": "Top jockeys hub (leading jockeys and their rides today)."
+    },
+    {
+     "name": "sportsbet_results_classes",
+     "desc": "Sport classes that have results available for a date."
+    },
+    {
+     "name": "sportsbet_results_competitions",
+     "desc": "Competitions with results for a sport class on a date."
+    },
+    {
+     "name": "sportsbet_safer_gambling_message",
+     "desc": "Current safer-gambling message block for the site."
+    },
+    {
+     "name": "sportsbet_sport_card_legacy",
+     "desc": "Legacy single sport event card (event + primary markets)."
+    },
+    {
+     "name": "sportsbet_sport_competition",
+     "desc": "Sport competition page: matches, outrights and optional top markets."
+    },
+    {
+     "name": "sportsbet_sport_resulted_events",
+     "desc": "Resulted (finished) events for a sport competition + class + date."
+    },
+    {
+     "name": "sportsbet_sports_card",
+     "desc": "Full sport event card (all markets + selections) or the resulted event if finished."
+    },
+    {
+     "name": "sportsbet_sports_classes",
+     "desc": "Sport classes (sports) with their competitions for a date window."
+    },
+    {
+     "name": "sportsbet_track_report",
+     "desc": "Track report (going, rail, weather) for a racing meeting on a date."
+    },
+    {
+     "name": "sportsbet_trending_sgm",
+     "desc": "Trending Same Game Multi (SGM) combinations for one sport event."
+    },
+    {
+     "name": "sportsbet_upcoming_events",
+     "desc": "Upcoming sport events across all codes (homepage upcoming feed)."
+    }
+   ]
+  },
+  {
+   "id": "tab",
+   "name": "TAB",
+   "kind": "gambling",
+   "count": 22,
+   "tools": [
+    {
+     "name": "tab_cms_call",
+     "desc": "Fetch one of TAB's CMS content feeds from cmsapi.tab.com.au by operation"
+    },
+    {
+     "name": "tab_competition",
+     "desc": "Competition page: its matches, bet options and (optionally) top markets."
+    },
+    {
+     "name": "tab_featured_events",
+     "desc": "Editorially featured events across racing + sports for the homepage carousel."
+    },
+    {
+     "name": "tab_live_events_summary",
+     "desc": "Summary of events currently in-play / live across sports."
+    },
+    {
+     "name": "tab_match",
+     "desc": "Full match book: all markets + bet options, Same Game Multi, contestants, live state and stats."
+    },
+    {
+     "name": "tab_match_markets",
+     "desc": "Just the markets + selections + prices for one match (leaner than the full match object)."
+    },
+    {
+     "name": "tab_multi_builder",
+     "desc": "Multi-builder items for one sport (suggested legs / combinations for building multis)."
+    },
+    {
+     "name": "tab_racing_dates",
+     "desc": "Racing dates that have meetings (today, tomorrow, future), each linking to its meetings."
+    },
+    {
+     "name": "tab_racing_futures_meetings",
+     "desc": "Futures racing meetings (ante-post / long-dated markets like Cup outrights)."
+    },
+    {
+     "name": "tab_racing_futures_race",
+     "desc": "Racecard for one FUTURES market: futures URLs put the race NAME (not a number) in the race slot, so the integer-typed tab_racing_race cannot"
+    },
+    {
+     "name": "tab_racing_jackpots",
+     "desc": "Current racing jackpot / carryover pools across meetings."
+    },
+    {
+     "name": "tab_racing_meeting_races",
+     "desc": "The races for one meeting (by race type + venue code), each linking to its full racecard."
+    },
+    {
+     "name": "tab_racing_meetings",
+     "desc": "All race meetings (thoroughbred/greyhound/harness) for a date, each with its races."
+    },
+    {
+     "name": "tab_racing_next_to_go",
+     "desc": "Races about to jump across all codes, ordered by start time; each links to its racecard."
+    },
+    {
+     "name": "tab_racing_race",
+     "desc": "Full racecard for one race: runners with fixed + parimutuel odds, form ratings, pools, bet types; results + dividends once run."
+    },
+    {
+     "name": "tab_racing_race_form",
+     "desc": "Detailed form guide for one race (past performances, ratings, comments per runner)."
+    },
+    {
+     "name": "tab_recommendation_featured",
+     "desc": "Featured items for one recommendation category (e.g. Jockey Challenge, Racing Extras). 404s when the category isn't currently featured."
+    },
+    {
+     "name": "tab_sport",
+     "desc": "One sport by name with its competitions. Also fronts the racing-adjacent pseudo-sports (Jockey Challenge, Racing Extras)."
+    },
+    {
+     "name": "tab_sports",
+     "desc": "All sports offered, each linking to its competitions (HATEOAS root for the sports tree)."
+    },
+    {
+     "name": "tab_sports_next_to_go",
+     "desc": "Sport events about to close, ordered by close time (next-to-go sports feed)."
+    },
+    {
+     "name": "tab_sports_results",
+     "desc": "Recently resulted sport events with final scores / settled markets."
+    },
+    {
+     "name": "tab_trending_props",
+     "desc": "Trending sports propositions / bets across the book."
+    }
+   ]
+  },
+  {
+   "id": "unibet",
+   "name": "Unibet",
+   "kind": "gambling",
+   "count": 4,
+   "tools": [
+    {
+     "name": "unibet_kambi_call",
+     "desc": "Fetch a Unibet/Kambi sportsbook resource by operation name (market AU). The"
+    },
+    {
+     "name": "unibet_kambi_live_stats",
+     "desc": "Live in-event statistics (scores, match summary) for one Kambi event."
+    },
+    {
+     "name": "unibet_kambi_odds_ladder",
+     "desc": "Kambi odds-ladder reference (the decimal-odds increments the book uses)."
+    },
+    {
+     "name": "unibet_racing_call",
+     "desc": "Call any of Unibet's persisted racing GraphQL operations against"
+    }
+   ]
+  },
+  {
+   "id": "twitter",
+   "name": "X / Twitter",
+   "kind": "sport",
+   "count": 15,
+   "tools": [
+    {
+     "name": "twitter_liking_users",
+     "desc": "Users who liked a given post."
+    },
+    {
+     "name": "twitter_quote_tweets",
+     "desc": "Posts quoting a given post."
+    },
+    {
+     "name": "twitter_retweeted_by",
+     "desc": "Users who reposted a given post."
+    },
+    {
+     "name": "twitter_search_recent",
+     "desc": "Search posts from the last 7 days with X's query operators (e.g. '\"Lakers\" lang:en -is:retweet')."
+    },
+    {
+     "name": "twitter_trends",
+     "desc": "Trending topics for a location by WOEID (1 = worldwide, 23424977 = US, 23424748 = Australia, 23424975 = UK)."
+    },
+    {
+     "name": "twitter_tweet",
+     "desc": "One post by id."
+    },
+    {
+     "name": "twitter_tweet_counts",
+     "desc": "Post volume over time for a query (last 7 days) \u2014 the cheap way to gauge buzz without reading posts."
+    },
+    {
+     "name": "twitter_tweets",
+     "desc": "Batch post lookup by ids (up to 100) with engagement metrics."
+    },
+    {
+     "name": "twitter_usage",
+     "desc": "This project's post-read usage against its monthly cap \u2014 check before burning quota."
+    },
+    {
+     "name": "twitter_user",
+     "desc": "One account by numeric user id."
+    },
+    {
+     "name": "twitter_user_by_username",
+     "desc": "One account's public profile by @handle (without the @)."
+    },
+    {
+     "name": "twitter_user_mentions",
+     "desc": "Recent posts mentioning an account."
+    },
+    {
+     "name": "twitter_user_tweets",
+     "desc": "An account's recent posts (club announcements, insider news). Resolve the id with twitter_user_by_username first."
+    },
+    {
+     "name": "twitter_users",
+     "desc": "Batch account lookup by numeric ids (up to 100)."
+    },
+    {
+     "name": "twitter_users_by_usernames",
+     "desc": "Batch profile lookup by handles (up to 100)."
+    }
+   ]
+  }
+ ]
+}
