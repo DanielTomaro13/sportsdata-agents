@@ -372,13 +372,19 @@ can't be waived) — wording still wants a professional eye.
 - **Licence key travels in a header, never the query string.** The entitlement endpoint
   takes the key via an `Authorization` header (or POST body) so keys never land in
   access logs. (Built in Phase 1.)
-- **BYO upstream key.** Only **X/Twitter** needs the *customer's own* provider key; the
-  catalogue marks it 🔑 and the feed picker prompts for it (Phase 4). **DataGolf** and
-  **La Liga** keys are **provided by us** (La Liga's is a public key; DataGolf uses our
-  key). ⚠ **Self-host caveat:** shipping *our* DataGolf (paid) key inside customer builds
-  would expose it — for self-host, either proxy DataGolf through the entitlement service,
-  or treat DataGolf as "use our hosted access / BYO key", not an embedded secret. Decide
-  in Phase 2/3.
+- **BYO upstream key.** Only **X/Twitter** needs the *customer's own* provider key (🔑 in
+  the catalogue; the picker prompts for it — Phase 4). **La Liga** is a public key.
+- **Proxied feeds (DataGolf + TAB) — provided-credentials, must NOT ship in self-host
+  builds.** Both run on **our** credentials (DataGolf = our paid key; TAB = our OAuth
+  client id/secret). Embedding those in a downloadable build would expose them, so in the
+  self-host model these two feeds **route through a thin proxy on the entitlement service**
+  (Cloudflare Worker): the customer's MCP calls *our* endpoint with their **licence**, we
+  attach the real upstream credential server-side and forward. Plan for it in **Phase 2**.
+  - The proxy adds the only real running cost beyond the entitlement service (low for
+    DataGolf; **TAB is a bookmaker, so funnelling all customers' TAB calls through one IP
+    reintroduces the geo/bot-block risk** for that one feed — may need a proxy/rotation or
+    accept lower reliability). Audit the catalogue for any *other* feed that needs our
+    credentials and add it to the proxied set.
 - **Tight revocation.** The ≈7-day offline grace is for honest outages only — revoke
   immediately on `customer.subscription.deleted`, and use a **short grace (≤24h) on
   chargebacks / payment failure**. (Built in Phases 1–2.)
