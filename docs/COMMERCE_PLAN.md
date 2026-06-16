@@ -108,8 +108,18 @@ The split is a tag on each provider (one small map), so the app can show two pic
    sport* quantity.
 3. They confirm → Stripe charges the prorated amount → fires the webhook.
 4. Service bumps `sport_slots: 6` → re-signs the entitlement.
-5. App **refreshes** (button, or on next launch) → sees the free slot → lets them
-   **assign** their 6th feed → re-registers → restart.
+5. App **refreshes** (button, or on next launch) → shows the new free slot → they
+   **assign** their 6th feed (it's added to the signed entitlement).
+6. They **restart their AI app** → the MCP re-reads the licence, sees the new grant, and
+   the new tool appears.
+
+> **What actually changes on their machine: nothing but a restart.**
+> - **No re-download** — the binary already contains *every* provider; the licence just
+>   unlocks one more.
+> - **No config edit** — the feed list lives in the licence, not the config file.
+> - If their client supports live tool-list updates, the feed can even appear **without**
+>   a restart (best-effort via `tools/list_changed`); a restart is just the reliable
+>   instruction we give.
 
 ### Adding a gambling feed
 Identical, using the *Gambling* line item (**+$15/mo**) and the catalogue filtered to
@@ -140,10 +150,15 @@ zero build for us). Any change webhooks back and the entitlement re-syncs.
 ## 6. Connecting the MCP to your AI tool
 
 This is what the customer does once they have a licence key. The app **generates the
-exact block for them** (pre-filled with their key + chosen feeds), but here's what it
-is and how it works for each client. Every MCP client speaks the same pattern: run a
-command (the MCP server) and pass two env vars —
-`SPORTSDATA_MCP_GROUPS` (their feeds) and `SPORTSDATA_LICENSE` (their key).
+exact block for them** (pre-filled with their key), but here's what it is and how it
+works for each client. Every MCP client speaks the same pattern: run a command (the MCP
+server) and pass the customer's licence (`SPORTSDATA_LICENSE`).
+
+**The licence _is_ the feed list.** The MCP serves exactly the feeds that licence grants
+(fetched + verified on startup), so the config carries **only the key** — no group list.
+That's the whole reason **adding a feed later never touches their config** (see §4).
+Power users can optionally add `SPORTSDATA_MCP_GROUPS` to load just a *subset* of what
+they own in a given client.
 
 > `command` is either `uvx` (if they installed via uvx) **or** the absolute path to
 > the bundled binary inside the downloadable app — e.g.
@@ -155,15 +170,16 @@ command (the MCP server) and pass two env vars —
 The moment they **select their feeds** (in the app's Feeds screen, or a web account
 page), we generate three things automatically:
 
-1. **The exact config block** for their chosen client, pre-filled with their selected
-   groups + their licence key — e.g. for Claude Desktop:
+1. **The exact config block** for their chosen client, pre-filled with their licence key
+   — e.g. for Claude Desktop:
    ```json
    { "mcpServers": { "sportsdata": {
        "command": "uvx",
        "args": ["sportsdata-mcp"],
-       "env": { "SPORTSDATA_MCP_GROUPS": "afl.public.core,espn.scores,nba.core",
-                "SPORTSDATA_LICENSE": "sd_live_xxxx" } } } }
+       "env": { "SPORTSDATA_LICENSE": "sd_live_xxxx" } } } }
    ```
+   (the feeds come from the licence, so the block is identical no matter how many feeds
+   they own)
 2. **Tailored, numbered instructions** for that client — exact config-file path, where to
    paste, and "fully quit and reopen" the app.
 3. A **Copy** button — and in the downloadable app, a **"Set it up for me"** button that
@@ -179,9 +195,9 @@ VS Code / other) · licence key · `command` (`uvx` vs the bundled-binary path).
   block + steps — so even manual Phase-0 onboarding is one paste for them),
 - a re-printable **"Setup" view** on the account page.
 
-When they **buy a new feed**, the generator re-runs with the updated
-`SPORTSDATA_MCP_GROUPS` — they just re-paste (or hit "Set it up for me" again) and
-restart. That regeneration *is* the last step of the "add a feed" loop in §4.
+The generator runs at **setup** (and if they switch clients). Because the licence
+drives the feeds, **buying a feed does NOT regenerate the config** — see §4: only the
+entitlement changes server-side, and the customer just restarts their AI app.
 
 The exact per-client blocks it produces:
 
@@ -196,10 +212,7 @@ Config file:
     "sportsdata": {
       "command": "uvx",
       "args": ["sportsdata-mcp"],
-      "env": {
-        "SPORTSDATA_MCP_GROUPS": "afl.public.core,espn.scores,nba.core,cricketaustralia.core,openf1.reference",
-        "SPORTSDATA_LICENSE": "sd_live_xxxxxxxx"
-      }
+      "env": { "SPORTSDATA_LICENSE": "sd_live_xxxxxxxx" }
     }
   }
 }
@@ -217,7 +230,7 @@ shape:
     "sportsdata": {
       "command": "uvx",
       "args": ["sportsdata-mcp"],
-      "env": { "SPORTSDATA_MCP_GROUPS": "…", "SPORTSDATA_LICENSE": "sd_live_xxxxxxxx" }
+      "env": { "SPORTSDATA_LICENSE": "sd_live_xxxxxxxx" }
     }
   }
 }
@@ -234,7 +247,7 @@ key:
     "sportsdata": {
       "command": "uvx",
       "args": ["sportsdata-mcp"],
-      "env": { "SPORTSDATA_MCP_GROUPS": "…", "SPORTSDATA_LICENSE": "sd_live_xxxxxxxx" }
+      "env": { "SPORTSDATA_LICENSE": "sd_live_xxxxxxxx" }
     }
   }
 }
@@ -283,7 +296,7 @@ self-host is the launch choice.)
 | **1 — Entitlement service** | Cloudflare Worker + D1; Stripe webhook; `/entitlement`; key issuance | the always-on cheap piece |
 | **2 — Licence gate in MCP** | resolve + verify + scope groups; offline cache | enforcement |
 | **3 — Downloadable build** | standalone bundle + first-run setup + **config generator** ("Set it up for me" writes the client config) + notarization | the polished installer |
-| **4 — Self-serve add-ons** | in-app Feeds screen → Checkout/Portal → webhook → regenerate config → refresh loop | the "buy more" UX |
+| **4 — Self-serve add-ons** | in-app Feeds screen → Checkout/Portal → webhook → entitlement updates → app refresh + restart (no config change) | the "buy more" UX |
 | **5 — Fulfilment automation** | webhook → issue key → email with the **generated config block + steps** + download link | hands-off |
 
 > The **config generator** (selected feeds + client + key → ready-to-paste block +
