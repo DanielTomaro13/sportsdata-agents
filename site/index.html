@@ -351,6 +351,7 @@
       .tb-prov.active{background:rgba(255,255,255,.08);color:var(--ink,#eef2ff)}
       .tb-prov .pc{margin-left:auto;font-size:11px;color:var(--faint,#62748f);font-family:var(--mono,monospace)}
       .tb-prov .geo{color:var(--warn,#fbbf24);font-size:11px}
+      .tb-prov .byo{font-size:11px;margin-left:2px}
       .tb-right{max-height:540px;overflow-y:auto;padding:16px 20px}
       @media(max-width:760px){.tb-right{max-height:400px}}
       .tb-rhead{display:flex;align-items:center;gap:10px;margin-bottom:2px}
@@ -393,8 +394,9 @@
     try { cat = await (await fetch("catalogue.json", { cache: "no-store" })).json(); }
     catch { provsEl.innerHTML = '<div class="tb-empty">catalogue unavailable</div>'; return; }
     const provs = cat.providers, total = provs.reduce((n, p) => n + p.count, 0);
+    const BYOKEY = new Set(["datagolf", "laliga", "twitter"]);  // feeds needing the customer's own provider key
     if (searchEl) searchEl.placeholder = `Search ${total} tools…`;
-    const item = p => `<button class="tb-prov" data-id="${esc(p.id)}"><span>${esc(p.name)}</span>${p.kind === "gambling" ? '<span class="geo">⚠</span>' : ''}<span class="pc">${p.count}</span></button>`;
+    const item = p => `<button class="tb-prov" data-id="${esc(p.id)}"><span>${esc(p.name)}</span>${p.kind === "gambling" ? '<span class="geo">⚠</span>' : ''}${BYOKEY.has(p.id) ? '<span class="byo" title="needs your own provider key">🔑</span>' : ''}<span class="pc">${p.count}</span></button>`;
     const sport = provs.filter(p => p.kind === "sport"), gamb = provs.filter(p => p.kind === "gambling");
     provsEl.innerHTML = `<div class="tb-glabel">Sport &amp; stats</div>${sport.map(item).join("")}<div class="tb-glabel">Gambling &amp; odds</div>${gamb.map(item).join("")}`;
     let current = provs[0];
@@ -402,7 +404,7 @@
     const renderTools = (p, q = "") => {
       const tt = q ? p.tools.filter(t => t.name.includes(q) || (t.desc || "").toLowerCase().includes(q)) : p.tools;
       rightEl.innerHTML = `<div class="tb-rhead"><h3>${esc(p.name)}</h3><span class="k ${p.kind}">${esc(p.kind)}</span></div>`
-        + `<div class="tb-rsub">${p.count} tools${p.kind === "gambling" ? " · may be geo-restricted in your region" : ""}</div>`
+        + `<div class="tb-rsub">${p.count} tools${p.kind === "gambling" ? " · may be geo-restricted in your region" : ""}${BYOKEY.has(p.id) ? " · 🔑 needs your own " + esc(p.name) + " key" : ""}</div>`
         + (tt.length ? tt.map(t => {
             const args = (t.args && t.args.length)
               ? `<div class="tb-args">${t.args.map(a => `<span class="arg${a.r ? " req" : ""}">${esc(a.n)}<i>${esc(a.t)}</i></span>`).join("")}</div>`
@@ -593,6 +595,7 @@
   <footer>
     <div class="wordmark">sports<span>data</span></div>
     <div>MCP data plane available now · app coming soon · BYO model key · Informational only · © 2026</div>
+    <div style="margin-top:6px"><a href="terms.html" style="color:var(--dim);text-decoration:none">Terms</a> · <a href="privacy.html" style="color:var(--dim);text-decoration:none">Privacy</a> · <a href="refunds.html" style="color:var(--dim);text-decoration:none">Refunds</a></div>
   </footer>
 </main>
 

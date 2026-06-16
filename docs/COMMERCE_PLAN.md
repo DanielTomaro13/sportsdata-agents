@@ -355,47 +355,36 @@ flip each on as it's ready.
 
 ---
 
-## 10. Risks & "before you charge real money" checklist
+## 10. Pre-launch checklist & design principles
 
-The technical design is sound and ready to build. These are the things that should be
-sorted **before taking live payments** — none block building/testing.
+### Policies (drafted — `site/terms.html`, `privacy.html`, `refunds.html`)
+Linked from the site footer. **Starter templates — have a lawyer review before relying on
+them**, and fill the placeholders (legal entity, contact, ABN, governing law). The
+**Refund Policy** keeps the geo-restriction exclusion as a *specific* carve-out and does
+**not** claim a blanket "no refunds" (under Australian Consumer Law statutory guarantees
+can't be waived) — wording still wants a professional eye.
 
-### Must address before charging (not legal advice — get a professional to review)
-- **Reselling scraped data.** We sell paid access to MCPs that pull from bookmaker and
-  sports sites (Sportsbet, TAB, Betfair, ESPN, AFL…). Commercialising scraped data can
-  breach those sites' **terms of service** and may carry IP / database-right / computer-
-  misuse exposure. This is the single biggest risk — **get legal advice on which feeds
-  are safe to resell** before going live. It may push some feeds (esp. bookmakers) to
-  "bring your own access" rather than us providing them.
-- **Gambling-adjacent regulation (AU).** Selling odds-data tools may intersect with
-  interactive-gambling / gambling-advertising rules. The "advisory only — not betting
-  advice" line helps but may not be sufficient. Review needed.
-- **Terms of Service + Privacy Policy + Refund Policy.** Required by Stripe and legally.
-  Note: under **Australian Consumer Law**, a blanket "no refunds" can't override
-  statutory consumer guarantees — the geo-restriction notice is fine as a *specific*
-  exclusion, but the overall refund wording needs a lawyer's eye.
-- **Tax.** Turn on **Stripe Tax** (GST/VAT) and confirm business registration / ABN for
-  selling subscriptions in AU and abroad.
-
-### Technical refinements (cheap, do during the build)
-- **Enforcement is best-effort, by nature.** Self-host means the binary runs on the
+### Design principles baked into the build
+- **Enforcement is best-effort, by design.** Self-host means the binary runs on the
   customer's machine; a determined user can patch out the licence check. The signed
-  entitlement stops casual sharing; the real moat is *maintained, working feeds + updates*.
-  Be honest with ourselves about this — don't over-invest in DRM.
-- **Licence key in a header, not the query string** (`GET /entitlement` → use an
-  `Authorization` header or POST) so keys don't land in access logs.
-- **Customer's own upstream keys.** A few feeds need the *customer's* provider key
-  (DataGolf; authenticated Kalshi/X tiers). The feed picker must mark these and prompt
-  for the key — they're "works, but BYO provider key".
-- **Revocation lag.** The ≈7-day offline cache means a cancelled/charged-back customer
-  keeps access offline for up to a week. Acceptable, but shorten the grace for
-  chargebacks and revoke on `subscription.deleted`.
+  entitlement stops casual sharing — the real moat is **maintained, working feeds +
+  updates**, not DRM. Don't over-invest in copy protection.
+- **Licence key travels in a header, never the query string.** The entitlement endpoint
+  takes the key via an `Authorization` header (or POST body) so keys never land in
+  access logs. (Built in Phase 1.)
+- **BYO upstream key, where required.** A few feeds need the *customer's own* provider
+  key — **DataGolf**, **La Liga**, **X/Twitter** (and the authenticated Kalshi tier). The
+  catalogue marks these "needs your own key"; the feed picker prompts for it. (Site:
+  done. App picker: Phase 4.)
+- **Tight revocation.** The ≈7-day offline grace is for honest outages only — revoke
+  immediately on `customer.subscription.deleted`, and use a **short grace (≤24h) on
+  chargebacks / payment failure**. (Built in Phases 1–2.)
 - **Update channel.** When a site changes and a feed breaks, downloadable-build customers
-  need updates — wire an auto-update check (the OTA `datafeed` seam already handles spec
-  updates; binary updates need a version ping + re-download prompt).
+  get fixed via an auto-update check — the OTA `datafeed` seam already ships spec
+  updates; binary updates add a version ping + "update available" prompt. (Phase 3.)
 
 ### Verdict
-**Build: go.** Phase 0 (manual) + Phases 1–2 can proceed now in Stripe **test mode**.
-**Charge real money: not until** the legal review (reselling + gambling + ToS/refund)
-and Stripe Tax are sorted. Those are business/legal tasks, not engineering — start them
-in parallel.
+**Engineering: ready to go.** Phase 0 (manual) + Phases 1–2 proceed now in Stripe **test
+mode**; the design principles above are folded into those phases. Policies are drafted
+and linked; recommend a legal pass on the wording before live charges, but nothing blocks
+building or a soft launch.
