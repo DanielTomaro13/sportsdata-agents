@@ -129,9 +129,13 @@ location (the bookmaker blocks their region). Policy:
 
 ### Adding a sport feed (their 6th) — the core "buy more" loop
 1. In the app's **Feeds** screen they tap **"Add sport feed +$5/mo"**.
-2. App opens a Stripe **Checkout / Customer Portal** link that increments the *Extra
-   sport* quantity.
-3. They confirm → Stripe charges the prorated amount → fires the webhook.
+2. The entitlement service (it holds the Stripe secret key) **increments the *Extra
+   sport* line-item quantity on their existing subscription via the Stripe API** —
+   Stripe prorates and charges the **card already on file**. (A static Payment Link
+   can't modify an existing subscription, so this is a server-side API call, not a new
+   Checkout. For customers without a saved card, fall back to the Stripe Customer
+   Portal, which supports quantity changes.)
+3. Stripe fires the `customer.subscription.updated` webhook.
 4. Service bumps `sport_slots: 6` → re-signs the entitlement.
 5. App **refreshes** (button, or on next launch) → shows the new free slot → they
    **assign** their 6th feed (it's added to the signed entitlement).
@@ -348,3 +352,50 @@ flip each on as it's ready.
 4. **Licence env var name** — proposed `SPORTSDATA_LICENSE` + `SPORTSDATA_MCP_GROUPS`.
 5. **Launch sequence** — flip the live site + Stripe now (Phase 0), or hold until the
    licence gate (Phase 2) is in?
+
+---
+
+## 10. Risks & "before you charge real money" checklist
+
+The technical design is sound and ready to build. These are the things that should be
+sorted **before taking live payments** — none block building/testing.
+
+### Must address before charging (not legal advice — get a professional to review)
+- **Reselling scraped data.** We sell paid access to MCPs that pull from bookmaker and
+  sports sites (Sportsbet, TAB, Betfair, ESPN, AFL…). Commercialising scraped data can
+  breach those sites' **terms of service** and may carry IP / database-right / computer-
+  misuse exposure. This is the single biggest risk — **get legal advice on which feeds
+  are safe to resell** before going live. It may push some feeds (esp. bookmakers) to
+  "bring your own access" rather than us providing them.
+- **Gambling-adjacent regulation (AU).** Selling odds-data tools may intersect with
+  interactive-gambling / gambling-advertising rules. The "advisory only — not betting
+  advice" line helps but may not be sufficient. Review needed.
+- **Terms of Service + Privacy Policy + Refund Policy.** Required by Stripe and legally.
+  Note: under **Australian Consumer Law**, a blanket "no refunds" can't override
+  statutory consumer guarantees — the geo-restriction notice is fine as a *specific*
+  exclusion, but the overall refund wording needs a lawyer's eye.
+- **Tax.** Turn on **Stripe Tax** (GST/VAT) and confirm business registration / ABN for
+  selling subscriptions in AU and abroad.
+
+### Technical refinements (cheap, do during the build)
+- **Enforcement is best-effort, by nature.** Self-host means the binary runs on the
+  customer's machine; a determined user can patch out the licence check. The signed
+  entitlement stops casual sharing; the real moat is *maintained, working feeds + updates*.
+  Be honest with ourselves about this — don't over-invest in DRM.
+- **Licence key in a header, not the query string** (`GET /entitlement` → use an
+  `Authorization` header or POST) so keys don't land in access logs.
+- **Customer's own upstream keys.** A few feeds need the *customer's* provider key
+  (DataGolf; authenticated Kalshi/X tiers). The feed picker must mark these and prompt
+  for the key — they're "works, but BYO provider key".
+- **Revocation lag.** The ≈7-day offline cache means a cancelled/charged-back customer
+  keeps access offline for up to a week. Acceptable, but shorten the grace for
+  chargebacks and revoke on `subscription.deleted`.
+- **Update channel.** When a site changes and a feed breaks, downloadable-build customers
+  need updates — wire an auto-update check (the OTA `datafeed` seam already handles spec
+  updates; binary updates need a version ping + re-download prompt).
+
+### Verdict
+**Build: go.** Phase 0 (manual) + Phases 1–2 can proceed now in Stripe **test mode**.
+**Charge real money: not until** the legal review (reselling + gambling + ToS/refund)
+and Stripe Tax are sorted. Those are business/legal tasks, not engineering — start them
+in parallel.
