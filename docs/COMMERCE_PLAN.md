@@ -91,6 +91,22 @@ The MCP exposes ~24 providers as groups. The store splits them:
 
 The split is a tag on each provider (one small map), so the app can show two pickers.
 
+### Policy: geo-restriction & no refunds on geo-restricted feeds
+
+Some gambling/odds feeds are **geo-restricted** and may not work from a given customer's
+location (the bookmaker blocks their region). Policy:
+
+- **No refunds** are given for a gambling feed that turns out to be geo-restricted where
+  the customer is. They are responsible for checking availability before subscribing.
+- This must be **surfaced in three places**: (1) the **site** (next to the gambling
+  add-on — done), (2) **at the point of purchase** — the app/checkout requires an explicit
+  **"I understand this feed may be geo-restricted and is non-refundable"** acknowledgement
+  before adding a gambling feed, and (3) the **welcome / receipt email**.
+- Sport data feeds are not affected — this notice is gambling-feeds only.
+- Where we can already detect a likely block (the provider-status **"blocked"** signal
+  from the workbench), **warn inline before purchase** so they don't buy a feed we know
+  won't reach them.
+
 ---
 
 ## 4. Customer flows — step by step
@@ -123,7 +139,10 @@ The split is a tag on each provider (one small map), so the app can show two pic
 
 ### Adding a gambling feed
 Identical, using the *Gambling* line item (**+$15/mo**) and the catalogue filtered to
-odds providers.
+odds providers — **plus a required acknowledgement** before checkout: *"This feed may be
+geo-restricted in my region and is non-refundable if it is."* (See the geo-restriction
+policy in §3.) If we already detect the feed as **blocked** for them, warn before they
+can buy it.
 
 ### Upgrade to All-access
 One button → Checkout swaps the line items to the **$99** plan → webhook sets
@@ -296,7 +315,7 @@ self-host is the launch choice.)
 | **1 — Entitlement service** | Cloudflare Worker + D1; Stripe webhook; `/entitlement`; key issuance | the always-on cheap piece |
 | **2 — Licence gate in MCP** | resolve + verify + scope groups; offline cache | enforcement |
 | **3 — Downloadable build** | standalone bundle + first-run setup + **config generator** ("Set it up for me" writes the client config) + notarization | the polished installer |
-| **4 — Self-serve add-ons** | in-app Feeds screen → Checkout/Portal → webhook → entitlement updates → app refresh + restart (no config change) | the "buy more" UX |
+| **4 — Self-serve add-ons** | in-app Feeds screen → **geo/refund acknowledgement on gambling feeds** → Checkout/Portal → webhook → entitlement updates → app refresh + restart (no config change) | the "buy more" UX |
 | **5 — Fulfilment automation** | webhook → issue key → email with the **generated config block + steps** + download link | hands-off |
 
 > The **config generator** (selected feeds + client + key → ready-to-paste block +
