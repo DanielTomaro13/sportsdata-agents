@@ -17,8 +17,20 @@ feed list** the MCP serves — so buying a feed needs no client config change.
 | --- | --- | --- | --- |
 | POST | `/stripe/webhook` | Stripe signature | subscription events → entitlement |
 | GET | `/entitlement` | `Authorization: Bearer <licence key>` | signed grants token |
+| GET/POST | `/assignment` | `Authorization: Bearer <licence key>` | read / set the assigned feeds (Phase 4) |
 | GET | `/proxy/<provider>/<path…>` | `Authorization: Bearer <licence key>` | credentialed-feed proxy (Phase 1b) |
 | GET | `/healthz` | — | liveness |
+
+### Feed assignment (Phase 4)
+
+Stripe tracks slot **counts**; this endpoint tracks **which** feeds fill them — the
+licence *is* the feed list. `POST /assignment` with `{ "providers": ["afl", "sportsbet", …] }`
+stores the choice in `entitlements.groups` after enforcing the slot budget (per-kind:
+sport vs gambling, from `PROVIDER_KIND` in `catalogue.ts`; all-access takes anything).
+The MCP gate reads `groups` and serves exactly those providers. Because the assignment
+lives server-side, adding/swapping a feed is a single call + a restart — no config edit,
+no re-download. `GET /assignment` returns the current list and the slot budget (for the
+picker UI).
 
 ### Credentialed-feed proxy (Phase 1b)
 
@@ -92,6 +104,8 @@ Send them that `id` (the `sd_live_…` licence key) + the MCP setup.
 
 ## Next
 - **Phase 2** ✅ — the MCP licence gate verifies this service's token and serves only the
-  granted groups (`sportsdata-mcp` v0.9.0). Bake the `gen-keypair.py` public key before
-  shipping a licensed build.
-- **Phase 4** — feed assignment (`groups`) + in-app add-on purchase.
+  granted groups (`sportsdata-mcp` v0.10.0, incl. the DataGolf proxy client). Bake the
+  `gen-keypair.py` public key before shipping a licensed build.
+- **Phase 4** — assignment endpoint ✅ (backend). Remaining: the in-app **Feeds picker**
+  UI and **add-on purchase** (Stripe line-item quantity bump).
+- **Phase 3** — downloadable notarized build (needs your Apple Developer ID / signing).

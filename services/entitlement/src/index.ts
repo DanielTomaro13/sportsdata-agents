@@ -4,6 +4,7 @@
 //   GET  /healthz
 // The DataGolf/TAB proxy is the next addition (Phase 1b) — see README.
 
+import { validateAssignment } from "./catalogue";
 import { sendLicenceEmail } from "./email";
 import { handleProxy } from "./proxy";
 import { signLicence } from "./sign";
@@ -131,6 +132,51 @@ async function handleEntitlement(req: Request, env: Env): Promise<Response> {
   return json({ licence: token, claims });
 }
 
+// GET  /assignment — read the current feed assignment + slot budget
+// POST /assignment — set it ({ providers: [...] }); enforced against the slot budget
+async function handleAssignment(req: Request, env: Env): Promise<Response> {
+  const auth = req.headers.get("authorization") || "";
+  const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!key) return json({ error: "missing bearer licence key" }, 401);
+
+  const row = await env.DB.prepare(
+    `SELECT status, sport_slots, gambling_slots, all_access, groups
+     FROM entitlements WHERE customer_id = ?`,
+  ).bind(key).first<{
+    status: string; sport_slots: number; gambling_slots: number;
+    all_access: number; groups: string;
+  }>();
+  if (!row) return json({ error: "unknown licence" }, 404);
+
+  const budget = {
+    sport_slots: row.sport_slots,
+    gambling_slots: row.gambling_slots,
+    all_access: row.all_access === 1,
+  };
+
+  if (req.method === "GET") {
+    return json({ providers: JSON.parse(row.groups || "[]"), ...budget });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "invalid JSON body" }, 400);
+  }
+  const requested = (body as { providers?: unknown })?.providers;
+  if (!Array.isArray(requested)) {
+    return json({ error: "body.providers must be an array of provider ids" }, 400);
+  }
+
+  const check = validateAssignment(requested.map(String), row);
+  if (!check.ok) return json({ error: check.error }, 422);
+
+  await env.DB.prepare("UPDATE entitlements SET groups = ?, updated_at = ? WHERE customer_id = ?")
+    .bind(JSON.stringify(check.providers), Math.floor(Date.now() / 1000), key).run();
+  return json({ ok: true, providers: check.providers, ...budget });
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -138,6 +184,9 @@ export default {
       if (url.pathname === "/healthz") return json({ ok: true });
       if (url.pathname === "/stripe/webhook" && req.method === "POST") return await handleWebhook(req, env);
       if (url.pathname === "/entitlement" && req.method === "GET") return await handleEntitlement(req, env);
+      if (url.pathname === "/assignment" && (req.method === "GET" || req.method === "POST")) {
+        return await handleAssignment(req, env);
+      }
       // /proxy/<provider>/<upstream-path...> — licence-authed credentialed-feed proxy
       if (url.pathname.startsWith("/proxy/")) {
         const rest = url.pathname.slice("/proxy/".length);
