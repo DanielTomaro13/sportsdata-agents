@@ -17,7 +17,26 @@ feed list** the MCP serves — so buying a feed needs no client config change.
 | --- | --- | --- | --- |
 | POST | `/stripe/webhook` | Stripe signature | subscription events → entitlement |
 | GET | `/entitlement` | `Authorization: Bearer <licence key>` | signed grants token |
+| GET | `/proxy/<provider>/<path…>` | `Authorization: Bearer <licence key>` | credentialed-feed proxy (Phase 1b) |
 | GET | `/healthz` | — | liveness |
+
+### Credentialed-feed proxy (Phase 1b)
+
+Some feeds run on **our** upstream credentials and must never ship inside a self-host
+build. A licensed MCP points those providers at `GET /proxy/<provider>/<upstream-path>`
+with the licence key as `Authorization: Bearer`; the Worker checks the licence grants the
+provider, attaches the credential **server-side**, and streams the response back.
+
+- **`datagolf`** — attaches our paid `?key=` (`DATAGOLF_KEY` secret). The only provider
+  that *requires* the proxy today.
+- **`tab`** — wired for the OAuth case (mints a `client_credentials` token from
+  `TAB_CLIENT_ID/SECRET`), but **inert unless those secrets are set**. TAB's public
+  endpoints need no auth and TAB geo/bot-manages by IP, so they are better run
+  client-side from the customer's own IP.
+
+The proxy is GET-only, pins the upstream host (no SSRF via the path), and never forwards
+`Set-Cookie`. A provider with no configured credential returns `503` (inert), and a
+licence that doesn't grant the provider returns `403`.
 
 ## Deploy (you run this — secrets stay in your shell / Cloudflare)
 
@@ -61,8 +80,8 @@ npx wrangler d1 execute sportsdata-entitlement --remote \
 Send them that `id` (the `sd_live_…` licence key) + the MCP setup.
 
 ## Next
-- **Phase 1b** — `/proxy/datagolf/*` + `/proxy/tab/*`: licence-authenticated proxy that
-  attaches our upstream credential (`DATAGOLF_KEY`, `TAB_CLIENT_ID/SECRET`) server-side.
-- **Phase 2** — the MCP licence gate verifies this service's token (bake the public key)
-  and serves only the granted groups.
+- **Phase 2** ✅ — the MCP licence gate verifies this service's token and serves only the
+  granted groups (`sportsdata-mcp` v0.9.0). Bake the `gen-keypair.py` public key before
+  shipping a licensed build.
 - **Phase 4** — feed assignment (`groups`) + in-app add-on purchase.
+- **Phase 5** — fulfilment automation (webhook → issue key → email the licence + config).
