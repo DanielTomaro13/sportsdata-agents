@@ -1,0 +1,24 @@
+{
+  // sportsdata entitlement service — the small always-on piece (Phase 1).
+  // Takes the Stripe webhook, stores entitlements in D1, issues + serves signed
+  // licences, and proxies the credentialed feeds (DataGolf + TAB).
+  "name": "sportsdata-entitlement",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-01",
+  // Ed25519 (Web Crypto) + fetch — no nodejs_compat needed.
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sportsdata-entitlement",
+      // filled by `wrangler d1 create` (see README) — paste the id here:
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ]
+  // Secrets (set with `wrangler secret put …`, never in this file):
+  //   STRIPE_SECRET_KEY            — your Stripe secret (server-side API calls)
+  //   STRIPE_WEBHOOK_SECRET        — the webhook signing secret (whsec_…)
+  //   SIGNING_KEY_PKCS8_B64        — Ed25519 private key, PKCS8 DER, base64 (keygen script)
+  //   DATAGOLF_KEY                 — your DataGolf key (proxy attaches it server-side)
+  //   TAB_CLIENT_ID / TAB_CLIENT_SECRET — TAB OAuth creds (proxy mints tokens server-side)
+}
