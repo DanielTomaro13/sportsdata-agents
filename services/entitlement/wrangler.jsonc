@@ -21,4 +21,6 @@
   //   SIGNING_KEY_PKCS8_B64        — Ed25519 private key, PKCS8 DER, base64 (keygen script)
   //   DATAGOLF_KEY                 — your DataGolf key (proxy attaches it server-side)
   //   TAB_CLIENT_ID / TAB_CLIENT_SECRET — TAB OAuth creds (proxy mints tokens server-side)
+  //   RESEND_API_KEY               — enables the fulfilment email (Phase 5); inert if unset
+  //   LICENCE_FROM_EMAIL           — verified Resend sender (defaults to onboarding@resend.dev)
 }
