@@ -4,6 +4,7 @@
 //   GET  /healthz
 // The DataGolf/TAB proxy is the next addition (Phase 1b) — see README.
 
+import { handleProxy } from "./proxy";
 import { signLicence } from "./sign";
 import { subscriptionGrant, verifyStripeSignature } from "./stripe";
 
@@ -12,6 +13,10 @@ export interface Env {
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
   SIGNING_KEY_PKCS8_B64: string;
+  // Proxy credentials (Phase 1b) — optional; a provider's proxy is inert without them.
+  DATAGOLF_KEY?: string;
+  TAB_CLIENT_ID?: string;
+  TAB_CLIENT_SECRET?: string;
 }
 
 const ENTITLEMENT_TTL = 7 * 24 * 3600; // signed licence TTL == the MCP's offline grace
@@ -108,6 +113,14 @@ export default {
       if (url.pathname === "/healthz") return json({ ok: true });
       if (url.pathname === "/stripe/webhook" && req.method === "POST") return await handleWebhook(req, env);
       if (url.pathname === "/entitlement" && req.method === "GET") return await handleEntitlement(req, env);
+      // /proxy/<provider>/<upstream-path...> — licence-authed credentialed-feed proxy
+      if (url.pathname.startsWith("/proxy/")) {
+        const rest = url.pathname.slice("/proxy/".length);
+        const slash = rest.indexOf("/");
+        const provider = slash === -1 ? rest : rest.slice(0, slash);
+        const subpath = slash === -1 ? "" : rest.slice(slash + 1);
+        return await handleProxy(req, env, provider, subpath);
+      }
       return json({ error: "not found" }, 404);
     } catch (e) {
       return json({ error: String((e as Error)?.message || e) }, 500);
