@@ -58,6 +58,9 @@ npx wrangler secret put SIGNING_KEY_PKCS8_B64     # paste the private (PKCS8 b64
 # 4. Other secrets
 npx wrangler secret put STRIPE_SECRET_KEY         # your Stripe secret key
 npx wrangler secret put STRIPE_WEBHOOK_SECRET     # filled in step 6 (whsec_…)
+npx wrangler secret put RESEND_API_KEY            # optional — enables the fulfilment email
+#   optional: DATAGOLF_KEY (datagolf proxy), TAB_CLIENT_ID/TAB_CLIENT_SECRET (tab proxy),
+#   LICENCE_FROM_EMAIL (a verified Resend sender; defaults to onboarding@resend.dev)
 
 # 5. Deploy → note the workers.dev URL
 npx wrangler deploy
@@ -71,8 +74,16 @@ npx wrangler deploy
 Test with the Stripe CLI: `stripe trigger customer.subscription.created`, then
 `GET /entitlement` with the new licence key (find it in D1, see below).
 
-## Fulfilment (Phase 0, manual)
-Until Phase 5 automates the email, find a new customer's licence key:
+## Fulfilment
+
+**Automated (Phase 5).** With `RESEND_API_KEY` set, the first time a subscription goes
+live the webhook emails the customer their licence key and a ready-to-paste MCP config
+(see `src/email.ts` / `src/config-gen.ts`). It sends exactly once — guarded by
+`entitlements.emailed_at`, so `incomplete→active` still sends and later add-on updates
+don't re-email.
+
+**Manual fallback (Phase 0).** Without `RESEND_API_KEY` the email is inert; look a new
+customer's key up by hand and send it yourself:
 ```sh
 npx wrangler d1 execute sportsdata-entitlement --remote \
   --command "SELECT id, email, stripe_customer_id FROM customers ORDER BY created_at DESC LIMIT 10"
@@ -84,4 +95,3 @@ Send them that `id` (the `sd_live_…` licence key) + the MCP setup.
   granted groups (`sportsdata-mcp` v0.9.0). Bake the `gen-keypair.py` public key before
   shipping a licensed build.
 - **Phase 4** — feed assignment (`groups`) + in-app add-on purchase.
-- **Phase 5** — fulfilment automation (webhook → issue key → email the licence + config).

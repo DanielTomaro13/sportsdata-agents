@@ -4,6 +4,7 @@
 //   GET  /healthz
 // The DataGolf/TAB proxy is the next addition (Phase 1b) — see README.
 
+import { sendLicenceEmail } from "./email";
 import { handleProxy } from "./proxy";
 import { signLicence } from "./sign";
 import { subscriptionGrant, verifyStripeSignature } from "./stripe";
@@ -17,7 +18,12 @@ export interface Env {
   DATAGOLF_KEY?: string;
   TAB_CLIENT_ID?: string;
   TAB_CLIENT_SECRET?: string;
+  // Fulfilment email (Phase 5) — optional; inert without RESEND_API_KEY.
+  RESEND_API_KEY?: string;
+  LICENCE_FROM_EMAIL?: string;
 }
+
+const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
 const ENTITLEMENT_TTL = 7 * 24 * 3600; // signed licence TTL == the MCP's offline grace
 
@@ -53,6 +59,25 @@ async function syncSubscription(subId: string, env: Env): Promise<void> {
      ON CONFLICT(customer_id) DO UPDATE SET
        status=?2, sport_slots=?3, gambling_slots=?4, all_access=?5, current_period_end=?6, updated_at=?7`,
   ).bind(id, r.status, r.grant.sport_slots, r.grant.gambling_slots, r.grant.all_access ? 1 : 0, r.periodEnd, now).run();
+
+  // Fulfilment (Phase 5): on first activation, email the licence + setup exactly once.
+  // Guarded by entitlements.emailed_at so incomplete→active transitions still send, and
+  // later subscription.updated events (add-ons) don't re-email. Inert without Resend.
+  if (LIVE_STATUSES.has(r.status) && r.email && env.RESEND_API_KEY) {
+    const e = await env.DB.prepare("SELECT emailed_at FROM entitlements WHERE customer_id = ?")
+      .bind(id).first<{ emailed_at: number | null }>();
+    if (!e?.emailed_at) {
+      const sent = await sendLicenceEmail(env, r.email, id, {
+        allAccess: r.grant.all_access,
+        sportSlots: r.grant.sport_slots,
+        gamblingSlots: r.grant.gambling_slots,
+      });
+      if (sent) {
+        await env.DB.prepare("UPDATE entitlements SET emailed_at = ? WHERE customer_id = ?")
+          .bind(now, id).run();
+      }
+    }
+  }
 }
 
 async function handleWebhook(req: Request, env: Env): Promise<Response> {

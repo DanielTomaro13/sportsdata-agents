@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS entitlements (
   all_access       INTEGER NOT NULL DEFAULT 0,        -- 0/1
   groups           TEXT NOT NULL DEFAULT '[]',        -- JSON array: the assigned feed groups
   current_period_end INTEGER,                          -- unix seconds (entitlement expiry anchor)
+  emailed_at       INTEGER,                            -- when the fulfilment email was sent (idempotency)
   updated_at       INTEGER NOT NULL
 );
 
