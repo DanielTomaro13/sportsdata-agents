@@ -582,7 +582,7 @@
       <div class="ah">Stack onto your $15/mo — pick exactly the feeds you need.</div>
       <div class="arow"><div class="an">Extra sport data MCP<small>Each feed beyond your first 5 (AFL, NBA, ESPN, cricket, F1…)</small></div><div class="ap">+$5<span>/mo each</span></div></div>
       <div class="arow"><div class="an">Gambling / odds MCP<small>Live bookmaker &amp; exchange odds — Sportsbet, TAB, Betfair, Pinnacle… <b style="color:var(--warn,#fbbf24)">may be geo-restricted in your region</b></small></div><div class="ap">+$15<span>/mo each</span></div></div>
-      <div class="arow"><div class="an">All-access<small>All sport <b>and</b> gambling MCPs — the whole catalogue</small></div><div class="ap">$99<span>/mo</span></div></div>
+      <div class="arow"><div class="an">All-access<small>All sport <b>and</b> gambling MCPs — the whole catalogue</small></div><div class="ap">$99<span>/mo</span></div><a class="buy primary" id="buy-all" href="#" style="width:auto;margin:0 0 0 14px;padding:8px 15px;font-size:13px;white-space:nowrap">Get all-access →</a></div>
     </div>
 
     <div style="max-width:760px;margin:12px auto 0;font-size:12.5px;line-height:1.55;color:var(--warn,#fbbf24);border:1px solid rgba(251,191,36,.32);border-radius:10px;padding:11px 14px;background:rgba(251,191,36,.05)">
@@ -605,16 +605,20 @@
    stripe.json (deployed alongside this page). Until that file exists, the Base button
    stays honest ("being set up") rather than dead-linking. */
 (async () => {
-  const btn = document.getElementById("buy-base");
-  if (!btn) return;
-  try {
-    const links = await (await fetch("stripe.json", { cache: "no-store" })).json();
-    if (links && links.base) { btn.href = links.base; return; }
-  } catch { /* no stripe.json yet */ }
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    alert("Checkout is being set up — it'll be live here shortly. Thanks for the interest!");
-  });
+  let links = {};
+  try { links = (await (await fetch("stripe.json", { cache: "no-store" })).json()) || {}; }
+  catch { /* no stripe.json yet */ }
+  const wire = (id, url) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (url) { btn.href = url; }
+    else btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      alert("Checkout is being set up — it'll be live here shortly. Thanks for the interest!");
+    });
+  };
+  wire("buy-base", links.base);
+  wire("buy-all", links.all_access);
 })();
 
 // null = PLAYBACK MODE (GitHub Pages, no gateway): baked counters, recorded
