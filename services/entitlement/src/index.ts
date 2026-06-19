@@ -62,20 +62,23 @@ async function syncSubscription(subId: string, env: Env): Promise<void> {
   ).bind(id, r.status, r.grant.sport_slots, r.grant.gambling_slots, r.grant.all_access ? 1 : 0, r.periodEnd, now).run();
 
   // Fulfilment (Phase 5): on first activation, email the licence + setup exactly once.
-  // Guarded by entitlements.emailed_at so incomplete→active transitions still send, and
-  // later subscription.updated events (add-ons) don't re-email. Inert without Resend.
+  // We atomically *claim* the one-time slot with a conditional UPDATE (emailed_at NULL →
+  // now) and only send if this writer won — so two concurrent webhook events (e.g.
+  // incomplete→active plus an add-on update) can't both pass the check and double-send.
+  // Inert without Resend; the claim is released on send failure so a later event retries.
   if (LIVE_STATUSES.has(r.status) && r.email && env.RESEND_API_KEY) {
-    const e = await env.DB.prepare("SELECT emailed_at FROM entitlements WHERE customer_id = ?")
-      .bind(id).first<{ emailed_at: number | null }>();
-    if (!e?.emailed_at) {
+    const claim = await env.DB.prepare(
+      "UPDATE entitlements SET emailed_at = ? WHERE customer_id = ? AND emailed_at IS NULL",
+    ).bind(now, id).run();
+    if (claim.meta.changes === 1) {
       const sent = await sendLicenceEmail(env, r.email, id, {
         allAccess: r.grant.all_access,
         sportSlots: r.grant.sport_slots,
         gamblingSlots: r.grant.gambling_slots,
       });
-      if (sent) {
-        await env.DB.prepare("UPDATE entitlements SET emailed_at = ? WHERE customer_id = ?")
-          .bind(now, id).run();
+      if (!sent) {
+        await env.DB.prepare("UPDATE entitlements SET emailed_at = NULL WHERE customer_id = ?")
+          .bind(id).run();
       }
     }
   }
@@ -156,6 +159,12 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
 
   if (req.method === "GET") {
     return json({ providers: JSON.parse(row.groups || "[]"), ...budget });
+  }
+
+  // Writes require a live subscription — a lapsed/canceled licence can read its budget
+  // but not change its assignment.
+  if (!LIVE_STATUSES.has(row.status)) {
+    return json({ error: `licence is not active (status: ${row.status})` }, 403);
   }
 
   let body: unknown;
