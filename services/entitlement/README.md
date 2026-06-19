@@ -81,6 +81,14 @@ npx wrangler deploy
 #      URL    = https://<your-worker>.workers.dev/stripe/webhook
 #      events = customer.subscription.created / .updated / .deleted
 #    Copy the endpoint's signing secret (whsec_…) and re-run step 4 for it.
+
+# 7. Point the clients at THIS worker URL (the deployed URL is
+#    sportsdata-entitlement.<your-account>.workers.dev — NOT a bare workers.dev host):
+#    a) MCP: bake the gen-keypair PUBLIC line into sportsdata-mcp/src/sportsdata_mcp/
+#       licence.py (BAKED_PUBKEY_B64), and set SPORTSDATA_ENTITLEMENT_URL in the licensed
+#       build's env (or override BAKED via SPORTSDATA_ENTITLEMENT_PUBKEY).
+#    b) Site: create site/entitlement.json = {"url":"https://<your-worker-url>"} so
+#       feeds.html talks to your Worker (gitignored; deploy-site.sh ships it when present).
 ```
 
 Test with the Stripe CLI: `stripe trigger customer.subscription.created`, then
