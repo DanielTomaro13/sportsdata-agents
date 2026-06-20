@@ -23,6 +23,7 @@ export interface Env {
   RESEND_API_KEY?: string;
   LICENCE_FROM_EMAIL?: string;
   LICENCE_DOWNLOAD_URL?: string; // installer download link in the email (default: GH releases)
+  LICENCE_FEEDS_URL?: string; // Manage-feeds page link in the email (default: the site)
 }
 
 const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
