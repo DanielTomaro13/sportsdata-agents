@@ -88,7 +88,7 @@
     <h1 style="font-size:18px;margin:0 0 6px">Connect it to your AI tool</h1>
     <ol class="note" style="margin:0 0 8px;padding-left:20px">
       <li><b style="color:var(--ink)">Download the app</b> → <a id="dl" href="#" target="_blank" rel="noopener">get the latest sportsdata-mcp build</a>, and drag it into Applications. (No Python needed — the app bundles everything.)<br>
-        <span class="note">First launch on macOS: this early build isn't notarized yet, so <b>right-click the app → Open</b> (don't double-click), then click <b>Open</b> in the dialog. You only do this once.</span></li>
+        <span class="note">First launch on macOS: this early build isn't notarized yet. If macOS blocks it, open <b>System Settings → Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b> (on older macOS: right-click the app → <b>Open</b>). One time only.</span></li>
       <li><b style="color:var(--ink)">Set it up</b> — run this once in Terminal; it registers itself with your AI clients using your licence:</li>
     </ol>
     <pre id="setupcmd"></pre>
@@ -113,8 +113,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const BYOKEY = new Set(["twitter"]); // needs the customer's own provider key
 
-let ENT = "https://sportsdata-entitlement.workers.dev"; // overridable via entitlement.json
-let DOWNLOAD = "https://github.com/DanielTomaro13/sportsdata-mcp/releases/latest"; // installer download
+let ENT = "https://sportsdata-entitlement.sportsdata.workers.dev"; // overridable via entitlement.json
+let DOWNLOAD = ""; // last-resort fallback; the real link is the gated ENT/download (built below)
 // The bundled binary's path once the app is in /Applications — what `setup` writes and
 // the manual config block uses. (No Python / pip — the app ships everything.)
 const APP_BIN = "/Applications/sportsdata-mcp.app/Contents/MacOS/sportsdata-mcp";
@@ -206,7 +206,12 @@ function configBlock(){
   return JSON.stringify({ mcpServers:{ sportsdata:{ command:APP_BIN, args:["serve"], env:{ SPORTSDATA_LICENSE: licence } } } }, null, 2);
 }
 function showConfig(){
-  $("#dl").href = DOWNLOAD;
+  // Licence-gated download: the product repo is private, so the .app is served through
+  // the Worker's /download (it verifies the licence, then streams the release asset). The
+  // key is already shown on this page, so carrying it in the link adds no new exposure.
+  $("#dl").href = (ENT && licence)
+    ? ENT.replace(/\/$/,"") + "/download?key=" + encodeURIComponent(licence)
+    : DOWNLOAD;
   $("#setupcmd").textContent = setupCommand();
   $("#cfg").textContent = configBlock();
   $("#connect").classList.remove("hide");

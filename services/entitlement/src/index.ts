@@ -5,6 +5,7 @@
 // The DataGolf/TAB proxy is the next addition (Phase 1b) — see README.
 
 import { validateAssignment } from "./catalogue";
+import { handleDownload } from "./download";
 import { sendLicenceEmail } from "./email";
 import { handleProxy } from "./proxy";
 import { signLicence } from "./sign";
@@ -30,8 +31,13 @@ export interface Env {
   // Fulfilment email (Phase 5) — optional; inert without RESEND_API_KEY.
   RESEND_API_KEY?: string;
   LICENCE_FROM_EMAIL?: string;
-  LICENCE_DOWNLOAD_URL?: string; // installer download link in the email (default: GH releases)
+  LICENCE_DOWNLOAD_URL?: string; // literal download-link override in the email (default: gated /download)
   LICENCE_FEEDS_URL?: string; // Manage-feeds page link in the email (default: the site)
+  ENTITLEMENT_PUBLIC_URL?: string; // this Worker's own public base (for the email's /download link)
+  // Licence-gated download (Phase 6) — read-only token to fetch the .app from the PRIVATE
+  // release repo. Inert (503) without it, so the source/binary never leak from a misconfig.
+  GITHUB_DOWNLOAD_TOKEN?: string;
+  GITHUB_RELEASE_REPO?: string; // owner/repo override (default: the product repo)
 }
 
 const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
@@ -251,6 +257,8 @@ export default {
       if (url.pathname === "/assignment" && (req.method === "GET" || req.method === "POST")) {
         return await handleAssignment(req, env);
       }
+      // /download — licence-gated app binary (streamed from the private release repo)
+      if (url.pathname === "/download" && req.method === "GET") return await handleDownload(req, env);
       // /proxy/<provider>/<upstream-path...> — licence-authed credentialed-feed proxy
       if (url.pathname.startsWith("/proxy/")) {
         const rest = url.pathname.slice("/proxy/".length);
