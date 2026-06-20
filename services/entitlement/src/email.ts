@@ -56,7 +56,8 @@ function licenceEmailHtml(key: string, g: EmailGrant, downloadUrl: string, feeds
 
   <h3 style="margin:24px 0 6px">Set it up — ${choose ? "three" : "two"} steps</h3>
   ${chooseStep}
-  <p style="margin:0 0 10px"><b>${dl}.</b> <a href="${esc(downloadUrl)}" style="color:#2563eb">Download the sportsdata-mcp app</a> and drag it into Applications. No Python needed — it bundles everything.</p>
+  <p style="margin:0 0 10px"><b>${dl}.</b> <a href="${esc(downloadUrl)}" style="color:#2563eb">Download the sportsdata-mcp app</a> and drag it into Applications. No Python needed — it bundles everything.<br>
+  <span style="color:#888;font-size:13px">First launch on macOS: this early build isn't notarized yet, so <b>right-click the app → Open</b> (don't double-click), then click <b>Open</b> in the dialog. One time only.</span></p>
   <p style="margin:0 0 6px"><b>${su}.</b> Run this once in Terminal — it registers itself with your AI clients using your licence:</p>
   <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto">${setupCmd}</pre>
   <p style="color:#555;font-size:14px;margin:8px 0 0">Then restart your AI client and ask it to <i>"list available sportsdata groups"</i>. Changing feeds later just means re-saving on that page + a restart — your licence already carries the list, so no re-download.</p>

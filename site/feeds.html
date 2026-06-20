@@ -87,7 +87,8 @@
   <div class="panel hide" id="connect">
     <h1 style="font-size:18px;margin:0 0 6px">Connect it to your AI tool</h1>
     <ol class="note" style="margin:0 0 8px;padding-left:20px">
-      <li><b style="color:var(--ink)">Download the app</b> → <a id="dl" href="#" target="_blank" rel="noopener">get the latest sportsdata-mcp build</a>, and drag it into Applications. (No Python needed — the app bundles everything.)</li>
+      <li><b style="color:var(--ink)">Download the app</b> → <a id="dl" href="#" target="_blank" rel="noopener">get the latest sportsdata-mcp build</a>, and drag it into Applications. (No Python needed — the app bundles everything.)<br>
+        <span class="note">First launch on macOS: this early build isn't notarized yet, so <b>right-click the app → Open</b> (don't double-click), then click <b>Open</b> in the dialog. You only do this once.</span></li>
       <li><b style="color:var(--ink)">Set it up</b> — run this once in Terminal; it registers itself with your AI clients using your licence:</li>
     </ol>
     <pre id="setupcmd"></pre>
@@ -151,7 +152,9 @@ function feedEl(p){
   const dis = !on && !canSelect(p);
   const badges = (p.kind==="gambling"?'<span class="geo" title="may be geo-restricted">⚠</span>':'')
     + (BYOKEY.has(p.id)?'<span class="byo" title="needs your own provider key">🔑</span>':'');
-  return `<div class="feed ${on?'on':''} ${dis?'disabled':''}" data-id="${esc(p.id)}">
+  return `<div class="feed ${on?'on':''} ${dis?'disabled':''}" data-id="${esc(p.id)}"
+    role="button" tabindex="0" aria-pressed="${on?'true':'false'}"${dis?' aria-disabled="true"':''}
+    aria-label="${esc(p.name)}, ${p.count} tools${on?' — selected':''}${dis?' — unavailable, slots full':''}">
     <span class="box">${on?'✓':''}</span><span class="nm">${esc(p.name)}</span>
     <span class="tag">${badges}${p.count}</span></div>`;
 }
@@ -161,11 +164,20 @@ function renderGroups(){
   $("#groups").innerHTML =
     `<div class="glabel">Sport &amp; stats</div><div class="grid">${sport.map(feedEl).join("")}</div>`+
     `<div class="glabel">Gambling &amp; odds</div><div class="grid">${gamb.map(feedEl).join("")}</div>`;
-  $("#groups").querySelectorAll(".feed").forEach(el => el.onclick = () => {
-    const p = CAT.find(x=>x.id===el.dataset.id);
+  const toggle = el => {
+    const id = el.dataset.id;
+    const p = CAT.find(x=>x.id===id);
     if (selected.has(p.id)) selected.delete(p.id);
     else { if (!canSelect(p)) return; selected.add(p.id); }
     renderGroups(); renderBudget();
+    const again = $(`#groups .feed[data-id="${id}"]`); // keep keyboard focus on the tile
+    if (again) again.focus();
+  };
+  $("#groups").querySelectorAll(".feed").forEach(el => {
+    el.onclick = () => toggle(el);
+    el.onkeydown = e => {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") { e.preventDefault(); toggle(el); }
+    };
   });
 }
 
