@@ -101,10 +101,12 @@ export async function sendLicenceEmail(
         ),
       }),
     });
+    if (!r.ok) console.error(`resend rejected fulfilment email to ${to}: ${r.status}`);
     return r.ok;
-  } catch {
+  } catch (e) {
     // A network throw (DNS / timeout) must not propagate — the caller releases the
     // one-time email claim on a false return so a later webhook event retries.
+    console.error(`resend send threw for ${to}:`, e);
     return false;
   }
 }

@@ -98,6 +98,7 @@ export async function handleProxy(
   env: Env,
   provider: string,
   subpath: string,
+  ctx: ExecutionContext,
 ): Promise<Response> {
   if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
 
@@ -119,6 +120,20 @@ export async function handleProxy(
     return json({ error: `licence does not grant ${provider}` }, 403);
   }
 
+  // DataGolf suspends our SHARED key for 5 min past 45 req/min, so cap the GLOBAL rate
+  // well under that, and give each licence a fair slice so one customer can't starve the
+  // rest. (Bindings are optional so an older deploy degrades gracefully.)
+  if (cfg.attach === "datagolf_key") {
+    const g = await env.DATAGOLF_GLOBAL_RL?.limit({ key: "datagolf" });
+    if (g && !g.success) {
+      return json({ error: "datagolf is busy (global rate limit) — retry shortly" }, 429);
+    }
+    const k = await env.DATAGOLF_KEY_RL?.limit({ key });
+    if (k && !k.success) {
+      return json({ error: "you're calling datagolf too fast — retry shortly" }, 429);
+    }
+  }
+
   // Build the upstream URL. The host is pinned to the provider's base — `subpath` only
   // ever extends the path (leading slashes stripped, host re-asserted to block SSRF).
   const clean = subpath.replace(/^\/+/, "");
@@ -138,11 +153,24 @@ export async function handleProxy(
     headers["authorization"] = `Bearer ${tok}`;
   }
 
+  // Short edge cache — DataGolf data changes slowly. This collapses repeated/looping
+  // calls (a big rate-limit + cost saver) and is keyed on the UPSTREAM url (shared across
+  // customers; the licence key is never in it, only our DataGolf key which is the same).
+  const cache = caches.default;
+  const cacheKey = new Request(target.toString(), { method: "GET" });
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+
   const upstream = await fetch(target.toString(), { method: "GET", headers });
-  const buf = await upstream.arrayBuffer();
-  // Pass through status + content-type only; never forward Set-Cookie (Akamai bm_*).
-  return new Response(buf, {
+  // Stream the body straight through (no arrayBuffer → no memory amplification); pass
+  // status + content-type only, never Set-Cookie (Akamai bm_*).
+  const out = new Response(upstream.body, {
     status: upstream.status,
-    headers: { "content-type": upstream.headers.get("content-type") || "application/json" },
+    headers: {
+      "content-type": upstream.headers.get("content-type") || "application/json",
+      "cache-control": "public, max-age=30",
+    },
   });
+  if (upstream.ok) ctx.waitUntil(cache.put(cacheKey, out.clone()));
+  return out;
 }

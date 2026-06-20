@@ -12,8 +12,14 @@
       "binding": "DB",
       "database_name": "sportsdata-entitlement",
       // filled by `wrangler d1 create` (see README) — paste the id here:
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "e2b00865-bb2a-4f2d-b5c7-110a22688fd4"
     }
+  ],
+  // DataGolf proxy rate limits — our shared key is suspended for 5 min past 45 req/min,
+  // so cap the GLOBAL rate at 40/60s and give each licence a fair 15/60s slice.
+  "ratelimits": [
+    { "name": "DATAGOLF_GLOBAL_RL", "namespace_id": "1001", "simple": { "limit": 40, "period": 60 } },
+    { "name": "DATAGOLF_KEY_RL", "namespace_id": "1002", "simple": { "limit": 15, "period": 60 } }
   ]
   // Secrets (set with `wrangler secret put …`, never in this file):
   //   STRIPE_SECRET_KEY            — your Stripe secret (server-side API calls)
