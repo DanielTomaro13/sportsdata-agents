@@ -7,8 +7,16 @@
 // writes, and the `command` in the manual fallback block.
 export const APP_BIN = "/Applications/sportsdata-mcp.app/Contents/MacOS/sportsdata-mcp";
 
-// Default installer download (a GitHub release). Override with env.LICENCE_DOWNLOAD_URL.
-export const DEFAULT_DOWNLOAD_URL = "https://github.com/DanielTomaro13/sportsdata-mcp/releases/latest";
+// The entitlement Worker's own public base — used to build the licence-gated download
+// link in the fulfilment email. Override with env.ENTITLEMENT_PUBLIC_URL.
+export const DEFAULT_ENTITLEMENT_URL = "https://sportsdata-entitlement.sportsdata.workers.dev";
+
+// The licence-gated download link. The product repo is private, so the binary is served
+// through the Worker's /download (it checks the licence, then streams the release asset).
+// The key is already in the email body, so carrying it in the query adds no exposure.
+export function downloadUrl(base: string, key: string): string {
+  return `${base.replace(/\/$/, "")}/download?key=${encodeURIComponent(key)}`;
+}
 
 // The Manage-feeds page where a customer assigns which feeds fill their slots.
 // Override with env.LICENCE_FEEDS_URL.
