@@ -10,6 +10,10 @@ export const APP_BIN = "/Applications/sportsdata-mcp.app/Contents/MacOS/sportsda
 // Default installer download (a GitHub release). Override with env.LICENCE_DOWNLOAD_URL.
 export const DEFAULT_DOWNLOAD_URL = "https://github.com/DanielTomaro13/sportsdata-mcp/releases/latest";
 
+// The Manage-feeds page where a customer assigns which feeds fill their slots.
+// Override with env.LICENCE_FEEDS_URL.
+export const DEFAULT_FEEDS_URL = "https://danieltomaro13.github.io/sportsdata-site/feeds.html";
+
 // The one-time setup command (self-registers into Claude Desktop / Cursor).
 export function setupCommand(key: string): string {
   return `"${APP_BIN}" setup --license ${key}`;
