@@ -8,7 +8,12 @@ import { validateAssignment } from "./catalogue";
 import { sendLicenceEmail } from "./email";
 import { handleProxy } from "./proxy";
 import { signLicence } from "./sign";
-import { subscriptionGrant, verifyStripeSignature } from "./stripe";
+import { chargeCustomerId, subscriptionGrant, verifyStripeSignature } from "./stripe";
+
+// Cloudflare Workers Rate Limiting binding (configured in wrangler.jsonc).
+export interface RateLimit {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
 
 export interface Env {
   DB: D1Database;
@@ -19,6 +24,9 @@ export interface Env {
   DATAGOLF_KEY?: string;
   TAB_CLIENT_ID?: string;
   TAB_CLIENT_SECRET?: string;
+  // DataGolf proxy rate limiters (protect our shared key's 45 req/min upstream cap).
+  DATAGOLF_GLOBAL_RL?: RateLimit;
+  DATAGOLF_KEY_RL?: RateLimit;
   // Fulfilment email (Phase 5) — optional; inert without RESEND_API_KEY.
   RESEND_API_KEY?: string;
   LICENCE_FROM_EMAIL?: string;
@@ -93,11 +101,25 @@ async function syncSubscription(subId: string, env: Env): Promise<void> {
         gamblingSlots: r.grant.gambling_slots,
       });
       if (!sent) {
+        console.error(`fulfilment email failed for ${id} (${r.email}) — claim released, will retry`);
         await env.DB.prepare("UPDATE entitlements SET emailed_at = NULL WHERE customer_id = ?")
           .bind(id).run();
       }
     }
   }
+}
+
+// A charge dispute → set the entitlement to a non-live status so the gate + proxy stop
+// serving. Reversible: if the dispute is won, a later subscription.updated re-syncs status.
+async function freezeOnDispute(chargeId: string, env: Env): Promise<void> {
+  const stripeCustomerId = await chargeCustomerId(chargeId, env.STRIPE_SECRET_KEY);
+  if (!stripeCustomerId) return;
+  const cust = await env.DB.prepare("SELECT id FROM customers WHERE stripe_customer_id = ?")
+    .bind(stripeCustomerId).first<{ id: string }>();
+  if (!cust) return;
+  await env.DB.prepare("UPDATE entitlements SET status = 'disputed', updated_at = ? WHERE customer_id = ?")
+    .bind(Math.floor(Date.now() / 1000), cust.id).run();
+  console.error(`froze entitlement ${cust.id} — charge dispute on ${chargeId}`);
 }
 
 async function handleWebhook(req: Request, env: Env): Promise<Response> {
@@ -119,6 +141,10 @@ async function handleWebhook(req: Request, env: Env): Promise<Response> {
   if (String(event.type).startsWith("customer.subscription.")) {
     const subId = event.data?.object?.id;
     if (subId) await syncSubscription(subId, env);
+  } else if (event.type === "charge.dispute.created") {
+    // A dispute = they're clawing the money back → freeze access immediately.
+    const chargeId = event.data?.object?.charge;
+    if (chargeId) await freezeOnDispute(String(chargeId), env);
   }
   await env.DB.prepare("INSERT INTO stripe_events (id, type, received_at) VALUES (?, ?, ?)")
     .bind(event.id, event.type, Math.floor(Date.now() / 1000)).run();
@@ -214,7 +240,7 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     // CORS preflight (browser sends OPTIONS before a cross-origin /assignment call).
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
@@ -231,10 +257,12 @@ export default {
         const slash = rest.indexOf("/");
         const provider = slash === -1 ? rest : rest.slice(0, slash);
         const subpath = slash === -1 ? "" : rest.slice(slash + 1);
-        return await handleProxy(req, env, provider, subpath);
+        return await handleProxy(req, env, provider, subpath, ctx);
       }
       return json({ error: "not found" }, 404);
     } catch (e) {
+      // Log on the money/serving path so an outage is visible (observability is on).
+      console.error(`worker error on ${req.method} ${url.pathname}:`, e);
       return json({ error: String((e as Error)?.message || e) }, 500);
     }
   },

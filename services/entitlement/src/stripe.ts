@@ -57,16 +57,27 @@ export async function subscriptionGrant(subId: string, key: string): Promise<Sub
     `/subscriptions/${encodeURIComponent(subId)}?expand[]=items.data.price.product&expand[]=customer`,
     key,
   );
-  const items = (sub.items?.data || []).map((it: any) => ({
+  const itemData = sub.items?.data || [];
+  const items = itemData.map((it: any) => ({
     sku: String(it.price?.product?.metadata?.sportsdata_sku || ""),
     quantity: Number(it.quantity || 1),
   }));
   const customer = sub.customer;
+  // Newer Stripe API versions moved current_period_end onto the line item; fall back to
+  // the top-level field for older versions so the MCP's period-end binding stays armed.
+  const periodEnd = Number(sub.current_period_end || itemData[0]?.current_period_end || 0);
   return {
     grant: grantFromItems(items),
     status: String(sub.status || "inactive"),
-    periodEnd: Number(sub.current_period_end || 0),
+    periodEnd,
     customerId: typeof customer === "string" ? customer : String(customer?.id || ""),
     email: typeof customer === "object" ? (customer?.email ?? null) : null,
   };
+}
+
+// The Stripe customer id behind a disputed charge (to freeze their entitlement).
+export async function chargeCustomerId(chargeId: string, key: string): Promise<string | null> {
+  const c = await stripeGet(`/charges/${encodeURIComponent(chargeId)}`, key);
+  const cust = c.customer;
+  return typeof cust === "string" ? cust : (cust?.id ?? null);
 }
