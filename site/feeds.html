@@ -86,11 +86,19 @@
   <!-- Step 3: connect -->
   <div class="panel hide" id="connect">
     <h1 style="font-size:18px;margin:0 0 6px">Connect it to your AI tool</h1>
-    <p class="note" style="margin:0 0 8px">Install the MCP (<code>pip install sportsdata-mcp</code>),
-      add this to your client's MCP config, and restart it:</p>
-    <pre id="cfg"></pre>
-    <div class="row"><button class="btn ghost" id="copy">Copy config</button>
-      <span class="note">Claude Desktop · <code>claude_desktop_config.json</code> &nbsp;|&nbsp; Cursor · <code>~/.cursor/mcp.json</code></span></div>
+    <ol class="note" style="margin:0 0 8px;padding-left:20px">
+      <li><b style="color:var(--ink)">Download the app</b> → <a id="dl" href="#" target="_blank" rel="noopener">get the latest sportsdata-mcp build</a>, and drag it into Applications. (No Python needed — the app bundles everything.)</li>
+      <li><b style="color:var(--ink)">Set it up</b> — run this once in Terminal; it registers itself with your AI clients using your licence:</li>
+    </ol>
+    <pre id="setupcmd"></pre>
+    <div class="row"><button class="btn ghost" id="copysetup">Copy command</button>
+      <span class="note">then <b>restart your AI client</b> and ask it to “list available sportsdata groups”.</span></div>
+    <details style="margin-top:14px">
+      <summary class="note" style="cursor:pointer">Prefer to paste the config yourself? Show the manual block</summary>
+      <pre id="cfg" style="margin-top:10px"></pre>
+      <div class="row"><button class="btn ghost" id="copy">Copy config</button>
+        <span class="note">Claude Desktop · <code>claude_desktop_config.json</code> &nbsp;|&nbsp; Cursor · <code>~/.cursor/mcp.json</code></span></div>
+    </details>
   </div>
 
   <footer>
@@ -105,13 +113,17 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":
 const BYOKEY = new Set(["twitter"]); // needs the customer's own provider key
 
 let ENT = "https://sportsdata-entitlement.workers.dev"; // overridable via entitlement.json
+let DOWNLOAD = "https://github.com/DanielTomaro13/sportsdata-mcp/releases/latest"; // installer download
+// The bundled binary's path once the app is in /Applications — what `setup` writes and
+// the manual config block uses. (No Python / pip — the app ships everything.)
+const APP_BIN = "/Applications/sportsdata-mcp.app/Contents/MacOS/sportsdata-mcp";
 let CAT = null;          // catalogue providers
 let budget = null;       // {sport_slots, gambling_slots, all_access}
 let selected = new Set();
 let licence = "";
 
 async function boot(){
-  try { const j = await (await fetch("entitlement.json",{cache:"no-store"})).json(); if (j && j.url) ENT = j.url; } catch {}
+  try { const j = await (await fetch("entitlement.json",{cache:"no-store"})).json(); if (j){ if (j.url) ENT = j.url; if (j.download) DOWNLOAD = j.download; } } catch {}
   try { const c = await (await fetch("catalogue.json",{cache:"no-store"})).json(); CAT = c.providers; } catch { CAT = []; }
 }
 boot();
@@ -161,7 +173,8 @@ async function load(){
   licence = $("#key").value.trim();
   const m = $("#loadMsg"); m.className = "msg"; m.textContent = "Loading…";
   if (!/^sd_live_[a-f0-9]{8,}$/.test(licence)){ m.className="msg err"; m.textContent="That doesn't look like a licence key (sd_live_…)."; return; }
-  if (!CAT) await boot();
+  if (!CAT || !CAT.length) await boot();
+  if (!CAT || !CAT.length){ m.className="msg err"; m.textContent="Couldn't load the feed catalogue — refresh the page and try again."; return; }
   try {
     const r = await fetch(ENT.replace(/\/$/,"")+"/assignment", { headers:{ Authorization:"Bearer "+licence } });
     if (r.status === 404){ m.className="msg err"; m.textContent="We don't recognise that licence key."; return; }
@@ -176,10 +189,16 @@ async function load(){
   } catch(e){ m.className="msg err"; m.textContent="Network error reaching the entitlement service."; }
 }
 
+function setupCommand(){ return `"${APP_BIN}" setup --license ${licence}`; }
 function configBlock(){
-  return JSON.stringify({ mcpServers:{ sportsdata:{ command:"sportsdata-mcp", args:["serve"], env:{ SPORTSDATA_LICENSE: licence } } } }, null, 2);
+  return JSON.stringify({ mcpServers:{ sportsdata:{ command:APP_BIN, args:["serve"], env:{ SPORTSDATA_LICENSE: licence } } } }, null, 2);
 }
-function showConfig(){ $("#cfg").textContent = configBlock(); $("#connect").classList.remove("hide"); }
+function showConfig(){
+  $("#dl").href = DOWNLOAD;
+  $("#setupcmd").textContent = setupCommand();
+  $("#cfg").textContent = configBlock();
+  $("#connect").classList.remove("hide");
+}
 
 async function save(){
   const m = $("#saveMsg"); m.className="msg"; m.textContent="Saving…";
@@ -198,6 +217,7 @@ $("#load").onclick = load;
 $("#key").addEventListener("keydown", e => { if (e.key==="Enter") load(); });
 $("#save").onclick = save;
 $("#copy").onclick = async () => { try{ await navigator.clipboard.writeText(configBlock()); $("#copy").textContent="Copied ✓"; setTimeout(()=>$("#copy").textContent="Copy config",1500);}catch{} };
+$("#copysetup").onclick = async () => { try{ await navigator.clipboard.writeText(setupCommand()); $("#copysetup").textContent="Copied ✓"; setTimeout(()=>$("#copysetup").textContent="Copy command",1500);}catch{} };
 </script>
 </body>
 </html>

@@ -22,11 +22,13 @@ export interface Env {
   // Fulfilment email (Phase 5) — optional; inert without RESEND_API_KEY.
   RESEND_API_KEY?: string;
   LICENCE_FROM_EMAIL?: string;
+  LICENCE_DOWNLOAD_URL?: string; // installer download link in the email (default: GH releases)
 }
 
 const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
 const ENTITLEMENT_TTL = 7 * 24 * 3600; // signed licence TTL == the MCP's offline grace
+const PERIOD_GRACE = 24 * 3600; // tolerance past current_period_end for clock skew / renewal lag
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -95,13 +97,17 @@ async function handleWebhook(req: Request, env: Env): Promise<Response> {
   // idempotency — ignore a redelivered event
   const seen = await env.DB.prepare("SELECT id FROM stripe_events WHERE id = ?").bind(event.id).first();
   if (seen) return json({ ok: true, duplicate: true });
-  await env.DB.prepare("INSERT INTO stripe_events (id, type, received_at) VALUES (?, ?, ?)")
-    .bind(event.id, event.type, Math.floor(Date.now() / 1000)).run();
 
+  // Process FIRST, then record as seen — so a thrown error (Stripe API / D1 / Resend)
+  // returns 500, Stripe redelivers, and the redelivery is NOT swallowed as a duplicate.
+  // syncSubscription is idempotent (upserts + an atomic email claim), so the rare
+  // concurrent-redelivery double-run is harmless.
   if (String(event.type).startsWith("customer.subscription.")) {
     const subId = event.data?.object?.id;
     if (subId) await syncSubscription(subId, env);
   }
+  await env.DB.prepare("INSERT INTO stripe_events (id, type, received_at) VALUES (?, ?, ?)")
+    .bind(event.id, event.type, Math.floor(Date.now() / 1000)).run();
   return json({ ok: true });
 }
 
@@ -120,6 +126,12 @@ async function handleEntitlement(req: Request, env: Env): Promise<Response> {
   if (!row) return json({ error: "unknown licence" }, 404);
 
   const now = Math.floor(Date.now() / 1000);
+  // Bound the offline-honoured window to the paid period (+ a small grace for clock skew
+  // / renewal lag), so a cached token can't outlive the subscription. For an auto-renewing
+  // sub the period end is far out, so the 7-day TTL governs. The token still carries the
+  // real `status`, so the MCP revokes on a non-live status at its next ~15-min re-check.
+  const periodEnd = Number(row.current_period_end || 0);
+  const expires = periodEnd ? Math.min(now + ENTITLEMENT_TTL, periodEnd + PERIOD_GRACE) : now + ENTITLEMENT_TTL;
   const claims = {
     v: 1,
     key,
@@ -128,8 +140,9 @@ async function handleEntitlement(req: Request, env: Env): Promise<Response> {
     gambling_slots: row.gambling_slots,
     all_access: row.all_access === 1,
     groups: JSON.parse(row.groups || "[]"),
+    current_period_end: periodEnd,
     issued_at: now,
-    expires: now + ENTITLEMENT_TTL,
+    expires,
   };
   const token = await signLicence(claims, env.SIGNING_KEY_PKCS8_B64);
   return json({ licence: token, claims });

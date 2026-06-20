@@ -2,7 +2,7 @@
 // and a ready-to-paste MCP config via Resend. Inert without RESEND_API_KEY (so Phase-0
 // manual fulfilment keeps working until you wire the key).
 
-import { CONFIG_TARGETS, mcpConfigBlock } from "./config-gen";
+import { CONFIG_TARGETS, DEFAULT_DOWNLOAD_URL, mcpConfigBlock, setupCommand } from "./config-gen";
 import type { Env } from "./index";
 
 export interface EmailGrant {
@@ -27,8 +27,9 @@ function planLine(g: EmailGrant): string {
   return parts.length ? parts.join(" + ") : "your selected feeds";
 }
 
-function licenceEmailHtml(key: string, g: EmailGrant): string {
+function licenceEmailHtml(key: string, g: EmailGrant, downloadUrl: string): string {
   const block = esc(mcpConfigBlock(key));
+  const setupCmd = esc(setupCommand(key));
   const targets = CONFIG_TARGETS.map(
     (t) => `<li><b>${esc(t.tool)}</b> — <code>${esc(t.path)}</code></li>`,
   ).join("");
@@ -39,13 +40,18 @@ function licenceEmailHtml(key: string, g: EmailGrant): string {
   <p>Your licence key:</p>
   <p style="font:14px ui-monospace,Menlo,monospace;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:8px;padding:12px 14px;word-break:break-all">${esc(key)}</p>
 
-  <h3 style="margin:24px 0 6px">Connect it to your AI tool</h3>
-  <p style="margin:0 0 8px">Make sure the MCP is installed (<code>pip install sportsdata-mcp</code>), then add this to your client's MCP config and restart it:</p>
-  <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto">${block}</pre>
-  <p style="margin:8px 0 4px">Where the config lives:</p>
-  <ul style="margin:0 0 8px;padding-left:20px">${targets}</ul>
+  <h3 style="margin:24px 0 6px">Set it up — two steps</h3>
+  <p style="margin:0 0 10px"><b>1.</b> <a href="${esc(downloadUrl)}" style="color:#2563eb">Download the sportsdata-mcp app</a> and drag it into Applications. No Python needed — it bundles everything.</p>
+  <p style="margin:0 0 6px"><b>2.</b> Run this once in Terminal — it registers itself with your AI clients using your licence:</p>
+  <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto">${setupCmd}</pre>
+  <p style="color:#555;font-size:14px;margin:8px 0 0">Then restart your AI client and ask it to <i>"list available sportsdata groups"</i>. Adding a feed later never changes anything — your licence already carries it, so you just restart.</p>
 
-  <p style="color:#555;font-size:14px">Ask your AI tool to <i>"list available sportsdata groups"</i> to confirm it's connected. Adding a feed later never changes this block — your licence key already carries it, so you just restart.</p>
+  <details style="margin:18px 0 0">
+    <summary style="color:#555;font-size:13px;cursor:pointer">Prefer to paste the config yourself?</summary>
+    <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto;margin-top:10px">${block}</pre>
+    <p style="margin:6px 0 0;font-size:13px;color:#555">Where it lives:</p>
+    <ul style="margin:4px 0 0;padding-left:20px;font-size:13px;color:#555">${targets}</ul>
+  </details>
 
   <hr style="border:none;border-top:1px solid #e4e4e7;margin:24px 0">
   <p style="color:#888;font-size:12px">sportsdata · keep this key private — it grants your feeds. Gambling feeds may be geo-restricted where you are. Questions? Just reply.</p>
@@ -61,18 +67,24 @@ export async function sendLicenceEmail(
 ): Promise<boolean> {
   if (!env.RESEND_API_KEY || !to) return false;
   const from = env.LICENCE_FROM_EMAIL || "sportsdata <onboarding@resend.dev>";
-  const r = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to,
-      subject: "Your sportsdata licence + setup",
-      html: licenceEmailHtml(key, g),
-    }),
-  });
-  return r.ok;
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to,
+        subject: "Your sportsdata licence + setup",
+        html: licenceEmailHtml(key, g, env.LICENCE_DOWNLOAD_URL || DEFAULT_DOWNLOAD_URL),
+      }),
+    });
+    return r.ok;
+  } catch {
+    // A network throw (DNS / timeout) must not propagate — the caller releases the
+    // one-time email claim on a false return so a later webhook event retries.
+    return false;
+  }
 }
