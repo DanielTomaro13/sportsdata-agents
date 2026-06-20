@@ -30,8 +30,21 @@ const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 const ENTITLEMENT_TTL = 7 * 24 * 3600; // signed licence TTL == the MCP's offline grace
 const PERIOD_GRACE = 24 * 3600; // tolerance past current_period_end for clock skew / renewal lag
 
+// CORS: feeds.html (on GitHub Pages) calls /assignment cross-origin with an Authorization
+// header, which triggers a preflight. The key gates access, so a permissive origin is fine
+// (there are no cookies). Applied to every response + an OPTIONS preflight handler below.
+const CORS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "authorization, content-type",
+  "access-control-max-age": "86400",
+};
+
 const json = (data: unknown, status = 200): Response =>
-  new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json", ...CORS },
+  });
 
 function newLicenceKey(): string {
   const b = crypto.getRandomValues(new Uint8Array(20));
@@ -202,6 +215,8 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    // CORS preflight (browser sends OPTIONS before a cross-origin /assignment call).
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     try {
       if (url.pathname === "/healthz") return json({ ok: true });
       if (url.pathname === "/stripe/webhook" && req.method === "POST") return await handleWebhook(req, env);
