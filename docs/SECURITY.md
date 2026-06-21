@@ -170,6 +170,30 @@ The local daemon (`gateway/app.py`) is defended even though it binds locally:
   the provider, update the env / data-dir file / keychain, and never reuse the old
   value.
 
+### Rotating a signing key (no flag-day)
+
+Both Ed25519 signing keys — the **operator/licence** key (`licensing/license.py`,
+baked as `SPORTSDATA_LICENSE_PUBKEY`) and the **feed-entitlement** key (Worker
+`sign.ts` → MCP `licence.py`, baked as `BAKED_PUBKEY_B64`) — support **keyed
+rotation** via a `kid` (key id) claim, so the verifier can trust the old and new key
+at once instead of every install flipping in lockstep:
+
+1. **Ship trust for the next key first.** Add the new public key under its `kid` to
+   the verifier's rotation map — `EXTRA_LICENSE_PUBKEYS` (operator) or
+   `EXTRA_BAKED_PUBKEYS` (feed-entitlement) — and release. Now installs trust both
+   `k1` and `k2`; nothing is signed with `k2` yet, so nothing changes.
+2. **Switch the issuer once that build is out.** Sign with the new **private** key
+   and stamp the new kid — `issue_license(..., kid="k2")` for licences, or set the
+   Worker's `SIGNING_KID="k2"` (alongside the new `SIGNING_KEY_PKCS8_B64`) for
+   entitlements. New tokens carry `kid: "k2"` and verify against the key shipped in
+   step 1; older `k1`/kid-less tokens keep verifying.
+3. **Retire the old key** by dropping its map entry once every token it signed has
+   expired (≤ the licence/entitlement TTL).
+
+A kid-less (legacy) or unknown-kid token is never rejected on that basis alone — the
+verifier falls back to trying every trusted key — so old tokens in the wild during a
+rotation keep working.
+
 ---
 
 ## Guarantees at a glance
