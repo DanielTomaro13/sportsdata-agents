@@ -837,6 +837,16 @@ def ops_run(
         raise typer.BadParameter(f"unknown agent {agent!r}")
     if spec.plane != "ops":
         raise typer.BadParameter(f"{agent!r} is a product-plane agent — use `agents run --agent {agent}`")
+    # The ops plane is operator-only — this is THE path that injects GitHub/git creds and
+    # remediation tools. The crypto gate was enforced in the scheduler + HTTP panel but NOT
+    # here, so a release install could reach ops tools from the CLI. Gate it.
+    from sportsdata_agents.operations.scheduler import is_operator
+
+    if not is_operator():
+        raise typer.BadParameter(
+            "ops agents run only on the operator's deployment. "
+            "This install can run product-plane agents with `agents run`."
+        )
 
     async def _run() -> None:
         from rich.console import Console
@@ -894,6 +904,11 @@ def ops_health() -> None:
 
     from rich.console import Console
 
+    from sportsdata_agents.operations.scheduler import is_operator
+
+    if not is_operator():
+        raise typer.BadParameter("ops commands run only on the operator's deployment.")
+
     console = Console()
 
     async def _run() -> None:
@@ -924,6 +939,11 @@ def ops_budget_watch() -> None:
     load_dotenv()
 
     from rich.console import Console
+
+    from sportsdata_agents.operations.scheduler import is_operator
+
+    if not is_operator():
+        raise typer.BadParameter("ops commands run only on the operator's deployment.")
 
     console = Console()
 

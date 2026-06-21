@@ -80,6 +80,14 @@ def applied_version() -> str | None:
     return marker.read_text(encoding="utf-8").strip() if marker.is_file() else None
 
 
+def _version_key(v: str) -> tuple:
+    """Natural-sort key so dates ('2026-06-15') and semver ('1.10.0' > '1.9.0') both order
+    correctly. Splits into digit / non-digit runs; digits compare numerically."""
+    import re
+
+    return tuple(int(t) if t.isdigit() else t for t in re.findall(r"\d+|\D+", v or ""))
+
+
 # ── bundle build / sign / verify (Ed25519, reusing the licence b64 helpers) ──
 
 
@@ -129,6 +137,20 @@ def apply_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     Unknown files are skipped (forward-compatible). Returns what was applied."""
     if bundle.get("schema") != SCHEMA:
         raise DataFeedError(f"unsupported bundle schema {bundle.get('schema')!r} (expected {SCHEMA})")
+    # Anti-rollback: the signature proves integrity but NOT freshness, so an attacker or a
+    # stale mirror could replay an old, validly-signed bundle to revert market mappings.
+    # Refuse anything OLDER than what's applied (equal version = idempotent re-apply, fine).
+    new_v = str(bundle.get("version", "")).strip()
+    cur_v = applied_version()
+    if new_v and cur_v:
+        try:
+            older = _version_key(new_v) < _version_key(cur_v)
+        except TypeError:  # mixed version formats — fall back to a plain string compare
+            older = new_v < cur_v
+        if older:
+            raise DataFeedError(
+                f"bundle version {new_v!r} is older than the applied {cur_v!r} — refusing rollback"
+            )
     overlay = _overlay_dir()
     overlay.mkdir(parents=True, exist_ok=True)
     applied: list[str] = []
@@ -164,9 +186,12 @@ def fetch_and_apply(url: str, *, public_key_b64: str | None = None) -> dict[str,
 
     pub = public_key_b64 if public_key_b64 is not None else os.environ.get(DATA_PUBKEY_ENV, "")
     if url.startswith("http://"):
-        # the signature protects integrity either way, but a plaintext feed lets a
-        # network observer see WHAT data the install pulls — prefer https
-        logger.warning("data feed over plain http (%s) — use https", url.split("?")[0])
+        # A product build (baked key) must never pull the feed over plaintext: the signature
+        # protects integrity, but http leaks WHAT data the install fetches and eases a
+        # downgrade/MITM. Hard-reject in product; warn only on dev/source (no baked key).
+        if pub:
+            raise DataFeedError("refusing to fetch the data feed over plain http — use https")
+        logger.warning("data feed over plain http (%s) — use https (dev only)", url.split("?")[0])
     with urllib.request.urlopen(url, timeout=30) as resp:
         doc = json.loads(resp.read().decode("utf-8"))
     bundle, signature = doc.get("bundle"), doc.get("signature", "")

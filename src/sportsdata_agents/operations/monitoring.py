@@ -294,11 +294,18 @@ async def _watch_value(
         if latest is None or not _match(latest, sub.params):
             continue
         edge = (float(pred.prob) * float(latest.odds) - 1.0) * 100.0
-        key = f"value:{pred.event_external_id}:{pred.market}:{pred.selection}"
+        # Band the dedupe key by edge magnitude (like the arb watch) so a materially BIGGER
+        # edge re-fires instead of being swallowed by the stable-key dedupe window. The
+        # `previously` lookup matches ANY band of this selection (startswith, autoescaped so
+        # ids containing `_`/`%` don't act as LIKE wildcards) so "value gone" still works.
+        base_key = f"value:{pred.event_external_id}:{pred.market}:{pred.selection}"
+        band = int(max(edge, 0.0) / 2.0)  # re-fire each +2% the edge grows
+        key = f"{base_key}:{band}"
         previously = (
             await session.execute(
                 select(Alert)
-                .where(Alert.subscription_id == sub.id, Alert.dedupe_key == key,
+                .where(Alert.subscription_id == sub.id,
+                       Alert.dedupe_key.startswith(f"{base_key}:", autoescape=True),
                        Alert.kind == "value")
                 .order_by(Alert.created_at.desc())
                 .limit(1)
@@ -326,7 +333,7 @@ async def _watch_value(
                 f":hourglass: value gone — {pred.market} {pred.selection!r} "
                 f"({pred.event_external_id}) edge now {edge:.1f}% (< {min_edge}%)"
             )
-            if await _fire(session, sub, kind="value_vanished", key=f"vanished:{key}",
+            if await _fire(session, sub, kind="value_vanished", key=f"vanished:{base_key}",
                            message=message, payload={"edge_pct": round(edge, 2)},
                            pusher=pusher):
                 fired += 1

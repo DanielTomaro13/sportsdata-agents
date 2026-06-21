@@ -115,6 +115,23 @@ def _translate_side(winner: str, pred_name: str, result_name: str) -> str | None
     return winner if same else {"home": "away", "away": "home"}[winner]
 
 
+def _devig_fair_odds(odds_by_sel: dict[str, float], selection: str) -> float | None:
+    """Remove the book's overround from a market's closing odds → the FAIR (no-vig)
+    decimal odds for `selection`. None when the market is too thin/garbage to trust the
+    de-vig (caller falls back to the raw price rather than reporting a bad number)."""
+    o = odds_by_sel.get(selection)
+    if not o or o <= 1.0:
+        return None
+    inv = [1.0 / v for v in odds_by_sel.values() if v and v > 1.0]
+    if len(inv) < 2:  # need the full market to know the overround
+        return None
+    overround = sum(inv)
+    if not (1.0 < overround <= 1.6):  # a real book overrounds modestly; else partial/stale
+        return None
+    fair_prob = (1.0 / o) / overround
+    return 1.0 / fair_prob
+
+
 async def _benchmark_close(
     session: AsyncSession,
     maps: _Maps,
@@ -122,10 +139,15 @@ async def _benchmark_close(
     pred: Prediction,
     *,
     clv_book: str,
-) -> float | None:
-    """The benchmark book's closing price for this prediction's selection at the
-    SAME fixture — side-relative selections translate into the benchmark event's
-    frame first. None when the benchmark never priced it (caller falls back)."""
+) -> tuple[float, bool] | None:
+    """The benchmark book's closing price for this prediction's selection at the SAME
+    fixture, DE-VIGGED to fair odds where possible (so CLV isn't biased by comparing a
+    vigged entry to a differently-vigged benchmark — e.g. Pinnacle's low margin).
+
+    Returns ``(odds, devigged)``: ``devigged=True`` when the full market was available and
+    the overround removed; ``False`` when only the raw single-selection close was found
+    (thin market). Side-relative selections translate into the benchmark frame first.
+    ``None`` when the benchmark never priced it (caller falls back to the bet book's close)."""
     fixture = maps.fixture_by_pe.get(
         (pred.provider, pred.event_external_id)
     ) or maps.fixture_by_ext.get(pred.event_external_id)
@@ -144,21 +166,28 @@ async def _benchmark_close(
             if translated is None:
                 continue
             selection = translated
-        row = (
+        # Pull the benchmark book's FULL market at close (all selections, latest each) so we
+        # can de-vig — a vigged-entry-vs-vigged-benchmark CLV ratio is systematically biased.
+        rows = (
             await session.execute(
-                select(Price)
+                select(Price.selection, Price.odds)
                 .where(
                     Price.book == clv_book,
                     Price.event_external_id == external_id,
                     Price.market == pred.market,
-                    Price.selection == selection,
                 )
                 .order_by(Price.changed_at.desc())
-                .limit(1)
             )
-        ).scalars().first()
-        if row is not None:
-            return float(row.odds)
+        ).all()
+        latest: dict[str, float] = {}
+        for sel, odds in rows:
+            latest.setdefault(sel, float(odds))  # first seen = latest (desc order)
+        if selection not in latest:
+            continue
+        fair = _devig_fair_odds(latest, selection)
+        if fair is not None:
+            return fair, True
+        return latest[selection], False  # market too thin to de-vig — raw close
     return None
 
 
@@ -246,12 +275,14 @@ async def run_backtest(
                 entry_row = prevailing[-1] if prevailing else series[0]
             entry, closing = float(entry_row.odds), float(series[-1].odds)
             benchmarked = False
+            devigged = False
             if clv_book:
                 bench = await _benchmark_close(
                     session, maps, name_cache, pred, clv_book=clv_book
                 )
                 if bench is not None:
-                    closing, benchmarked = bench, True
+                    closing, devigged = bench
+                    benchmarked = True
             prob = float(pred.prob)
             edge_pct = (prob * entry - 1.0) * 100.0
             if edge_pct < min_edge_pct:
@@ -267,6 +298,7 @@ async def run_backtest(
                     "entry_odds": entry,
                     "closing_odds": closing,
                     "clv_benchmarked": benchmarked,
+                    "clv_devigged": devigged,
                     "edge_pct": round(edge_pct, 2),
                     "clv_pct": round((entry / closing - 1.0) * 100.0, 2),
                     "won": won,
@@ -290,6 +322,13 @@ async def run_backtest(
         "min_edge_pct": min_edge_pct,
         "clv_book": clv_book,
         "clv_benchmarked_bets": sum(1 for b in bets if b.get("clv_benchmarked")),
+        "clv_devigged_bets": sum(1 for b in bets if b.get("clv_devigged")),
+        "clv_note": (
+            "CLV vs the benchmark book's DE-VIGGED fair close where the full market was "
+            "available (clv_devigged_bets); the rest fall back to its raw close, which is "
+            "vig-affected across books." if clv_book else
+            "CLV vs the bet book's own close (same book → vig cancels in the ratio)."
+        ),
         "skipped": skipped,
         "per_bet": bets,
     }
