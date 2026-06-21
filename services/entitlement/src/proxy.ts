@@ -13,6 +13,7 @@
 // case only, and stays inert unless TAB_CLIENT_ID/SECRET are configured.
 
 import type { Env } from "./index";
+import { hashKey } from "./keys";
 
 interface ProxyProvider {
   base: string; // upstream origin + base path
@@ -114,9 +115,9 @@ export async function handleProxy(
 
   const row = await env.DB.prepare(
     `SELECT e.status, e.all_access, e.groups
-     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ?`,
+     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ? OR c.id = ?`,
   )
-    .bind(key)
+    .bind(await hashKey(key), key)  // D1 stores the hash; OR raw covers pre-migration rows
     .first<EntRow>();
   if (!row) return json({ error: "unknown licence" }, 404);
   if (!providerGranted(row, provider)) {

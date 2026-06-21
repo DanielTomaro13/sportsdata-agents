@@ -5,6 +5,7 @@
 // The DataGolf/TAB proxy is the next addition (Phase 1b) — see README.
 
 import { validateAssignment } from "./catalogue";
+import { hashKey } from "./keys";
 import { handleDownload } from "./download";
 import { sendLicenceEmail } from "./email";
 import { handleProxy } from "./proxy";
@@ -96,6 +97,9 @@ async function syncSubscription(subId: string, eventCreated: number, env: Env): 
   const cust = await env.DB.prepare("SELECT id FROM customers WHERE stripe_customer_id = ?")
     .bind(r.customerId).first<{ id: string }>();
   let id: string;
+  // The RAW key, available ONLY when we mint it (a new customer). D1 stores its hash, so it
+  // cannot be recovered later — the fulfilment email is the one chance to deliver it.
+  let licenceKeyForEmail: string | null = null;
   if (cust) {
     id = cust.id;
     // Stripe does NOT guarantee delivery order: a stale event (e.g. an older
@@ -106,7 +110,9 @@ async function syncSubscription(subId: string, eventCreated: number, env: Env): 
     if (ent && eventCreated < (ent.last_event_at ?? 0)) return;
     if (r.email) await env.DB.prepare("UPDATE customers SET email = ? WHERE id = ?").bind(r.email, id).run();
   } else {
-    id = newLicenceKey();
+    const rawKey = newLicenceKey();
+    id = await hashKey(rawKey);          // D1 stores the HASH; the customer holds the raw key
+    licenceKeyForEmail = rawKey;
     await env.DB.prepare("INSERT INTO customers (id, stripe_customer_id, email, created_at) VALUES (?, ?, ?, ?)")
       .bind(id, r.customerId, r.email, now).run();
   }
@@ -131,15 +137,22 @@ async function syncSubscription(subId: string, eventCreated: number, env: Env): 
       "UPDATE entitlements SET emailed_at = ? WHERE customer_id = ? AND emailed_at IS NULL",
     ).bind(now, id).run();
     if (claim.meta.changes === 1) {
-      const sent = await sendLicenceEmail(env, r.email, id, {
-        allAccess: r.grant.all_access,
-        sportSlots: r.grant.sport_slots,
-        gamblingSlots: r.grant.gambling_slots,
-      });
-      if (!sent) {
-        console.error(`fulfilment email failed for ${id} (${r.email}) — claim released, will retry`);
-        await env.DB.prepare("UPDATE entitlements SET emailed_at = NULL WHERE customer_id = ?")
-          .bind(id).run();
+      if (!licenceKeyForEmail) {
+        // Existing customer whose key we only store hashed — can't reconstruct it to email.
+        // (Rare: only if the very first send failed + claim was released. Operator must mint
+        // a fresh key for them; the raw key is unrecoverable from the hash by design.)
+        console.error(`cannot email licence for ${id} (${r.email}): key is hashed at rest`);
+      } else {
+        const sent = await sendLicenceEmail(env, r.email, licenceKeyForEmail, {
+          allAccess: r.grant.all_access,
+          sportSlots: r.grant.sport_slots,
+          gamblingSlots: r.grant.gambling_slots,
+        });
+        if (!sent) {
+          console.error(`fulfilment email failed for ${id} (${r.email}) — claim released, will retry`);
+          await env.DB.prepare("UPDATE entitlements SET emailed_at = NULL WHERE customer_id = ?")
+            .bind(id).run();
+        }
       }
     }
   }
@@ -194,10 +207,12 @@ async function handleEntitlement(req: Request, env: Env): Promise<Response> {
   const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!key) return json({ error: "missing bearer licence key" }, 401);
 
+  // D1 stores only the SHA-256 of the key; look up by hash (OR raw, for pre-migration rows).
+  const hk = await hashKey(key);
   const row = await env.DB.prepare(
     `SELECT e.status, e.sport_slots, e.gambling_slots, e.all_access, e.groups, e.current_period_end
-     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ?`,
-  ).bind(key).first<{
+     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ? OR c.id = ?`,
+  ).bind(hk, key).first<{
     status: string; sport_slots: number; gambling_slots: number;
     all_access: number; groups: string; current_period_end: number;
   }>();
@@ -233,11 +248,12 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
   const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!key) return json({ error: "missing bearer licence key" }, 401);
 
+  const hk = await hashKey(key);
   const row = await env.DB.prepare(
-    `SELECT status, sport_slots, gambling_slots, all_access, groups
-     FROM entitlements WHERE customer_id = ?`,
-  ).bind(key).first<{
-    status: string; sport_slots: number; gambling_slots: number;
+    `SELECT customer_id, status, sport_slots, gambling_slots, all_access, groups
+     FROM entitlements WHERE customer_id = ? OR customer_id = ?`,
+  ).bind(hk, key).first<{
+    customer_id: string; status: string; sport_slots: number; gambling_slots: number;
     all_access: number; groups: string;
   }>();
   if (!row) return json({ error: "unknown licence" }, 404);
@@ -273,7 +289,7 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
   if (!check.ok) return json({ error: check.error }, 422);
 
   await env.DB.prepare("UPDATE entitlements SET groups = ?, updated_at = ? WHERE customer_id = ?")
-    .bind(JSON.stringify(check.providers), Math.floor(Date.now() / 1000), key).run();
+    .bind(JSON.stringify(check.providers), Math.floor(Date.now() / 1000), row.customer_id).run();
   return json({ ok: true, providers: check.providers, ...budget });
 }
 
