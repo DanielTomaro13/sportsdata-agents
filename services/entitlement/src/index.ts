@@ -22,6 +22,10 @@ export interface Env {
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
   SIGNING_KEY_PKCS8_B64: string;
+  // Key id stamped on signed tokens so verifiers can pick the right pubkey during a key
+  // rotation. Defaults to "k1" (the current baked key). On rotation, set this to the new
+  // kid in lockstep with switching SIGNING_KEY_PKCS8_B64 to the new private key.
+  SIGNING_KID?: string;
   // Proxy credentials (Phase 1b) — optional; a provider's proxy is inert without them.
   DATAGOLF_KEY?: string;
   TAB_CLIENT_ID?: string;
@@ -232,6 +236,7 @@ async function handleEntitlement(req: Request, env: Env): Promise<Response> {
   const expires = periodEnd ? Math.min(now + ENTITLEMENT_TTL, periodEnd + PERIOD_GRACE) : now + ENTITLEMENT_TTL;
   const claims = {
     v: 1,
+    kid: env.SIGNING_KID || "k1", // which signing key — lets verifiers rotate without a flag-day
     key,
     status: row.status,
     sport_slots: row.sport_slots,

@@ -30,7 +30,21 @@ logger = logging.getLogger(__name__)
 # which is the correct safe default before a real keypair is generated.
 LICENSE_PUBLIC_KEY_B64 = os.environ.get("SPORTSDATA_LICENSE_PUBKEY", "")
 
+# Additional trusted verify keys by `kid`, for rotating the licence signing key WITHOUT a
+# flag-day (same scheme as the feed-entitlement gate). To rotate: ship a build trusting both
+# the current key (kid "k1") and the next here (e.g. {"k2": "<new pubkey>"}); once customers
+# have it, mint with issue_license(..., kid="k2"); drop the stale entry once its tokens
+# expire. A kid-less or unknown-kid token falls back to trying every trusted key.
+EXTRA_LICENSE_PUBKEYS: dict[str, str] = {}
+
 KEYCHAIN_LICENSE_NAME = "SPORTSDATA_LICENSE"
+
+
+def _license_pubkeys() -> dict[str, str]:
+    """Trusted licence verify keys as ``{kid: base64url-pubkey}`` (empty = unlicensed)."""
+    if LICENSE_PUBLIC_KEY_B64:
+        return {"k1": LICENSE_PUBLIC_KEY_B64, **EXTRA_LICENSE_PUBKEYS}
+    return {}
 
 
 class LicenseError(RuntimeError):
@@ -59,6 +73,18 @@ def _b64url_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 
 
+def _ed25519_ok(pubkey_b64: str, signature: bytes, payload: bytes) -> bool:
+    """True iff ``signature`` verifies over ``payload`` under the given Ed25519 pubkey."""
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    try:
+        Ed25519PublicKey.from_public_bytes(_b64url_decode(pubkey_b64)).verify(signature, payload)
+        return True
+    except (InvalidSignature, ValueError):
+        return False
+
+
 def verify_license(
     token: str,
     *,
@@ -72,25 +98,36 @@ def verify_license(
     free tier rather than trusting an unsigned blob. ``allow_expired`` skips ONLY
     the expiry check (signature still mandatory) — the refresh endpoint uses it
     to recognise a lapsed-but-genuine customer token."""
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
-    pub_b64 = public_key_b64 if public_key_b64 is not None else LICENSE_PUBLIC_KEY_B64
-    if not pub_b64:
+    # Trusted set: an explicit public_key_b64 (tests / refresh endpoint) pins one key; else
+    # the baked primary (kid "k1") plus any rotation extras.
+    if public_key_b64 is None:
+        trusted = _license_pubkeys()
+    elif public_key_b64:
+        trusted = {"_": public_key_b64}
+    else:
+        trusted = {}
+    if not trusted:
         raise LicenseError("no license public key configured — running unlicensed")
     try:
         payload_b64, sig_b64 = token.strip().split(".", 1)
         payload = _b64url_decode(payload_b64)
         signature = _b64url_decode(sig_b64)
-    except Exception as e:  # malformed token (split/decode/etc)
+        claims = json.loads(payload)
+    except Exception as e:  # malformed token (split/decode/json/etc)
         raise LicenseError(f"malformed license token: {e}") from e
+    if not isinstance(claims, dict):
+        raise LicenseError("license payload is not an object")
 
-    try:
-        Ed25519PublicKey.from_public_bytes(_b64url_decode(pub_b64)).verify(signature, payload)
-    except (InvalidSignature, ValueError) as e:
-        raise LicenseError("license signature does not verify") from e
-
-    claims = json.loads(payload)
+    # The token's `kid` (if any) selects which trusted key to try first; fall back to the
+    # rest so a legacy kid-less token, or one minted mid-rotation, still verifies. Reading
+    # kid from the not-yet-verified payload only *orders* candidates — the signature must
+    # still verify against the chosen key, which an attacker can't forge.
+    kid = str(claims.get("kid", "")) or None
+    order = ([trusted[kid]] if kid and kid in trusted else []) + [
+        v for k, v in trusted.items() if not (kid and k == kid)
+    ]
+    if not any(_ed25519_ok(pub_b64, signature, payload) for pub_b64 in order):
+        raise LicenseError("license signature does not verify")
     expires_raw = claims.get("expires")
     expires = dt.date.fromisoformat(expires_raw) if expires_raw else None
     if expires is not None and not allow_expired and (today or dt.date.today()) > expires:
@@ -146,13 +183,18 @@ def issue_license(
     seats: int = 1,
     days: int | None = 365,
     operator: bool = False,
+    kid: str | None = None,
 ) -> str:
     """Mint a signed license token (the issuer side — payment webhook / ops).
     Lives here so the format has one definition; the private key never ships.
 
     ``operator=True`` stamps the cryptographic operator grant. ONLY the product
     owner runs this (they hold the private key), so it's the unforgeable basis
-    for ``scheduler.is_operator`` on a release build — a customer cannot mint it."""
+    for ``scheduler.is_operator`` on a release build — a customer cannot mint it.
+
+    ``kid`` tags which signing key minted this token so verifiers can pick the
+    matching pubkey during a rotation; omit it to keep the legacy kid-less form
+    (which still verifies against every trusted key)."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     if addons:
@@ -172,6 +214,8 @@ def issue_license(
     }
     if operator:  # the cryptographic operator grant — omitted on ordinary tokens
         payload["operator"] = True
+    if kid:  # tag the signing key for rotation; omitted keeps the legacy kid-less form
+        payload["kid"] = kid
     payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     key = Ed25519PrivateKey.from_private_bytes(_b64url_decode(private_key_b64))
     signature = key.sign(payload_bytes)

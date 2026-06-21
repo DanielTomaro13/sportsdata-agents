@@ -55,6 +55,32 @@ def test_tampered_token_is_rejected(keypair: tuple[str, str]) -> None:
         lic.verify_license(token, public_key_b64=other_pub)
 
 
+def test_key_rotation_trusts_both_keys_without_a_flag_day(monkeypatch) -> None:
+    """A build can trust the current (k1) + next (k2) key at once; tokens carry a `kid`
+    naming which signed them, and a kid-less legacy token still verifies (design-fix #5)."""
+    priv1, pub1 = lic.generate_keypair()
+    priv2, pub2 = lic.generate_keypair()
+    # Production-style trust set: baked primary k1 + a rotation extra k2.
+    monkeypatch.setattr(lic, "LICENSE_PUBLIC_KEY_B64", pub1)
+    monkeypatch.setattr(lic, "EXTRA_LICENSE_PUBKEYS", {"k2": pub2})
+
+    legacy = lic.issue_license(priv1, tier="pro", issued_to="d@x", days=30)  # kid-less
+    k1_tok = lic.issue_license(priv1, tier="pro", issued_to="d@x", days=30, kid="k1")
+    k2_tok = lic.issue_license(priv2, tier="plus", issued_to="d@x", days=30, kid="k2")
+
+    # All three verify against the default (baked) trusted set — no public_key_b64 pin.
+    assert lic.verify_license(legacy).tier == "pro"
+    assert lic.verify_license(k1_tok).tier == "pro"
+    assert lic.verify_license(k2_tok).tier == "plus"
+    assert lic.verify_license(k2_tok).raw.get("kid") == "k2"
+
+    # A key outside the trusted set is still rejected.
+    rogue_priv, _ = lic.generate_keypair()
+    rogue = lic.issue_license(rogue_priv, tier="pro", issued_to="x", days=30, kid="k1")
+    with pytest.raises(lic.LicenseError):
+        lic.verify_license(rogue)
+
+
 def test_expired_token_is_rejected(keypair: tuple[str, str]) -> None:
     priv, pub = keypair
     token = lic.issue_license(priv, tier="plus", issued_to="d@x", days=1)
