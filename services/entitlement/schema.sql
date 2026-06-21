@@ -18,8 +18,11 @@ CREATE TABLE IF NOT EXISTS entitlements (
   groups           TEXT NOT NULL DEFAULT '[]',        -- JSON array: the assigned feed groups
   current_period_end INTEGER,                          -- unix seconds (entitlement expiry anchor)
   emailed_at       INTEGER,                            -- when the fulfilment email was sent (idempotency)
+  last_event_at    INTEGER,                            -- Stripe event.created of the last applied event (out-of-order guard)
   updated_at       INTEGER NOT NULL
 );
+-- Existing DBs: run once to add the column —
+--   ALTER TABLE entitlements ADD COLUMN last_event_at INTEGER;
 
 -- Audit of Stripe events we've processed (idempotency + debugging).
 CREATE TABLE IF NOT EXISTS stripe_events (

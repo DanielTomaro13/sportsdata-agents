@@ -46,7 +46,10 @@ const PROXY_PROVIDERS: Record<string, ProxyProvider> = {
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
-const LIVE = new Set(["active", "trialing", "past_due"]);
+// NOTE: `past_due` is deliberately EXCLUDED here (unlike the licence gate). A failed
+// renewal can sit in dunning for weeks; we keep the licence live for that grace window but
+// stop spending OUR metered DataGolf/TAB credits on a subscription that isn't paying.
+const LIVE = new Set(["active", "trialing"]);
 
 interface EntRow {
   status: string;
