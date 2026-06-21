@@ -1021,10 +1021,11 @@ def normalize_kalshi_all(payload: Any) -> list[PricePoint]:
                 subject = str(mkt.get("yes_sub_title") or mkt.get("title") or mkt.get("ticker") or "?")
                 meta = {
                     "ticker": mkt.get("ticker"),
-                    # expected_expiration ≈ game end (close_time is a settlement
-                    # deadline weeks out) — close enough for the resolver's day
-                    # windows to join game contracts onto fixtures
-                    "start_time": mkt.get("expected_expiration_time"),
+                    # expected_expiration ≈ game END (close_time is a settlement deadline
+                    # weeks out). Stored as end_time, NOT start_time: close enough for the
+                    # resolver's day windows, but it's the wrong end of the game, so the arb
+                    # in-play gate (which reads start_time) must never see it as a start.
+                    "end_time": mkt.get("expected_expiration_time"),
                     "close_time": mkt.get("close_time"),
                     "volume_24h": mkt.get("volume_24h_fp") or mkt.get("volume_24h"),
                     "open_interest": mkt.get("open_interest_fp") or mkt.get("open_interest"),
@@ -1092,7 +1093,9 @@ def normalize_polymarket_all(payload: Any) -> list[PricePoint]:
                 prices = _json_list(mkt.get("outcomePrices"))
                 meta = {
                     "market_id": mkt.get("id"),
-                    "start_time": mkt.get("endDate"),  # event end ≈ resolver day-window proxy
+                    # endDate is the event END (resolution), not kickoff → end_time, NOT
+                    # start_time (the arb in-play gate must never read it as a start).
+                    "end_time": mkt.get("endDate"),
                     "end_date": mkt.get("endDate"),
                     "volume_24h": mkt.get("volume24hr"),
                     "liquidity": mkt.get("liquidity"),

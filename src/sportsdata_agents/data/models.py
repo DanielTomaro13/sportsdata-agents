@@ -230,6 +230,10 @@ class Fixture(Base):
     external_id: Mapped[str] = mapped_column(String(128), index=True)  # e.g. an MLB gamePk
     name: Mapped[str] = mapped_column(String(400), default="")
     start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # event END (e.g. exchange contracts key on resolution/expiry, not kickoff). Used as a
+    # day-window proxy when start_time is unknown — it must NOT be mistaken for a real start
+    # (the arb in-play gate reads start_time only, so an exchange fixture stays pre-game-unknown).
+    end_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
@@ -273,6 +277,9 @@ class OddsSnapshot(Base):
     # windows fixtures on THIS, not capture day (futures are captured months out);
     # nullable: not every payload carries one
     start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # event END time when the payload carries one but no real start (exchanges key markets on
+    # resolution/expiry). Feeds the resolver's day window; never treated as a kickoff.
+    end_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
 
 

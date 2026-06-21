@@ -129,6 +129,7 @@ async def record_points(
                     selection=p.selection,
                     odds=Decimal(str(p.odds)),
                     start_time=_parse_start(p.meta.get("start_time") or p.meta.get("post_time")),
+                    end_time=_parse_start(p.meta.get("end_time")),
                     meta=p.meta,
                 )
             )
