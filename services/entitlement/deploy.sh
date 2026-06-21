@@ -44,8 +44,12 @@ say "4/7  Apply the schema (remote D1)"
 npx wrangler d1 execute sportsdata-entitlement --file=schema.sql --remote
 
 say "5/7  Signing keypair"
-PY=/Users/danieltomaro/Documents/Projects/sportsdata-mcp/.venv/bin/python
-[ -x "$PY" ] || PY=python3
+# Any python3 with `cryptography` works; override with PY=… if you keep it elsewhere.
+PY="${PY:-python3}"
+if ! "$PY" -c "import cryptography" 2>/dev/null; then
+  echo "  error: \$PY ($PY) needs the 'cryptography' package — set PY=/path/to/python or pip install cryptography" >&2
+  exit 1
+fi
 echo "  Generating an Ed25519 keypair (printed to THIS terminal only):"
 echo "  ----------------------------------------------------------------"
 "$PY" gen-keypair.py

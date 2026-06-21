@@ -403,7 +403,7 @@
     const mark = () => provsEl.querySelectorAll(".tb-prov").forEach(b => b.classList.toggle("active", b.dataset.id === current.id));
     const renderTools = (p, q = "") => {
       const tt = q ? p.tools.filter(t => t.name.includes(q) || (t.desc || "").toLowerCase().includes(q)) : p.tools;
-      rightEl.innerHTML = `<div class="tb-rhead"><h3>${esc(p.name)}</h3><span class="k ${p.kind}">${esc(p.kind)}</span></div>`
+      rightEl.innerHTML = `<div class="tb-rhead"><h3>${esc(p.name)}</h3><span class="k ${esc(p.kind)}">${esc(p.kind)}</span></div>`
         + `<div class="tb-rsub">${p.count} tools${p.kind === "gambling" ? " · may be geo-restricted in your region" : ""}${BYOKEY.has(p.id) ? " · 🔑 needs your own " + esc(p.name) + " key" : ""}</div>`
         + (tt.length ? tt.map(t => {
             const args = (t.args && t.args.length)

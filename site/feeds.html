@@ -68,7 +68,7 @@
       <input id="key" type="text" placeholder="sd_live_…" autocomplete="off" spellcheck="false" style="flex:1;min-width:240px">
       <button class="btn" id="load">Load my feeds</button>
     </div>
-    <div class="msg" id="loadMsg"></div>
+    <div class="msg" id="loadMsg" role="status" aria-live="polite"></div>
   </div>
 
   <!-- Step 2: picker -->
@@ -79,7 +79,7 @@
       location. There are no refunds for a gambling feed that is geo-restricted where you are.</div>
     <div class="row" style="margin-top:6px">
       <button class="btn" id="save">Save feeds</button>
-      <span class="msg" id="saveMsg"></span>
+      <span class="msg" id="saveMsg" role="status" aria-live="polite"></span>
     </div>
   </div>
 
@@ -155,7 +155,7 @@ function feedEl(p){
   const badges = (p.kind==="gambling"?'<span class="geo" title="may be geo-restricted">⚠</span>':'')
     + (BYOKEY.has(p.id)?'<span class="byo" title="needs your own provider key">🔑</span>':'');
   return `<div class="feed ${on?'on':''} ${dis?'disabled':''}" data-id="${esc(p.id)}"
-    role="button" tabindex="0" aria-pressed="${on?'true':'false'}"${dis?' aria-disabled="true"':''}
+    role="button" tabindex="${dis?'-1':'0'}" aria-pressed="${on?'true':'false'}"${dis?' aria-disabled="true"':''}
     aria-label="${esc(p.name)}, ${p.count} tools${on?' — selected':''}${dis?' — unavailable, slots full':''}">
     <span class="box">${on?'✓':''}</span><span class="nm">${esc(p.name)}</span>
     <span class="tag">${badges}${p.count}</span></div>`;
