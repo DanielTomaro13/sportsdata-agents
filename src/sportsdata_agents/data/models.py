@@ -11,7 +11,20 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantScopedModel
@@ -288,6 +301,13 @@ class Price(Base):
     price MOVES — line-movement queries and backtests read this, dedupe writes it."""
 
     __tablename__ = "prices"
+    # One change-point per logical key + timestamp (migration 0013). The ingest path's
+    # ON CONFLICT DO NOTHING keys on this, so a re-run / same-timestamp race is idempotent.
+    # Includes changed_at so Timescale accepts it as a hypertable unique index.
+    __table_args__ = (
+        Index("uq_prices_change", "provider", "book", "event_external_id", "market",
+              "selection", "changed_at", unique=True),
+    )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     changed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
     provider: Mapped[str] = mapped_column(String(64), index=True)
