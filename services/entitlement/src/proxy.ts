@@ -115,9 +115,9 @@ export async function handleProxy(
 
   const row = await env.DB.prepare(
     `SELECT e.status, e.all_access, e.groups
-     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ? OR c.id = ?`,
+     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ?`,
   )
-    .bind(await hashKey(key), key)  // D1 stores the hash; OR raw covers pre-migration rows
+    .bind(await hashKey(key))  // D1 stores only the SHA-256; the raw-id migration fallback is gone
     .first<EntRow>();
   if (!row) return json({ error: "unknown licence" }, 404);
   if (!providerGranted(row, provider)) {

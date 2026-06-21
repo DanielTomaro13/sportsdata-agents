@@ -6,11 +6,27 @@ import {
   CONFIG_TARGETS,
   DEFAULT_ENTITLEMENT_URL,
   DEFAULT_FEEDS_URL,
+  downloadTokenUrl,
   downloadUrl,
   mcpConfigBlock,
   setupCommand,
 } from "./config-gen";
+import { DOWNLOAD_TOKEN_TTL, hashKey, signDownloadToken } from "./keys";
 import type { Env } from "./index";
+
+// Build the email's download link. Prefer a download-only, expiring token (the raw key
+// never enters the URL); fall back to the legacy ?key= link when no secret is configured,
+// or to a literal override. Mirrors the resolution order /download itself accepts.
+async function downloadLink(env: Env, key: string): Promise<string> {
+  if (env.LICENCE_DOWNLOAD_URL) return env.LICENCE_DOWNLOAD_URL;
+  const base = env.ENTITLEMENT_PUBLIC_URL || DEFAULT_ENTITLEMENT_URL;
+  if (env.DOWNLOAD_TOKEN_SECRET) {
+    const exp = Math.floor(Date.now() / 1000) + DOWNLOAD_TOKEN_TTL;
+    const tok = await signDownloadToken(await hashKey(key), exp, env.DOWNLOAD_TOKEN_SECRET);
+    return downloadTokenUrl(base, tok);
+  }
+  return downloadUrl(base, key);
+}
 
 export interface EmailGrant {
   allAccess: boolean;
@@ -86,6 +102,9 @@ export async function sendLicenceEmail(
 ): Promise<boolean> {
   if (!env.RESEND_API_KEY || !to) return false;
   const from = env.LICENCE_FROM_EMAIL || "sportsdata <onboarding@resend.dev>";
+  // Licence-gated download through the Worker (private repo) — a download-only token by
+  // default, ?key= fallback, or the LICENCE_DOWNLOAD_URL literal override.
+  const dlUrl = await downloadLink(env, key);
   try {
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -97,15 +116,7 @@ export async function sendLicenceEmail(
         from,
         to,
         subject: "Your sportsdata licence + setup",
-        html: licenceEmailHtml(
-          key,
-          g,
-          // Licence-gated download through the Worker (private repo). Escape hatch:
-          // LICENCE_DOWNLOAD_URL overrides with a literal link if ever needed.
-          env.LICENCE_DOWNLOAD_URL ||
-            downloadUrl(env.ENTITLEMENT_PUBLIC_URL || DEFAULT_ENTITLEMENT_URL, key),
-          env.LICENCE_FEEDS_URL || DEFAULT_FEEDS_URL,
-        ),
+        html: licenceEmailHtml(key, g, dlUrl, env.LICENCE_FEEDS_URL || DEFAULT_FEEDS_URL),
       }),
     });
     if (!r.ok) console.error(`resend rejected fulfilment email to ${to}: ${r.status}`);

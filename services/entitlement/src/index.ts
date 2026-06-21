@@ -39,6 +39,9 @@ export interface Env {
   // release repo. Inert (503) without it, so the source/binary never leak from a misconfig.
   GITHUB_DOWNLOAD_TOKEN?: string;
   GITHUB_RELEASE_REPO?: string; // owner/repo override (default: the product repo)
+  // HMAC secret for the email's download-only token (keeps the raw key out of the URL).
+  // Inert without it — the fulfilment email falls back to the legacy ?key= link.
+  DOWNLOAD_TOKEN_SECRET?: string;
 }
 
 const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
@@ -207,12 +210,14 @@ async function handleEntitlement(req: Request, env: Env): Promise<Response> {
   const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!key) return json({ error: "missing bearer licence key" }, 401);
 
-  // D1 stores only the SHA-256 of the key; look up by hash (OR raw, for pre-migration rows).
+  // D1 stores only the SHA-256 of the key; look it up by that hash. (The raw-id fallback
+  // that bridged the at-rest migration is gone now every row is hashed — otherwise the
+  // stored hash itself would work as a bearer.)
   const hk = await hashKey(key);
   const row = await env.DB.prepare(
     `SELECT e.status, e.sport_slots, e.gambling_slots, e.all_access, e.groups, e.current_period_end
-     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ? OR c.id = ?`,
-  ).bind(hk, key).first<{
+     FROM entitlements e JOIN customers c ON c.id = e.customer_id WHERE c.id = ?`,
+  ).bind(hk).first<{
     status: string; sport_slots: number; gambling_slots: number;
     all_access: number; groups: string; current_period_end: number;
   }>();
@@ -251,8 +256,8 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
   const hk = await hashKey(key);
   const row = await env.DB.prepare(
     `SELECT customer_id, status, sport_slots, gambling_slots, all_access, groups
-     FROM entitlements WHERE customer_id = ? OR customer_id = ?`,
-  ).bind(hk, key).first<{
+     FROM entitlements WHERE customer_id = ?`,
+  ).bind(hk).first<{
     customer_id: string; status: string; sport_slots: number; gambling_slots: number;
     all_access: number; groups: string;
   }>();

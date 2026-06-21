@@ -13,7 +13,13 @@ export const DEFAULT_ENTITLEMENT_URL = "https://sportsdata-entitlement.sportsdat
 
 // The licence-gated download link. The product repo is private, so the binary is served
 // through the Worker's /download (it checks the licence, then streams the release asset).
-// The key is already in the email body, so carrying it in the query adds no exposure.
+// Preferred form: a download-only, expiring token so the raw key never rides in the URL.
+export function downloadTokenUrl(base: string, token: string): string {
+  return `${base.replace(/\/$/, "")}/download?token=${encodeURIComponent(token)}`;
+}
+
+// Legacy form: the raw key in the query. Still honoured by /download for already-sent
+// emails; used as the fallback when DOWNLOAD_TOKEN_SECRET isn't configured yet.
 export function downloadUrl(base: string, key: string): string {
   return `${base.replace(/\/$/, "")}/download?key=${encodeURIComponent(key)}`;
 }
