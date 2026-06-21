@@ -95,12 +95,16 @@ def is_operator() -> bool:
 JOBS: tuple[Job, ...] = (
     Job(name="ingest", args=("ingest", "--once", "--cron", "60"),
         log="ingest.log", interval_s=60, timeout_s=3000, paced=True),
+    # resolve runs on a SHORT interval (not nightly) and BEFORE monitor in a tick, so today's
+    # captured events are mapped onto fixtures promptly — otherwise the flagship cross-book
+    # arb/value/CLV watches (every 5 min) ran a day behind the data. The resolver is already
+    # incremental (it skips already-mapped events), so a frequent run is cheap.
+    Job(name="resolve", args=("resolve",),
+        log="cron.log", interval_s=600, timeout_s=1800),
     Job(name="monitor", args=("monitor",),
         log="monitor.log", interval_s=300, timeout_s=600),
     Job(name="custodian", args=("custodian",),
         log="cron.log", interval_s=3600, timeout_s=1800),
-    Job(name="resolve", args=("resolve",),
-        log="cron.log", at=(23, 30), timeout_s=1800),
     Job(name="results", args=("results",),
         log="cron.log", at=(23, 40), timeout_s=1800),
     Job(name="steward", args=("steward",),
