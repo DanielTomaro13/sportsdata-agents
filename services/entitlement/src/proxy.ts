@@ -47,6 +47,25 @@ const PROXY_PROVIDERS: Record<string, ProxyProvider> = {
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
+// Which DataGolf upstream key serves THIS licence. With a pool (DATAGOLF_KEYS,
+// comma-separated) each licence is stable-assigned to one key by hashing it: load spreads
+// across keys (each has its own 45 req/min upstream cap) while a given customer stays on one
+// key (so the edge cache stays warm for them). Falls back to the single DATAGOLF_KEY. The
+// returned `id` keys the global rate limiter so each pool key gets its own budget.
+async function datagolfKeyFor(
+  env: Env,
+  licenceKey: string,
+): Promise<{ key: string; id: string } | null> {
+  const pool = (env.DATAGOLF_KEYS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (pool.length) {
+    const h = await hashKey(licenceKey); // 64-hex; first 32 bits give a stable, uniform index
+    const idx = parseInt(h.slice(0, 8), 16) % pool.length;
+    return { key: pool[idx], id: `p${idx}` };
+  }
+  if (env.DATAGOLF_KEY) return { key: env.DATAGOLF_KEY, id: "single" };
+  return null;
+}
+
 // NOTE: `past_due` is deliberately EXCLUDED here (unlike the licence gate). A failed
 // renewal can sit in dunning for weeks; we keep the licence live for that grace window but
 // stop spending OUR metered DataGolf/TAB credits on a subscription that isn't paying.
@@ -124,11 +143,15 @@ export async function handleProxy(
     return json({ error: `licence does not grant ${provider}` }, 403);
   }
 
-  // DataGolf suspends our SHARED key for 5 min past 45 req/min, so cap the GLOBAL rate
-  // well under that, and give each licence a fair slice so one customer can't starve the
-  // rest. (Bindings are optional so an older deploy degrades gracefully.)
+  // DataGolf suspends a key for 5 min past 45 req/min. Resolve which key serves this licence
+  // (pool or single) up front, cap the per-key GLOBAL rate well under that, and give each
+  // licence a fair slice so one customer can't starve the rest. (RL bindings are optional so
+  // an older deploy degrades gracefully.)
+  let dg: { key: string; id: string } | null = null;
   if (cfg.attach === "datagolf_key") {
-    const g = await env.DATAGOLF_GLOBAL_RL?.limit({ key: "datagolf" });
+    dg = await datagolfKeyFor(env, key);
+    if (!dg) return json({ error: "datagolf proxy not configured" }, 503);
+    const g = await env.DATAGOLF_GLOBAL_RL?.limit({ key: `datagolf:${dg.id}` });
     if (g && !g.success) {
       return json({ error: "datagolf is busy (global rate limit) — retry shortly" }, 429);
     }
@@ -149,8 +172,8 @@ export async function handleProxy(
 
   const headers: Record<string, string> = { ...cfg.headers };
   if (cfg.attach === "datagolf_key") {
-    if (!env.DATAGOLF_KEY) return json({ error: "datagolf proxy not configured" }, 503);
-    target.searchParams.set("key", env.DATAGOLF_KEY);
+    if (!dg) return json({ error: "datagolf proxy not configured" }, 503); // resolved above
+    target.searchParams.set("key", dg.key);
   } else if (cfg.attach === "tab_oauth") {
     const tok = await mintTabToken(env);
     if (!tok) return json({ error: "tab proxy not configured" }, 503);
@@ -158,10 +181,13 @@ export async function handleProxy(
   }
 
   // Short edge cache — DataGolf data changes slowly. This collapses repeated/looping
-  // calls (a big rate-limit + cost saver) and is keyed on the UPSTREAM url (shared across
-  // customers; the licence key is never in it, only our DataGolf key which is the same).
+  // calls (a big rate-limit + cost saver). Key it on the upstream url with the credential
+  // STRIPPED, so the cache is shared across customers and across pool keys (the data is the
+  // same regardless of which DataGolf key fetched it); the licence key was never in it.
   const cache = caches.default;
-  const cacheKey = new Request(target.toString(), { method: "GET" });
+  const cacheUrl = new URL(target.toString());
+  cacheUrl.searchParams.delete("key");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
 
