@@ -23,28 +23,40 @@ export function grantFromItems(items: { sku: string; quantity: number }[]): Gran
   return { sport_slots: sport, gambling_slots: gambling, all_access: all };
 }
 
-// Feeds that run on OUR upstream credentials → served via the proxy, never shipped
-// inside a self-host build (DataGolf = our paid key; TAB = our OAuth client).
-export const PROXIED_PROVIDERS = new Set(["datagolf", "tab"]);
-
-// Provider → slot kind (mirrors the site catalogue's sport/gambling split). Drives
-// per-kind slot enforcement when a customer assigns feeds. Keep in sync with the
-// catalogue; an unlisted provider is rejected by the assignment endpoint.
+// PROXIED_PROVIDERS = feeds on OUR upstream credentials → served via the proxy, never
+// shipped inside a self-host build (DataGolf = paid key; TAB = our OAuth client).
+// PROVIDER_KIND = provider → slot kind; drives per-kind slot enforcement on assignment
+// (an unlisted provider is rejected). BOTH are GENERATED from site/catalogue.json (the
+// single source) by scripts/gen-catalogue.py — edit the catalogue + regenerate, never here.
+  // GENERATED from site/catalogue.json by scripts/gen-catalogue.py — do not edit by hand.
+export const PROXIED_PROVIDERS = new Set<string>(["datagolf", "tab"]);
 export const PROVIDER_KIND: Record<string, "sport" | "gambling" | "social"> = {
-  // sport & stats
-  afl: "sport", cricketaustralia: "sport", datagolf: "sport", espn: "sport",
-  laliga: "sport", mlb: "sport", nba: "sport", nrl: "sport", openf1: "sport",
-  premierleague: "sport", seriea: "sport",
-  // social — BYO-key (the customer brings their own X/Twitter API key + pays X), so it
-  // does NOT consume a sport/gambling slot (was mis-counted as a sport feed that returns
-  // nothing without the customer's key).
-  twitter: "social",
-  // gambling & odds
-  betfair: "gambling", betr: "gambling", entain: "gambling", fanduel: "gambling",
-  kalshi: "gambling", pinnacle: "gambling", pointsbet: "gambling",
-  polymarket: "gambling", racingandsports: "gambling", sportsbet: "gambling",
-  tab: "gambling", unibet: "gambling",
+  "afl": "sport",
+  "betfair": "gambling",
+  "betr": "gambling",
+  "cricketaustralia": "sport",
+  "datagolf": "sport",
+  "entain": "gambling",
+  "espn": "sport",
+  "fanduel": "gambling",
+  "kalshi": "gambling",
+  "laliga": "sport",
+  "mlb": "sport",
+  "nba": "sport",
+  "nrl": "sport",
+  "openf1": "sport",
+  "pinnacle": "gambling",
+  "pointsbet": "gambling",
+  "polymarket": "gambling",
+  "premierleague": "sport",
+  "racingandsports": "gambling",
+  "seriea": "sport",
+  "sportsbet": "gambling",
+  "tab": "gambling",
+  "twitter": "social",
+  "unibet": "gambling",
 };
+  // END GENERATED
 
 export interface EntitlementShape {
   sport_slots: number;

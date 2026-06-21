@@ -4,6 +4,8 @@
       "id": "afl",
       "name": "AFL",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 42,
       "tools": [
         {
@@ -773,6 +775,8 @@
       "id": "betfair",
       "name": "Betfair",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 8,
       "tools": [
         {
@@ -1082,6 +1086,8 @@
       "id": "betr",
       "name": "BetR",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 19,
       "tools": [
         {
@@ -1300,6 +1306,8 @@
       "id": "cricketaustralia",
       "name": "Cricket Australia",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 12,
       "tools": [
         {
@@ -1592,6 +1600,8 @@
       "id": "datagolf",
       "name": "DataGolf",
       "kind": "sport",
+      "byo": false,
+      "proxied": true,
       "count": 26,
       "tools": [
         {
@@ -2192,6 +2202,8 @@
       "id": "entain",
       "name": "Entain",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 15,
       "tools": [
         {
@@ -2407,6 +2419,8 @@
       "id": "espn",
       "name": "ESPN",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 9,
       "tools": [
         {
@@ -2623,6 +2637,8 @@
       "id": "fanduel",
       "name": "FanDuel",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 6,
       "tools": [
         {
@@ -2727,6 +2743,8 @@
       "id": "openf1",
       "name": "Formula 1 (OpenF1)",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 18,
       "tools": [
         {
@@ -3206,6 +3224,8 @@
       "id": "kalshi",
       "name": "Kalshi",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 18,
       "tools": [
         {
@@ -3567,6 +3587,8 @@
       "id": "laliga",
       "name": "La Liga",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 14,
       "tools": [
         {
@@ -3777,6 +3799,8 @@
       "id": "mlb",
       "name": "MLB",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 62,
       "tools": [
         {
@@ -5149,6 +5173,8 @@
       "id": "nba",
       "name": "NBA",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 7,
       "tools": [
         {
@@ -5233,6 +5259,8 @@
       "id": "nrl",
       "name": "NRL",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 4,
       "tools": [
         {
@@ -5282,6 +5310,8 @@
       "id": "pinnacle",
       "name": "Pinnacle",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 17,
       "tools": [
         {
@@ -5452,6 +5482,8 @@
       "id": "pointsbet",
       "name": "PointsBet",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 24,
       "tools": [
         {
@@ -5788,6 +5820,8 @@
       "id": "polymarket",
       "name": "Polymarket",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 17,
       "tools": [
         {
@@ -6219,6 +6253,8 @@
       "id": "premierleague",
       "name": "Premier League",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 43,
       "tools": [
         {
@@ -7075,6 +7111,8 @@
       "id": "racingandsports",
       "name": "Racing & Sports",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 3,
       "tools": [
         {
@@ -7112,6 +7150,8 @@
       "id": "seriea",
       "name": "Serie A",
       "kind": "sport",
+      "byo": false,
+      "proxied": false,
       "count": 9,
       "tools": [
         {
@@ -7288,6 +7328,8 @@
       "id": "sportsbet",
       "name": "Sportsbet",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 44,
       "tools": [
         {
@@ -7978,6 +8020,8 @@
       "id": "tab",
       "name": "TAB",
       "kind": "gambling",
+      "byo": false,
+      "proxied": true,
       "count": 22,
       "tools": [
         {
@@ -8470,6 +8514,8 @@
       "id": "unibet",
       "name": "Unibet",
       "kind": "gambling",
+      "byo": false,
+      "proxied": false,
       "count": 4,
       "tools": [
         {
@@ -8550,6 +8596,8 @@
       "id": "twitter",
       "name": "X / Twitter",
       "kind": "social",
+      "byo": true,
+      "proxied": false,
       "count": 15,
       "tools": [
         {
