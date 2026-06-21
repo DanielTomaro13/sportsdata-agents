@@ -21,6 +21,24 @@ hard guarantees are and where they aren't.
   instructions found in them, and no agent places a bet or moves money (advisory
   only — see the README).
 
+### The four Ed25519 systems — same wire format, different purposes
+
+All four sign `base64url(payloadJSON).base64url(sig)` and verify offline against a
+baked/configured public key, but they are **independent keys for independent jobs**.
+Don't conflate "licence" (the agents-app tier grant) with "entitlement" (the MCP's
+feed grant) — they share vocabulary and a format, nothing else.
+
+| System | Term | Signs (issuer) → verifies (consumer) | Public key | What the token grants |
+| --- | --- | --- | --- | --- |
+| **Operator-licence** | *licence* | ops/billing → agents app | `SPORTSDATA_LICENSE_PUBKEY` (`licensing/license.py`) | tier, add-ons, seats, the **operator** claim |
+| **Feed-entitlement** | *entitlement* | entitlement Worker (`sign.ts`) → MCP (`licence.py`) | `BAKED_PUBKEY_B64` | which **data feeds** the MCP serves |
+| **MCP spec OTA** | *spec bundle* | `publish-spec-bundle.py` → MCP (`ota.py`) | `BAKED_SPEC_PUBKEYS` | a signed **provider-spec** overlay |
+| **Agents data OTA** | *data bundle* | `publish-data-bundle.py` → agents (`datafeed.py`) | `SPORTSDATA_DATA_PUBKEY` | a signed **market-dictionary** overlay |
+
+Each private key is an issuer-side secret that never ships. The first three support
+`kid` keyed rotation (see *Rotating a signing key*, below); the agents data-OTA still
+rotates by re-baking its key (a build flip), which is acceptable for a low-churn feed.
+
 ---
 
 ## 1. Cost controls — nobody exceeds their budget
