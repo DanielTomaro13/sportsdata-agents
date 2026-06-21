@@ -113,7 +113,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const BYOKEY = new Set(["twitter"]); // needs the customer's own provider key
+// BYO-key flag comes from catalogue.json (the single source) — per-provider `byo`.
 
 let ENT = "https://sportsdata-entitlement.sportsdata.workers.dev"; // overridable via entitlement.json
 let DOWNLOAD = ""; // last-resort fallback; the real link is the gated ENT/download (built below)
@@ -154,7 +154,7 @@ function feedEl(p){
   const on = selected.has(p.id);
   const dis = !on && !canSelect(p);
   const badges = (p.kind==="gambling"?'<span class="geo" title="may be geo-restricted">⚠</span>':'')
-    + (BYOKEY.has(p.id)?'<span class="byo" title="needs your own provider key">🔑</span>':'');
+    + (p.byo?'<span class="byo" title="needs your own provider key">🔑</span>':'');
   return `<div class="feed ${on?'on':''} ${dis?'disabled':''}" data-id="${esc(p.id)}"
     role="button" tabindex="${dis?'-1':'0'}" aria-pressed="${on?'true':'false'}"${dis?' aria-disabled="true"':''}
     aria-label="${esc(p.name)}, ${p.count} tools${on?' — selected':''}${dis?' — unavailable, slots full':''}">
