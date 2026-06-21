@@ -16,15 +16,35 @@ fallback and ``keyring`` remains optional (servers/CI keep everything in the env
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
+import tempfile
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, SecretStr
 
 logger = logging.getLogger(__name__)
+
+
+def _write_private_atomic(path: Path, text: str) -> None:
+    """Write `text` owner-only with NO world-readable window: a 0600 temp file (mkstemp
+    creates 0600) written + fsync'd, then atomically renamed over the target. Avoids the
+    `write_text()`-then-`chmod()` gap where the secret was briefly group/world-readable."""
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # atomic; the result inherits the temp's 0600
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 KEYCHAIN_SERVICE = "sportsdata"  # the keychain service namespace
 
@@ -134,8 +154,7 @@ def set_file_secret(name: str, value: str) -> bool:
         path = _secrets_file()
         data = _read_secrets_file()
         data[name] = value
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        os.chmod(path, 0o600)
+        _write_private_atomic(path, json.dumps(data, indent=2))
         return True
     except OSError as e:
         logger.warning("could not write the secrets file: %s", e)
@@ -147,9 +166,7 @@ def delete_file_secret(name: str) -> bool:
         data = _read_secrets_file()
         if name in data:
             del data[name]
-            path = _secrets_file()
-            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            os.chmod(path, 0o600)
+            _write_private_atomic(_secrets_file(), json.dumps(data, indent=2))
         return True
     except OSError:
         return False

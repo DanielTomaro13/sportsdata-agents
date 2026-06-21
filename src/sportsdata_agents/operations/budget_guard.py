@@ -7,14 +7,13 @@ customer's question or the platform's own ops maintenance — can call a model u
 the period rolls over. Combined with the per-run ceiling, total period spend can
 overshoot the cap by at most one in-flight call (cents), not one run.
 
-Accuracy without a database round-trip per call: take a baseline of already-committed
-period spend once (everything billed before this guard started in the current window),
-then accumulate everything THIS process charges. Re-baseline only when the window rolls
-over — at which point this process's running tally resets to zero too, so there's no
-double-count. The one soft edge is two processes spending in the same window at the
-same instant (a daemon plus a concurrent CLI run): each sees the other's *committed*
-spend but not its in-flight spend, so the cap can be exceeded by at most one run's
-per-run ceiling. For a single-user desktop install that is negligible and bounded.
+Accuracy: each precheck combines this process's (frozen window baseline + in-flight
+tally) with a FRESH read of the committed period spend, taking the higher of the two
+(``max``, never ``sum`` — the committed total already includes this process's billed
+spend). The fresh read means two processes spending in the same window (a daemon plus a
+concurrent CLI run) each see the other's *committed* spend promptly; the only unseen
+slack is the other process's single in-flight call, so total overshoot is bounded to
+roughly one in-flight call per live process — cents, on a single-user desktop install.
 """
 
 from __future__ import annotations
@@ -55,15 +54,28 @@ class PeriodBudgetGuard:
         self._process_usd += max(cost_usd, 0.0)
 
     async def _period_spent(self, period: str) -> float:
-        """Best estimate of total spend in the current window: a frozen DB baseline
-        plus this process's running tally, re-baselined on a window rollover."""
+        """Best estimate of total spend in the current window.
+
+        Two views, combined with ``max`` (never ``sum`` — the committed total already
+        includes whatever of this process's spend has been billed, so adding them would
+        double-count):
+          • the frozen window-start baseline + this process's in-flight tally, and
+          • a FRESH read of committed period spend across ALL processes.
+        Re-reading the committed total every check (not only on rollover) means a second
+        process's committed spend is reflected promptly, bounding multi-process overshoot
+        to roughly one in-flight call per process — not one whole run per process.
+        """
         now = dt.datetime.now(dt.UTC)
         window = costs.period_start(period, now)
-        if self._window != window:  # first call, period change, or calendar rollover
-            try:
-                self._baseline_usd = await costs.period_spend(self._sf, period, now=now)
-            except Exception:  # warehouse hiccup: don't wedge runs, keep the prior baseline
-                logger.warning("budget guard: could not read period spend; using prior baseline")
+        rolled = self._window != window  # first call, period change, or calendar rollover
+        if rolled:
             self._window = window
             self._process_usd = 0.0
-        return self._baseline_usd + self._process_usd
+        try:
+            committed = await costs.period_spend(self._sf, period, now=now)
+            if rolled:
+                self._baseline_usd = committed  # freeze this window's baseline
+        except Exception:  # warehouse hiccup: don't wedge runs, fall back to the baseline
+            logger.warning("budget guard: could not read period spend; using prior baseline")
+            committed = self._baseline_usd
+        return max(self._baseline_usd + self._process_usd, committed)

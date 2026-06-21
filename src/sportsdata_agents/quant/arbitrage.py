@@ -275,11 +275,16 @@ async def scan_arbs(
         if fixture is None:
             continue
         start = fixture.start_time
-        if start is not None:
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=dt.UTC)
-            if start <= now:
-                continue  # in play or done — not an offer anyone can take
+        # Unknown start → we CANNOT confirm the game is pre-game, so an arb here could be a
+        # stale leg on a live/finished game (e.g. an exchange contract whose fixture carries
+        # no real start). Treat unknown as unsafe and skip — the module's ethos is that a
+        # clean board is the honest norm, never a fabricated margin on a live game.
+        if start is None:
+            continue
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=dt.UTC)
+        if start <= now:
+            continue  # in play or done — not an offer anyone can take
         for arb in arbs_for_fixture(fixture.name, market, rows, threshold_pct=threshold_pct):
             arb["fixture_id"] = str(fixture_id)
             arb["sport"] = fixture.sport

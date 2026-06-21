@@ -38,6 +38,15 @@ def find_value(
             raise ValueError(f"model prob for {name!r} has no market price")
 
     overround = sum(1.0 / o for o in odds_by_name.values())
+    # A COMPLETE market always overrounds (sum of implied probs > 1, the book's vig). Below
+    # ~1.0 means selections are MISSING, so de-vigging (fair = implied / overround) divides by
+    # too small a number and inflates every selection's fair prob → phantom edges. Refuse
+    # loudly rather than silently report value off a partial market.
+    if overround < 0.99:
+        raise ValueError(
+            f"market overround {overround:.3f} < 1 — incomplete market "
+            f"({len(odds_by_name)} selection(s) priced); pass the full market"
+        )
     selections: list[dict[str, Any]] = []
     value_names: list[str] = []
     for name, odds in odds_by_name.items():
