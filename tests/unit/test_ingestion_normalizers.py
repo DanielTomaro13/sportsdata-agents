@@ -966,7 +966,8 @@ def test_normalize_kalshi_events() -> None:
     assert thunder.event_name == "Thunder vs Pacers"
     # the seed dictionary already families the verified game series onto h2h
     assert thunder.market == "h2h"
-    assert thunder.meta["start_time"] == "2026-06-12T01:30:00Z"  # expected expiration ≈ game end
+    assert thunder.meta["end_time"] == "2026-06-12T01:30:00Z"  # expected expiration ≈ game END
+    assert "start_time" not in thunder.meta  # never a fake start (would fool the arb in-play gate)
     assert thunder.odds == pytest.approx(1 / 0.55, abs=1e-3)
     assert by_sel["pacers"].odds == pytest.approx(1 / 0.47, abs=1e-3)  # cents path
     assert thunder.meta["close_time"] == "2026-06-12T02:00:00Z"
@@ -1055,7 +1056,7 @@ def test_normalize_polymarket_events() -> None:
     assert thunder.sport == "basketball"
     assert thunder.event_name == "NBA Champion 2026"
     assert thunder.market == "h2h"  # Gamma's sportsMarketType rides the dictionary
-    assert thunder.meta["start_time"] == "2026-06-22T00:00:00Z"  # endDate as the day-window proxy
+    assert thunder.meta["end_time"] == "2026-06-22T00:00:00Z"  # endDate as the day-window proxy (END, not start)
     assert thunder.odds == pytest.approx(1 / 0.62, abs=1e-3)
     # no sportsMarketType -> the event title is the (book-local) market key
     assert grouped["pacers"].market == "nba champion 2026"

@@ -129,10 +129,12 @@ async def resolve_events(
                     func.max(OddsSnapshot.sport),
                     func.min(OddsSnapshot.captured_at),
                     func.max(OddsSnapshot.start_time),
+                    func.max(OddsSnapshot.end_time),
                 ).group_by(OddsSnapshot.provider, OddsSnapshot.event_external_id)
             )
         ).all()
         fixtures = (await session.execute(select(Fixture))).scalars().all()
+        fixtures_by_id: dict[uuid.UUID, Fixture] = {f.id: f for f in fixtures}
         # in-memory candidate index:
         # (sport_family, date) → [(fixture_id, sides|name tokens, start_time)]
         index: dict[tuple[str, str], list[tuple[uuid.UUID, Any, dt.datetime | None]]] = {}
@@ -156,7 +158,7 @@ async def resolve_events(
 
         stats = {"examined": 0, "mapped": 0, "created": 0, "ambiguous": 0, "skipped_unnamed": 0}
         now = dt.datetime.now(dt.UTC)
-        for provider, external_id, event_name, sport, first_seen, start_time in seen:
+        for provider, external_id, event_name, sport, first_seen, start_time, end_time in seen:
             if (provider, external_id) in mapped_keys:
                 continue
             stats["examined"] += 1
@@ -167,8 +169,11 @@ async def resolve_events(
             family = canonical_sport(str(sport or "?"))
             # window on the ADVERTISED start when the feed carried one — futures are
             # captured months before they run, so capture day would scatter the same
-            # outright across fixtures-by-capture-date (B3)
-            event_time = start_time or first_seen
+            # outright across fixtures-by-capture-date (B3). Exchanges carry no real start,
+            # only an END (resolution/expiry) — use it as the day-window PROXY here, but it
+            # must NOT become the fixture's start_time (the arb gate would misread it as a
+            # future kickoff for a live game). `start_time` stays the real start, or None.
+            event_time = start_time or end_time or first_seen
             day = fixture_day(event_time)
             sides = split_sides(name)
             mine: Any = (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(name)
@@ -223,14 +228,25 @@ async def resolve_events(
                     sport=family,
                     external_id=f"{provider}:{external_id}",  # founding book's key
                     name=f"{sides[0]} v {sides[1]}" if sides else name,
-                    start_time=event_time,
+                    # the REAL start only (None for an exchange-founded fixture), so the arb
+                    # in-play gate can't be fooled by an end-as-start; `end_time` keeps the
+                    # day-window proxy for matching.
+                    start_time=start_time,
+                    end_time=end_time,
                 )
                 session.add(fixture)
                 await session.flush()
                 target = fixture.id
+                fixtures_by_id[target] = fixture
                 add_to_index(target, family, day, fixture.name, fixture.start_time)
                 stats["created"] += 1
 
+            # Backfill a real start onto a fixture founded without one (e.g. an exchange
+            # founded it, then a book with a real kickoff joins) so exchange-vs-book arbs
+            # can pass the in-play gate.
+            fx = fixtures_by_id.get(target)
+            if fx is not None and fx.start_time is None and start_time is not None:
+                fx.start_time = start_time
             session.add(Event(fixture_id=target, provider=str(provider), external_id=str(external_id)))
             mapped_keys.add((provider, external_id))
             stats["mapped"] += 1
