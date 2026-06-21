@@ -76,8 +76,11 @@ jobs:
           if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
             sh scripts/sign-and-notarize.sh
           else
-            ( cd dist && zip -qr "sportsdata-$VERSION-macos-unsigned.zip" "sportsdata.app" )
-            echo "built UNSIGNED dist/sportsdata-$VERSION-macos-unsigned.zip"
+            # ditto, NOT zip: zip drops the PyInstaller framework symlinks and breaks the
+            # nested ad-hoc signatures, which makes the downloaded .app read as "damaged".
+            ditto -c -k --sequesterRsrc --keepParent \
+              "dist/sportsdata.app" "dist/sportsdata-$VERSION-macos-unsigned.zip"
+            echo "built ditto-packaged dist/sportsdata-$VERSION-macos-unsigned.zip"
           fi
 
       - name: Publish OTA data bundle (when the data key is configured)

@@ -21,19 +21,27 @@ export async function verifyStripeSignature(
   payload: string, sigHeader: string | null, secret: string, nowSec: number,
 ): Promise<boolean> {
   if (!sigHeader) return false;
-  const fields: Record<string, string> = {};
+  // The header carries `t=` plus one OR MORE `v1=` signatures — multiple while two signing
+  // secrets are active during a rotation. Collect every v1 and accept if ANY matches, so a
+  // rotation doesn't start rejecting legitimately-signed webhooks (missed grants/freezes).
+  let t = "";
+  const v1s: string[] = [];
   for (const part of sigHeader.split(",")) {
     const i = part.indexOf("=");
-    if (i > 0) fields[part.slice(0, i)] = part.slice(i + 1);
+    if (i <= 0) continue;
+    const k = part.slice(0, i);
+    const v = part.slice(i + 1);
+    if (k === "t") t = v;
+    else if (k === "v1") v1s.push(v);
   }
-  const t = fields["t"], v1 = fields["v1"];
-  if (!t || !v1) return false;
+  if (!t || !v1s.length) return false;
   if (Math.abs(nowSec - Number(t)) > 300) return false;
   const key = await crypto.subtle.importKey(
     "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${t}.${payload}`));
-  return timingSafeEqual(toHex(mac), v1);
+  const macHex = toHex(mac);
+  return v1s.some((v1) => timingSafeEqual(macHex, v1));
 }
 
 async function stripeGet(path: string, key: string): Promise<any> {

@@ -66,7 +66,7 @@ function newLicenceKey(): string {
   return "sd_live_" + [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-async function syncSubscription(subId: string, env: Env): Promise<void> {
+async function syncSubscription(subId: string, eventCreated: number, env: Env): Promise<void> {
   const r = await subscriptionGrant(subId, env.STRIPE_SECRET_KEY);
   if (!r.customerId) return;
   const now = Math.floor(Date.now() / 1000);
@@ -77,6 +77,12 @@ async function syncSubscription(subId: string, env: Env): Promise<void> {
   let id: string;
   if (cust) {
     id = cust.id;
+    // Stripe does NOT guarantee delivery order: a stale event (e.g. an older
+    // subscription.updated) arriving after a newer cancel/downgrade must not resurrect the
+    // old state. Skip anything created before the last event we applied for this customer.
+    const ent = await env.DB.prepare("SELECT last_event_at FROM entitlements WHERE customer_id = ?")
+      .bind(id).first<{ last_event_at: number | null }>();
+    if (ent && eventCreated < (ent.last_event_at ?? 0)) return;
     if (r.email) await env.DB.prepare("UPDATE customers SET email = ? WHERE id = ?").bind(r.email, id).run();
   } else {
     id = newLicenceKey();
@@ -84,12 +90,15 @@ async function syncSubscription(subId: string, env: Env): Promise<void> {
       .bind(id, r.customerId, r.email, now).run();
   }
 
+  // The WHERE on DO UPDATE is the concurrency backstop for the read-then-write above: a
+  // racing older event can't overwrite a newer one even if both pass the pre-read check.
   await env.DB.prepare(
-    `INSERT INTO entitlements (customer_id, status, sport_slots, gambling_slots, all_access, current_period_end, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    `INSERT INTO entitlements (customer_id, status, sport_slots, gambling_slots, all_access, current_period_end, last_event_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
      ON CONFLICT(customer_id) DO UPDATE SET
-       status=?2, sport_slots=?3, gambling_slots=?4, all_access=?5, current_period_end=?6, updated_at=?7`,
-  ).bind(id, r.status, r.grant.sport_slots, r.grant.gambling_slots, r.grant.all_access ? 1 : 0, r.periodEnd, now).run();
+       status=?2, sport_slots=?3, gambling_slots=?4, all_access=?5, current_period_end=?6, last_event_at=?7, updated_at=?8
+       WHERE ?7 >= COALESCE(entitlements.last_event_at, 0)`,
+  ).bind(id, r.status, r.grant.sport_slots, r.grant.gambling_slots, r.grant.all_access ? 1 : 0, r.periodEnd, eventCreated, now).run();
 
   // Fulfilment (Phase 5): on first activation, email the licence + setup exactly once.
   // We atomically *claim* the one-time slot with a conditional UPDATE (emailed_at NULL →
@@ -146,13 +155,15 @@ async function handleWebhook(req: Request, env: Env): Promise<Response> {
   // concurrent-redelivery double-run is harmless.
   if (String(event.type).startsWith("customer.subscription.")) {
     const subId = event.data?.object?.id;
-    if (subId) await syncSubscription(subId, env);
+    if (subId) await syncSubscription(subId, Number(event.created || 0), env);
   } else if (event.type === "charge.dispute.created") {
     // A dispute = they're clawing the money back → freeze access immediately.
     const chargeId = event.data?.object?.charge;
     if (chargeId) await freezeOnDispute(String(chargeId), env);
   }
-  await env.DB.prepare("INSERT INTO stripe_events (id, type, received_at) VALUES (?, ?, ?)")
+  // OR IGNORE: two concurrent redeliveries of the same event both pass the SELECT-miss
+  // above; without it the second INSERT throws a PK violation → 500 → another redelivery.
+  await env.DB.prepare("INSERT OR IGNORE INTO stripe_events (id, type, received_at) VALUES (?, ?, ?)")
     .bind(event.id, event.type, Math.floor(Date.now() / 1000)).run();
   return json({ ok: true });
 }
@@ -269,9 +280,10 @@ export default {
       }
       return json({ error: "not found" }, 404);
     } catch (e) {
-      // Log on the money/serving path so an outage is visible (observability is on).
+      // Log the detail (observability is on) but return a generic message — raw exception
+      // text can carry upstream Stripe/D1 internals we don't want to echo to clients.
       console.error(`worker error on ${req.method} ${url.pathname}:`, e);
-      return json({ error: String((e as Error)?.message || e) }, 500);
+      return json({ error: "internal error" }, 500);
     }
   },
 };
