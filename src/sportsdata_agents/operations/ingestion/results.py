@@ -84,13 +84,20 @@ async def ingest_racing_results(
                 if not placing or race.get("raceId") is None:
                     continue
                 winner = placing.split(",", 1)[0].strip()
-                if winner:
-                    results.append({
-                        "provider": "pointsbet_racing",
-                        "sport": "racing",
-                        "event_external_id": str(race["raceId"]),
-                        "winning_selection": winner,
-                    })
+                # Settle ONLY on a clean saddle number. Abandoned/void/scratched races put a
+                # text marker here (e.g. "ABD"/"VOID"/"NR") — never settle a bet off that;
+                # leave the race unsettled. (Dead-heats settle on the listed leader; true
+                # dead-heat stake-splitting would need the source to expose tied placings.)
+                if not winner.isdigit():
+                    logger.debug("racing result skipped — non-numeric placing %r (race %s)",
+                                 placing, race.get("raceId"))
+                    continue
+                results.append({
+                    "provider": "pointsbet_racing",
+                    "sport": "racing",
+                    "event_external_id": str(race["raceId"]),
+                    "winning_selection": winner,
+                })
     written = await record_race_results(session_factory, results)
     logger.info("racing results: %d settled", written)
     return written
