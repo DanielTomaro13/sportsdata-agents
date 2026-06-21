@@ -259,13 +259,10 @@ class Event(Base):
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
-class Selection(Base):
-    __tablename__ = "selections"
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("events.id"), nullable=True)
-    market: Mapped[str] = mapped_column(String(128), index=True)
-    name: Mapped[str] = mapped_column(String(400))
-    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+# NOTE: there is no `Selection`/`selections` table. The intended fixture→event→selection
+# hierarchy is only populated to fixture→event; selections live denormalized as strings on
+# the warehouse rows (odds_snapshots/prices). The dead table was removed (migration 0014) so
+# the schema describes what the system actually runs.
 
 # ─── Odds-history warehouse (M2.1, §9.1 — GLOBAL: market data is tenant-neutral) ──
 
