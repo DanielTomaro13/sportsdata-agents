@@ -3,8 +3,10 @@
 // The product repo is PRIVATE, so the built .app lives on a private GitHub release that
 // the public can't reach. Rather than expose a public binaries repo (anyone could grab +
 // reverse-engineer the build), we serve the binary through here:
-//   GET /download            with  Authorization: Bearer <licence>   (feeds.html, header)
-//   GET /download?key=<lic>  one-click link (the fulfilment email)
+//   GET /download              with  Authorization: Bearer <licence>   (feeds.html, header)
+//   GET /download?token=<tok>  one-click link (the fulfilment email — download-only token,
+//                              no raw key in the URL; see signDownloadToken in keys.ts)
+//   GET /download?key=<lic>    legacy one-click link (still honoured for already-sent emails)
 // The Worker verifies the licence is live, then fetches the latest release asset from the
 // private repo with a server-side read-only token and streams it back. Only paying
 // customers ever touch the binary; the token + the source stay server-side.
@@ -13,7 +15,7 @@
 // stance so an un-configured deploy fails loud-but-safe instead of leaking anything.
 
 import type { Env } from "./index";
-import { hashKey } from "./keys";
+import { hashKey, verifyDownloadToken } from "./keys";
 
 const CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
@@ -55,15 +57,34 @@ export async function handleDownload(req: Request, env: Env): Promise<Response> 
   if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
 
   const url = new URL(req.url);
-  const auth = req.headers.get("authorization") || "";
-  // Bearer header (feeds.html keeps the key out of the URL) OR ?key= (email one-click,
-  // where the key is already in the email body, so the query adds no exposure).
-  const key = (auth.startsWith("Bearer ") ? auth.slice(7) : url.searchParams.get("key") || "").trim();
-  if (!key) return json({ error: "missing licence key" }, 401);
+  const now = Math.floor(Date.now() / 1000);
+
+  // Resolve the customer's hashed id (the customers/entitlements PK) from, in order:
+  //  1. ?token=  — download-only, expiring token (the new email link; no raw key in the URL)
+  //  2. Bearer   — feeds.html sends the raw key in the header, never the URL
+  //  3. ?key=    — legacy one-click email link (the key is already in the email body)
+  // The DB stores only the SHA-256, so the raw-key paths hash before lookup. The raw-id
+  // fallback that bridged the at-rest migration is gone now that every row is hashed —
+  // keeping it would let the stored hash itself act as a bearer.
+  let custId: string;
+  const dlToken = url.searchParams.get("token");
+  if (dlToken) {
+    if (!env.DOWNLOAD_TOKEN_SECRET) return json({ error: "download tokens not configured" }, 503);
+    const fromToken = await verifyDownloadToken(dlToken, env.DOWNLOAD_TOKEN_SECRET, now);
+    if (!fromToken) {
+      return json({ error: "download link expired or invalid — get a fresh one from your feeds page" }, 403);
+    }
+    custId = fromToken;
+  } else {
+    const auth = req.headers.get("authorization") || "";
+    const key = (auth.startsWith("Bearer ") ? auth.slice(7) : url.searchParams.get("key") || "").trim();
+    if (!key) return json({ error: "missing licence key" }, 401);
+    custId = await hashKey(key);
+  }
 
   const row = await env.DB.prepare(
-    "SELECT status FROM entitlements WHERE customer_id = ? OR customer_id = ?",
-  ).bind(await hashKey(key), key).first<{ status: string }>();  // hash at rest; OR raw pre-migration
+    "SELECT status FROM entitlements WHERE customer_id = ?",
+  ).bind(custId).first<{ status: string }>();
   if (!row) return json({ error: "unknown licence" }, 404);
   if (!LIVE.has(row.status)) {
     return json({ error: `licence is not active (status: ${row.status})` }, 403);
