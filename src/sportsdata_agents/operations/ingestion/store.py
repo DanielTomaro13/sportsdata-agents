@@ -7,12 +7,16 @@ the series line-movement queries and backtests read.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import logging
+import uuid
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, delete, func, select
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
+from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.data.models import OddsSnapshot, Price
@@ -21,6 +25,18 @@ from sportsdata_agents.operations.ingestion.normalizers import PricePoint
 logger = logging.getLogger(__name__)
 
 _DEDUPE_CHUNK = 500  # event ids per latest-price query (well under SQLite's var cap)
+
+# The logical change-point key (unique index uq_prices_change, migration 0013). An ingest
+# insert that collides on it is a re-run / same-timestamp race → DO NOTHING (idempotent).
+_PRICE_UQ = ["provider", "book", "event_external_id", "market", "selection", "changed_at"]
+
+
+def _price_insert(session: AsyncSession):
+    """Dialect-aware INSERT for prices (postgres vs sqlite both support on_conflict)."""
+    name = ""
+    with contextlib.suppress(Exception):  # fall back to sqlite (dev) if bind is unset
+        name = session.bind.dialect.name  # type: ignore[union-attr]
+    return _pg_insert(Price) if name == "postgresql" else _sqlite_insert(Price)
 
 
 def _parse_start(value: Any) -> dt.datetime | None:
@@ -116,6 +132,7 @@ async def record_points(
     changes = 0
     async with session_factory() as session:
         latest = await _load_latest_odds(session, points)
+        price_rows: list[dict[str, Any]] = []
         for p in points:
             session.add(
                 OddsSnapshot(
@@ -137,21 +154,26 @@ async def record_points(
             prev = latest.get(key)
             new_odds = Decimal(str(p.odds))
             if prev is None or prev != new_odds:
-                session.add(
-                    Price(
-                        changed_at=captured_at,
-                        provider=p.provider,
-                        book=p.book,
-                        sport=p.sport,
-                        event_external_id=p.event_external_id,
-                        market=p.market,
-                        selection=p.selection,
-                        odds=new_odds,
-                        prev_odds=prev,
-                    )
-                )
+                price_rows.append({
+                    "id": uuid.uuid4(),
+                    "changed_at": captured_at,
+                    "provider": p.provider,
+                    "book": p.book,
+                    "sport": p.sport,
+                    "event_external_id": p.event_external_id,
+                    "market": p.market,
+                    "selection": p.selection,
+                    "odds": new_odds,
+                    "prev_odds": prev,
+                })
                 latest[key] = new_odds  # defensive: keys should be unique per batch
                 changes += 1
+        # ON CONFLICT DO NOTHING on the change-point unique index: a re-run or a
+        # same-timestamp concurrent writer can't double-insert the same change-point.
+        if price_rows:
+            await session.execute(
+                _price_insert(session).values(price_rows).on_conflict_do_nothing(index_elements=_PRICE_UQ)
+            )
         await session.commit()
     return {"snapshots": len(points), "price_changes": changes}
 
