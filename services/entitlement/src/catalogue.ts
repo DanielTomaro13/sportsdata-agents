@@ -30,11 +30,15 @@ export const PROXIED_PROVIDERS = new Set(["datagolf", "tab"]);
 // Provider → slot kind (mirrors the site catalogue's sport/gambling split). Drives
 // per-kind slot enforcement when a customer assigns feeds. Keep in sync with the
 // catalogue; an unlisted provider is rejected by the assignment endpoint.
-export const PROVIDER_KIND: Record<string, "sport" | "gambling"> = {
+export const PROVIDER_KIND: Record<string, "sport" | "gambling" | "social"> = {
   // sport & stats
   afl: "sport", cricketaustralia: "sport", datagolf: "sport", espn: "sport",
   laliga: "sport", mlb: "sport", nba: "sport", nrl: "sport", openf1: "sport",
-  premierleague: "sport", seriea: "sport", twitter: "sport",
+  premierleague: "sport", seriea: "sport",
+  // social — BYO-key (the customer brings their own X/Twitter API key + pays X), so it
+  // does NOT consume a sport/gambling slot (was mis-counted as a sport feed that returns
+  // nothing without the customer's key).
+  twitter: "social",
   // gambling & odds
   betfair: "gambling", betr: "gambling", entain: "gambling", fanduel: "gambling",
   kalshi: "gambling", pinnacle: "gambling", pointsbet: "gambling",

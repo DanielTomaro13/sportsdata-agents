@@ -45,15 +45,36 @@ const LIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 const ENTITLEMENT_TTL = 7 * 24 * 3600; // signed licence TTL == the MCP's offline grace
 const PERIOD_GRACE = 24 * 3600; // tolerance past current_period_end for clock skew / renewal lag
 
-// CORS: feeds.html (on GitHub Pages) calls /assignment cross-origin with an Authorization
-// header, which triggers a preflight. The key gates access, so a permissive origin is fine
-// (there are no cookies). Applied to every response + an OPTIONS preflight handler below.
+// CORS: feeds.html (GitHub Pages) calls /assignment + /download cross-origin with an
+// Authorization header → preflight. The key gates access (no cookies), but rather than a
+// blanket `*` we reflect ONLY allow-listed browser origins; server-side callers (the MCP)
+// send no Origin and don't need CORS at all. `applyCors` sets the per-request ACAO.
+const ALLOWED_ORIGINS = new Set<string>([
+  "https://danieltomaro13.github.io",
+]);
 const CORS: Record<string, string> = {
-  "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": "authorization, content-type",
   "access-control-max-age": "86400",
 };
+
+// The allow-listed Origin to echo back, or null (don't send ACAO — a non-listed browser is
+// blocked; a server-side caller with no Origin doesn't care).
+function allowedOrigin(req: Request): string | null {
+  const o = req.headers.get("Origin");
+  return o && ALLOWED_ORIGINS.has(o) ? o : null;
+}
+
+// Set the per-request ACAO on a response (reflected allow-listed origin, else removed).
+function applyCors(resp: Response, origin: string | null): Response {
+  if (origin) {
+    resp.headers.set("access-control-allow-origin", origin);
+    resp.headers.append("vary", "Origin");
+  } else {
+    resp.headers.delete("access-control-allow-origin");
+  }
+  return resp;
+}
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
@@ -259,31 +280,39 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+    const origin = allowedOrigin(req);
     // CORS preflight (browser sends OPTIONS before a cross-origin /assignment call).
-    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    if (req.method === "OPTIONS") {
+      const h: Record<string, string> = { ...CORS };
+      if (origin) h["access-control-allow-origin"] = origin;
+      return new Response(null, { status: 204, headers: h });
+    }
     try {
-      if (url.pathname === "/healthz") return json({ ok: true });
-      if (url.pathname === "/stripe/webhook" && req.method === "POST") return await handleWebhook(req, env);
-      if (url.pathname === "/entitlement" && req.method === "GET") return await handleEntitlement(req, env);
-      if (url.pathname === "/assignment" && (req.method === "GET" || req.method === "POST")) {
-        return await handleAssignment(req, env);
-      }
-      // /download — licence-gated app binary (streamed from the private release repo)
-      if (url.pathname === "/download" && req.method === "GET") return await handleDownload(req, env);
-      // /proxy/<provider>/<upstream-path...> — licence-authed credentialed-feed proxy
-      if (url.pathname.startsWith("/proxy/")) {
+      let resp: Response;
+      if (url.pathname === "/healthz") resp = json({ ok: true });
+      else if (url.pathname === "/stripe/webhook" && req.method === "POST") resp = await handleWebhook(req, env);
+      else if (url.pathname === "/entitlement" && req.method === "GET") resp = await handleEntitlement(req, env);
+      else if (url.pathname === "/assignment" && (req.method === "GET" || req.method === "POST")) {
+        resp = await handleAssignment(req, env);
+      } else if (url.pathname === "/download" && req.method === "GET") {
+        // licence-gated app binary (streamed from the private release repo)
+        resp = await handleDownload(req, env);
+      } else if (url.pathname.startsWith("/proxy/")) {
+        // /proxy/<provider>/<upstream-path...> — licence-authed credentialed-feed proxy
         const rest = url.pathname.slice("/proxy/".length);
         const slash = rest.indexOf("/");
         const provider = slash === -1 ? rest : rest.slice(0, slash);
         const subpath = slash === -1 ? "" : rest.slice(slash + 1);
-        return await handleProxy(req, env, provider, subpath, ctx);
+        resp = await handleProxy(req, env, provider, subpath, ctx);
+      } else {
+        resp = json({ error: "not found" }, 404);
       }
-      return json({ error: "not found" }, 404);
+      return applyCors(resp, origin);
     } catch (e) {
       // Log the detail (observability is on) but return a generic message — raw exception
       // text can carry upstream Stripe/D1 internals we don't want to echo to clients.
       console.error(`worker error on ${req.method} ${url.pathname}:`, e);
-      return json({ error: "internal error" }, 500);
+      return applyCors(json({ error: "internal error" }, 500), origin);
     }
   },
 };

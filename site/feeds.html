@@ -145,6 +145,7 @@ function renderBudget(){
 function canSelect(p){
   if (budget.all_access) return true;
   if (selected.has(p.id)) return true;            // already on → can always toggle off
+  if (p.kind === "social") return true;           // BYO-key, slot-free (you bring your own X key)
   const cap = p.kind === "sport" ? budget.sport_slots : budget.gambling_slots;
   return kindCount(p.kind) < cap;
 }
@@ -162,10 +163,12 @@ function feedEl(p){
 }
 
 function renderGroups(){
-  const sport = CAT.filter(p=>p.kind==="sport"), gamb = CAT.filter(p=>p.kind==="gambling");
+  const sport = CAT.filter(p=>p.kind==="sport"), gamb = CAT.filter(p=>p.kind==="gambling"),
+        social = CAT.filter(p=>p.kind==="social");
   $("#groups").innerHTML =
     `<div class="glabel">Sport &amp; stats</div><div class="grid">${sport.map(feedEl).join("")}</div>`+
-    `<div class="glabel">Gambling &amp; odds</div><div class="grid">${gamb.map(feedEl).join("")}</div>`;
+    `<div class="glabel">Gambling &amp; odds</div><div class="grid">${gamb.map(feedEl).join("")}</div>`+
+    (social.length ? `<div class="glabel">Social <span style="text-transform:none;letter-spacing:0;color:var(--dim)">— free, bring your own X/Twitter key</span></div><div class="grid">${social.map(feedEl).join("")}</div>` : "");
   const toggle = el => {
     const id = el.dataset.id;
     const p = CAT.find(x=>x.id===id);
