@@ -88,7 +88,9 @@
     <h1 style="font-size:18px;margin:0 0 6px">Connect it to your AI tool</h1>
     <ol class="note" style="margin:0 0 8px;padding-left:20px">
       <li><b style="color:var(--ink)">Download the app</b> → <a id="dl" href="#" target="_blank" rel="noopener">get the latest sportsdata-mcp build</a>, and drag it into Applications. (No Python needed — the app bundles everything.)<br>
-        <span class="note">First launch on macOS: this early build isn't notarized yet. If macOS blocks it, open <b>System Settings → Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b> (on older macOS: right-click the app → <b>Open</b>). One time only.</span></li>
+        <span class="note">macOS may say the app is <b>“damaged”</b> on first open — that's only because this early build isn't Apple-notarized yet (we're finishing that). To open it, drag it to Applications, then run this once in Terminal:<br>
+        <code style="display:inline-block;margin:4px 0;padding:4px 8px;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:6px;font-size:12px;user-select:all">xattr -dr com.apple.quarantine /Applications/sportsdata-mcp.app</code><br>
+        then open it normally. One time only — it goes away once the notarized version ships.</span></li>
       <li><b style="color:var(--ink)">Set it up</b> — run this once in Terminal; it registers itself with your AI clients using your licence:</li>
     </ol>
     <pre id="setupcmd"></pre>

@@ -58,7 +58,9 @@ function licenceEmailHtml(key: string, g: EmailGrant, downloadUrl: string, feeds
   <h3 style="margin:24px 0 6px">Set it up — ${choose ? "three" : "two"} steps</h3>
   ${chooseStep}
   <p style="margin:0 0 10px"><b>${dl}.</b> <a href="${esc(downloadUrl)}" style="color:#2563eb">Download the sportsdata-mcp app</a> and drag it into Applications. No Python needed — it bundles everything.<br>
-  <span style="color:#888;font-size:13px">First launch on macOS: this early build isn't notarized yet. If macOS blocks it, open <b>System Settings → Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b> (on older macOS: right-click the app → <b>Open</b>). One time only.</span></p>
+  <span style="color:#888;font-size:13px">macOS may say the app is <b>"damaged"</b> on first open — only because this early build isn't Apple-notarized yet. Drag it to Applications, then run this once in Terminal:<br>
+  <code style="display:inline-block;margin:4px 0;padding:4px 8px;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:6px;font:12px ui-monospace,Menlo,monospace">xattr -dr com.apple.quarantine /Applications/sportsdata-mcp.app</code><br>
+  then open it normally. One time only — it goes away once the notarized version ships.</span></p>
   <p style="margin:0 0 6px"><b>${su}.</b> Run this once in Terminal — it registers itself with your AI clients using your licence:</p>
   <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto">${setupCmd}</pre>
   <p style="color:#555;font-size:14px;margin:8px 0 0">Then restart your AI client and ask it to <i>"list available sportsdata groups"</i>. Changing feeds later just means re-saving on that page + a restart — your licence already carries the list, so no re-download.</p>
