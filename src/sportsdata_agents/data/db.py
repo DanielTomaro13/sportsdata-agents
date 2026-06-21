@@ -91,11 +91,65 @@ def _add_missing_columns(conn: Connection) -> None:
                 log.warning("warehouse: could not add %s.%s (%s)", table.name, col.name, e)
 
 
+def _create_missing_indexes(conn: Connection) -> None:
+    """Create any model-defined Index missing from an EXISTING SQLite table. ``create_all``
+    only builds indexes for tables it creates *fresh*, so a warehouse that predates an index
+    (e.g. ``uq_prices_change``, migration 0013) never gets it — which silently degrades the
+    ingest's ON CONFLICT idempotency on the desktop. For a UNIQUE index that fails on existing
+    duplicate rows, dedup (keep the lowest id) then retry — mirrors the alembic migration.
+    Each attempt is isolated in a SAVEPOINT so one failure can't poison the rest."""
+    import logging
+
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import IntegrityError, OperationalError
+
+    from sportsdata_agents.data.base import Base
+
+    log = logging.getLogger(__name__)
+    insp = inspect(conn)
+    existing_tables = set(insp.get_table_names())
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        have = {ix["name"] for ix in insp.get_indexes(table.name)}
+        cols = {c["name"] for c in insp.get_columns(table.name)}
+        for index in table.indexes:
+            if index.name in have:
+                continue
+            idx_cols = [c.name for c in index.columns]
+            if not all(c in cols for c in idx_cols):
+                continue  # the columns themselves are missing — _add_missing_columns handles that
+            sp = conn.begin_nested()
+            try:
+                index.create(conn)
+                sp.commit()
+                log.info("warehouse: created missing index %s on %s", index.name, table.name)
+            except (IntegrityError, OperationalError):
+                sp.rollback()
+                if not (index.unique and "id" in cols):
+                    log.warning("warehouse: could not create index %s on %s", index.name, table.name)
+                    continue
+                grp = ", ".join(f'"{c}"' for c in idx_cols)
+                sp2 = conn.begin_nested()
+                try:
+                    conn.exec_driver_sql(
+                        f'DELETE FROM "{table.name}" WHERE id NOT IN '
+                        f'(SELECT MIN(id) FROM "{table.name}" GROUP BY {grp})'
+                    )
+                    index.create(conn)
+                    sp2.commit()
+                    log.info("warehouse: deduped + created unique index %s on %s", index.name, table.name)
+                except Exception as e:
+                    sp2.rollback()
+                    log.warning("warehouse: could not create unique index %s (%s)", index.name, e)
+
+
 async def ensure_schema(engine: AsyncEngine | None = None) -> None:
-    """Bring the desktop's self-contained SQLite warehouse up to the current ORM
-    schema at launch (no runtime alembic). ``create_all`` adds any missing TABLES;
-    ``_add_missing_columns`` then adds any missing COLUMNS to existing tables. Gated
-    to SQLite so the Postgres/server path stays alembic-managed and untouched."""
+    """Bring the desktop's self-contained SQLite warehouse up to the current ORM schema at
+    launch (no runtime alembic). ``create_all`` adds missing TABLES; ``_add_missing_columns``
+    adds missing COLUMNS to existing tables; ``_create_missing_indexes`` adds missing INDEXES
+    (incl. unique ones the Postgres path gets via alembic). Gated to SQLite so the
+    Postgres/server path stays alembic-managed and untouched."""
     engine = engine or get_engine()
     if not str(engine.url).startswith("sqlite"):
         return  # server/Postgres schema is alembic's job, not create_all's
@@ -105,6 +159,9 @@ async def ensure_schema(engine: AsyncEngine | None = None) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
+    # Indexes in their OWN transaction: a dedup/constraint hiccup can't undo the schema above.
+    async with engine.begin() as conn:
+        await conn.run_sync(_create_missing_indexes)
 
 
 @asynccontextmanager
