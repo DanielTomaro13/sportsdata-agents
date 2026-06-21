@@ -13,6 +13,7 @@
 // stance so an un-configured deploy fails loud-but-safe instead of leaking anything.
 
 import type { Env } from "./index";
+import { hashKey } from "./keys";
 
 const CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
@@ -61,8 +62,8 @@ export async function handleDownload(req: Request, env: Env): Promise<Response> 
   if (!key) return json({ error: "missing licence key" }, 401);
 
   const row = await env.DB.prepare(
-    "SELECT status FROM entitlements WHERE customer_id = ?",
-  ).bind(key).first<{ status: string }>();
+    "SELECT status FROM entitlements WHERE customer_id = ? OR customer_id = ?",
+  ).bind(await hashKey(key), key).first<{ status: string }>();  // hash at rest; OR raw pre-migration
   if (!row) return json({ error: "unknown licence" }, 404);
   if (!LIVE.has(row.status)) {
     return json({ error: `licence is not active (status: ${row.status})` }, 403);

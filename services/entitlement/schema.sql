@@ -2,7 +2,9 @@
 -- One customer ↔ one Stripe customer ↔ one licence key ↔ one entitlement row.
 
 CREATE TABLE IF NOT EXISTS customers (
-  id                  TEXT PRIMARY KEY,        -- our id (== licence key, "sd_live_…")
+  id                  TEXT PRIMARY KEY,        -- SHA-256 of the licence key (the raw "sd_live_…"
+                                               -- key is emailed + presented as the bearer; only
+                                               -- its hash is stored, so a DB read yields no key)
   stripe_customer_id  TEXT UNIQUE,
   email               TEXT,
   created_at          INTEGER NOT NULL         -- unix seconds
