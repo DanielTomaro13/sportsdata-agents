@@ -28,6 +28,10 @@ export interface Env {
   SIGNING_KID?: string;
   // Proxy credentials (Phase 1b) — optional; a provider's proxy is inert without them.
   DATAGOLF_KEY?: string;
+  // Optional DataGolf key POOL (comma-separated). When set, each licence is stable-assigned
+  // to one key by hashing it, so load spreads across keys (each with its own 45 req/min cap)
+  // instead of one shared key being the scaling cliff. Falls back to DATAGOLF_KEY.
+  DATAGOLF_KEYS?: string;
   TAB_CLIENT_ID?: string;
   TAB_CLIENT_SECRET?: string;
   // DataGolf proxy rate limiters (protect our shared key's 45 req/min upstream cap).
@@ -43,6 +47,11 @@ export interface Env {
   // release repo. Inert (503) without it, so the source/binary never leak from a misconfig.
   GITHUB_DOWNLOAD_TOKEN?: string;
   GITHUB_RELEASE_REPO?: string; // owner/repo override (default: the product repo)
+  // Optional R2 origin for the binary — removes the GitHub-release dependency (a SPOF +
+  // its own rate limits). When bound, /download serves from here and only falls back to the
+  // GitHub release if the object is missing. Inert until the bucket is provisioned + filled.
+  DOWNLOAD_BUCKET?: R2Bucket;
+  DOWNLOAD_R2_KEY?: string; // object key of the current build (default: sportsdata-mcp-latest.dmg)
   // HMAC secret for the email's download-only token (keeps the raw key out of the URL).
   // Inert without it — the fulfilment email falls back to the legacy ?key= link.
   DOWNLOAD_TOKEN_SECRET?: string;

@@ -73,6 +73,14 @@ npx wrangler secret put STRIPE_WEBHOOK_SECRET     # filled in step 6 (whsec_…)
 npx wrangler secret put RESEND_API_KEY            # optional — enables the fulfilment email
 #   optional: DATAGOLF_KEY (datagolf proxy), TAB_CLIENT_ID/TAB_CLIENT_SECRET (tab proxy),
 #   LICENCE_FROM_EMAIL (a verified Resend sender; defaults to onboarding@resend.dev)
+#   optional: DOWNLOAD_TOKEN_SECRET — enables the email's download-only token link (keeps
+#     the raw key out of the URL); without it the email uses the legacy ?key= link.
+#   optional scaling: DATAGOLF_KEYS — comma-separated DataGolf key POOL. Each licence is
+#     stable-assigned to one key (load spreads across keys, each with its own 45 req/min
+#     cap); falls back to DATAGOLF_KEY. Set via `wrangler secret put DATAGOLF_KEYS`.
+#   optional origin: bind an R2 bucket as DOWNLOAD_BUCKET (+ DOWNLOAD_R2_KEY) in
+#     wrangler.jsonc to serve the binary from R2 instead of the GitHub release (a missing
+#     object falls back to GitHub). Provision the bucket + upload a build to activate.
 
 # 5. Deploy → note the workers.dev URL
 npx wrangler deploy
