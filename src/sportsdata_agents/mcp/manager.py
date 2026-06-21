@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 import re
 from collections.abc import Mapping, Sequence
@@ -28,6 +29,34 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from sportsdata_agents.config import get_settings
+
+log = logging.getLogger(__name__)
+
+# The minimum sportsdata-mcp the agents' runtime contracts assume (SPORTSDATA_MCP_GROUPS
+# scoping, meta-tool names, the licence gate). The two repos version independently (the
+# desktop DMG co-bundles a matched pair, but `uvx`/dev installs don't), so we read the
+# server's version from the MCP `initialize` handshake and WARN on a mismatch rather than
+# fail — a too-old data plane surfaces as a loud log line, not a silent tool error.
+MIN_MCP_VERSION = (0, 12, 0)
+
+
+def _ver_tuple(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
+
+
+def _check_mcp_version(init_result: Any) -> None:
+    info = getattr(init_result, "serverInfo", None)
+    name = (getattr(info, "name", "") or "").lower()
+    ver = getattr(info, "version", "") or ""
+    if "sportsdata" not in name or not ver:
+        return  # not our server, or it doesn't report a version — nothing to assert
+    if _ver_tuple(ver) < MIN_MCP_VERSION:
+        log.warning(
+            "data plane sportsdata-mcp %s is older than the minimum %s the agents expect — "
+            "tool contracts may mismatch; update the MCP (or rebuild the desktop app)",
+            ver, ".".join(map(str, MIN_MCP_VERSION)),
+        )
+
 
 # Money/placement verbs an agent-facing tool name must never carry (§13). Deliberately
 # strict: it also hides the read-only `betfair_cashout` availability feed — losing one
@@ -100,7 +129,7 @@ class MCPManager:
             read, write = await self._stdio_cm.__aenter__()
             self._session_cm = ClientSession(read, write)
             self._session = await self._session_cm.__aenter__()
-            await self._session.initialize()
+            _check_mcp_version(await self._session.initialize())
         except BaseException:
             await self.__aexit__(None, None, None)
             raise
