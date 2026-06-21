@@ -22,7 +22,9 @@ export function looksHashed(id: string): boolean {
 // leaked it grants nothing but the (still licence-gated, still expiring) binary. HMAC-SHA256
 // keeps it unforgeable; inert without DOWNLOAD_TOKEN_SECRET (the email falls back to ?key=).
 
-export const DOWNLOAD_TOKEN_TTL = 30 * 24 * 3600; // email links stay good for 30 days
+export const DOWNLOAD_TOKEN_TTL = 7 * 24 * 3600; // email links stay good for 7 days (a leaked
+// URL is download-only + still licence-gated, but keep the window tight; the feeds page
+// re-mints a fresh link on demand if a customer clicks an expired one.
 
 async function hmacHex(secret: string, msg: string): Promise<string> {
   const k = await crypto.subtle.importKey(
