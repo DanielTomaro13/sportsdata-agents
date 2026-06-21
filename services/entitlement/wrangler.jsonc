@@ -24,11 +24,22 @@
       { "name": "DATAGOLF_KEY_RL", "type": "ratelimit", "namespace_id": "1002", "simple": { "limit": 15, "period": 60 } }
     ]
   }
+  // R2 download origin (optional) — to serve the binary from R2 instead of the GitHub
+  // release: create a bucket, upload the build, then UNCOMMENT this and redeploy. A missing
+  // object falls back to the GitHub path, so leaving it commented changes nothing.
+  //   wrangler r2 bucket create sportsdata-downloads
+  // "r2_buckets": [
+  //   { "binding": "DOWNLOAD_BUCKET", "bucket_name": "sportsdata-downloads" }
+  // ],
   // Secrets (set with `wrangler secret put …`, never in this file):
   //   STRIPE_SECRET_KEY            — your Stripe secret (server-side API calls)
   //   STRIPE_WEBHOOK_SECRET        — the webhook signing secret (whsec_…)
   //   SIGNING_KEY_PKCS8_B64        — Ed25519 private key, PKCS8 DER, base64 (keygen script)
+  //   SIGNING_KID                  — key id stamped on tokens (default "k1"; set on rotation)
   //   DATAGOLF_KEY                 — your DataGolf key (proxy attaches it server-side)
+  //   DATAGOLF_KEYS                — optional comma-separated POOL (spreads load; falls back to DATAGOLF_KEY)
+  //   DOWNLOAD_TOKEN_SECRET        — enables the email's download-only token link (else ?key= fallback)
+  //   DOWNLOAD_R2_KEY              — object key of the build in R2 (default sportsdata-mcp-latest.dmg)
   //   TAB_CLIENT_ID / TAB_CLIENT_SECRET — TAB OAuth creds (proxy mints tokens server-side)
   //   RESEND_API_KEY               — enables the fulfilment email (Phase 5); inert if unset
   //   LICENCE_FROM_EMAIL           — verified Resend sender (defaults to onboarding@resend.dev)
