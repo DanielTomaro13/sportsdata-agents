@@ -31,6 +31,11 @@ const json = (data: unknown, status = 200): Response =>
 
 const LIVE = new Set(["active", "trialing", "past_due"]);
 
+// Keep a filename safe to interpolate into a content-disposition header (no quotes / CR-LF
+// that could break out of the value). Names are operator/release-controlled, so this is
+// belt-and-braces, but cheap.
+const safeFilename = (name: string): string => name.replace(/[^\w.\-]/g, "_") || "download";
+
 // Default to the product repo; overridable so a fork/rename doesn't need a code change.
 const DEFAULT_REPO = "DanielTomaro13/sportsdata-mcp";
 const UA = "sportsdata-entitlement/1.0";
@@ -102,7 +107,7 @@ export async function handleDownload(req: Request, env: Env): Promise<Response> 
         status: 200,
         headers: {
           "content-type": obj.httpMetadata?.contentType || "application/octet-stream",
-          "content-disposition": `attachment; filename="${objKey.split("/").pop()}"`,
+          "content-disposition": `attachment; filename="${safeFilename(objKey.split("/").pop() || "")}"`,
           "cache-control": "no-store",
           ...CORS,
         },
@@ -162,7 +167,7 @@ export async function handleDownload(req: Request, env: Env): Promise<Response> 
     status: 200,
     headers: {
       "content-type": asset.content_type || "application/octet-stream",
-      "content-disposition": `attachment; filename="${asset.name}"`,
+      "content-disposition": `attachment; filename="${safeFilename(asset.name)}"`,
       "cache-control": "no-store",
       ...CORS,
     },
