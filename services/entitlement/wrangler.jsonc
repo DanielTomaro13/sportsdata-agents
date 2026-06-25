@@ -7,8 +7,11 @@
   "compatibility_date": "2024-11-01",
   // Ed25519 (Web Crypto) + fetch — no nodejs_compat needed.
   "observability": { "enabled": true },
-  // Branded API host (Phase 4). Additive — the workers.dev subdomain stays live too, so
-  // already-sent email download links keep working. Cloudflare auto-manages the DNS record.
+  // Branded API host (Phase 4). MUST keep workers_dev TRUE alongside it: the shipped MCP
+  // bakes the workers.dev URL as its default entitlement endpoint (licence.py), and
+  // already-sent email links point there too — adding a custom domain otherwise turns the
+  // workers.dev subdomain OFF, which would break installed customers.
+  "workers_dev": true,
   "routes": [
     { "pattern": "api.sportsdata-ai.com", "custom_domain": true }
   ],
