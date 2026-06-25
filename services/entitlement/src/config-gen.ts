@@ -8,8 +8,9 @@
 export const APP_BIN = "/Applications/sportsdata-mcp.app/Contents/MacOS/sportsdata-mcp";
 
 // The entitlement Worker's own public base — used to build the licence-gated download
-// link in the fulfilment email. Override with env.ENTITLEMENT_PUBLIC_URL.
-export const DEFAULT_ENTITLEMENT_URL = "https://sportsdata-entitlement.sportsdata.workers.dev";
+// link in the fulfilment email. Override with env.ENTITLEMENT_PUBLIC_URL. The branded
+// custom domain (workers.dev still resolves too, so already-sent links keep working).
+export const DEFAULT_ENTITLEMENT_URL = "https://api.sportsdata-ai.com";
 
 // The licence-gated download link. The product repo is private, so the binary is served
 // through the Worker's /download (it checks the licence, then streams the release asset).
