@@ -25,8 +25,9 @@ export function downloadUrl(base: string, key: string): string {
 }
 
 // The Manage-feeds page where a customer assigns which feeds fill their slots.
-// Override with env.LICENCE_FEEDS_URL.
-export const DEFAULT_FEEDS_URL = "https://danieltomaro13.github.io/sportsdata-site/feeds.html";
+// Override with env.LICENCE_FEEDS_URL. Live on the custom domain (the old
+// danieltomaro13.github.io/sportsdata-site/ URL still redirects here).
+export const DEFAULT_FEEDS_URL = "https://sportsdata-ai.com/feeds.html";
 
 // The one-time setup command (self-registers into Claude Desktop / Cursor).
 export function setupCommand(key: string): string {
