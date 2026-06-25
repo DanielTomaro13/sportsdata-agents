@@ -11,6 +11,10 @@ cp "$REPO_DIR"/site/index.html "$REPO_DIR"/site/feeds.html "$REPO_DIR"/site/demo
 [ -f "$REPO_DIR"/site/stripe.json ] && cp "$REPO_DIR"/site/stripe.json "$WORK"/
 # entitlement.json points feeds.html at your deployed Worker; ship it when present.
 [ -f "$REPO_DIR"/site/entitlement.json ] && cp "$REPO_DIR"/site/entitlement.json "$WORK"/
+# CNAME binds the Pages site to a custom domain (sportsdata-ai.com). Only create site/CNAME
+# AS PART OF the domain cutover (see DOMAIN-CUTOVER.md) — once published, GitHub Pages serves
+# at the custom domain, so don't add it until the DNS records are live.
+[ -f "$REPO_DIR"/site/CNAME ] && cp "$REPO_DIR"/site/CNAME "$WORK"/
 cd "$WORK"
 git add -A
 git diff --cached --quiet && { echo "site unchanged"; exit 0; }

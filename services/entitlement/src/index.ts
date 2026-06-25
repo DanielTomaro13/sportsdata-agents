@@ -68,6 +68,10 @@ const PERIOD_GRACE = 24 * 3600; // tolerance past current_period_end for clock s
 // send no Origin and don't need CORS at all. `applyCors` sets the per-request ACAO.
 const ALLOWED_ORIGINS = new Set<string>([
   "https://danieltomaro13.github.io",
+  // sportsdata-ai.com cutover — additive + safe to ship before DNS exists (an origin that
+  // never sends a request just sits unused). Lets feeds.html work the moment the site moves.
+  "https://sportsdata-ai.com",
+  "https://www.sportsdata-ai.com",
 ]);
 const CORS: Record<string, string> = {
   "access-control-allow-methods": "GET, POST, OPTIONS",
