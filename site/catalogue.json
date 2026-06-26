@@ -4843,6 +4843,200 @@
    ]
   },
   {
+   "id": "nbl",
+   "name": "NBL",
+   "kind": "sport",
+   "byo": false,
+   "proxied": false,
+   "count": 13,
+   "tools": [
+    {
+     "name": "nbl_ladder",
+     "desc": "The NBL ladder (standings) for one season — 10 clubs with position, played/won/lost, points_percentage, win_percentage, points_for/against, last_5 and current streak. `year` is the season start year (2025 = current NBL26).",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "seasonType",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": "{\"type\":\"standings\",\"fetched\":1782447192,\"ttlRemaining\":300,\"count\":10,\"source\":\"redis\",\"data\":[{\"id\":\"49b90e1d-4806-4142-9e73-38427e212aed\",\"position\":1,\"won\":24,\"lost\":9,\"played\":33,\"points_percentage\":1.1379,\"win_percentage\":0.7273,\"last_5\":\"LWLWLWLLWWWWLLWWWWWWLLWWWWWWWWWWW\",\"streak\":11,\"points_for\":3276,\"points_against\":2879,\"away_losses\":5,\"away_wins\":11,\"home_losses\":4,\"home_wins\":13,\"team\":{\"id\":\"39fc4268-0cdf-455f-9ca1-12e344064000\",\"external_id\":\"bf06cec9-410c-11f0-…(truncated)"
+    },
+    {
+     "name": "nbl_match_outcomes",
+     "desc": "Per-team match outcomes (results) for a season — win/loss rows by team, for head-to-head and form analysis.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "seasonType",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_next_matches",
+     "desc": "Upcoming matches across all NBL teams for a season (empty in the deep off-season). For the full fixture incl. completed games use nbl_schedule.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_player_boxscores",
+     "desc": "Game-by-game box scores for one player across a season — per match the points/rebounds/assists/blocks/steals/turnovers and playing position. The score-series / game-log source.",
+     "args": [
+      {
+       "n": "playerId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "seasonType",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_player_stats",
+     "desc": "Season statistics for one player — points/rebounds/assists/blocks/steals/turnovers and their per-game averages, shooting splits (field goals / three-pointers / free throws made-attempted-percentage), fouls, minutes. playerId is the player UUID from nbl_players.",
+     "args": [
+      {
+       "n": "playerId",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_players",
+     "desc": "All players for one season (~165) — each with jersey_number, playing_position and embedded player {id, first_name, last_name, …}, team and season objects. The player `id` (UUID) feeds nbl_player_stats / nbl_player_boxscores.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_schedule",
+     "desc": "Every match for one season — each with start_time, round, match_status (complete/upcoming/live), home/away scores, attendance, match_slug/title, a play_by_play flag, the Genius external_id, and full home_team/away_team objects (name, team_code, logos, colours). `seasonType=all` for the whole season.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "seasonType",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_season_current",
+     "desc": "The current season(s). Convenience shortcut over nbl_seasons; may return empty in the deep off-season (the call still resolves). Use `limit` to cap rows.",
+     "args": [
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_seasons",
+     "desc": "Every NBL season (~73: NBL27, NBL26, blitz/preseason/tournament variants…), each with id (UUID), name, year (season start year), season_type, the Genius external_id, and start/end dates. The discovery entry point — take a season's `id` for nbl_stat_leaders, or its `year` for the year-scoped feeds. Current regular season is the latest `year` with season_type=regular.",
+     "args": [],
+     "example": "{\"type\":\"seasons\",\"fetched\":1782447192,\"ttlRemaining\":300,\"count\":73,\"source\":\"redis\",\"data\":[{\"id\":\"67d4a190-40bc-4bfb-a9a2-11bd0b93f020\",\"name\":\"NBL27\",\"year\":\"2026\",\"season_type\":\"regular\",\"external_id\":\"1b041b7b-3dde-11f1-8b34-cf648fa5ccb5\",\"start_date\":\"2026-09-19T00:00:00\",\"end_date\":\"2027-02-28T00:00:00\",\"competition\":{\"league\":{\"name\":\"NBL Synergy\",\"organisation\":{\"shortcode\":\"nbl\"}},\"division\":[]},\"matches\":[\"00808e5a-bd20-4a98-aa0b-bc7ff35b5b82\",\"01c3439f-b3a1-465d-…(truncated)"
+    },
+    {
+     "name": "nbl_stat_leaders",
+     "desc": "Season statistical leaders (points/rebounds/assists/etc. averages, per player) for one season — pass the season UUID (`seasonId`) from nbl_seasons (data[].id), NOT the year. Use `limit` to cap rows (limit=-1 for all).",
+     "args": [
+      {
+       "n": "seasonId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_team_roster",
+     "desc": "One team's roster for a season. teamId comes from the team objects in nbl_players / nbl_schedule / nbl_ladder.",
+     "args": [
+      {
+       "n": "teamId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_team_stats",
+     "desc": "Team statistics for a season — totals and per-game averages across assists, rebounds (offensive/defensive), blocks, steals, turnovers, and shooting (field goals / three-pointers / free throws made-attempted-percentage).",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "seasonType",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "nbl_teams",
+     "desc": "The NBL club catalogue (~78 incl. historical/relocated franchises) — each with id (UUID), name, team_code, team_nickname, logos and brand colours. Join team_id from nbl_players / nbl_schedule back to here.",
+     "args": [],
+     "example": "{\"type\":\"teams\",\"fetched\":1782446997,\"ttlRemaining\":300,\"count\":78,\"source\":\"redis\",\"data\":[{\"id\":\"9342ec36-db26-4dff-83b3-7668be32f8b5\",\"external_id\":\"c013660f-410c-11f0-aff8-1b3c55488bbb\",\"name\":\"Next Gen Five\",\"team_code\":\"NG5\",\"team_logo\":null,\"external_team_logo\":null,\"team_nickname\":\"NGFive\",\"color_primary\":null,\"color_secondary\":null,\"color_tertiary\":null,\"ticket_url\":null,\"established\":null,\"head_coach\":null,\"championships\":null,\"website\":null,\"membership_url\":null,\"s…(truncated)"
+    }
+   ]
+  },
+  {
    "id": "nrl",
    "name": "NRL",
    "kind": "sport",

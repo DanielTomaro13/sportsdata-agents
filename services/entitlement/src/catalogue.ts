@@ -44,6 +44,7 @@ export const PROVIDER_KIND: Record<string, "sport" | "gambling" | "social"> = {
   "laliga": "sport",
   "mlb": "sport",
   "nba": "sport",
+  "nbl": "sport",
   "nrl": "sport",
   "openf1": "sport",
   "pinnacle": "gambling",
