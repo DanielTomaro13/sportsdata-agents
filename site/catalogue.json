@@ -9470,7 +9470,7 @@
    "kind": "sport",
    "byo": false,
    "proxied": false,
-   "count": 7,
+   "count": 8,
    "tools": [
     {
      "name": "wta_player",
@@ -9565,6 +9565,23 @@
     {
      "name": "wta_tournament_matches",
      "desc": "All matches/results for one tournament edition (group id + year) — e.g. AO 2025 returns ~302 matches with court, draw level/type, entrant types, match state and ids. Use for draws + results.",
+     "args": [
+      {
+       "n": "groupId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "wta_tournament_players",
+     "desc": "The entry list / draw for one tournament edition — {events:[{eventTypeCode, eventPlayers:[{players:[{id, firstName, lastName}], seed, entryType, eliminated, winner, runnerUp}]}]}. One event per discipline (eventTypeCode LS = Ladies Singles, LD = Ladies Doubles). Carries seeding, entry type, and final results (winner/runnerUp/eliminated). E.g. AO 2025 singles = 128 entrants.",
      "args": [
       {
        "n": "groupId",
