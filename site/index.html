@@ -303,7 +303,7 @@
   </nav>
 
   <div class="hero">
-    <div class="eyebrow"><span class="dot"></span> Cross-book odds from 10 bookmakers and 2 prediction markets, plus 11 sports feeds</div>
+    <div class="eyebrow"><span class="dot"></span> Cross-book odds from 11 bookmakers and 2 prediction markets, plus 12 sports feeds</div>
     <h1>Live odds &amp; stats.<br><span class="grad">In your own AI tool.</span></h1>
     <p class="sub">A live sports data plane as <b>MCP tools</b> — cross-book odds, official
     stats and results — wired straight into the AI client you already use (Claude Desktop,
@@ -375,7 +375,7 @@
       .tb-ex pre{margin:7px 0 0;background:rgba(0,0,0,.32);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:8px;padding:10px 12px;font-family:var(--mono,monospace);font-size:11px;color:var(--dim,#8e97b3);overflow:auto;max-height:240px;line-height:1.45;white-space:pre}
       .tb-empty{color:var(--faint,#62748f);font-size:13px;padding:24px;text-align:center}
     </style>
-    <div class="sec-head"><h2>Browse every tool</h2><p>Pick an MCP to see exactly what it gives you — every tool, across 24 data providers.</p></div>
+    <div class="sec-head"><h2>Browse every tool</h2><p>Pick an MCP to see exactly what it gives you — every tool, across 26 data providers.</p></div>
     <p class="boundary"><b>Base is the data tools, inside your own AI client</b> (Claude Desktop, Cursor, ChatGPT… — you bring your model key). <b>No agents, no app to run</b> — just live sports &amp; odds in the assistant you already use. <em>The agent app (chat, the agent team, alerts) is Plus/Pro — coming soon, a separate product.</em></p>
     <div class="tb">
       <div class="tb-left">
@@ -486,8 +486,8 @@
         <p>Bring your own Claude, GPT or Gemini key — or plug the data plane straight
         into your own client as an MCP server.</p></div>
       <div class="step"><h4>Agents query live data</h4>
-        <p>Specialist agents pull from 24 providers — bookmakers, prediction markets, official league APIs,
-        racing feeds — through one capability-tagged tool surface.</p></div>
+        <p>Specialist agents pull from 26 providers — bookmakers, prediction markets, official league APIs,
+        racing &amp; fantasy feeds — through one capability-tagged tool surface.</p></div>
       <div class="step"><h4>Grounded answers</h4>
         <p>Every number traces to a tool result, verified before it reaches you.
         Budgets cap every run. No invented facts, ever.</p></div>
@@ -706,15 +706,17 @@ const ROWS = {
   "row-books": [
     ["Sportsbet", "#1660d6", "SB"], ["TAB", "#16a34a", "TAB"], ["Pinnacle", "#0f172a", "PIN"],
     ["Unibet", "#14532d", "UB"], ["PointsBet", "#dc2626", "PB"], ["Ladbrokes", "#b91c1c", "LB"],
-    ["Neds", "#ea580c", "NE"], ["betr", "#7c3aed", "BR"], ["FanDuel", "#1d4ed8", "FD"],
-    ["FanDuel Racing", "#0e7490", "FR"], ["Kalshi", "#0d9488", "KX"], ["Polymarket", "#1652f0", "PM"]
+    ["Neds", "#ea580c", "NE"], ["betr", "#7c3aed", "BR"], ["Dabble", "#6d28d9", "DB"],
+    ["FanDuel", "#1d4ed8", "FD"], ["FanDuel Racing", "#0e7490", "FR"], ["Kalshi", "#0d9488", "KX"],
+    ["Polymarket", "#1652f0", "PM"]
   ],
   "row-data": [
     ["AFL Official API", "#cf2e2e", "AFL"], ["NRL Official API", "#0e7a4e", "NRL"],
     ["NBA Stats", "#1d4ed8", "NBA"], ["MLB StatsAPI", "#b91c1c", "MLB"],
     ["ESPN", "#cc0000", "E"], ["DataGolf", "#15803d", "DG"],
     ["OpenF1", "#dc2626", "F1"], ["Cricket Australia", "#1e40af", "CA"],
-    ["Racing & Sports", "#a16207", "RS"], ["X (Twitter)", "#0f172a", "𝕏"]
+    ["Racing & Sports", "#a16207", "RS"], ["SuperCoach", "#047857", "SC"],
+    ["X (Twitter)", "#0f172a", "𝕏"]
   ],
   "row-llms": [
     ["Claude", "#d97757", "C"], ["GPT", "#10a37f", "G"], ["Gemini", "#1a73e8", "♦"],
