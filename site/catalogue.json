@@ -4848,7 +4848,7 @@
    "kind": "sport",
    "byo": false,
    "proxied": false,
-   "count": 13,
+   "count": 14,
    "tools": [
     {
      "name": "nbl_ladder",
@@ -4862,10 +4862,10 @@
       {
        "n": "seasonType",
        "t": "string",
-       "r": true
+       "r": false
       }
      ],
-     "example": "{\"type\":\"standings\",\"fetched\":1782447192,\"ttlRemaining\":300,\"count\":10,\"source\":\"redis\",\"data\":[{\"id\":\"49b90e1d-4806-4142-9e73-38427e212aed\",\"position\":1,\"won\":24,\"lost\":9,\"played\":33,\"points_percentage\":1.1379,\"win_percentage\":0.7273,\"last_5\":\"LWLWLWLLWWWWLLWWWWWWLLWWWWWWWWWWW\",\"streak\":11,\"points_for\":3276,\"points_against\":2879,\"away_losses\":5,\"away_wins\":11,\"home_losses\":4,\"home_wins\":13,\"team\":{\"id\":\"39fc4268-0cdf-455f-9ca1-12e344064000\",\"external_id\":\"bf06cec9-410c-11f0-…(truncated)"
+     "example": null
     },
     {
      "name": "nbl_match_outcomes",
@@ -4879,10 +4879,22 @@
       {
        "n": "seasonType",
        "t": "string",
-       "r": true
+       "r": false
       }
      ],
      "example": null
+    },
+    {
+     "name": "nbl_news",
+     "desc": "NBL news articles (latest ~200) — each with title, slug, body (HTML), excerpt, sub_headline, byline, published_date, categories/tags, a related_player and match_slug link, and featured_image_url. NOTE: this feed returns a RAW ARRAY (not the {type,count,data} envelope). Use `limit` to cap rows.",
+     "args": [
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "[{\"id\":59881,\"status\":\"published\",\"categories\":[],\"title\":\"Paul, Australia ready to take on the world\",\"slug\":\"paul-australia-ready-to-take-on-the-world\",\"body\":\"<p>Cairns Taipans Next Star Luke Paul, is ready to lead Australia on their quest for gold at the 2026 U17 FIBA World Cup in Turkey.</p><p>The teenage sensation is coming off a strong tournament in the 2025 U16 Asia Cup where he was named MVP and put an exclamation mark on his countries undefeated run with a 26 point,…(truncated)"
     },
     {
      "name": "nbl_next_matches",
@@ -4913,7 +4925,7 @@
       {
        "n": "seasonType",
        "t": "string",
-       "r": true
+       "r": false
       }
      ],
      "example": null
@@ -4954,7 +4966,7 @@
       {
        "n": "seasonType",
        "t": "string",
-       "r": true
+       "r": false
       }
      ],
      "example": null
@@ -4975,7 +4987,7 @@
      "name": "nbl_seasons",
      "desc": "Every NBL season (~73: NBL27, NBL26, blitz/preseason/tournament variants…), each with id (UUID), name, year (season start year), season_type, the Genius external_id, and start/end dates. The discovery entry point — take a season's `id` for nbl_stat_leaders, or its `year` for the year-scoped feeds. Current regular season is the latest `year` with season_type=regular.",
      "args": [],
-     "example": "{\"type\":\"seasons\",\"fetched\":1782447192,\"ttlRemaining\":300,\"count\":73,\"source\":\"redis\",\"data\":[{\"id\":\"67d4a190-40bc-4bfb-a9a2-11bd0b93f020\",\"name\":\"NBL27\",\"year\":\"2026\",\"season_type\":\"regular\",\"external_id\":\"1b041b7b-3dde-11f1-8b34-cf648fa5ccb5\",\"start_date\":\"2026-09-19T00:00:00\",\"end_date\":\"2027-02-28T00:00:00\",\"competition\":{\"league\":{\"name\":\"NBL Synergy\",\"organisation\":{\"shortcode\":\"nbl\"}},\"division\":[]},\"matches\":[\"00808e5a-bd20-4a98-aa0b-bc7ff35b5b82\",\"01c3439f-b3a1-465d-…(truncated)"
+     "example": "{\"type\":\"seasons\",\"fetched\":1782447972,\"ttlRemaining\":300,\"count\":73,\"source\":\"redis\",\"data\":[{\"id\":\"67d4a190-40bc-4bfb-a9a2-11bd0b93f020\",\"name\":\"NBL27\",\"year\":\"2026\",\"season_type\":\"regular\",\"external_id\":\"1b041b7b-3dde-11f1-8b34-cf648fa5ccb5\",\"start_date\":\"2026-09-19T00:00:00\",\"end_date\":\"2027-02-28T00:00:00\",\"competition\":{\"league\":{\"name\":\"NBL Synergy\",\"organisation\":{\"shortcode\":\"nbl\"}},\"division\":[]},\"matches\":[\"00808e5a-bd20-4a98-aa0b-bc7ff35b5b82\",\"01c3439f-b3a1-465d-…(truncated)"
     },
     {
      "name": "nbl_stat_leaders",
@@ -4989,6 +5001,11 @@
       {
        "n": "limit",
        "t": "integer",
+       "r": false
+      },
+      {
+       "n": "sort",
+       "t": "string",
        "r": false
       }
      ],
@@ -5023,7 +5040,7 @@
       {
        "n": "seasonType",
        "t": "string",
-       "r": true
+       "r": false
       }
      ],
      "example": null
@@ -5032,7 +5049,7 @@
      "name": "nbl_teams",
      "desc": "The NBL club catalogue (~78 incl. historical/relocated franchises) — each with id (UUID), name, team_code, team_nickname, logos and brand colours. Join team_id from nbl_players / nbl_schedule back to here.",
      "args": [],
-     "example": "{\"type\":\"teams\",\"fetched\":1782446997,\"ttlRemaining\":300,\"count\":78,\"source\":\"redis\",\"data\":[{\"id\":\"9342ec36-db26-4dff-83b3-7668be32f8b5\",\"external_id\":\"c013660f-410c-11f0-aff8-1b3c55488bbb\",\"name\":\"Next Gen Five\",\"team_code\":\"NG5\",\"team_logo\":null,\"external_team_logo\":null,\"team_nickname\":\"NGFive\",\"color_primary\":null,\"color_secondary\":null,\"color_tertiary\":null,\"ticket_url\":null,\"established\":null,\"head_coach\":null,\"championships\":null,\"website\":null,\"membership_url\":null,\"s…(truncated)"
+     "example": null
     }
    ]
   },
@@ -8284,8 +8301,30 @@
    "kind": "sport",
    "byo": false,
    "proxied": false,
-   "count": 5,
+   "count": 6,
    "tools": [
+    {
+     "name": "supercoach_leagues",
+     "desc": "The game's public/featured leagues for one sport+season+mode — each with name, code, type, competition_id, experience, description and sponsor metadata. Useful to discover competition_ids and the league types on offer.",
+     "args": [
+      {
+       "n": "sport",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "mode",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "[{\"name\":\"Public League\",\"code\":287295,\"user_team_id\":47667,\"type\":\"public\",\"competition_id\":1,\"experience\":null,\"id\":57800,\"description\":null,\"sponsor_img_bg\":null,\"sponsor_img_sm\":null,\"sponsor_filename\":null,\"sponsor_content\":null,\"member_count\":1,\"options\":{\"game_leaguemax\":20,\"round_leagues_start\":2,\"game_finals_round\":21,\"fixture_repeat\":0,\"skip_byes\":null,\"finals_format\":\"8-4\",\"entry_fee\":null,\"secondary_ladder_rank\":null,\"versuscomp\":true,\"last_join_round\":null,\"bonus…(truncated)"
+    },
     {
      "name": "supercoach_player",
      "desc": "A single player's base record by SuperCoach id (id, first/last name, team_id, previous_games/previous_average/previous_total, feed_id). A thin subset of supercoach_players — for the full price/projection/matchup snapshot use supercoach_players with a round.",
@@ -8301,12 +8340,17 @@
        "r": true
       },
       {
+       "n": "mode",
+       "t": "string",
+       "r": false
+      },
+      {
        "n": "id",
        "t": "integer",
        "r": true
       }
      ],
-     "example": "{\"id\":1,\"first_name\":\"Callum\",\"last_name\":\"Ah Chee\",\"team_id\":1,\"previous_games\":22,\"previous_average\":64.41,\"previous_total\":1417,\"feed_id\":\"298437\",\"hs_url\":null,\"injury_suspension_status\":null,\"injury_suspension_status_text\":null,\"locked\":false,\"played_status\":{\"status\":\"pre\",\"display\":\"Yet to play\"},\"active\":true,\"team\":{\"id\":1,\"abbrev\":\"ADE\",\"name\":\"Adelaide\"}}"
+     "example": null
     },
     {
      "name": "supercoach_players",
@@ -8321,6 +8365,11 @@
        "n": "year",
        "t": "integer",
        "r": true
+      },
+      {
+       "n": "mode",
+       "t": "string",
+       "r": false
       },
       {
        "n": "round",
@@ -8348,6 +8397,11 @@
        "n": "year",
        "t": "integer",
        "r": true
+      },
+      {
+       "n": "mode",
+       "t": "string",
+       "r": false
       },
       {
        "n": "round",
@@ -8382,12 +8436,17 @@
        "r": true
       },
       {
+       "n": "mode",
+       "t": "string",
+       "r": false
+      },
+      {
        "n": "min",
        "t": "boolean",
        "r": false
       }
      ],
-     "example": "{\"system\":{\"currency\":\"AUD\",\"data_version\":1,\"facebook\":{\"app_id\":104139682993694},\"timezone\":\"Australia/Sydney\"},\"game\":{\"achievements\":true,\"agree_tc\":false,\"auto_emergency\":false,\"aws_img_uploads\":true,\"captains\":true,\"cash_games\":false,\"club_championship\":false,\"competitions\":[{\"competition_id\":1,\"season\":\"2026\",\"final_scoring_round\":24,\"statspack_minutes_played\":true,\"statspack_seasons\":[{\"id\":\"2025\",\"label\":\"2025\",\"rounds\":24},{\"id\":\"2024\",\"label\":\"2024\",\"rounds\":24},{\"id\":\"2023\",\"label\":\"…(truncated)"
+     "example": "{\"system\":{\"currency\":\"AUD\",\"data_version\":1,\"facebook\":{\"app_id\":104139682993694},\"timezone\":\"Australia/Sydney\"},\"game\":{\"achievements\":true,\"agree_tc\":false,\"auto_emergency\":false,\"aws_img_uploads\":true,\"captains\":true,\"cash_games\":false,\"club_championship\":false,\"competitions\":[{\"competition_id\":1,\"season\":\"2026\",\"final_scoring_round\":24,\"statspack_minutes_played\":true,\"statspack_seasons\":[{\"id\":\"2025\",\"label\":\"2025\",\"rounds\":24},{\"id\":\"2024\",\"label\":\"2024\",\"rounds\":24},{\"…(truncated)"
     },
     {
      "name": "supercoach_teams",
@@ -8402,9 +8461,14 @@
        "n": "year",
        "t": "integer",
        "r": true
+      },
+      {
+       "n": "mode",
+       "t": "string",
+       "r": false
       }
      ],
-     "example": "[{\"id\":1,\"abbrev\":\"ADE\",\"name\":\"Adelaide\",\"competition\":{\"id\":1,\"season\":null,\"abbrev\":\"afl\",\"name\":\"AFL\",\"long_name\":\"Australian Football League\"}},{\"id\":2,\"abbrev\":\"BRL\",\"name\":\"Brisbane\",\"competition\":{\"id\":1,\"season\":null,\"abbrev\":\"afl\",\"name\":\"AFL\",\"long_name\":\"Australian Football League\"}},{\"id\":3,\"abbrev\":\"CAR\",\"name\":\"Carlton\",\"competition\":{\"id\":1,\"season\":null,\"abbrev\":\"afl\",\"name\":\"AFL\"…(truncated)"
+     "example": null
     }
    ]
   },
