@@ -9463,6 +9463,140 @@
      "example": null
     }
    ]
+  },
+  {
+   "id": "wta",
+   "name": "WTA",
+   "kind": "sport",
+   "byo": false,
+   "proxied": false,
+   "count": 7,
+   "tools": [
+    {
+     "name": "wta_player",
+     "desc": "A single WTA player by id — {id, firstName, lastName, fullName, countryCode, dateOfBirth, metadata}. playerId comes from wta_players / wta_rankings.",
+     "args": [
+      {
+       "n": "playerId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "wta_player_matches",
+     "desc": "One player's match history — {player, matches:[{TournamentName, TournamentLevel, Surface, StartDate, city, Country, PrizeWon, entry_rank_1/2, entry_type_1/2, …}]}. The per-tournament results/log for a player.",
+     "args": [
+      {
+       "n": "playerId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "wta_players",
+     "desc": "The WTA player catalogue — {pageInfo, content:[{id, firstName, lastName, fullName, countryCode, dateOfBirth}]}. Search by `name` (e.g. 'Swiatek' → Iga Swiatek) or page through all. The player `id` feeds wta_player / wta_player_matches.",
+     "args": [
+      {
+       "n": "name",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "page",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "pageSize",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{\"pageInfo\":{\"page\":0,\"numPages\":1,\"pageSize\":50,\"numEntries\":1},\"content\":[{\"id\":326408,\"firstName\":\"Iga\",\"lastName\":\"Swiatek\",\"fullName\":\"Iga Swiatek\",\"countryCode\":\"POL\",\"dateOfBirth\":\"2001-05-31\",\"metadata\":null}]}"
+    },
+    {
+     "name": "wta_rankings",
+     "desc": "The WTA rankings — each row is {player:{id, fullName, countryCode, dateOfBirth}, ranking, points, tournamentsPlayed, movement, rankedAt}. Returns a bare ARRAY (not the {pageInfo,content} envelope). REQUIRES `type` + `metric`, which must agree: rankSingles+singles or rankDoubles+doubles. Page with page/pageSize (e.g. pageSize=100 for the top 100).",
+     "args": [
+      {
+       "n": "type",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "metric",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "page",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "pageSize",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "[{\"player\":{\"id\":320760,\"firstName\":\"Aryna\",\"lastName\":\"Sabalenka\",\"fullName\":\"Aryna Sabalenka\",\"countryCode\":\"BLR\",\"dateOfBirth\":\"1998-05-05\",\"metadata\":null},\"ranking\":1,\"points\":9090,\"tournamentsPlayed\":18,\"movement\":0,\"rankedAt\":\"2026-06-22T00:00:00Z\"},{\"player\":{\"id\":324166,\"firstName\":\"Elena\",\"lastName\":\"Rybakina\",\"fullName\":\"Elena Rybakina\",\"countryCode\":\"KAZ\",\"dateOfBirth\":\"1999-06-17\",\"metadata\":null},\"ranking\":2,\"points\":8143,\"tournamentsPlayed\":22,\"movement\":0,\"ran…(truncated)"
+    },
+    {
+     "name": "wta_tournament",
+     "desc": "One tournament edition by tournamentGroup id + year (e.g. group 901 = Australian Open, /901/2025). Full metadata: dates, surface, draw sizes, prize money, level, status, winners. ids from wta_tournaments (content[].tournamentGroup.id + .year).",
+     "args": [
+      {
+       "n": "groupId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "wta_tournament_matches",
+     "desc": "All matches/results for one tournament edition (group id + year) — e.g. AO 2025 returns ~302 matches with court, draw level/type, entrant types, match state and ids. Use for draws + results.",
+     "args": [
+      {
+       "n": "groupId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "wta_tournaments",
+     "desc": "The WTA tournament calendar — {pageInfo, content:[{tournamentGroup:{id, name, level}, year, title, startDate, endDate, surface, inOutdoor, city, country, singlesDrawSize, doublesDrawSize, prizeMoney, level, status, winners}]}. Take a row's tournamentGroup.id + year for wta_tournament / wta_tournament_matches. Page through with page/pageSize (the list spans all years).",
+     "args": [
+      {
+       "n": "page",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "pageSize",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    }
+   ]
   }
  ]
 }

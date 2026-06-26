@@ -58,6 +58,7 @@ export const PROVIDER_KIND: Record<string, "sport" | "gambling" | "social"> = {
   "tab": "gambling",
   "twitter": "social",
   "unibet": "gambling",
+  "wta": "sport",
 };
   // END GENERATED
 
