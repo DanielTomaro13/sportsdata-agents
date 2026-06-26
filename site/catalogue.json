@@ -1606,8 +1606,14 @@
    "tools": [
     {
      "name": "dabble_active_competitions",
-     "desc": "Every currently-bettable competition across all sports (~269) — the discovery entry point. Pick any one's `id` and pass it to dabble_competition_fixtures. Each carries name, sportName, country and a featured flag.",
-     "args": [],
+     "desc": "Every currently-bettable competition across all sports (~318) — the discovery entry point. Pick any one's `id` and pass it to dabble_competition_fixtures. Each carries name, sportName, country and a featured flag. Pass `sportId` to filter to one sport's active competitions.",
+     "args": [
+      {
+       "n": "sportId",
+       "t": "string",
+       "r": false
+      }
+     ],
      "example": "{\"status\":\"success\",\"data\":{\"activeCompetitions\":[{\"id\":\"54971fc3-5757-4764-ab35-45f1f629e56f\",\"name\":\"Boxing Bouts\",\"country\":\"Boxing\",\"featured\":false,\"sportId\":\"e9e61569-e94e-4f49-a413-51468938097a\",\"sportName\":\"Boxing\",\"location\":0},{\"id\":\"a1fd2ace-73f8-4cff-93a0-204a3514d5c5\",\"name\":\"Championship League Snooker\",\"country\":\"World\",\"featured\":false,\"sportId\":\"4c44f9f8-9070-59b4-82ef-6e83a43e079c\",\"sportName\":\"Snooker\",\"location\":0},{\"id\":\"1fc0a87b-1119-4771-8797-5b3ccce42c78\",\"name\":\"Internat…(truncated)"
     },
     {
@@ -1626,7 +1632,7 @@
       },
       {
        "n": "exclude",
-       "t": "string",
+       "t": "array",
        "r": false
       }
      ],
@@ -1634,12 +1640,17 @@
     },
     {
      "name": "dabble_competitions",
-     "desc": "Look up competitions by EXACT name (case-sensitive; e.g. 'NRL', 'Premier League', 'AFL Matches' — note 'AFL' alone returns nothing). Returns the matching competition(s) with their id(s). For browsing, prefer dabble_active_competitions.",
+     "desc": "Look up competitions by EXACT name (`name`, case-sensitive; e.g. 'NRL', 'Premier League', 'AFL Matches' — note 'AFL' alone returns nothing) OR list EVERY competition for a sport (`sportId`, including ones not currently active — ~20 for AFL). Pass at least one filter: bare /competitions is the ~38 MB / 142k-row firehose (deliberately avoid). For browsing currently-bettable comps, prefer dabble_active_competitions.",
      "args": [
       {
        "n": "name",
        "t": "string",
-       "r": true
+       "r": false
+      },
+      {
+       "n": "sportId",
+       "t": "string",
+       "r": false
       }
      ],
      "example": null
