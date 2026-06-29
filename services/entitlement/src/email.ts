@@ -10,6 +10,7 @@ import {
   downloadUrl,
   mcpConfigBlock,
   setupCommand,
+  setupCommandWindows,
 } from "./config-gen";
 import { DOWNLOAD_TOKEN_TTL, hashKey, signDownloadToken } from "./keys";
 import type { Env } from "./index";
@@ -53,6 +54,7 @@ function planLine(g: EmailGrant): string {
 function licenceEmailHtml(key: string, g: EmailGrant, downloadUrl: string, feedsUrl: string): string {
   const block = esc(mcpConfigBlock(key));
   const setupCmd = esc(setupCommand(key));
+  const setupCmdWin = esc(setupCommandWindows(key));
   const targets = CONFIG_TARGETS.map(
     (t) => `<li><b>${esc(t.tool)}</b> — <code>${esc(t.path)}</code></li>`,
   ).join("");
@@ -73,12 +75,15 @@ function licenceEmailHtml(key: string, g: EmailGrant, downloadUrl: string, feeds
 
   <h3 style="margin:24px 0 6px">Set it up — ${choose ? "three" : "two"} steps</h3>
   ${chooseStep}
-  <p style="margin:0 0 10px"><b>${dl}.</b> <a href="${esc(downloadUrl)}" style="color:#2563eb">Download the sportsdata-mcp app</a> and drag it into Applications. No Python needed — it bundles everything.<br>
-  <span style="color:#888;font-size:13px">macOS may say the app is <b>"damaged"</b> on first open — only because this early build isn't Apple-notarized yet. Drag it to Applications, then run this once in Terminal:<br>
-  <code style="display:inline-block;margin:4px 0;padding:4px 8px;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:6px;font:12px ui-monospace,Menlo,monospace">xattr -dr com.apple.quarantine /Applications/sportsdata-mcp.app</code><br>
-  then open it normally. One time only — it goes away once the notarized version ships.</span></p>
-  <p style="margin:0 0 6px"><b>${su}.</b> Run this once in Terminal — it registers itself with your AI clients using your licence:</p>
-  <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto">${setupCmd}</pre>
+  <p style="margin:0 0 10px"><b>${dl}.</b> <a href="${esc(downloadUrl)}" style="color:#2563eb">Download sportsdata-mcp</a> — the link gives you the right build for your computer. No Python needed; it bundles everything.</p>
+  <p style="margin:0 0 4px;color:#888;font-size:13px"><b>macOS:</b> drag it into Applications. If it says <b>"damaged"</b> on first open (this early build isn't Apple-notarized yet), run this once in Terminal, then open it normally:<br>
+  <code style="display:inline-block;margin:4px 0;padding:4px 8px;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:6px;font:12px ui-monospace,Menlo,monospace">xattr -dr com.apple.quarantine /Applications/sportsdata-mcp.app</code></p>
+  <p style="margin:0 0 10px;color:#888;font-size:13px"><b>Windows:</b> unzip it anywhere. If <b>SmartScreen</b> warns ("Windows protected your PC"), click <b>More info → Run anyway</b> — only because this early build isn't code-signed yet.</p>
+  <p style="margin:0 0 6px"><b>${su}.</b> Register it with your AI clients (one command, using your licence):</p>
+  <p style="margin:0 0 2px;color:#888;font-size:12px">macOS — Terminal:</p>
+  <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto;margin:0 0 8px">${setupCmd}</pre>
+  <p style="margin:0 0 2px;color:#888;font-size:12px">Windows — PowerShell, from the unzipped folder:</p>
+  <pre style="font:13px ui-monospace,Menlo,monospace;background:#0d1117;color:#e6edf3;border-radius:8px;padding:14px;overflow:auto">${setupCmdWin}</pre>
   <p style="color:#555;font-size:14px;margin:8px 0 0">Then restart your AI client and ask it to <i>"list available sportsdata groups"</i>. Changing feeds later just means re-saving on that page + a restart — your licence already carries the list, so no re-download.</p>
 
   <details style="margin:18px 0 0">
