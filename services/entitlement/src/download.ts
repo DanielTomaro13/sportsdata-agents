@@ -47,15 +47,20 @@ interface GhAsset {
   size: number;
 }
 
-// Pick the asset a customer should get: a signed/notarized DMG if present, else the
-// ad-hoc-signed unsigned zip. Ignore anything else attached to the release.
-function pickAsset(assets: GhAsset[]): GhAsset | null {
-  return (
+// Pick the asset a customer should get, by OS (from the request User-Agent). Windows →
+// the `-windows.zip`; otherwise macOS (signed/notarized DMG if present, else the
+// ad-hoc-signed unsigned zip). Each branch falls back to the other OS's build only if its
+// own isn't on the release yet, so a one-platform release still serves everyone something.
+function pickAsset(assets: GhAsset[], userAgent: string): GhAsset | null {
+  const isWindows = /windows|win64|win32/i.test(userAgent);
+  const mac = () =>
     assets.find((a) => a.name.endsWith(".dmg")) ||
+    assets.find((a) => a.name.endsWith("-macos-unsigned.zip")) ||
     assets.find((a) => a.name.endsWith("-unsigned.zip")) ||
-    assets.find((a) => a.name.endsWith(".zip")) ||
-    null
-  );
+    null;
+  const win = () => assets.find((a) => a.name.endsWith("-windows.zip")) || null;
+  if (isWindows) return win() || mac() || assets.find((a) => a.name.endsWith(".zip")) || null;
+  return mac() || win() || assets.find((a) => a.name.endsWith(".zip")) || null;
 }
 
 export async function handleDownload(req: Request, env: Env): Promise<Response> {
@@ -133,7 +138,7 @@ export async function handleDownload(req: Request, env: Env): Promise<Response> 
     return json({ error: "no release available" }, 502);
   }
   const release = (await rel.json()) as { tag_name?: string; assets?: GhAsset[] };
-  const asset = pickAsset(release.assets || []);
+  const asset = pickAsset(release.assets || [], req.headers.get("user-agent") || "");
   if (!asset) {
     console.error(`download: no asset on latest release of ${repo}`);
     return json({ error: "no downloadable asset on the latest release" }, 502);
