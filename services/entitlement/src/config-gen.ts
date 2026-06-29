@@ -30,9 +30,14 @@ export function downloadUrl(base: string, key: string): string {
 // danieltomaro13.github.io/sportsdata-site/ URL still redirects here).
 export const DEFAULT_FEEDS_URL = "https://sportsdata-ai.com/feeds.html";
 
-// The one-time setup command (self-registers into Claude Desktop / Cursor).
+// The one-time setup command (self-registers into Claude Desktop / Cursor). macOS path.
 export function setupCommand(key: string): string {
   return `"${APP_BIN}" setup --license ${key}`;
+}
+
+// Windows equivalent — run from inside the unzipped folder (the onedir holds the exe).
+export function setupCommandWindows(key: string): string {
+  return `.\\sportsdata-mcp.exe setup --license ${key}`;
 }
 
 // The manual config block (for customers who'd rather paste it themselves).
