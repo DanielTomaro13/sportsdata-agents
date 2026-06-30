@@ -119,6 +119,32 @@ async function ask(text) {
   es.onerror = () => { if (!done) setTimeout(end, 500); };
 }
 
+// Inline expandable trace for a chat reply (B4): fetch the turn's run and show the model's
+// thinking + tool results under the message. Reuses the Agents-pane trace styles.
+async function chatTrace(runId, container, link) {
+  if (container.dataset.loaded) { // already fetched — just toggle
+    container.hidden = !container.hidden;
+    link.textContent = container.hidden ? "▸ trace" : "▾ trace";
+    return;
+  }
+  link.textContent = "… trace";
+  let d;
+  try {
+    const r = await fetch(`${API}/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
+    d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "not found");
+  } catch (e) {
+    container.innerHTML = `<div class="muted">Couldn't load the trace (${esc(e.message)}).</div>`;
+    container.hidden = false; container.dataset.loaded = "1"; link.textContent = "▾ trace"; return;
+  }
+  const roleLabel = (r) => r === "assistant" ? "thinking / reply" : r === "tool" ? "tool result" : r === "user" ? "task" : r;
+  const msg = (mm) =>
+    `<div class="tmsg ${esc(mm.role)}"><div class="trole">${esc(roleLabel(mm.role))}</div>${esc(mm.content || "")}` +
+    `${mm.tools && mm.tools.length ? `<div class="ttools">${mm.tools.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}</div>`;
+  container.innerHTML = `<div class="trace">${(d.transcript || []).map(msg).join("") || `<div class="muted">No transcript recorded for this turn.</div>`}</div>`;
+  container.hidden = false; container.dataset.loaded = "1"; link.textContent = "▾ trace";
+}
+
 async function finish(taskId, body, think) {
   try {
     const r = await fetch(`${API}/tasks/${taskId}`);
@@ -136,7 +162,13 @@ async function finish(taskId, body, think) {
       const m = document.createElement("div"); m.className = "meta";
       m.innerHTML = `${res.tool_calls} tool call${res.tool_calls === 1 ? "" : "s"} · $${(res.cost_usd || 0).toFixed(4)}`
         + (res.verified ? " · verified ✓" : "") + ` · <span class="adv">advisory only</span>`;
+      if (res.run_id) m.innerHTML += ` · <span class="tracelink" style="cursor:pointer;color:var(--accent,#1f6feb)">▸ trace</span>`;
       body.appendChild(m);
+      if (res.run_id) {
+        const tc = document.createElement("div"); tc.className = "ctrace"; tc.hidden = true;
+        body.appendChild(tc);
+        m.querySelector(".tracelink").addEventListener("click", (ev) => chatTrace(res.run_id, tc, ev.target));
+      }
     }
   } catch (e) {
     think.remove();
