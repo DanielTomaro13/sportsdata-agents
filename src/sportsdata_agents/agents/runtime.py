@@ -190,12 +190,22 @@ class AgentRuntime:
                     from sportsdata_agents.licensing.enforce import cap_mcp_groups
 
                     groups = cap_mcp_groups(groups)
+                # Workbench global off-switch (B1): pass the operator's disabled-provider set
+                # to the MCP subprocess so those providers' tools never register — even when
+                # `groups` is "*". The pool keys on extra_env, so a toggle change just yields
+                # a freshly-scoped subprocess for the next run.
+                from sportsdata_agents.mcp.prefs import disabled_env
+
+                _denv = disabled_env()
+                extra_env = {"SPORTSDATA_MCP_DISABLED_PROVIDERS": _denv} if _denv else None
                 if self._pool is not None:
                     # Borrowed: the pool owns it — identical scopes share one subprocess.
-                    self._manager = await self._pool.get(groups)
+                    self._manager = await self._pool.get(groups, extra_env)
                     self._owns_manager = False
                 else:
-                    self._manager = MCPManager(groups=groups, command=self._mcp_command)
+                    self._manager = MCPManager(
+                        groups=groups, command=self._mcp_command, extra_env=extra_env
+                    )
                     await self._manager.__aenter__()
                     self._owns_manager = True
                 tools.extend(await bridge_mcp_tools(self._manager, self.spec.tools.mcp_capabilities or None))
