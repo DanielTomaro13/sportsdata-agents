@@ -359,6 +359,49 @@ def create_app(
             ]
         }
 
+    @app.get("/alerts")
+    async def alerts(kind: str | None = None, limit: int = 50) -> dict[str, Any]:
+        """Recent fired monitor alerts (arb / line_move / value) for the Monitors pane —
+        the platform's edges in one feed. Newest first; optional ?kind= filter. Empty (not
+        a 500) when the warehouse is unreachable."""
+        from sqlalchemy import select
+
+        from sportsdata_agents.data.models import Alert
+
+        sf = _audit_sessionmaker()
+        if sf is None:
+            return {"alerts": []}
+        s = get_settings()
+        lim = max(1, min(int(limit or 50), 200))
+        try:
+            async with sf() as session:
+                q = select(Alert).where(
+                    Alert.tenant_id == s.default_tenant,
+                    Alert.workspace_id == s.default_workspace,
+                )
+                if kind:
+                    q = q.where(Alert.kind == kind)
+                rows = (
+                    (await session.execute(q.order_by(Alert.created_at.desc()).limit(lim)))
+                    .scalars()
+                    .all()
+                )
+        except Exception as e:  # warehouse hiccup → empty, not a 500
+            logger.warning("alerts unavailable (%s: %s)", type(e).__name__, e)
+            return {"alerts": []}
+        return {
+            "alerts": [
+                {
+                    "id": str(a.id),
+                    "kind": a.kind,
+                    "message": a.message,
+                    "payload": a.payload or {},
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                }
+                for a in rows
+            ]
+        }
+
     @app.get("/runs/{run_id}")
     async def run_trace(run_id: str) -> JSONResponse:
         """One run's full trace: its transcript (the model's reasoning + tool results),
