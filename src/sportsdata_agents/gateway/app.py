@@ -600,7 +600,7 @@ def create_app(
         Empty payload (not an error) when the data plane is unreachable."""
         cached = _mcp_cache.get("groups")
         if cached and time.monotonic() - _mcp_cache.get("at", 0.0) < 300:
-            return JSONResponse(cached)
+            return JSONResponse(_annotate_enabled(cached))
         payload: dict[str, Any] = {"providers": [], "available": {}}
         try:
             from sportsdata_agents.mcp.manager import MCPManager
@@ -624,7 +624,31 @@ def create_app(
             _mcp_cache.update(groups=payload, at=time.monotonic())
         except Exception as e:  # data plane down / slow → empty catalogue, not a 500
             logger.warning("mcp group listing unavailable (%s: %s)", type(e).__name__, e)
-        return JSONResponse(payload)
+        return JSONResponse(_annotate_enabled(payload))
+
+    def _annotate_enabled(payload: dict[str, Any]) -> dict[str, Any]:
+        """Stamp each provider's live on/off flag (computed OUTSIDE the 5-min catalogue cache
+        so a toggle is reflected immediately). Workbench B1."""
+        from sportsdata_agents.mcp.prefs import load_disabled
+
+        disabled = load_disabled()
+        for p in payload.get("providers") or []:
+            p["enabled"] = p.get("provider") not in disabled
+        return payload
+
+    @app.post("/mcp/toggle")
+    async def mcp_toggle(body: dict[str, Any]) -> JSONResponse:
+        """Globally enable/disable a data provider (workbench B1). Persists to the data dir;
+        takes effect on the next agent run (the disabled set is passed to the MCP subprocess).
+        Body: ``{provider: str, enabled: bool}``."""
+        from sportsdata_agents.mcp.prefs import set_disabled
+
+        provider = str(body.get("provider", "")).strip()
+        if not provider:
+            raise HTTPException(400, detail="provider is required")
+        enabled = bool(body.get("enabled", True))
+        set_disabled(provider, disabled=not enabled)
+        return JSONResponse({"provider": provider, "enabled": enabled})
 
     # ─── the operator panel (owner-only: 404 for everyone but the operator) ───
     # The same switch that gates the platform-maintenance jobs gates this surface

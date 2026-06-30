@@ -452,14 +452,35 @@ async function loadMcpGroups() {
     ? `<span class="pstat needs">needs key</span>`
     : `<span class="pstat ready">ready</span>`;
   el.innerHTML =
-    `<div class="muted" style="margin-bottom:12px">${ready} ready · ${needs} need a key. Open providers work without a key, though a few can be geo- or bot-blocked from your network. On/off toggles arrive next.</div>` +
-    provs.map((p) =>
-      `<div class="prov">
-        <div class="ph"><span class="pn">${esc(p.provider)}</span>${badge(p)}<span class="pc">${p.tools} tools · ${p.groups.length} group${p.groups.length === 1 ? "" : "s"}</span></div>
+    `<div class="muted" style="margin-bottom:12px">${ready} ready · ${needs} need a key. Toggle a provider <b>off</b> to stop it loading for every agent (takes effect on the next run). Open providers work without a key, though a few can be geo- or bot-blocked from your network.</div>` +
+    provs.map((p) => {
+      const on = p.enabled !== false; // default on when the flag is absent
+      return `<div class="prov" style="${on ? "" : "opacity:.5"}">
+        <div class="ph">
+          <span class="pn">${esc(p.provider)}</span>${badge(p)}
+          <span class="pc">${p.tools} tools · ${p.groups.length} group${p.groups.length === 1 ? "" : "s"}</span>
+          <button class="ptog" data-prov="${esc(p.provider)}" data-on="${on ? 1 : 0}"
+            title="${on ? "Disable" : "Enable"} ${esc(p.provider)}"
+            style="margin-left:auto;cursor:pointer;border:1px solid var(--line,#30363d);border-radius:12px;padding:2px 12px;font-size:11px;background:${on ? "var(--accent,#1f6feb)" : "transparent"};color:${on ? "#fff" : "var(--muted,#8b949e)"}">${on ? "On" : "Off"}</button>
+        </div>
         ${p.status === "needs_key" ? `<div class="pneed">add ${esc((p.auth_env || []).join(" + "))} to enable</div>` : ""}
         <div class="pg">${p.groups.map((g) => `<span class="tag">${esc(g.group)}</span>`).join("")}</div>
-      </div>`
-    ).join("");
+      </div>`;
+    }).join("");
+  el.querySelectorAll(".ptog").forEach((b) =>
+    b.addEventListener("click", () => toggleProvider(b.dataset.prov, b.dataset.on !== "1")),
+  );
+}
+
+async function toggleProvider(provider, enabled) {
+  try {
+    await fetch(`${API}/mcp/toggle`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider, enabled }),
+    });
+  } catch { /* a reload below reflects the real state regardless */ }
+  loadMcpGroups();
 }
 
 /* ─── account modal ────────────────────────────────────────── */
