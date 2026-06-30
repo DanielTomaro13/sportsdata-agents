@@ -352,7 +352,9 @@ class Harness:
                 parsed=parsed,
                 messages=messages,
                 artifacts=artifacts,
-                run_id=run_id,
+                # run() set CURRENT_RUN_ID to this run's id before calling _loop, so it's the
+                # run's id throughout — lets the chat UI link the reply to /runs/{run_id} (B4).
+                run_id=CURRENT_RUN_ID.get(),
             )
 
         last_text = ""
