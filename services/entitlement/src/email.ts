@@ -93,6 +93,16 @@ function licenceEmailHtml(key: string, g: EmailGrant, downloadUrl: string, feeds
     <ul style="margin:4px 0 0;padding-left:20px;font-size:13px;color:#555">${targets}</ul>
   </details>
 
+  <details style="margin:10px 0 0">
+    <summary style="color:#555;font-size:13px;cursor:pointer">Not showing up in your AI client?</summary>
+    <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;color:#555;line-height:1.6">
+      <li><b>Fully quit and reopen</b> the app (Cmd-Q / fully close — not just the window). MCP servers load only at startup, so a restart is almost always the fix.</li>
+      <li><b>Cursor</b> and the standard <b>Claude Desktop</b> app: the <code>setup</code> step above already wrote their config — just restart them.</li>
+      <li>Using a Claude app that <b>manages its own connectors</b> (e.g. the Claude Code / "Cowork" desktop app)? It can overwrite an external config edit — add sportsdata through <b>that app's own MCP / Connectors settings</b> instead, using the command, <code>serve</code> arg, and <code>SPORTSDATA_LICENSE</code> from the manual block above.</li>
+      <li>Then ask: <i>"list available sportsdata groups"</i>. Still stuck? Just reply to this email.</li>
+    </ul>
+  </details>
+
   <hr style="border:none;border-top:1px solid #e4e4e7;margin:24px 0">
   <p style="color:#888;font-size:12px">sportsdata · keep this key private — it grants your feeds. Gambling feeds may be geo-restricted where you are. Questions? Just reply.</p>
 </body></html>`;
