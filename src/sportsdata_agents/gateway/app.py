@@ -108,6 +108,7 @@ class MessageOut(BaseModel):
     steps: int
     tool_calls: int
     artifacts: list[str] = []  # local file paths tools produced (charts) — channels deliver
+    run_id: str | None = None  # link to this turn's trace at /runs/{run_id} (chat trace, B4)
 
 
 class TaskOut(BaseModel):
@@ -131,6 +132,7 @@ def _to_message_out(result: RunResult) -> MessageOut:
         steps=result.steps,
         tool_calls=result.tool_call_count,
         artifacts=list(getattr(result, "artifacts", []) or []),
+        run_id=str(result.run_id) if getattr(result, "run_id", None) else None,
     )
 
 

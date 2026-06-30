@@ -152,6 +152,9 @@ class RunResult:
     # Local file paths tools reported (run_python charts etc.) — channels deliver them
     # (the Slack adapter uploads; the CLI prints paths).
     artifacts: list[str] = field(default_factory=list)
+    # This run's id (the AgentRun the recorder persisted) — lets a caller (the chat UI)
+    # link the reply to its trace at /runs/{run_id}. None when no recorder/id is in play.
+    run_id: uuid.UUID | None = None
 
 
 def _collect_artifacts(payload: str, into: list[str]) -> None:
@@ -349,6 +352,7 @@ class Harness:
                 parsed=parsed,
                 messages=messages,
                 artifacts=artifacts,
+                run_id=run_id,
             )
 
         last_text = ""
