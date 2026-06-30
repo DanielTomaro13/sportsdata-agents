@@ -310,12 +310,41 @@ async function openConversation(key) {
 }
 
 /* ─── pane router ──────────────────────────────────────────── */
+let monTimer = null;
 function showPane(name) {
   $$(".pane").forEach((p) => p.classList.toggle("show", p.id === `pane-${name}`));
   $$("#nav button[data-pane]").forEach((b) => b.classList.toggle("active", b.dataset.pane === name));
+  if (monTimer) { clearInterval(monTimer); monTimer = null; }  // stop the monitors poll when leaving
   if (name === "agents") loadAgents();
   if (name === "files") loadFiles();
   if (name === "settings") loadSettings();
+  if (name === "monitors") { loadMonitors(); monTimer = setInterval(loadMonitors, 20000); }
+}
+
+/* ─── monitors pane (arb / line-move / value alerts) ─────────── */
+async function loadMonitors() {
+  const el = $("#mon-body"); if (!el) return;
+  let alerts = [];
+  try {
+    const r = await fetch(`${API}/alerts?limit=80`, { cache: "no-store" });
+    if (r.ok) alerts = (await r.json()).alerts || [];
+  } catch { el.innerHTML = `<div class="muted">Data plane unreachable.</div>`; return; }
+  if (!alerts.length) {
+    el.innerHTML = `<div class="pane-empty">No alerts yet.<br>Set up an arbitrage, line-move or value watch (ask the desk, or <code>agents watch</code>) and fired alerts land here, newest first.</div>`;
+    return;
+  }
+  const label = { arb: "arbitrage", line_move: "line move", value: "value" };
+  const color = { arb: "var(--ok,#3fb950)", line_move: "var(--acc2,#d29922)", value: "var(--accent,#1f6feb)" };
+  el.innerHTML = alerts.map((a) => {
+    const k = a.kind || "alert";
+    return `<div class="prov" style="border-left:3px solid ${color[k] || "var(--border)"}">
+      <div class="ph">
+        <span class="pstat" style="background:${color[k] || "#666"};color:#fff;padding:1px 8px;border-radius:10px;font-size:10px">${esc(label[k] || k)}</span>
+        <span class="pc" style="margin-left:auto">${esc(timeAgo(a.created_at))}</span>
+      </div>
+      <div style="margin-top:6px;font-size:13px;white-space:pre-wrap">${esc(a.message || "")}</div>
+    </div>`;
+  }).join("");
 }
 
 /* ─── agents pane ──────────────────────────────────────────── */
