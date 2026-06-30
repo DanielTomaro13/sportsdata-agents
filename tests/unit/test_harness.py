@@ -78,6 +78,17 @@ async def test_done_on_final_answer() -> None:
     assert res.steps == 1 and res.cost_usd == pytest.approx(0.01)
 
 
+async def test_run_result_carries_run_id() -> None:
+    # B4: a real run must populate run_id (from the CURRENT_RUN_ID contextvar) so the chat
+    # UI can link the reply to /runs/{run_id}. Exercises the result() closure end to end.
+    import uuid
+
+    h = Harness(make_spec(), provider=ScriptedProvider(text_reply("final")), workspace=WS)
+    res = await h.run("q")
+    assert res.run_id is not None
+    assert isinstance(res.run_id, uuid.UUID)
+
+
 async def test_max_steps_stops() -> None:
     spec = make_spec(limits={"max_steps": 2, "max_tool_calls": 50, "cost_ceiling_usd": 9.0})
     provider = ScriptedProvider(
