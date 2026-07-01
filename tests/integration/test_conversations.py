@@ -125,3 +125,22 @@ async def test_delete_removes_conversation_and_messages(db_sessionmaker: async_s
     assert await store.messages_for("web-d") is None
     assert [r["key"] for r in await store.list_conversations()] == []
     assert await store.delete_conversation("web-missing") is False
+
+
+async def test_settings_persist_and_surface(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    """B2: settings persist (creating the row for a brand-new key), surface on the
+    sidebar rows, and clear back to defaults."""
+    store = ConversationStore(db_sessionmaker, SCOPE)
+    key = "web-settings-1"
+    # settings BEFORE the first message — the row is created on the spot
+    assert await store.set_settings(key, model_tier="strong", mcp_providers=["nba", "afl"])
+    assert await store.settings_for(key) == {"model_tier": "strong", "mcp_providers": ["afl", "nba"]}
+
+    await store.append_turn(key, "hi", "hello")
+    rows = await store.list_conversations(channel=None)
+    row = next(r for r in rows if r["key"] == key)
+    assert row["model_tier"] == "strong" and row["mcp_providers"] == ["afl", "nba"]
+
+    # clear back to defaults
+    assert await store.set_settings(key, model_tier=None, mcp_providers=None)
+    assert await store.settings_for(key) == {"model_tier": None, "mcp_providers": None}

@@ -98,6 +98,21 @@ CURRENT_RUN_ID: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVa
 CURRENT_RUN_RECORDER: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
     "current_run_recorder", default=None
 )
+# Workbench B2 — per-conversation settings, contextvar-scoped so they propagate to
+# delegated sub-runs exactly like the shared budget/recorder. The channel seam
+# (TeamSession.run) sets them for the root run; nothing else writes them.
+# CURRENT_CONV_TIER: the chat's forced model — beats the per-agent pin AND the
+# caller's per-run pick (the newest, most specific user intent wins).
+CURRENT_CONV_TIER: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "current_conv_tier", default=None
+)
+# CURRENT_MCP_DENY: provider ids this chat may NOT reach. MCP tool names are
+# "<provider>_<op>" (provider ids never contain "_"), so the prefix identifies the
+# provider. A UX scope, narrow-only — the licence gate and the B1 global off-switch
+# remain the hard boundaries underneath.
+CURRENT_MCP_DENY: contextvars.ContextVar[frozenset[str] | None] = contextvars.ContextVar(
+    "current_mcp_deny", default=None
+)
 
 
 class CompletionProvider(Protocol):
@@ -292,14 +307,16 @@ class Harness:
         recorder_token = CURRENT_RUN_RECORDER.set(recorder) if recorder is not None else None
         started = time.monotonic()
         await self._record_start(run_id, parent_run_id, user_input)
-        # The user's per-agent model pin (workbench B3) wins over the caller's per-run
-        # pick — a pin is a promise ("this agent always uses X"), and budgets clamp
-        # regardless. Resolved once per run, not per model call.
+        # Model precedence (resolved once per run, not per model call): the chat's
+        # forced tier (B2 — the newest, most specific user intent) > the user's
+        # per-agent pin (B3 — "this agent always uses X") > the caller's per-run
+        # pick > the spec default. Budgets clamp regardless of the model chosen.
         from sportsdata_agents.agents.model_prefs import override_for
 
         pinned = override_for(self.spec.id)
+        forced = CURRENT_CONV_TIER.get()
         try:
-            result = await self._loop(messages, budget, tier=pinned or tier)
+            result = await self._loop(messages, budget, tier=forced or pinned or tier)
         except BaseException as e:
             # A crashed run must not strand a "running" row + leak its usage buffer.
             await self._record_crash(
@@ -320,7 +337,14 @@ class Harness:
     async def _loop(self, messages: list[dict[str, Any]], budget: RunBudget,
                     tier: str | None = None) -> RunResult:
         deadline = self._now() + self.timeout_seconds
-        tool_schemas = [t.schema for t in self.tools.values()]
+        # B2 per-conversation provider scope: a denied provider's tools are not
+        # OFFERED to the model this run (and _execute_tool refuses them outright,
+        # in case a model hallucinates a name it was never shown).
+        deny = CURRENT_MCP_DENY.get()
+        tool_schemas = [
+            t.schema for t in self.tools.values()
+            if not (deny and t.name.split("_", 1)[0] in deny)
+        ]
         if self.output_model is not None:
             # The typed output rides the function channel (tool-trained models emit
             # structure there far more reliably than as JSON-in-prose).
@@ -545,6 +569,9 @@ class Harness:
     async def _execute_tool_inner(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
         if is_denied(name):
             return f"error: tool {name!r} is forbidden by the no-money invariant", False
+        deny = CURRENT_MCP_DENY.get()  # B2: scoped-out provider — never shown, never run
+        if deny and name.split("_", 1)[0] in deny:
+            return f"error: tool {name!r} is outside this conversation's data scope", False
         tool = self.tools.get(name)
         if tool is None:
             return f"error: unknown tool {name!r}; available: {sorted(self.tools)}", False

@@ -79,6 +79,13 @@ class Conversation(TenantScopedModel):
     # title) and an archive flag (hidden from the sidebar unless archived is shown).
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # Workbench B2 — per-conversation settings. ``model_tier``: a tier name or an
+    # explicit "provider/model" forced for this chat (None = normal resolution).
+    # ``mcp_providers``: the data providers this chat may reach (None = all licensed).
+    # A UX scope, narrow-only: it can never widen past the licence or the B1 global
+    # off-switch — those hard gates stay where they are.
+    model_tier: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    mcp_providers: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class Message(TenantScopedModel):

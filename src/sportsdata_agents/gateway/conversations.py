@@ -153,6 +153,8 @@ class ConversationStore:
                 "created_at": _iso(c.created_at),
                 "last_at": _iso(last),
                 "messages": int(count),
+                "model_tier": c.model_tier,
+                "mcp_providers": list(c.mcp_providers) if c.mcp_providers else None,
             })
         rows.sort(key=lambda r: str(r["last_at"] or ""), reverse=True)
         return rows
@@ -183,6 +185,39 @@ class ConversationStore:
             conv.title = title.strip()[:200] or None
             await session.commit()
             return True
+
+    async def set_settings(
+        self, key: str, *, model_tier: str | None, mcp_providers: list[str] | None
+    ) -> bool:
+        """Persist a conversation's model + provider scope (workbench B2). ``None``
+        clears back to the default (normal model resolution / all licensed
+        providers). Creates the conversation row if the key is new — settings may
+        be chosen before the first message is sent. False = storage failure only."""
+        async with self._sf() as session:
+            conv_id = await self._conversation_id(session, key, create=True)
+            if conv_id is None:
+                return False
+            conv = await session.get(Conversation, conv_id)
+            if conv is None:
+                return False
+            conv.model_tier = model_tier
+            conv.mcp_providers = sorted(mcp_providers) if mcp_providers else None
+            await session.commit()
+            return True
+
+    async def settings_for(self, key: str) -> dict[str, object] | None:
+        """A conversation's B2 settings, or None for an unknown key."""
+        async with self._sf() as session:
+            conv_id = await self._conversation_id(session, key, create=False)
+            if conv_id is None:
+                return None
+            conv = await session.get(Conversation, conv_id)
+            if conv is None:
+                return None
+            return {
+                "model_tier": conv.model_tier,
+                "mcp_providers": list(conv.mcp_providers) if conv.mcp_providers else None,
+            }
 
     async def delete_conversation(self, key: str) -> bool:
         """Permanently remove a conversation and its messages. False = unknown key."""
