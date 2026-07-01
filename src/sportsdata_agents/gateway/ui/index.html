@@ -167,6 +167,8 @@
   .kv span{color:var(--dim)}.kv b{font-weight:600;text-align:right;word-break:break-all}
   .kv code{font-family:var(--mono);font-size:12px}
   .agent-model-sel{padding:5px 8px;border-radius:7px;border:1px solid #21304a;background:rgba(255,255,255,.03);color:inherit;font-size:12.5px;font-family:var(--mono)}
+  .mkt-buy{padding:8px 14px;border-radius:8px;border:0;cursor:pointer;font-weight:650;font-size:13px;
+    background:linear-gradient(90deg,var(--acc1),var(--acc3));color:#06101f}
   .muted{color:var(--dim);font-size:13px}
   .pane-empty{text-align:center;color:var(--faint);padding:14vh 20px;font-size:13.5px}
   .filerow{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);
@@ -261,6 +263,7 @@
     <button data-pane="agents"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><path d="M3 21v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1M16 3.1a3 3 0 0 1 0 5.8M21 21v-1a5 5 0 0 0-3-4.6"/></svg>Agents</button>
     <button data-pane="monitors"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg>Monitors</button>
     <button data-pane="files"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h4l2 3h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>Files</button>
+    <button data-pane="market"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>Marketplace</button>
     <button data-pane="settings"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
     <button id="operator" class="opchip" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6z"/></svg>Operator console</button>
     <button id="tier" class="tierchip"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 12 0v1"/></svg><span id="tier-label">…</span></button>
@@ -298,6 +301,12 @@
   <section class="pane" id="pane-monitors">
     <div class="ptop"><h2>Monitors</h2><span class="sub" id="mon-sub">Live arbitrage, line moves &amp; value alerts</span></div>
     <div class="pscroll"><div class="pwrap" id="mon-body"><div class="muted">Loading…</div></div></div>
+  </section>
+
+  <!-- marketplace pane -->
+  <section class="pane" id="pane-market">
+    <div class="ptop"><h2>Marketplace</h2><span class="sub">Purchases open in your browser on Stripe-hosted pages — the app never handles payment</span></div>
+    <div class="pscroll"><div class="pwrap" id="market-body"><div class="muted">Loading…</div></div></div>
   </section>
 
   <!-- files pane -->

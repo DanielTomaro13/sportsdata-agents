@@ -319,6 +319,38 @@ function showPane(name) {
   if (name === "files") loadFiles();
   if (name === "settings") loadSettings();
   if (name === "monitors") { loadMonitors(); monTimer = setInterval(loadMonitors, 20000); }
+  if (name === "market") loadMarketplace();
+}
+
+/* ─── marketplace pane (storefront → browser checkout handoff) ── */
+async function loadMarketplace() {
+  const el = $("#market-body"); if (!el) return;
+  let mk = null;
+  try {
+    const r = await fetch(`${API}/marketplace`, { cache: "no-store" });
+    if (r.ok) mk = await r.json();
+  } catch { /* fall through to the unreachable message */ }
+  if (!mk) { el.innerHTML = `<div class="muted">Marketplace unreachable.</div>`; return; }
+  const acc = mk.account || {};
+  const addons = (acc.addons || []).length ? acc.addons.join(", ") : "none";
+  const plan = (p) => `<div class="card">
+      <h3>${esc(p.name)} <span class="pc" style="float:right">$${p.usd_month}/mo</span></h3>
+      <div class="desc">${esc(p.desc)}</div>
+      <div style="margin-top:10px"><button class="mkt-buy" data-url="${esc(p.url)}">Buy in browser ↗</button></div>
+    </div>`;
+  el.innerHTML =
+    `<div class="section-lbl">Your plan</div>
+     <div class="kv"><span>Tier</span><b><code>${esc(acc.tier || "free")}</code></b></div>
+     <div class="kv"><span>Data feeds</span><b>${acc.mcp_quota === null ? "all" : esc(String(acc.mcp_quota ?? "—"))}</b></div>
+     <div class="kv"><span>Add-ons</span><b>${esc(addons)}</b></div>
+     <div class="section-lbl">Plans &amp; add-ons</div>
+     <div class="grid">${(mk.plans || []).map(plan).join("")}</div>
+     <div class="section-lbl">Your feeds</div>
+     <div class="muted" style="margin-bottom:8px">Pick or swap which data feeds your licence unlocks — the picker opens in your browser with your licence key.</div>
+     <button class="mkt-buy" id="mkt-feeds" data-url="${esc(mk.feeds_url)}">Choose / manage feeds ↗</button>
+     <div class="muted" style="margin-top:18px;font-size:12px">Checkout happens on Stripe-hosted pages in your browser. After buying, your licence email arrives with the key — activate it under the account menu.</div>`;
+  $$(".mkt-buy").forEach((b) =>
+    b.addEventListener("click", () => { if (b.dataset.url) window.open(b.dataset.url, "_blank"); }));
 }
 
 /* ─── monitors pane (arb / line-move / value alerts) ─────────── */

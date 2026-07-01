@@ -486,6 +486,40 @@ def create_app(
         can show the plan and offer a one-click upgrade."""
         return _account_payload()
 
+    # The live Stripe-hosted Payment Links (public — they're on the marketing site's
+    # stripe.json). The app only ever HANDS OFF to the browser; no payment, card, or
+    # checkout logic exists in the app (workbench B6).
+    _MARKETPLACE_PLANS: tuple[dict[str, Any], ...] = (
+        {"sku": "base", "name": "Base", "usd_month": 15,
+         "desc": "5 sport data feeds of your choice, in your own AI client.",
+         "url": "https://buy.stripe.com/cNi00c0aTdFg5rBeiBcV200"},
+        {"sku": "sport_addon", "name": "Sport feed", "usd_month": 5,
+         "desc": "One extra sport data feed beyond your first 5.",
+         "url": "https://buy.stripe.com/4gM00c9Lt6cO8DNgqJcV201"},
+        {"sku": "gambling_addon", "name": "Gambling feed", "usd_month": 15,
+         "desc": "One live bookmaker / odds feed (Sportsbet, TAB, Betfair, Pinnacle…).",
+         "url": "https://buy.stripe.com/9B65kw8Hp1Wy07hb6pcV202"},
+        {"sku": "all_access", "name": "All-access", "usd_month": 99,
+         "desc": "Every sport and gambling feed — the whole catalogue.",
+         "url": "https://buy.stripe.com/4gM00c2j10Su4nx5M5cV203"},
+    )
+
+    @app.get("/marketplace")
+    async def marketplace() -> dict[str, Any]:
+        """The in-app storefront (workbench B6): plans with their hosted checkout
+        links, the feed-picker URL, and the install's current entitlements. Each
+        link is env-overridable (``SPORTSDATA_BUY_URL_<SKU>``) so a test-mode or
+        regional Stripe account never needs a code change."""
+        plans = [
+            {**p, "url": os.environ.get(f"SPORTSDATA_BUY_URL_{p['sku'].upper()}", p["url"])}
+            for p in _MARKETPLACE_PLANS
+        ]
+        return {
+            "plans": plans,
+            "feeds_url": os.environ.get("SPORTSDATA_FEEDS_URL", "https://sportsdata-ai.com/feeds.html"),
+            "account": _account_payload(),
+        }
+
     @app.get("/skills")
     async def skills_route() -> dict[str, Any]:
         """Every skill the platform knows — built-in + learned — so the UI can show
