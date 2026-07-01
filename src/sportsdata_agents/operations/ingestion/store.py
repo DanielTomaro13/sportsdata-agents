@@ -35,7 +35,7 @@ def _price_insert(session: AsyncSession):
     """Dialect-aware INSERT for prices (postgres vs sqlite both support on_conflict)."""
     name = ""
     with contextlib.suppress(Exception):  # fall back to sqlite (dev) if bind is unset
-        name = session.bind.dialect.name  # type: ignore[union-attr]
+        name = session.bind.dialect.name
     return _pg_insert(Price) if name == "postgresql" else _sqlite_insert(Price)
 
 

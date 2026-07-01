@@ -280,11 +280,15 @@ def create_app(
     async def agents() -> dict[str, Any]:
         """Every agent the install knows, with enough detail for the workbench's
         Agents view to show what each one does and what it can reach."""
+        from sportsdata_agents.agents.model_prefs import load_overrides
+
+        pins = load_overrides()
         return {
             spec.id: {
                 "display_name": spec.display_name,
                 "description": spec.description,
                 "tier": spec.model_tier,
+                "tier_override": pins.get(spec.id),
                 "version": spec.version,
                 "plane": getattr(spec, "plane", "product"),
                 "capabilities": list(spec.tools.mcp_capabilities),
@@ -694,6 +698,23 @@ def create_app(
         enabled = bool(body.get("enabled", True))
         set_disabled(provider, disabled=not enabled)
         return JSONResponse({"provider": provider, "enabled": enabled})
+
+    @app.post("/agents/model")
+    async def agent_model(body: dict[str, Any]) -> JSONResponse:
+        """Pin (or clear) an agent's model (workbench B3). Body: ``{agent: str,
+        tier: str|null}`` — a tier name, an explicit "provider/model", or null/"" to
+        clear back to the spec default. Takes effect on the next run."""
+        from sportsdata_agents.agents.model_prefs import _valid_tier, set_override
+
+        agent_id = str(body.get("agent", "")).strip()
+        if agent_id not in load_builtin_specs():
+            raise HTTPException(404, detail=f"unknown agent {agent_id!r}")
+        tier = body.get("tier")
+        tier = str(tier).strip() if tier is not None else None
+        if tier and not _valid_tier(tier):
+            raise HTTPException(400, detail=f"tier {tier!r} must be a tier name or 'provider/model'")
+        pins = set_override(agent_id, tier or None)
+        return JSONResponse({"agent": agent_id, "tier_override": pins.get(agent_id)})
 
     # ─── the operator panel (owner-only: 404 for everyone but the operator) ───
     # The same switch that gates the platform-maintenance jobs gates this surface

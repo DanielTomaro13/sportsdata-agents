@@ -109,6 +109,19 @@ def _sides_score(a: tuple[frozenset[str], frozenset[str]], b: tuple[frozenset[st
     return max(combo(a, b), combo(a, (b[1], b[0])))
 
 
+def _fixture_day(fixture: Fixture) -> str:
+    """The day a fixture is indexed under: the real start, else the end (the blessed
+    day-window proxy), else the FOUNDING event's day persisted in ``meta`` — never the
+    resolution run's wall clock, which silently drifts a start-less fixture out of its
+    own matching window on every later pass (found: a same-day duplicate fixture where
+    an ambiguity skip was expected)."""
+    anchor = fixture.start_time or fixture.end_time
+    if anchor is not None:
+        return anchor.strftime("%Y-%m-%d")
+    proxy = (fixture.meta or {}).get("day_proxy")
+    return proxy if isinstance(proxy, str) else dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
+
+
 async def resolve_events(
     session_factory: async_sessionmaker[AsyncSession], *, dry_run: bool = False
 ) -> dict[str, Any]:
@@ -153,7 +166,7 @@ async def resolve_events(
             index.setdefault((sport, day), []).append((fixture_id, keyed, start))
 
         for fixture in fixtures:
-            add_to_index(fixture.id, fixture.sport, fixture_day(fixture.start_time),
+            add_to_index(fixture.id, fixture.sport, _fixture_day(fixture),
                          fixture.name, fixture.start_time)
 
         stats = {"examined": 0, "mapped": 0, "created": 0, "ambiguous": 0, "skipped_unnamed": 0}
@@ -233,6 +246,10 @@ async def resolve_events(
                     # day-window proxy for matching.
                     start_time=start_time,
                     end_time=end_time,
+                    # No time at all (no advertised start, no expiry): persist the
+                    # founding event's day so later passes index this fixture where
+                    # it was seen, not wherever "now" happens to be (_fixture_day).
+                    meta={"day_proxy": day} if start_time is None and end_time is None else {},
                 )
                 session.add(fixture)
                 await session.flush()
@@ -280,8 +297,7 @@ async def map_events_to_fixtures(
         for fixture in fixtures:
             sides = split_sides(fixture.name)
             keyed = (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(fixture.name)
-            day = (fixture.start_time or dt.datetime.now(dt.UTC)).strftime("%Y-%m-%d")
-            index.setdefault((fixture.sport, day), []).append((fixture.id, keyed))
+            index.setdefault((fixture.sport, _fixture_day(fixture)), []).append((fixture.id, keyed))
 
         stats = {"examined": 0, "mapped": 0, "ambiguous": 0, "unmatched": 0}
         for item in items:

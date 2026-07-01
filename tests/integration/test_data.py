@@ -61,6 +61,8 @@ def test_migrations_apply(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
         "conversations", "messages", "agent_runs", "tool_calls",
         "usage_ledger", "budgets", "agent_metrics", "memory", "notes",
         "artifacts", "recommendations", "tracked_bets",
-        "fixtures", "events", "selections", "alembic_version",
+        # no "selections": 0014 drops the dead table (models.py explains the
+        # denormalized selection-strings design).
+        "fixtures", "events", "alembic_version",
     }
     assert expected <= names, f"missing tables: {sorted(expected - names)}"
