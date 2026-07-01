@@ -366,10 +366,11 @@ async function loadAgents() {
     const a = agentCache[id];
     const caps = (a.capabilities || []).slice(0, 6).map((c) => `<span class="tag">${esc(c)}</span>`).join("");
     const more = (a.capabilities || []).length > 6 ? `<span class="tag">+${a.capabilities.length - 6}</span>` : "";
+    const pin = a.tier_override ? `<span class="tag" style="color:var(--accent)">model: ${esc(a.tier_override)}</span>` : "";
     return `<div class="card click" data-agent="${esc(id)}">
       <h3>${esc(a.display_name)} <span class="badge ${a.plane}">${a.plane}</span></h3>
       <div class="desc">${esc(a.description || "No description.")}</div>
-      <div class="tags">${caps}${more}</div></div>`;
+      <div class="tags">${pin}${caps}${more}</div></div>`;
   };
   body.innerHTML =
     `<div class="section-lbl">Product agents — these answer you in chat</div><div class="grid">${product.map(card).join("")}</div>` +
@@ -386,7 +387,11 @@ function showAgentDetail(id) {
   body.innerHTML = `<button class="backlink" id="agents-back">← All agents</button>
     <h2 style="margin:14px 0 4px;font-size:20px">${esc(a.display_name)} <span class="badge ${a.plane}">${a.plane}</span></h2>
     <div class="muted">${esc(a.description || "No description.")}</div>
-    <div class="kv"><span>Model tier</span><b><code>${esc(a.tier)}</code></b></div>
+    <div class="kv"><span>Model</span><b><select id="agent-model-sel" class="agent-model-sel">
+      <option value=""${!a.tier_override ? " selected" : ""}>default (${esc(a.tier)})</option>
+      ${["fast", "balanced", "strong"].map((t) => `<option value="${t}"${a.tier_override === t ? " selected" : ""}>${t}</option>`).join("")}
+      ${a.tier_override && !["fast", "balanced", "strong"].includes(a.tier_override) ? `<option value="${esc(a.tier_override)}" selected>${esc(a.tier_override)}</option>` : ""}
+    </select></b></div>
     <div class="kv"><span>Version</span><b><code>${esc(a.version)}</code></b></div>
     ${a.deprecated ? `<div class="kv"><span>Deprecated</span><b style="color:var(--warn)">${esc(a.deprecated)}</b></div>` : ""}
     ${list("Data capabilities (MCP)", a.capabilities)}
@@ -396,6 +401,16 @@ function showAgentDetail(id) {
     <div class="section-lbl">Recent activity</div>
     <div id="agent-runs"><div class="muted">Loading activity…</div></div>`;
   $("#agents-back").addEventListener("click", loadAgents);
+  $("#agent-model-sel").addEventListener("change", async (e) => {
+    const tier = e.target.value || null;
+    try {
+      const r = await fetch(`${API}/agents/model`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent: id, tier }),
+      });
+      if (r.ok) a.tier_override = tier; // keep the cache honest so cards show the pin
+    } catch { /* the next /agents reload reflects the real state */ }
+  });
   loadAgentRuns(id);
 }
 

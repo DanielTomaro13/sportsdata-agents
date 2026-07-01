@@ -292,8 +292,14 @@ class Harness:
         recorder_token = CURRENT_RUN_RECORDER.set(recorder) if recorder is not None else None
         started = time.monotonic()
         await self._record_start(run_id, parent_run_id, user_input)
+        # The user's per-agent model pin (workbench B3) wins over the caller's per-run
+        # pick — a pin is a promise ("this agent always uses X"), and budgets clamp
+        # regardless. Resolved once per run, not per model call.
+        from sportsdata_agents.agents.model_prefs import override_for
+
+        pinned = override_for(self.spec.id)
         try:
-            result = await self._loop(messages, budget, tier=tier)
+            result = await self._loop(messages, budget, tier=pinned or tier)
         except BaseException as e:
             # A crashed run must not strand a "running" row + leak its usage buffer.
             await self._record_crash(
