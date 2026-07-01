@@ -64,7 +64,10 @@ def main() -> int:
     check = "--check" in sys.argv
     if updated != current:
         if check:
-            print("catalogue.ts is OUT OF SYNC with site/catalogue.json — run scripts/gen-catalogue.py", file=sys.stderr)
+            print(
+                "catalogue.ts is OUT OF SYNC with site/catalogue.json — run scripts/gen-catalogue.py",
+                file=sys.stderr,
+            )
             return 1
         WORKER_TS.write_text(updated)
         print(f"regenerated {WORKER_TS.relative_to(ROOT)} ({len(provs)} providers)")
