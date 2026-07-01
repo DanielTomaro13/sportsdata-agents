@@ -188,8 +188,14 @@ add-ons, fails open to free) with a provider-agnostic **billing webhook**
 **macOS packaging + signing pipeline** (tag → notarized DMG, pending only the Apple
 Developer ID); a signed **OTA data feed**; daemon hardening (DNS-rebind guard,
 crash-restart supervision); the **generalist** growth loop; and the **operator
-console** (`agents config|costs|ops status` + the in-app operator panel, gated to
-your deployment by `SPORTSDATA_OPERATOR`). What remains to go live is account
+console** (`agents config|costs|ops status` + the in-app operator panel, gated by a
+**signed operator licence claim** — on a release build the `SPORTSDATA_OPERATOR` env
+var is ignored; see [`docs/SECURITY.md`](docs/SECURITY.md)). The chat UI has since
+grown into a full **agentic workbench**: provider on/off toggles, expandable
+per-reply reasoning traces, agent activity views, a live monitors pane
+(arb / line-move / value alerts), per-agent model pins, per-conversation model +
+data-provider scope, and an in-app marketplace that hands checkout off to the
+browser (no payment logic in the app). What remains to go live is account
 setup, not code — see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md), the milestone log
 in [`docs/history/BUILD_PLAN.md`](docs/history/BUILD_PLAN.md), and
 [`POST_DEV.md`](./POST_DEV.md) for everything built-but-switched-off.
