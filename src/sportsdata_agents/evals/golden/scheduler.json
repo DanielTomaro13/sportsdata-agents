@@ -27,6 +27,7 @@
       "due": [
         "ingest",
         "monitor",
+        "resolve",
         "results"
       ]
     },
@@ -37,15 +38,17 @@
         "custodian",
         "ingest",
         "monitor",
+        "resolve",
         "steward"
       ]
     },
     {
       "now": "2026-06-15T09:30:30",
       "due": [
+        "eval_benchmark",
         "ingest",
         "monitor",
-        "eval_benchmark"
+        "resolve"
       ]
     },
     {
@@ -55,6 +58,7 @@
         "custodian",
         "ingest",
         "monitor",
+        "resolve",
         "site_manager"
       ]
     },
@@ -65,7 +69,8 @@
         "custodian",
         "ingest",
         "monitor",
-        "refresh_books"
+        "refresh_books",
+        "resolve"
       ]
     },
     {
@@ -75,7 +80,8 @@
         "custodian",
         "ingest",
         "monitor",
-        "ops_health"
+        "ops_health",
+        "resolve"
       ]
     },
     {
@@ -84,7 +90,8 @@
         "budget_watch",
         "custodian",
         "ingest",
-        "monitor"
+        "monitor",
+        "resolve"
       ]
     }
   ]
