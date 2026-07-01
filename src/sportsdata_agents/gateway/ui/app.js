@@ -182,6 +182,7 @@ async function finish(taskId, body, think) {
 /* ─── chat history sidebar ─────────────────────────────────── */
 function newChat() {
   convId = "web-" + Math.random().toString(36).slice(2, 10);
+  $("#convset").classList.remove("scoped"); // a fresh chat starts unscoped (B2)
   thread.innerHTML = `<div class="welcome" id="welcome">
       <h1>Your <span class="g">sports-data desk</span></h1>
       <p>Ask the agent team — cross-book odds, models, arbitrage, fantasy. Every answer is grounded in live tool results.</p>
@@ -202,12 +203,14 @@ function timeAgo(iso) {
 }
 
 let showArchived = false;
+let convHints = {}; // key → has per-chat settings (for the ⚙ indicator, B2)
 async function loadHistory() {
   let convs = [];
   try {
     const r = await fetch(`${API}/conversations?include_archived=1`, { cache: "no-store" });
     if (r.ok) convs = (await r.json()).conversations || [];
   } catch { /* sidebar just stays empty */ }
+  convHints = Object.fromEntries(convs.map((c) => [c.key, Boolean(c.model_tier || (c.mcp_providers || []).length)]));
   const active = convs.filter((c) => !c.archived);
   const archived = convs.filter((c) => c.archived);
   const hist = $("#hist");
@@ -298,6 +301,7 @@ async function openConversation(key) {
     if (r.ok) msgs = (await r.json()).messages || [];
   } catch { return; }
   convId = key;
+  $("#convset").classList.toggle("scoped", Boolean(convHints[key]));
   thread.innerHTML = "";
   for (const m of msgs) {
     if (m.role === "user") addMsg("user", "you").innerHTML = `<p>${esc(m.content)}</p>`;
@@ -320,6 +324,48 @@ function showPane(name) {
   if (name === "settings") loadSettings();
   if (name === "monitors") { loadMonitors(); monTimer = setInterval(loadMonitors, 20000); }
   if (name === "market") loadMarketplace();
+}
+
+/* ─── chat settings (B2: per-conversation model + data scope) ── */
+async function openConvSettings() {
+  const modal = $("#convmodal"); if (!modal) return;
+  modal.hidden = false;
+  let settings = { model_tier: null, mcp_providers: null };
+  try {
+    const r = await fetch(`${API}/conversations/${encodeURIComponent(convId)}/settings`, { cache: "no-store" });
+    if (r.ok) settings = await r.json();
+  } catch { /* defaults stand */ }
+  $("#conv-tier").value = settings.model_tier || "";
+  const grid = $("#conv-provs");
+  let provs = [];
+  try {
+    const r = await fetch(`${API}/mcp/groups`, { cache: "no-store" });
+    if (r.ok) provs = (await r.json()).providers || [];
+  } catch { /* leave the loading note */ }
+  if (!provs.length) { grid.innerHTML = `<div class="muted">Data plane unreachable — provider scope unavailable.</div>`; }
+  else {
+    const allowed = settings.mcp_providers; // null = all
+    grid.innerHTML = provs.map((p) => {
+      const id = p.provider, on = !allowed || allowed.includes(id);
+      return `<label><input type="checkbox" data-prov="${esc(id)}"${on ? " checked" : ""}>${esc(id)}</label>`;
+    }).join("");
+  }
+  $("#conv-all").onclick = () => $$("#conv-provs input").forEach((c) => { c.checked = true; });
+  $("#conv-save").onclick = async () => {
+    const boxes = $$("#conv-provs input");
+    const ticked = boxes.filter((c) => c.checked).map((c) => c.dataset.prov);
+    // all ticked (or no list rendered) = no scope = null
+    const providers = boxes.length && ticked.length < boxes.length ? ticked : null;
+    const tier = $("#conv-tier").value || null;
+    try {
+      await fetch(`${API}/conversations/${encodeURIComponent(convId)}/settings`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model_tier: tier, mcp_providers: providers }),
+      });
+    } catch { /* the reopened modal shows the real state */ }
+    $("#convset").classList.toggle("scoped", Boolean(tier || providers));
+    modal.hidden = true;
+  };
 }
 
 /* ─── marketplace pane (storefront → browser checkout handoff) ── */
@@ -798,6 +844,9 @@ $("#files-body").addEventListener("click", (e) => { const f = e.target.closest("
 $("#tier").addEventListener("click", openAccount);
 $("#acc-close").addEventListener("click", closeAccount);
 $("#account").addEventListener("click", (e) => { if (e.target.id === "account") closeAccount(); });
+$("#convset").addEventListener("click", openConvSettings);
+$("#conv-close").addEventListener("click", () => { $("#convmodal").hidden = true; });
+$("#convmodal").addEventListener("click", (e) => { if (e.target.id === "convmodal") $("#convmodal").hidden = true; });
 $("#acc-activate").addEventListener("click", activateKey);
 $("#acc-upgrade").addEventListener("click", () => { if (account?.upgrade_url) window.open(account.upgrade_url, "_blank"); });
 $("#acc-skill-list").addEventListener("click", async (e) => {

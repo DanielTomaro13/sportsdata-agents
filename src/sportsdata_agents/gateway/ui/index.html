@@ -169,6 +169,12 @@
   .agent-model-sel{padding:5px 8px;border-radius:7px;border:1px solid #21304a;background:rgba(255,255,255,.03);color:inherit;font-size:12.5px;font-family:var(--mono)}
   .mkt-buy{padding:8px 14px;border-radius:8px;border:0;cursor:pointer;font-weight:650;font-size:13px;
     background:linear-gradient(90deg,var(--acc1),var(--acc3));color:#06101f}
+  .convset{border:0;background:none;color:var(--dim);cursor:pointer;padding:6px;border-radius:8px;align-self:flex-end}
+  .convset:hover{color:var(--ink);background:rgba(255,255,255,.05)}
+  .convset.scoped{color:var(--acc3)}
+  #convmodal .mcard{width:min(460px,94vw);max-height:80vh;overflow-y:auto}
+  #convmodal .provgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin:10px 0}
+  #convmodal .provgrid label{display:flex;gap:7px;align-items:center;font-size:13px;color:var(--ink);cursor:pointer}
   .muted{color:var(--dim);font-size:13px}
   .pane-empty{text-align:center;color:var(--faint);padding:14vh 20px;font-size:13.5px}
   .filerow{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);
@@ -284,6 +290,7 @@
     </div>
     <div class="composer">
       <div class="cbox">
+        <button class="convset" id="convset" title="Chat settings — model &amp; data scope"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.2 4.2l2.8 2.8m10 10 2.8 2.8M1 12h4m14 0h4M4.2 19.8l2.8-2.8m10-10 2.8-2.8"/></svg></button>
         <textarea id="input" rows="1" placeholder="Ask the desk anything…"></textarea>
         <button class="send" id="send" title="Send">↑</button>
       </div>
@@ -321,6 +328,28 @@
     <div class="pscroll"><div class="pwrap" id="settings-body"><div class="muted">Loading…</div></div></div>
   </section>
 
+</div>
+
+<!-- chat settings modal (B2: per-conversation model + data scope) -->
+<div class="modal" id="convmodal" hidden>
+  <div class="mcard">
+    <span class="x" id="conv-close">✕</span>
+    <h2>Chat settings</h2>
+    <div class="muted" style="margin:4px 0 14px">Apply to this conversation only — the next message uses them.</div>
+    <div class="section-lbl">Model</div>
+    <select id="conv-tier" class="agent-model-sel" style="width:100%">
+      <option value="">Default (automatic)</option>
+      <option value="fast">fast</option>
+      <option value="balanced">balanced</option>
+      <option value="strong">strong</option>
+    </select>
+    <div class="section-lbl">Data providers <span class="muted" style="text-transform:none;letter-spacing:0">— untick to hide from this chat</span></div>
+    <div class="provgrid" id="conv-provs"><div class="muted">Loading providers…</div></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn ghost" id="conv-all" style="flex:1;padding:10px;border-radius:10px;cursor:pointer;background:transparent;border:1px solid #21304a;color:#e7eefb">All providers</button>
+      <button class="mkt-buy" id="conv-save" style="flex:1">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- account modal -->

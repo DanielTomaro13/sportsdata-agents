@@ -204,12 +204,32 @@ class TeamSession:
             self._stack = None
             self._runtime = None
 
-    async def run(self, prompt: str, *, recorder: RunRecorder | None = None) -> RunResult:
+    async def run(
+        self,
+        prompt: str,
+        *,
+        recorder: RunRecorder | None = None,
+        tier: str | None = None,
+        mcp_deny: frozenset[str] | None = None,
+    ) -> RunResult:
         """``recorder`` overrides recording for this run only (e.g. the gateway's SSE
-        mirror) — contextvar-scoped in the harness, so concurrent runs don't race."""
+        mirror) — contextvar-scoped in the harness, so concurrent runs don't race.
+        ``tier``/``mcp_deny`` are the conversation's settings (workbench B2): the
+        forced model and the scoped-out providers for THIS run — same contextvar
+        propagation, so delegated sub-runs inherit both."""
         if self._runtime is None:
             raise RuntimeError("TeamSession is not started; use `async with TeamSession(...)`")
-        return await self._runtime.run(prompt, recorder=recorder)
+        from sportsdata_agents.agents.harness import CURRENT_CONV_TIER, CURRENT_MCP_DENY
+
+        tier_token = CURRENT_CONV_TIER.set(tier) if tier else None
+        deny_token = CURRENT_MCP_DENY.set(mcp_deny) if mcp_deny else None
+        try:
+            return await self._runtime.run(prompt, recorder=recorder)
+        finally:
+            if tier_token is not None:
+                CURRENT_CONV_TIER.reset(tier_token)
+            if deny_token is not None:
+                CURRENT_MCP_DENY.reset(deny_token)
 
 
 def _default_extra_tools(recorder: RunRecorder | None) -> list[Any]:

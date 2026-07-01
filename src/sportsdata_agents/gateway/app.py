@@ -583,6 +583,51 @@ def create_app(
             return JSONResponse({"detail": "unknown conversation"}, status_code=404)
         return JSONResponse({"ok": True})
 
+    @app.get("/conversations/{key}/settings")
+    async def conversation_settings(key: str) -> JSONResponse:
+        """A conversation's model + provider scope (workbench B2)."""
+        store = state["convstore"]
+        if store is None:
+            return JSONResponse({"detail": "no conversation store"}, status_code=503)
+        try:
+            settings = await store.settings_for(key)
+        except Exception as e:  # warehouse down/unmigrated → defaults, not a 500
+            logger.warning("conversation settings read failed (%s: %s)", type(e).__name__, e)
+            settings = None
+        if settings is None:
+            # An unsaved (brand-new) chat simply has defaults — not an error.
+            settings = {"model_tier": None, "mcp_providers": None}
+        return JSONResponse(settings)
+
+    @app.post("/conversations/{key}/settings")
+    async def set_conversation_settings(key: str, body: dict[str, Any]) -> JSONResponse:
+        """Set a conversation's forced model and/or provider scope (workbench B2).
+        Body: ``{model_tier: str|null, mcp_providers: [str]|null}`` — null clears
+        back to defaults. Narrow-only: the scope can hide licensed providers from
+        this chat, never grant unlicensed ones."""
+        store = state["convstore"]
+        if store is None:
+            return JSONResponse({"detail": "no conversation store"}, status_code=503)
+        from sportsdata_agents.agents.model_prefs import _valid_tier
+
+        tier = body.get("model_tier")
+        tier = str(tier).strip() if tier else None
+        if tier and not _valid_tier(tier):
+            raise HTTPException(400, detail=f"model_tier {tier!r} must be a tier name or 'provider/model'")
+        providers = body.get("mcp_providers")
+        if providers is not None:
+            if not isinstance(providers, list) or not all(isinstance(p, str) and p.strip() for p in providers):
+                raise HTTPException(400, detail="mcp_providers must be a list of provider ids, or null")
+            providers = [p.strip() for p in providers]
+        try:
+            ok = await store.set_settings(key, model_tier=tier, mcp_providers=providers)
+        except Exception as e:  # warehouse down/unmigrated → a clear 503, not a 500
+            logger.warning("conversation settings write failed (%s: %s)", type(e).__name__, e)
+            ok = False
+        if not ok:
+            return JSONResponse({"detail": "could not persist settings"}, status_code=503)
+        return JSONResponse({"ok": True, "model_tier": tier, "mcp_providers": providers})
+
     @app.delete("/conversations/{key}")
     async def delete_conversation(key: str) -> JSONResponse:
         """Permanently delete a conversation and its messages."""
@@ -681,9 +726,15 @@ def create_app(
         """The MCP provider catalogue (groups + tool counts) from the live data
         plane. Cached for 5 min — it moves slowly and the call spawns a subprocess.
         Empty payload (not an error) when the data plane is unreachable."""
+        return JSONResponse(_annotate_enabled(await _mcp_groups_payload()))
+
+    async def _mcp_groups_payload() -> dict[str, Any]:
+        """The (cached) raw provider catalogue — shared by the route and the B2
+        per-conversation scope, which needs the provider universe to turn an
+        allowed-list into a deny-set."""
         cached = _mcp_cache.get("groups")
         if cached and time.monotonic() - _mcp_cache.get("at", 0.0) < 300:
-            return JSONResponse(_annotate_enabled(cached))
+            return cached
         payload: dict[str, Any] = {"providers": [], "available": {}}
         try:
             from sportsdata_agents.mcp.manager import MCPManager
@@ -707,7 +758,23 @@ def create_app(
             _mcp_cache.update(groups=payload, at=time.monotonic())
         except Exception as e:  # data plane down / slow → empty catalogue, not a 500
             logger.warning("mcp group listing unavailable (%s: %s)", type(e).__name__, e)
-        return JSONResponse(_annotate_enabled(payload))
+        return payload
+
+    async def _conv_deny(allowed: list[str] | None) -> frozenset[str] | None:
+        """The B2 deny-set for a conversation's allowed-provider list: the licensed
+        universe minus the list. Degrades OPEN (no scope, with a warning) when the
+        data plane can't enumerate providers — the scope is a UX convenience; the
+        licence gate and the B1 off-switch stay the hard boundaries."""
+        if not allowed:
+            return None
+        universe = {
+            str(p.get("provider"))
+            for p in (await _mcp_groups_payload()).get("providers") or []
+        }
+        if not universe:
+            logger.warning("conversation scope skipped — provider universe unavailable")
+            return None
+        return frozenset(universe - set(allowed)) or None
 
     def _annotate_enabled(payload: dict[str, Any]) -> dict[str, Any]:
         """Stamp each provider's live on/off flag (computed OUTSIDE the 5-min catalogue cache
@@ -927,11 +994,27 @@ def create_app(
 
         convkey, store = body.conversation_id, state["convstore"]
         prompt = body.text
+        conv_tier: str | None = None
+        conv_deny: frozenset[str] | None = None
         if convkey and store is not None:
             try:
                 prompt = threaded_prompt(await store.context_for(convkey), body.text)
             except Exception as e:
                 logger.warning("conversation context unavailable (%s: %s)", type(e).__name__, e)
+            # B2 per-conversation settings ride this run: the forced model, and the
+            # provider scope as a deny-set (settings failures degrade to defaults).
+            try:
+                settings = await store.settings_for(convkey) or {}
+                conv_tier = settings.get("model_tier") or None
+                conv_deny = await _conv_deny(settings.get("mcp_providers"))
+            except Exception as e:
+                logger.warning("conversation settings unavailable (%s: %s)", type(e).__name__, e)
+        # Passed only when set — a plain session without the B2 kwargs keeps working.
+        run_kw: dict[str, Any] = {}
+        if conv_tier:
+            run_kw["tier"] = conv_tier
+        if conv_deny:
+            run_kw["mcp_deny"] = conv_deny
 
         async def remember_turn(out: MessageOut) -> None:
             if convkey and store is not None:
@@ -947,7 +1030,7 @@ def create_app(
                     # Per-run override — never mutate the shared session's harness:
                     # concurrent requests would race on it.
                     mirror = QueueRecorder(record.events, getattr(session, "recorder", None))
-                    result = await session.run(prompt, recorder=mirror)
+                    result = await session.run(prompt, recorder=mirror, **run_kw)
                     out = _to_message_out(result)
                     await remember_turn(out)
                     return out
@@ -957,7 +1040,7 @@ def create_app(
             record = tasks.submit(factory)
             return TaskOut(task_id=record.id, state=record.state)
 
-        result = await session.run(prompt)
+        result = await session.run(prompt, **run_kw)
         out = _to_message_out(result)
         await remember_turn(out)
         return out
