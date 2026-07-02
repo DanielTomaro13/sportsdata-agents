@@ -32,10 +32,15 @@
       { "name": "DATAGOLF_KEY_RL", "type": "ratelimit", "namespace_id": "1002", "simple": { "limit": 15, "period": 60 } }
     ]
   }
-  // R2 download origin (optional) — to serve the binary from R2 instead of the GitHub
-  // release: create a bucket, upload the build, then UNCOMMENT this and redeploy. A missing
-  // object falls back to the GitHub path, so leaving it commented changes nothing.
-  //   wrangler r2 bucket create sportsdata-downloads
+  // R2 download origin (optional) — serves the binary from R2 with the GitHub release as
+  // fallback (removes GitHub as the single origin + its rate limits). OS-aware: /download
+  // picks latest/sportsdata-mcp-macos.zip or latest/sportsdata-mcp-windows.zip by the
+  // request User-Agent. To enable (one-time; needs the r2 scope — `wrangler login` again
+  // if `wrangler r2 bucket create` says unauthorised, or create the bucket in the dash):
+  //   1. wrangler r2 bucket create sportsdata-downloads
+  //   2. UNCOMMENT the binding below and `wrangler deploy`
+  //   3. sh ../../scripts/publish-r2.sh   (uploads the latest release's assets; re-run per release)
+  // Missing objects fall back to the GitHub path, so a half-configured deploy still serves.
   // "r2_buckets": [
   //   { "binding": "DOWNLOAD_BUCKET", "bucket_name": "sportsdata-downloads" }
   // ],

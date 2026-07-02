@@ -101,24 +101,30 @@ export async function handleDownload(req: Request, env: Env): Promise<Response> 
   }
 
   // Prefer R2 when a bucket is bound — removes the dependency on (and rate limits of) the
-  // GitHub release as the single binary origin. Inert until the bucket is provisioned + a
-  // build uploaded; a MISSING object falls through to the GitHub path, so a half-configured
-  // deploy still serves rather than 404-ing a paying customer.
+  // GitHub release as the single binary origin. OS-aware like the GitHub path: a Windows
+  // customer must never be handed the mac build. Inert until the bucket is provisioned +
+  // builds uploaded (scripts/publish-r2.sh); MISSING objects fall through to the GitHub
+  // path, so a half-configured deploy still serves rather than 404-ing a paying customer.
   if (env.DOWNLOAD_BUCKET) {
-    const objKey = env.DOWNLOAD_R2_KEY || "sportsdata-mcp-latest.dmg";
-    const obj = await env.DOWNLOAD_BUCKET.get(objKey);
-    if (obj) {
-      return new Response(obj.body, {
-        status: 200,
-        headers: {
-          "content-type": obj.httpMetadata?.contentType || "application/octet-stream",
-          "content-disposition": `attachment; filename="${safeFilename(objKey.split("/").pop() || "")}"`,
-          "cache-control": "no-store",
-          ...CORS,
-        },
-      });
+    const isWindows = /windows|win64|win32/i.test(req.headers.get("user-agent") || "");
+    const macKey = env.DOWNLOAD_R2_KEY_MAC || env.DOWNLOAD_R2_KEY || "latest/sportsdata-mcp-macos.zip";
+    const winKey = env.DOWNLOAD_R2_KEY_WIN || "latest/sportsdata-mcp-windows.zip";
+    // own OS first, the other as a same-origin fallback (mirrors pickAsset)
+    for (const objKey of isWindows ? [winKey, macKey] : [macKey, winKey]) {
+      const obj = await env.DOWNLOAD_BUCKET.get(objKey);
+      if (obj) {
+        return new Response(obj.body, {
+          status: 200,
+          headers: {
+            "content-type": obj.httpMetadata?.contentType || "application/octet-stream",
+            "content-disposition": `attachment; filename="${safeFilename(objKey.split("/").pop() || "")}"`,
+            "cache-control": "no-store",
+            ...CORS,
+          },
+        });
+      }
     }
-    console.error(`download: R2 object ${objKey} missing — falling back to GitHub release`);
+    console.error("download: no R2 build objects — falling back to GitHub release");
   }
 
   const token = env.GITHUB_DOWNLOAD_TOKEN;

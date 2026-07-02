@@ -51,7 +51,9 @@ export interface Env {
   // its own rate limits). When bound, /download serves from here and only falls back to the
   // GitHub release if the object is missing. Inert until the bucket is provisioned + filled.
   DOWNLOAD_BUCKET?: R2Bucket;
-  DOWNLOAD_R2_KEY?: string; // object key of the current build (default: sportsdata-mcp-latest.dmg)
+  DOWNLOAD_R2_KEY?: string; // legacy mac-build key override (kept for back-compat)
+  DOWNLOAD_R2_KEY_MAC?: string; // default: latest/sportsdata-mcp-macos.zip
+  DOWNLOAD_R2_KEY_WIN?: string; // default: latest/sportsdata-mcp-windows.zip
   // HMAC secret for the email's download-only token (keeps the raw key out of the URL).
   // Inert without it — the fulfilment email falls back to the legacy ?key= link.
   DOWNLOAD_TOKEN_SECRET?: string;
@@ -316,6 +318,50 @@ async function handleAssignment(req: Request, env: Env): Promise<Response> {
   return json({ ok: true, providers: check.providers, ...budget });
 }
 
+// Health for uptime monitoring: D1 reachability (the one hard dependency) drives the
+// status code; the rest are config-presence booleans (never secret values). ?deep=datagolf
+// additionally makes ONE upstream DataGolf call — operator-invoked only, it spends a
+// request from the pooled key's 45/min budget, so automated monitors must NOT pass it.
+async function handleHealthz(url: URL, env: Env): Promise<Response> {
+  let d1 = false;
+  try {
+    await env.DB.prepare("SELECT 1").first();
+    d1 = true;
+  } catch (e) {
+    console.error("healthz: D1 check failed:", e);
+  }
+  const body: Record<string, unknown> = {
+    ok: d1,
+    d1,
+    stripe: Boolean(env.STRIPE_WEBHOOK_SECRET),
+    signing: Boolean(env.SIGNING_KEY_PKCS8_B64),
+    download_github: Boolean(env.GITHUB_DOWNLOAD_TOKEN),
+    download_r2: Boolean(env.DOWNLOAD_BUCKET),
+    download_token: Boolean(env.DOWNLOAD_TOKEN_SECRET),
+    proxy_datagolf: Boolean(env.DATAGOLF_KEYS || env.DATAGOLF_KEY),
+    proxy_tab: Boolean(env.TAB_CLIENT_ID && env.TAB_CLIENT_SECRET),
+    email: Boolean(env.RESEND_API_KEY),
+  };
+  if (url.searchParams.get("deep") === "datagolf") {
+    const key = (env.DATAGOLF_KEYS || env.DATAGOLF_KEY || "").split(",")[0]?.trim();
+    if (key) {
+      try {
+        const r = await fetch(
+          `https://feeds.datagolf.com/get-player-list?file_format=json&key=${encodeURIComponent(key)}`,
+          { method: "GET" },
+        );
+        body.datagolf_upstream = r.status;
+      } catch (e) {
+        console.error("healthz: datagolf deep check failed:", e);
+        body.datagolf_upstream = "unreachable";
+      }
+    } else {
+      body.datagolf_upstream = "unconfigured";
+    }
+  }
+  return json(body, d1 ? 200 : 503);
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
@@ -328,7 +374,7 @@ export default {
     }
     try {
       let resp: Response;
-      if (url.pathname === "/healthz") resp = json({ ok: true });
+      if (url.pathname === "/healthz") resp = await handleHealthz(url, env);
       else if (url.pathname === "/stripe/webhook" && req.method === "POST") resp = await handleWebhook(req, env);
       else if (url.pathname === "/entitlement" && req.method === "GET") resp = await handleEntitlement(req, env);
       else if (url.pathname === "/assignment" && (req.method === "GET" || req.method === "POST")) {
