@@ -1,0 +1,28 @@
+# Uptime check on the two customer-facing surfaces: the entitlement Worker
+# (the whole commerce chain's front door) and the marketing site. Runs every
+# 30 minutes; a red run emails the repo owner. The Worker check demands
+# {"ok":true} from /healthz — which is D1-backed, so a dead database (not just
+# a dead Worker) also alerts. Never pass ?deep=… here: the deep probes spend
+# upstream API budget and are operator-invoked only.
+
+name: uptime
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Entitlement Worker /healthz
+        run: |
+          body=$(curl -sS --max-time 20 "https://api.sportsdata-ai.com/healthz")
+          echo "$body"
+          echo "$body" | grep -q '"ok":true' || { echo "::error::Worker unhealthy"; exit 1; }
+      - name: Marketing site
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "https://sportsdata-ai.com/")
+          echo "site → $code"
+          [ "$code" = "200" ] || { echo "::error::site returned $code"; exit 1; }
