@@ -15,7 +15,8 @@ DIST="$REPO/dist"
 ONEDIR="$DIST/$APP_NAME"                  # from build-desktop.sh
 APP="$DIST/$APP_NAME.app"
 PKG="$REPO/packaging/macos"
-VERSION="$("$REPO/.venv/bin/python" -c 'import sportsdata_agents; print(sportsdata_agents.__version__)' 2>/dev/null || echo "0.0.0")"
+VPY="$REPO/.venv/bin/python"; [ -x "$VPY" ] || VPY="python"
+VERSION="$("$VPY" -c 'import sportsdata_agents; print(sportsdata_agents.__version__)' 2>/dev/null || echo "0.0.0")"
 
 if [ ! -d "$ONEDIR" ]; then
   echo "error: $ONEDIR not found — run 'sh scripts/build-desktop.sh' first" >&2

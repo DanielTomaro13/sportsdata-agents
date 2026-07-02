@@ -15,7 +15,12 @@ set -eu
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MCP_DIR="${SPORTSDATA_MCP_DIR:-$REPO/../sportsdata-mcp}"
 APP_NAME="sportsdata"
-VERSION="$("$REPO/.venv/bin/python" -c 'import sportsdata_agents; print(sportsdata_agents.__version__)')"
+# Resolve the venv python — Unix layout (.venv/bin) or Windows layout (.venv/Scripts),
+# else the current interpreter (CI installs straight into the runner's Python; no venv).
+VPY="$REPO/.venv/bin/python"
+[ -x "$VPY" ] || VPY="$REPO/.venv/Scripts/python.exe"
+[ -x "$VPY" ] || VPY="python"
+VERSION="$("$VPY" -c 'import sportsdata_agents; print(sportsdata_agents.__version__)')"
 
 echo "building $APP_NAME $VERSION (onedir, direct-download)"
 cd "$REPO"
@@ -34,7 +39,10 @@ else
   echo "  WARNING: $MCP_BIN not found — the bundle will need an external sportsdata-mcp"
 fi
 
-.venv/bin/pyinstaller \
+PYI="$REPO/.venv/bin/pyinstaller"
+[ -x "$PYI" ] || PYI="$REPO/.venv/Scripts/pyinstaller.exe"
+[ -x "$PYI" ] || PYI="pyinstaller"
+"$PYI" \
   --name "$APP_NAME" \
   --onedir \
   --console \
