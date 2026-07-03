@@ -516,6 +516,64 @@ def desk(
     console.print("Change it with [bold]agents desk --set /path/you/open[/bold].")
 
 
+@app.command()
+def engines(
+    action: str = typer.Argument("status", help="status | connect"),
+    url: str = typer.Option("", help="Hosted pricing API base URL (connect)"),
+    key: str = typer.Option("", help="API key (connect; never stored without --write)"),
+    write: bool = typer.Option(False, help="Append the connection to .env after verifying"),
+) -> None:
+    """Pricing-engine connection: show status, or verify + wire a hosted key.
+
+    The platform runs fully without an engine; connecting one unlocks model
+    fair prices (value watches, consistency scans, engine predictions).
+    """
+    from sportsdata_agents.quant.engines import EngineUnavailable, RemoteEngineBackend, resolve_engine
+
+    if action == "status":
+        try:
+            engine = resolve_engine()
+        except (EngineUnavailable, ValueError) as exc:
+            typer.echo(f"engine: unavailable ({exc})")
+            raise typer.Exit(1) from exc
+        if engine is None:
+            typer.echo("engine: not configured (backend=none)")
+            typer.echo("unlock model fair prices: `agents engines connect --url ... --key ...`"
+                       " or SPORTSDATA_AGENTS_ENGINE_BACKEND=local with the engines package installed")
+            return
+        typer.echo(f"engine: {type(engine).__name__}")
+        typer.echo(f"sports: {', '.join(engine.sports())}")
+        return
+    if action == "connect":
+        if not url or not key:
+            typer.echo("connect needs --url and --key")
+            raise typer.Exit(2)
+        try:
+            sports = RemoteEngineBackend(url, key).sports()
+        except EngineUnavailable as exc:
+            typer.echo(f"verification failed: {exc}")
+            raise typer.Exit(1) from exc
+        typer.echo(f"verified: {len(sports)} sports at {url}")
+        lines = [
+            "SPORTSDATA_AGENTS_ENGINE_BACKEND=remote",
+            f"SPORTSDATA_AGENTS_ENGINE_API_URL={url}",
+            f"SPORTSDATA_AGENTS_ENGINE_API_KEY={key}",
+        ]
+        if write:
+            from pathlib import Path
+
+            with Path(".env").open("a", encoding="utf-8") as handle:
+                handle.write("\n" + "\n".join(lines) + "\n")
+            typer.echo("written to .env")
+        else:
+            typer.echo("add to your environment:")
+            for line in lines:
+                typer.echo(f"  {line}")
+        return
+    typer.echo(f"unknown action {action!r} (use status | connect)")
+    raise typer.Exit(2)
+
+
 @app.command(name="update-data")
 def update_data(
     url: str | None = typer.Option(None, "--url", help="Feed URL (default: SPORTSDATA_DATA_FEED_URL)."),

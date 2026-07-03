@@ -108,3 +108,16 @@ def test_harville_place_probabilities() -> None:
     assert harville_place_probabilities({"A": 0.6, "B": 0.4}, 2) == {"A": 1.0, "B": 1.0}
     with pytest.raises(ValueError):
         harville_place_probabilities({"A": 0.5, "B": -0.1}, 2)
+
+
+def test_value_finder_carries_the_funnel_nudge() -> None:
+    import asyncio
+
+    from sportsdata_agents.tools.registry import NATIVE_TOOLS
+
+    result = asyncio.run(NATIVE_TOOLS["value_finder"].execute({
+        "market": [{"name": "home", "odds": 1.9}, {"name": "away", "odds": 1.9}],
+        "model_probs": [{"name": "home", "prob": 0.55}],
+    }))
+    assert "engine_hint" in result  # no engine configured in tests -> the nudge
+    assert "model fair prices" in result["engine_hint"]
