@@ -405,12 +405,13 @@ def _racing_engine_inputs(
             win_odds[row.selection] = float(row.odds)
         elif market == "place":
             place_rows.append((row.selection, float(row.odds)))
-    if len(win_odds) < 2:
+    if len(win_odds) < 2 or places is None:
+        # paid place terms are the BOOK's, not derivable from field size (promos,
+        # terms fixed pre-scratching) — without params.places we refuse to guess:
+        # a wrong line makes every comparison a phantom edge
         return None, []
-    field = len(win_odds)
-    paid = places if places is not None else (3 if field >= 8 else 2 if field >= 5 else 1)
     book_quotes = [
-        {"market": "place", "selection": runner, "line": float(paid), "odds": odds}
+        {"market": "place", "selection": runner, "line": float(places), "odds": odds}
         for runner, odds in place_rows
     ]
     return {"win_odds": win_odds}, book_quotes
@@ -422,10 +423,15 @@ async def _watch_model_value(
     """Engine fair prices vs a book's own derivative quotes (consistency edge).
 
     Noise-aware: candidates must clear ``min_edge_pct`` AND ``error_multiple``
-    Monte Carlo standard errors (quant.engine_value does the math). Freshness-
-    gated: only change-points newer than ``max_age_minutes`` are compared —
-    stale quotes never meet fresh model prices. Degrades cleanly: with no
-    engine configured the watch logs and fires nothing.
+    Monte Carlo standard errors (quant.engine_value does the math). Freshness
+    is ANCHOR-gated: the warehouse stores change-points, so the latest row per
+    key is the current quote regardless of age — an event is scanned when its
+    calibration anchors (h2h/total; racing: win) moved within
+    ``max_age_minutes``, and every current derivative quote is then compared,
+    including ones that have NOT moved since (the laggy derivative is the
+    consistency edge). Rows older than ``derivative_ttl_hours`` (default 24)
+    are treated as likely-suspended markets and dropped. Degrades cleanly:
+    with no engine configured the watch logs and fires nothing.
     """
     from sportsdata_agents.quant.engine_value import consistency_scan
     from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
@@ -447,9 +453,10 @@ async def _watch_model_value(
     min_edge = float(sub.params.get("min_edge_pct", 3.0))
     error_multiple = float(sub.params.get("error_multiple", 3.0))
     max_age = dt.timedelta(minutes=float(sub.params.get("max_age_minutes", 30.0)))
+    derivative_ttl = dt.timedelta(hours=float(sub.params.get("derivative_ttl_hours", 24.0)))
     cap = int(sub.params.get("max_alerts_per_cycle", 10))
 
-    stmt = select(Price).where(Price.sport == price_sport, Price.changed_at > now - max_age)
+    stmt = select(Price).where(Price.sport == price_sport, Price.changed_at > now - derivative_ttl)
     if book:
         stmt = stmt.where(Price.book == str(book))
     rows = (await session.execute(stmt.order_by(Price.changed_at.desc()))).scalars().all()
@@ -459,29 +466,44 @@ async def _watch_model_value(
     by_event: dict[tuple[str, str], list[Price]] = {}
     for (row_book, event_id, _, _), row in latest.items():
         by_event.setdefault((row_book, event_id), []).append(row)
+    anchor_markets = {"win"} if sport == "racing" else (_H2H_MARKETS | _TOTAL_MARKETS)
 
     fired = 0
     for (row_book, event_id), event_rows in sorted(by_event.items()):
         if fired >= cap:
             break
+        # anchor gate: scan only where the calibration inputs moved recently —
+        # the derivatives themselves may be arbitrarily old change-points
+        # (unchanged quote = current quote), which is exactly what we compare
+        cutoff = now - max_age
+        if not any(
+            (r.changed_at if r.changed_at.tzinfo else r.changed_at.replace(tzinfo=dt.UTC)) > cutoff
+            for r in event_rows if r.market.lower() in anchor_markets
+        ):
+            continue
         if sport == "racing":
             places = sub.params.get("places")
             seed, book_quotes = _racing_engine_inputs(event_rows, int(places) if places else None)
+            if seed is None and len(event_rows) >= 2 and places is None:
+                logger.info("model_value %s: racing needs params.places (the book's paid "
+                            "place terms) — skipping %s", sub.name, event_id)
         else:
             seed, book_quotes = _footy_engine_inputs(event_rows)
         if seed is None or not book_quotes:
             continue
         try:
             board = engine.price_board(sport, event_id, seed)
+            engine_rows = [
+                {"market": p.market, "selection": p.selection, "line": p.line,
+                 "fair_probability": p.fair_probability, "std_error": p.std_error}
+                for p in board
+            ]
+            scan = consistency_scan(book_quotes, engine_rows, min_edge_pct=min_edge, error_multiple=error_multiple)
         except (EngineUnavailable, ValueError) as e:
-            logger.info("model_value: engine could not price %s: %s", event_id, e)
+            # one hostile event (bad odds row, unpriceable seed) must not kill
+            # the rest of the subscription's cycle
+            logger.info("model_value: could not evaluate %s: %s", event_id, e)
             continue
-        engine_rows = [
-            {"market": p.market, "selection": p.selection, "line": p.line,
-             "fair_probability": p.fair_probability, "std_error": p.std_error}
-            for p in board
-        ]
-        scan = consistency_scan(book_quotes, engine_rows, min_edge_pct=min_edge, error_multiple=error_multiple)
         for candidate in scan["candidates"]:
             if fired >= cap:
                 break

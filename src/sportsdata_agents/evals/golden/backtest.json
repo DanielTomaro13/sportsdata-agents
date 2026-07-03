@@ -6,21 +6,21 @@
       {
         "book": "B",
         "event_external_id": "E1",
-        "market": "2way",
+        "market": "h2h",
         "selection": "home",
         "odds": 2.1
       },
       {
         "book": "B",
         "event_external_id": "E2",
-        "market": "2way",
+        "market": "h2h",
         "selection": "home",
         "odds": 1.95
       },
       {
         "book": "B",
         "event_external_id": "E3",
-        "market": "2way",
+        "market": "h2h",
         "selection": "home",
         "odds": 3.6
       }
@@ -29,21 +29,21 @@
       {
         "book": "B",
         "event_external_id": "E1",
-        "market": "2way",
+        "market": "h2h",
         "selection": "home",
         "odds": 1.9
       },
       {
         "book": "B",
         "event_external_id": "E2",
-        "market": "2way",
+        "market": "h2h",
         "selection": "home",
         "odds": 2.0
       },
       {
         "book": "B",
         "event_external_id": "E3",
-        "market": "2way",
+        "market": "h2h",
         "selection": "home",
         "odds": 3.4
       }
@@ -66,7 +66,7 @@
   "predictions": [
     {
       "event_external_id": "E1",
-      "market": "2way",
+      "market": "h2h",
       "selection": "home",
       "prob": 0.6,
       "predicted_at": "2025-12-31T00:00:00+00:00",
@@ -74,7 +74,7 @@
     },
     {
       "event_external_id": "E2",
-      "market": "2way",
+      "market": "h2h",
       "selection": "home",
       "prob": 0.5,
       "predicted_at": "2025-12-31T00:00:00+00:00",
@@ -82,7 +82,7 @@
     },
     {
       "event_external_id": "E3",
-      "market": "2way",
+      "market": "h2h",
       "selection": "home",
       "prob": 0.3,
       "predicted_at": "2025-12-31T00:00:00+00:00",

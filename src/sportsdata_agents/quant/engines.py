@@ -246,7 +246,10 @@ class RemoteEngineBackend:
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise EngineUnavailable(f"remote engine API unreachable: {exc}") from exc
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:  # gateway error pages etc. — not a crash path
+            raise EngineUnavailable("remote engine API returned non-JSON") from exc
 
 
 def _from_market_price(price: Any) -> EnginePrice:
