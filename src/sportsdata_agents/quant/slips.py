@@ -4,7 +4,7 @@ Industry-standard, model-free calculations (advisory only — the platform
 never places or cashes out bets):
 
 - **Cash-out**: an open position paying ``potential_payout`` with current
-  win probability *p* is worth ``p × payout``; books shade that by a
+  win probability *p* is worth ``p x payout``; books shade that by a
   cash-out margin. Comparing their offer to the fair number is the point.
 - **Redundancy**: two legs on the same market/line either duplicate each
   other (same selection — doubled risk, no new information) or oppose each

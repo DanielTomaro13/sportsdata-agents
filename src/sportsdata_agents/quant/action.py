@@ -63,7 +63,7 @@ def rank_value_board(
     by_event: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         by_event.setdefault(str(row.get("event_external_id", "?")), []).append(row)
-    for event_id, group in by_event.items():
+    for group in by_event.values():
         combined = round(sum(r["score"] for r in group), 4)
         for row in group:
             row["event_candidates"] = len(group)
