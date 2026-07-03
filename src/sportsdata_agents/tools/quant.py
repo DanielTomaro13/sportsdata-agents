@@ -22,6 +22,7 @@ from sportsdata_agents.data.repository import TenantScope
 from sportsdata_agents.operations.ingestion.store import line_movement
 
 QUANT_TOOL_NAMES = {
+    "engine_fair_prices",
     "save_model",
     "record_predictions",
     "list_models",
@@ -33,6 +34,90 @@ QUANT_TOOL_NAMES = {
 
 
 def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: TenantScope) -> list[ToolDef]:
+
+    async def engine_fair_prices(args: dict[str, Any]) -> Any:
+        """{sport, fixture_id, quotes, record?, provider?} — model fair prices for a
+        fixture's board from the configured pricing engine (settings: engine_backend).
+        quotes: racing {win_odds:{runner:odds}}; footy {h2h:[home,away],
+        total:[line,over,under]}. With record=true the prices are stored as
+        predictions under an auto-managed "engine:{sport}" model artifact, so the
+        existing value watch, backtest and CLV replay them unchanged — provider is
+        then required (footy selections are side-relative). Degrades to a clear
+        error when no engine is configured; differences inside each price's
+        std_error band are noise, never edge."""
+        from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
+
+        engine = resolve_engine()
+        if engine is None:
+            return {
+                "error": "no pricing engine configured",
+                "hint": "set SPORTSDATA_AGENTS_ENGINE_BACKEND=local (engines package installed) "
+                        "or =remote with ENGINE_API_URL/ENGINE_API_KEY",
+            }
+        sport = str(args["sport"])
+        fixture_id = str(args["fixture_id"])
+        try:
+            board = engine.price_board(sport, fixture_id, dict(args.get("quotes") or {}))
+        except (EngineUnavailable, ValueError) as e:
+            return {"error": str(e)}
+        prices = [
+            {"market": b.market, "selection": b.selection, "line": b.line,
+             "fair_probability": round(b.fair_probability, 6),
+             "fair_odds": round(b.fair_odds, 4) if b.fair_probability > 0 else None,
+             "std_error": b.std_error}
+            for b in board
+        ]
+        result: dict[str, Any] = {"sport": sport, "fixture_id": fixture_id,
+                                  "prices": prices, "count": len(prices)}
+        if not args.get("record"):
+            return result
+        provider = str(args.get("provider", ""))
+        if not provider:
+            raise ValueError("record=true needs provider — sides are relative to one book's listing")
+        async with session_factory() as session:
+            name = f"engine:{sport}"
+            artifact = (
+                await session.execute(
+                    select(ModelArtifact)
+                    .where(
+                        ModelArtifact.tenant_id == scope.tenant_id,
+                        ModelArtifact.workspace_id == scope.workspace_id,
+                        ModelArtifact.name == name,
+                    )
+                    .order_by(ModelArtifact.version.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if artifact is None:
+                artifact = ModelArtifact(
+                    tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                    name=name, version=1, sport=sport, market="board",
+                    params={"backend": type(engine).__name__},
+                    calibration={"source": "pricing-engine", "measured_by": "replay"},
+                    trained_at=dt.datetime.now(dt.UTC),
+                )
+                session.add(artifact)
+                await session.flush()
+            now = dt.datetime.now(dt.UTC)
+            recorded = 0
+            for b in board:
+                if not 0.0 < b.fair_probability < 1.0:
+                    continue  # degenerate corners are not predictions
+                market = b.market if b.line is None else f"{b.market}@{b.line}"
+                session.add(
+                    Prediction(
+                        tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                        model_id=artifact.id, provider=provider,
+                        event_external_id=fixture_id, market=market,
+                        selection=b.selection, prob=Decimal(str(round(b.fair_probability, 5))),
+                        predicted_at=now,
+                    )
+                )
+                recorded += 1
+            model_id = str(artifact.id)
+            await session.commit()
+        return {**result, "recorded": recorded, "model_id": model_id}
+
     async def save_model(args: dict[str, Any]) -> Any:
         """{name, sport, market?, params?, calibration{brier,log_loss,n}} → persist a
         model version; calibration metadata is REQUIRED (an uncalibrated model is not
@@ -288,6 +373,21 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         )
 
     return [
+        _tool(
+            "engine_fair_prices",
+            engine_fair_prices,
+            {
+                "sport": {"type": "string", "description": "Engine sport: racing | afl | rugby_league | rugby_union"},
+                "fixture_id": {"type": "string"},
+                "quotes": {
+                    "type": "object",
+                    "description": "racing {win_odds:{runner:odds}}; footy {h2h:[home,away], total:[line,over,under]}",
+                },
+                "record": {"type": "boolean", "description": "Store prices as predictions (CLV/backtest replay them)"},
+                "provider": {"type": "string", "description": "Required with record: whose listing sides refer to"},
+            },
+            ["sport", "fixture_id", "quotes"],
+        ),
         _tool(
             "save_model",
             save_model,
