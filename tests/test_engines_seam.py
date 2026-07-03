@@ -87,7 +87,7 @@ def _fake_engines_modules(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_local_backend_prices_racing_and_footy(monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_engines_modules(monkeypatch)
     backend = LocalEngineBackend()
-    assert backend.sports() == ["racing", *FOOTY_SPORTS]
+    assert backend.sports() == ["racing", *FOOTY_SPORTS, "tennis"]
 
     board = backend.price_board("racing", "R1", {"win_odds": {"A": 2.0, "B": 2.0}})
     assert {p.selection for p in board} == {"A", "B"}
@@ -128,3 +128,10 @@ def test_consistency_scan_ranks_and_noise_gates() -> None:
 
     with pytest.raises(ValueError, match=r"below 1\.01"):
         consistency_scan([{"market": "x", "selection": "s", "odds": 1.0}], engine)
+
+
+def test_seam_reaches_the_breadth_sports(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_engines_modules(monkeypatch)
+    backend = LocalEngineBackend()
+    assert "soccer" in backend.sports() and "tennis" in backend.sports()
+    assert len(backend.sports()) == 10

@@ -20,8 +20,10 @@ Select with ``SPORTSDATA_AGENTS_ENGINE_BACKEND`` = ``none`` (default) |
 Quote payloads are per-sport, mirroring what any book quotes:
 
 - racing: ``{"win_odds": {runner: decimal_odds, ...}}``
-- footy codes (afl / rugby_league / rugby_union):
+- score-process codes (afl / rugby_league / rugby_union / basketball / nfl /
+  baseball / soccer / ice_hockey):
   ``{"h2h": [home_odds, away_odds], "total": [line, over_odds, under_odds]}``
+- tennis: ``{"h2h": [one_odds, two_odds], "total_games": [line, over, under]}``
 
 Prices come back with ``std_error`` where the engine simulated (None where
 closed-form); consumers MUST treat differences inside the error band as
@@ -45,7 +47,10 @@ __all__ = [
     "resolve_engine",
 ]
 
-FOOTY_SPORTS = ("afl", "rugby_league", "rugby_union")
+FOOTY_SPORTS = (
+    "afl", "rugby_league", "rugby_union",
+    "basketball", "nfl", "baseball", "soccer", "ice_hockey",
+)
 
 
 class EngineUnavailable(RuntimeError):
@@ -91,14 +96,39 @@ class LocalEngineBackend:
             ) from exc
 
     def sports(self) -> list[str]:
-        return ["racing", *FOOTY_SPORTS]
+        return ["racing", *FOOTY_SPORTS, "tennis"]
 
     def price_board(self, sport: str, fixture_id: str, quotes: dict[str, Any]) -> list[EnginePrice]:
         if sport == "racing":
             return self._racing(fixture_id, quotes)
         if sport in FOOTY_SPORTS:
             return self._footy(sport, fixture_id, quotes)
+        if sport == "tennis":
+            return self._tennis(fixture_id, quotes)
         raise EngineUnavailable(f"local engine does not price sport {sport!r} yet")
+
+    def _tennis(self, fixture_id: str, quotes: dict[str, Any]) -> list[EnginePrice]:
+        from sportsdata_engines.core import FixtureInputs
+        from sportsdata_engines.tennis import anchors_from_quotes, fit_levers, price_board
+
+        try:
+            one, two = quotes["h2h"]
+            line, over, under = quotes["total_games"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "tennis quotes need h2h: [one_odds, two_odds] and total_games: [line, over, under]"
+            ) from exc
+        fixture = FixtureInputs(
+            sport="tennis", fixture_id=fixture_id,
+            anchors=anchors_from_quotes(float(one), float(two), float(line), float(over), float(under)),
+        )
+        levers, report = fit_levers(fixture)
+        if not report.converged:
+            raise EngineUnavailable(
+                f"engine calibration did not converge for {fixture_id} (residuals {report.residuals})"
+            )
+        fixture.levers.update(levers)
+        return [_from_market_price(p) for p in price_board(fixture)]
 
     def _racing(self, fixture_id: str, quotes: dict[str, Any]) -> list[EnginePrice]:
         from sportsdata_engines.core import FixtureInputs
