@@ -61,6 +61,34 @@ async def expected_value(args: dict[str, Any]) -> Any:
     return {"probability": p, "odds": odds, "expected_value": round(ev, 6), "is_value": ev > 0}
 
 
+async def cash_out_estimate(args: dict[str, Any]) -> Any:
+    """Fair cash-out value of an open position (advisory — the user acts)."""
+    from sportsdata_agents.quant.slips import cash_out_value
+
+    return cash_out_value(
+        float(args["win_probability"]), float(args["potential_payout"]),
+        float(args.get("margin", 0.0)),
+    )
+
+
+async def slip_redundancy(args: dict[str, Any]) -> Any:
+    """Duplicate/opposed legs that should not share a slip."""
+    from sportsdata_agents.quant.slips import redundant_legs
+
+    return {"flagged": redundant_legs(list(args.get("legs") or []))}
+
+
+async def value_board(args: dict[str, Any]) -> Any:
+    """Rank value candidates by edge x confidence x freshness with correlated-exposure notes."""
+    from sportsdata_agents.quant.action import rank_value_board
+
+    return rank_value_board(
+        list(args.get("candidates") or []),
+        freshness_half_life_minutes=float(args.get("freshness_half_life_minutes", 15.0)),
+        top=int(args.get("top", 20)),
+    )
+
+
 async def kelly_fraction(args: dict[str, Any]) -> Any:
     """{probability, odds} -> the Kelly-optimal fraction of bankroll: (b*p - q) / b.
 
@@ -305,6 +333,82 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
             "required": ["code"],
         },
         execute=run_python,
+    ),
+    "cash_out_estimate": ToolDef(
+        name="cash_out_estimate",
+        description=(
+            "Fair cash-out value of an open position (p x potential payout, optionally shaded "
+            "by the book's cash-out margin) — the number to compare any offer against. Advisory only."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "win_probability": {"type": "number", "description": "Current win probability (0-1)"},
+                "potential_payout": {"type": "number", "description": "Total payout if the position wins"},
+                "margin": {"type": "number", "description": "Book cash-out margin to shade by (0-1, default 0)"},
+            },
+            "required": ["win_probability", "potential_payout"],
+        },
+        execute=cash_out_estimate,
+    ),
+    "slip_redundancy": ToolDef(
+        name="slip_redundancy",
+        description=(
+            "Warn about slip legs that duplicate or oppose each other on the same market/line "
+            "(single-winner markets; pass single_winner=false on each-way/top-N legs)."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "legs": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "market": {"type": "string"},
+                            "selection": {"type": "string"},
+                            "line": {"type": "number"},
+                            "single_winner": {"type": "boolean"},
+                        },
+                        "required": ["market", "selection"],
+                    },
+                },
+            },
+            "required": ["legs"],
+        },
+        execute=slip_redundancy,
+    ),
+    "value_board": ToolDef(
+        name="value_board",
+        description=(
+            "Rank value candidates into an actionable board: edge x confidence (distance outside "
+            "the model error band) x freshness (quote age decay), annotating correlated exposure "
+            "when several candidates share one event. Advisory only."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "candidates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "edge_pct": {"type": "number"},
+                            "std_error": {"type": "number"},
+                            "model_prob": {"type": "number"},
+                            "odds": {"type": "number"},
+                            "age_minutes": {"type": "number"},
+                            "event_external_id": {"type": "string"},
+                        },
+                        "required": ["edge_pct"],
+                    },
+                },
+                "freshness_half_life_minutes": {"type": "number"},
+                "top": {"type": "integer"},
+            },
+            "required": ["candidates"],
+        },
+        execute=value_board,
     ),
     "kelly_fraction": ToolDef(
         name="kelly_fraction",

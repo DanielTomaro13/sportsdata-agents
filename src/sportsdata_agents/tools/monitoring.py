@@ -15,7 +15,7 @@ from sportsdata_agents.data.repository import TenantScope
 
 MONITOR_TOOL_NAMES = {"create_watch", "list_watches", "delete_watch", "list_alerts"}
 
-_KINDS = ("line_move", "steam", "value", "scratching", "arb")
+_KINDS = ("line_move", "steam", "value", "scratching", "arb", "model_value")
 
 
 def monitoring_tools(

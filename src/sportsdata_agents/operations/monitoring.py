@@ -15,6 +15,9 @@ missed cycle catches up instead of losing alerts (§8.2 durable/resumable). Kind
   (vanished).
 - ``scratching`` — a racing selection whose prices stopped updating while the rest
   of its card moved on (scratching/suspension suspect).
+- ``model_value`` — a pricing engine (optional; quant.engines) calibrated to a
+  book's own anchors disagrees with that book's derivative quotes by more than
+  the noise band (consistency edge). Skips cleanly when no engine is configured.
 
 Alerts dedupe on (subscription, dedupe_key): a persisting condition fires once,
 not every cycle, and each watch fires at most ``max_alerts_per_cycle`` (default
@@ -340,6 +343,168 @@ async def _watch_value(
     return fired
 
 
+def _split_selection(selection: str) -> tuple[str, float | None]:
+    """Normalised selections embed lines as a trailing number: ``home -1.5``,
+    ``over 220.5`` → (side, line); plain sides/runners come back line-less."""
+    head, _, tail = selection.rpartition(" ")
+    if head:
+        try:
+            return head, float(tail)
+        except ValueError:
+            pass
+    return selection, None
+
+
+_H2H_MARKETS = {"2way", "h2h", "head_to_head", "match_winner"}
+_TOTAL_MARKETS = {"total", "totals"}
+_LINE_MARKETS = {"spread", "line", "handicap"}
+
+
+def _footy_engine_inputs(rows: list[Price]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """(engine seed quotes, derivative book quotes) from one event's latest rows.
+
+    Seeds need a two-way h2h pair and the most balanced total line with both
+    sides quoted; every parseable row also becomes a derivative quote (the
+    anchors re-appear there harmlessly — calibration pins their edge to ~0).
+    """
+    h2h: dict[str, float] = {}
+    totals: dict[float, dict[str, float]] = {}
+    book_quotes: list[dict[str, Any]] = []
+    for row in rows:
+        market = row.market.lower()
+        side, line = _split_selection(row.selection.lower())
+        odds = float(row.odds)
+        if market in _H2H_MARKETS and side in ("home", "away"):
+            h2h[side] = odds
+            book_quotes.append({"market": "h2h", "selection": side, "line": None, "odds": odds})
+        elif market in _TOTAL_MARKETS and side in ("over", "under") and line is not None:
+            totals.setdefault(line, {})[side] = odds
+            book_quotes.append({"market": "total", "selection": side, "line": line, "odds": odds})
+        elif market in _LINE_MARKETS and side in ("home", "away") and line is not None:
+            book_quotes.append({"market": "line", "selection": side, "line": line, "odds": odds})
+    paired = {ln: p for ln, p in totals.items() if len(p) == 2}
+    if len(h2h) != 2 or not paired:
+        return None, []
+    main = min(paired, key=lambda ln: abs(1.0 / paired[ln]["over"] - 1.0 / paired[ln]["under"]))
+    seed = {
+        "h2h": [h2h["home"], h2h["away"]],
+        "total": [main, paired[main]["over"], paired[main]["under"]],
+    }
+    return seed, book_quotes
+
+
+def _racing_engine_inputs(
+    rows: list[Price], places: int | None
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Racing: the win board seeds the engine; place quotes are the derivatives."""
+    win_odds: dict[str, float] = {}
+    place_rows: list[tuple[str, float]] = []
+    for row in rows:
+        market = row.market.lower()
+        if market == "win":
+            win_odds[row.selection] = float(row.odds)
+        elif market == "place":
+            place_rows.append((row.selection, float(row.odds)))
+    if len(win_odds) < 2:
+        return None, []
+    field = len(win_odds)
+    paid = places if places is not None else (3 if field >= 8 else 2 if field >= 5 else 1)
+    book_quotes = [
+        {"market": "place", "selection": runner, "line": float(paid), "odds": odds}
+        for runner, odds in place_rows
+    ]
+    return {"win_odds": win_odds}, book_quotes
+
+
+async def _watch_model_value(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime
+) -> int:
+    """Engine fair prices vs a book's own derivative quotes (consistency edge).
+
+    Noise-aware: candidates must clear ``min_edge_pct`` AND ``error_multiple``
+    Monte Carlo standard errors (quant.engine_value does the math). Freshness-
+    gated: only change-points newer than ``max_age_minutes`` are compared —
+    stale quotes never meet fresh model prices. Degrades cleanly: with no
+    engine configured the watch logs and fires nothing.
+    """
+    from sportsdata_agents.quant.engine_value import consistency_scan
+    from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
+
+    try:
+        engine = resolve_engine()
+    except (EngineUnavailable, ValueError) as e:
+        logger.info("model_value watch %s: engine unavailable (%s)", sub.name, e)
+        return 0
+    if engine is None:
+        logger.info("model_value watch %s: no engine configured — skipping", sub.name)
+        return 0
+
+    sport = str(sub.params.get("sport", ""))
+    if not sport:
+        raise ValueError("model_value watch needs params.sport (an engine sport, e.g. afl|racing)")
+    price_sport = str(sub.params.get("price_sport", sport))  # warehouse sport label if it differs
+    book = sub.params.get("book")
+    min_edge = float(sub.params.get("min_edge_pct", 3.0))
+    error_multiple = float(sub.params.get("error_multiple", 3.0))
+    max_age = dt.timedelta(minutes=float(sub.params.get("max_age_minutes", 30.0)))
+    cap = int(sub.params.get("max_alerts_per_cycle", 10))
+
+    stmt = select(Price).where(Price.sport == price_sport, Price.changed_at > now - max_age)
+    if book:
+        stmt = stmt.where(Price.book == str(book))
+    rows = (await session.execute(stmt.order_by(Price.changed_at.desc()))).scalars().all()
+    latest: dict[tuple[str, str, str, str], Price] = {}
+    for row in rows:
+        latest.setdefault((row.book, row.event_external_id, row.market, row.selection), row)
+    by_event: dict[tuple[str, str], list[Price]] = {}
+    for (row_book, event_id, _, _), row in latest.items():
+        by_event.setdefault((row_book, event_id), []).append(row)
+
+    fired = 0
+    for (row_book, event_id), event_rows in sorted(by_event.items()):
+        if fired >= cap:
+            break
+        if sport == "racing":
+            places = sub.params.get("places")
+            seed, book_quotes = _racing_engine_inputs(event_rows, int(places) if places else None)
+        else:
+            seed, book_quotes = _footy_engine_inputs(event_rows)
+        if seed is None or not book_quotes:
+            continue
+        try:
+            board = engine.price_board(sport, event_id, seed)
+        except (EngineUnavailable, ValueError) as e:
+            logger.info("model_value: engine could not price %s: %s", event_id, e)
+            continue
+        engine_rows = [
+            {"market": p.market, "selection": p.selection, "line": p.line,
+             "fair_probability": p.fair_probability, "std_error": p.std_error}
+            for p in board
+        ]
+        scan = consistency_scan(book_quotes, engine_rows, min_edge_pct=min_edge, error_multiple=error_multiple)
+        for candidate in scan["candidates"]:
+            if fired >= cap:
+                break
+            band = int(candidate["edge_pct"] / 2.0)
+            base = (
+                f"model_value:{row_book}:{event_id}:{candidate['market']}"
+                f":{candidate['selection']}:{candidate['line']}"
+            )
+            at_line = f" @ {candidate['line']}" if candidate["line"] is not None else ""
+            message = (
+                f":crystal_ball: model value [{sport}] {event_id}\n"
+                f"{row_book} · {candidate['market']} · {candidate['selection']}{at_line} — "
+                f"book {candidate['odds']:.2f} vs model fair {candidate['model_fair_odds']} "
+                f"(+{candidate['edge_pct']:.1f}% edge)"
+            )
+            payload = {**candidate, "book": row_book, "event_external_id": event_id,
+                       "sport": sport, "noise_gated": scan["skipped_noise"]}
+            if await _fire(session, sub, kind="model_value", key=f"{base}:{band}",
+                           message=message, payload=payload, pusher=pusher):
+                fired += 1
+    return fired
+
+
 async def _watch_scratching(
     session: AsyncSession, sub: Subscription, pusher: Pusher
 ) -> int:
@@ -574,6 +739,8 @@ async def run_watches(
                     fired = await _watch_scratching(session, sub, push)
                 elif sub.kind == "arb":
                     fired = await _watch_arb(session, sub, push, now=now)
+                elif sub.kind == "model_value":
+                    fired = await _watch_model_value(session, sub, push, now=now)
                 else:
                     logger.warning("unknown watch kind %s (subscription %s)", sub.kind, sub.id)
                     continue

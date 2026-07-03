@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     # ── observability (D8) ──
     logfire_token: SecretStr | None = None
 
+    # ── pricing-engine seam (optional; the platform runs fully without one) ──
+    # none (default) | local (engines package installed here) | remote (hosted API)
+    engine_backend: str = "none"
+    engine_api_url: str = ""
+    engine_api_key: SecretStr | None = None
+
     @field_validator("mcp_command", mode="before")
     @classmethod
     def _parse_mcp_command(cls, v: object) -> object:
