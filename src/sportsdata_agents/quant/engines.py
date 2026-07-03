@@ -32,6 +32,7 @@ noise, never as edge.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -85,7 +86,14 @@ class PricingEngine(Protocol):
 
 
 class LocalEngineBackend:
-    """Prices with a locally installed engines package (optional import)."""
+    """Prices with a locally installed engines package (optional import).
+
+    Sport dispatch lives INSIDE the engines package
+    (``sportsdata_engines.service.pricing.price_board_any``), so new sports
+    and quote formats arrive with an engines upgrade — this seam never goes
+    stale again. Older engines installs without that module fall back to
+    the legacy three-family mapping below.
+    """
 
     def __init__(self) -> None:
         try:
@@ -94,11 +102,27 @@ class LocalEngineBackend:
             raise EngineUnavailable(
                 "engine backend 'local' selected but the engines package is not installed"
             ) from exc
+        self._dispatch: Callable[[str, str, dict[str, Any]], list[Any]] | None
+        try:
+            from sportsdata_engines.service.pricing import SPORTS, price_board_any
+
+            self._sports: list[str] = list(SPORTS)
+            self._dispatch = price_board_any
+        except ImportError:  # pragma: no cover - legacy engines install
+            self._sports = ["racing", *FOOTY_SPORTS, "tennis"]
+            self._dispatch = None
 
     def sports(self) -> list[str]:
-        return ["racing", *FOOTY_SPORTS, "tennis"]
+        return list(self._sports)
 
     def price_board(self, sport: str, fixture_id: str, quotes: dict[str, Any]) -> list[EnginePrice]:
+        if self._dispatch is not None:
+            try:
+                return [_from_market_price(p) for p in self._dispatch(sport, fixture_id, quotes)]
+            except ValueError:
+                raise
+            except RuntimeError as exc:  # CalibrationError and kin
+                raise EngineUnavailable(str(exc)) from exc
         if sport == "racing":
             return self._racing(fixture_id, quotes)
         if sport in FOOTY_SPORTS:

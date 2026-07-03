@@ -87,6 +87,7 @@ def _fake_engines_modules(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_local_backend_prices_racing_and_footy(monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_engines_modules(monkeypatch)
     backend = LocalEngineBackend()
+    # the fake install has no service module -> legacy mapping engages
     assert backend.sports() == ["racing", *FOOTY_SPORTS, "tennis"]
 
     board = backend.price_board("racing", "R1", {"win_odds": {"A": 2.0, "B": 2.0}})
@@ -134,4 +135,30 @@ def test_seam_reaches_the_breadth_sports(monkeypatch: pytest.MonkeyPatch) -> Non
     _fake_engines_modules(monkeypatch)
     backend = LocalEngineBackend()
     assert "soccer" in backend.sports() and "tennis" in backend.sports()
-    assert len(backend.sports()) == 10
+    assert len(backend.sports()) == 10  # legacy fallback list
+
+
+def test_seam_prefers_the_canonical_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_engines_modules(monkeypatch)
+    import sys
+    import types
+
+    service = types.ModuleType("sportsdata_engines.service")
+    pricing = types.ModuleType("sportsdata_engines.service.pricing")
+    pricing.SPORTS = tuple(f"sport{i}" for i in range(15))  # type: ignore[attr-defined]
+
+    class FakePrice:
+        market, selection, line, std_error = "h2h", "one", None, None
+        fair_probability = 0.55
+
+    def price_board_any(sport: str, fixture_id: str, quotes: dict[str, object]) -> list[FakePrice]:
+        return [FakePrice()]
+
+    pricing.price_board_any = price_board_any  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sportsdata_engines.service", service)
+    monkeypatch.setitem(sys.modules, "sportsdata_engines.service.pricing", pricing)
+
+    backend = LocalEngineBackend()
+    assert len(backend.sports()) == 15  # dispatch owns the sport list
+    board = backend.price_board("sport3", "X", {})
+    assert board[0].fair_probability == 0.55
