@@ -1,5 +1,9 @@
 # sportsdata-agents
 
+[![CI](https://github.com/DanielTomaro13/sportsdata-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielTomaro13/sportsdata-agents/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/DanielTomaro13/sportsdata-agents)](https://github.com/DanielTomaro13/sportsdata-agents/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 > **Documentation:** [Architecture & system design](docs/ARCHITECTURE.md) ·
 > [Repo structure](docs/STRUCTURE.md) · [Agent roster](docs/AGENTS.md) ·
 > [Operating it](docs/OPERATING.md) · [Security & cost controls](docs/SECURITY.md) ·
