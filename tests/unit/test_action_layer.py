@@ -59,3 +59,15 @@ def test_advisory_tools_are_registered() -> None:
 
     for name in ("cash_out_estimate", "slip_redundancy", "value_board"):
         assert name in NATIVE_TOOLS
+
+
+def test_warehouse_key_mapping() -> None:
+    from sportsdata_agents.tools.quant import _warehouse_key
+
+    assert _warehouse_key("h2h", "home", None) == ("2way", "home")
+    assert _warehouse_key("line", "away", 18.5) == ("spread", "away +18.5")
+    assert _warehouse_key("line", "home", -15.5) == ("spread", "home -15.5")
+    assert _warehouse_key("total", "over", 186.5) == ("total", "over 186.5")
+    assert _warehouse_key("win", "Gossamer Glow", None) == ("win", "Gossamer Glow")
+    assert _warehouse_key("h2h_3way", "draw", None) is None  # no stable convention: skip
+    assert _warehouse_key("team_total_home", "over", 90.5) is None

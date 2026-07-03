@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.data.models import Alert, Price, Subscription
-from sportsdata_agents.operations import monitoring
 from sportsdata_agents.operations.monitoring import (
     _footy_engine_inputs,
     _split_selection,
@@ -84,7 +83,6 @@ async def test_model_value_watch_fires_noise_gates_and_degrades(
         return True
 
     # no engine configured -> the watch skips cleanly, nothing fires
-    monkeypatch.setattr(monitoring, "run_watches", run_watches)
     import sportsdata_agents.quant.engines as engines_module
 
     monkeypatch.setattr(engines_module, "resolve_engine", lambda: None)

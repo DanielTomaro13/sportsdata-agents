@@ -33,6 +33,21 @@ QUANT_TOOL_NAMES = {
 }
 
 
+def _warehouse_key(market: str, selection: str, line: float | None) -> tuple[str, str] | None:
+    """Engine board keys → the warehouse's captured-price convention, so recorded
+    predictions actually JOIN price rows (value watch / backtest / CLV match on
+    exact market+selection strings). None = no stable convention yet, skip."""
+    if market == "h2h":
+        return "2way", selection
+    if market == "line" and line is not None:
+        return "spread", f"{selection} {line:+g}"
+    if market == "total" and line is not None:
+        return "total", f"{selection} {line:g}"
+    if market in ("win", "place"):
+        return market, selection
+    return None
+
+
 def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: TenantScope) -> list[ToolDef]:
 
     async def engine_fair_prices(args: dict[str, Any]) -> Any:
@@ -100,23 +115,28 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 await session.flush()
             now = dt.datetime.now(dt.UTC)
             recorded = 0
+            skipped = 0
             for b in board:
                 if not 0.0 < b.fair_probability < 1.0:
                     continue  # degenerate corners are not predictions
-                market = b.market if b.line is None else f"{b.market}@{b.line}"
+                key = _warehouse_key(b.market, b.selection, b.line)
+                if key is None:
+                    skipped += 1  # no stable warehouse convention for this family yet
+                    continue
+                market, selection = key
                 session.add(
                     Prediction(
                         tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
                         model_id=artifact.id, provider=provider,
                         event_external_id=fixture_id, market=market,
-                        selection=b.selection, prob=Decimal(str(round(b.fair_probability, 5))),
+                        selection=selection, prob=Decimal(str(round(b.fair_probability, 5))),
                         predicted_at=now,
                     )
                 )
                 recorded += 1
             model_id = str(artifact.id)
             await session.commit()
-        return {**result, "recorded": recorded, "model_id": model_id}
+        return {**result, "recorded": recorded, "skipped_unmappable": skipped, "model_id": model_id}
 
     async def save_model(args: dict[str, Any]) -> Any:
         """{name, sport, market?, params?, calibration{brier,log_loss,n}} → persist a

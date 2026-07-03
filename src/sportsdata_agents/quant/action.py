@@ -1,11 +1,11 @@
 """The action layer: turn value candidates into a ranked, risk-aware board.
 
 An edge with no path to action is a number on a screen. This module ranks
-candidates by ``edge × confidence × freshness`` and annotates correlated
+candidates by ``edge x confidence x freshness`` and annotates correlated
 exposure — always advisory, the platform never places bets.
 
 - **confidence** — how far the model-book gap sits outside the model's own
-  error band: ``min(1, gap / (3 × std_error))``; candidates without an error
+  error band: ``min(1, gap / (3 x std_error))``; candidates without an error
   bar get a conservative 0.5 (unknown certainty is not full certainty).
 - **freshness** — exponential decay on quote age with a configurable
   half-life (default 15 minutes): yesterday's edge is not an edge.
