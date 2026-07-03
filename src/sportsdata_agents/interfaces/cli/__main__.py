@@ -564,11 +564,13 @@ def engines(
 
             with Path(".env").open("a", encoding="utf-8") as handle:
                 handle.write("\n" + "\n".join(lines) + "\n")
-            typer.echo("written to .env")
+            typer.echo("written to .env (key stored there only)")
         else:
-            typer.echo("add to your environment:")
-            for line in lines:
-                typer.echo(f"  {line}")
+            masked = key[:4] + "…" if len(key) > 4 else "…"
+            typer.echo("add to your environment (key shown masked; re-run with --write to store):")
+            typer.echo("  SPORTSDATA_AGENTS_ENGINE_BACKEND=remote")
+            typer.echo(f"  SPORTSDATA_AGENTS_ENGINE_API_URL={url}")
+            typer.echo(f"  SPORTSDATA_AGENTS_ENGINE_API_KEY={masked}")
         return
     typer.echo(f"unknown action {action!r} (use status | connect)")
     raise typer.Exit(2)
