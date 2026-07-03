@@ -45,12 +45,21 @@ def redundant_legs(legs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     defaults True). Returns ``[{first, second, reason}]`` where reason is
     ``duplicate`` or ``opposed``.
     """
+    def _line(leg: dict[str, Any]) -> float | None:
+        raw = leg.get("line")
+        if raw is None:
+            return None
+        try:
+            return float(raw)  # "1.5" and 1.5 must compare equal
+        except (TypeError, ValueError):
+            return None
+
     if len(legs) > 200:
         raise ValueError(f"too many legs ({len(legs)}) — redundancy check is quadratic; cap is 200")
     flagged: list[dict[str, Any]] = []
     for i, a in enumerate(legs):
         for b in legs[i + 1 :]:
-            same_market = a["market"] == b["market"] and a.get("line") == b.get("line")
+            same_market = a["market"] == b["market"] and _line(a) == _line(b)
             if not same_market:
                 continue
             if a["selection"] == b["selection"]:

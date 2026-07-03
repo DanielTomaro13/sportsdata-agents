@@ -22,19 +22,30 @@ def monitoring_tools(
     session_factory: async_sessionmaker[AsyncSession], scope: TenantScope
 ) -> list[ToolDef]:
     async def create_watch(args: dict[str, Any]) -> Any:
-        """{name, kind: line_move|steam|value|scratching|arb, params?, channel?} → a
-        standing watch the monitor engine evaluates each cycle. params per kind:
-        line_move {threshold_pct, sport?, market?, selection?, book?}; steam
-        {min_moves, ...same filters}; value {min_edge_pct}; scratching
-        {stale_minutes, sport?}. channel: a Slack channel id, or "log"."""
+        """{name, kind: line_move|steam|value|scratching|arb|model_value, params?,
+        channel?} → a standing watch the monitor engine evaluates each cycle.
+        params per kind: line_move {threshold_pct, sport?, market?, selection?,
+        book?}; steam {min_moves, ...same filters}; value {min_edge_pct};
+        scratching {stale_minutes, sport?}; model_value {sport (REQUIRED, an
+        engine sport e.g. afl|racing), book?, min_edge_pct?, error_multiple?,
+        max_age_minutes?, places (racing only: the book's paid place terms)}.
+        channel: a Slack channel id, or "log"."""
         kind = str(args["kind"])
         if kind not in _KINDS:
             raise ValueError(f"kind must be one of {_KINDS}")
+        params = dict(args.get("params") or {})
+        if kind == "model_value":
+            # a sport-less watch raises every cycle forever; a placeless racing
+            # watch can only guess the book's paid terms — refuse both at creation
+            if not params.get("sport"):
+                raise ValueError("model_value needs params.sport (an engine sport, e.g. afl|racing)")
+            if str(params["sport"]) == "racing" and not params.get("places"):
+                raise ValueError("model_value on racing needs params.places (the book's paid place terms)")
         async with session_factory() as session:
             row = Subscription(
                 tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
                 name=str(args["name"]), kind=kind,
-                params=args.get("params") or {},
+                params=params,
                 channel=str(args.get("channel", "log")),
             )
             session.add(row)

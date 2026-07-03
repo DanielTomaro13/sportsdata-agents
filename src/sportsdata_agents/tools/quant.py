@@ -34,18 +34,32 @@ QUANT_TOOL_NAMES = {
 }
 
 
+def _warehouse_line_suffix(line: float) -> str:
+    """The ingest normalizers' selection-line convention: space-separated, no
+    explicit +, integral lines collapsed ("away 18.5", "over 224"). Keys built
+    here MUST match those rows byte-for-byte or the join silently finds nothing."""
+    if float(line) == int(line):
+        return f" {int(line)}"
+    return f" {line}"
+
+
 def _warehouse_key(market: str, selection: str, line: float | None) -> tuple[str, str] | None:
     """Engine board keys → the warehouse's captured-price convention, so recorded
     predictions actually JOIN price rows (value watch / backtest / CLV match on
     exact market+selection strings). None = no stable convention yet, skip."""
     if market == "h2h":
-        return "2way", selection
+        return "h2h", selection  # the dictionary's canonical family name
     if market == "line" and line is not None:
-        return "spread", f"{selection} {line:+g}"
+        return "spread", f"{selection}{_warehouse_line_suffix(line)}"
     if market == "total" and line is not None:
-        return "total", f"{selection} {line:g}"
-    if market in ("win", "place"):
-        return market, selection
+        return "total", f"{selection}{_warehouse_line_suffix(line)}"
+    if market == "win":
+        return "win", selection
+    if market == "place" and line is not None:
+        # book place quotes carry no line (terms are the meeting's standard), so
+        # only the engine's pays-3 line joins them; recording every place depth
+        # would file contradictory probabilities under one key (phantom edges)
+        return ("place", selection) if int(line) == 3 else None
     return None
 
 
@@ -63,7 +77,10 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         std_error band are noise, never edge."""
         from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
 
-        engine = resolve_engine()
+        try:
+            engine = resolve_engine()
+        except (EngineUnavailable, ValueError) as e:
+            return {"error": str(e)}  # same structured degradation as engine_health
         if engine is None:
             return {
                 "error": "no pricing engine configured",
@@ -160,10 +177,15 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                     "hint": "set SPORTSDATA_AGENTS_ENGINE_BACKEND=local or =remote"}
         started = time.monotonic()
         try:
-            board = engine.price_board(
-                "afl", "HEALTH-CHECK", {"h2h": [1.80, 2.10], "total": [165.5, 1.9, 1.9]}
-            )
-            out |= {"status": "ok", "sports": engine.sports(),
+            sports = engine.sports()
+            # probe with a sport the engine actually has (a racing-only remote
+            # must not read "degraded" because it lacks afl)
+            seed: dict[str, Any] = {"h2h": [1.80, 2.10], "total": [165.5, 1.9, 1.9]}
+            probe_sport = "afl" if "afl" in sports else sports[0]
+            if probe_sport == "racing":
+                seed = {"win_odds": {"A": 2.5, "B": 3.5, "C": 4.0}}
+            board = engine.price_board(probe_sport, "HEALTH-CHECK", seed)
+            out |= {"status": "ok", "sports": sports, "probe_sport": probe_sport,
                     "test_price_ms": round((time.monotonic() - started) * 1000),
                     "test_markets": len(board)}
         except (EngineUnavailable, ValueError) as e:
@@ -185,7 +207,9 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
             alerts_24h = (
                 await session.execute(
                     select(func.count()).select_from(Alert).where(
-                        Alert.kind == "model_value", Alert.created_at > day_ago
+                        Alert.tenant_id == scope.tenant_id,
+                        Alert.workspace_id == scope.workspace_id,
+                        Alert.kind == "model_value", Alert.created_at > day_ago,
                     )
                 )
             ).scalar_one()

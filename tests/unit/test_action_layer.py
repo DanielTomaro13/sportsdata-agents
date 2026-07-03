@@ -64,8 +64,15 @@ def test_advisory_tools_are_registered() -> None:
 def test_warehouse_key_mapping() -> None:
     from sportsdata_agents.tools.quant import _warehouse_key
 
-    assert _warehouse_key("h2h", "home", None) == ("2way", "home")
-    assert _warehouse_key("line", "away", 18.5) == ("spread", "away +18.5")
+    # these strings must match the ingest normalizers byte-for-byte, or the
+    # record->replay join silently finds nothing (canonical family is "h2h";
+    # lines carry no explicit + and integral lines collapse)
+    assert _warehouse_key("h2h", "home", None) == ("h2h", "home")
+    assert _warehouse_key("line", "away", 18.5) == ("spread", "away 18.5")
+    assert _warehouse_key("line", "home", -15.5) == ("spread", "home -15.5")
+    assert _warehouse_key("total", "over", 224.0) == ("total", "over 224")
+    assert _warehouse_key("place", "Runner", 3.0) == ("place", "Runner")
+    assert _warehouse_key("place", "Runner", 2.0) is None  # no warehouse counterpart
     assert _warehouse_key("line", "home", -15.5) == ("spread", "home -15.5")
     assert _warehouse_key("total", "over", 186.5) == ("total", "over 186.5")
     assert _warehouse_key("win", "Gossamer Glow", None) == ("win", "Gossamer Glow")

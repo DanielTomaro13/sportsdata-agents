@@ -542,7 +542,11 @@ def engines(
                        " or SPORTSDATA_AGENTS_ENGINE_BACKEND=local with the engines package installed")
             return
         typer.echo(f"engine: {type(engine).__name__}")
-        typer.echo(f"sports: {', '.join(engine.sports())}")
+        try:
+            typer.echo(f"sports: {', '.join(engine.sports())}")  # remote: network I/O
+        except (EngineUnavailable, ValueError) as exc:
+            typer.echo(f"engine: unavailable ({exc})")
+            raise typer.Exit(1) from exc
         return
     if action == "connect":
         if not url or not key:
@@ -562,11 +566,17 @@ def engines(
         if write:
             from pathlib import Path
 
-            with Path(".env").open("a", encoding="utf-8") as handle:
-                handle.write("\n" + "\n".join(lines) + "\n")
-            typer.echo("written to .env (key stored there only)")
+            env_path = Path(".env")
+            existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+            kept = [ln for ln in existing.splitlines()
+                    if not ln.startswith(("SPORTSDATA_AGENTS_ENGINE_BACKEND=",
+                                          "SPORTSDATA_AGENTS_ENGINE_API_URL=",
+                                          "SPORTSDATA_AGENTS_ENGINE_API_KEY="))]
+            env_path.write_text("\n".join([*kept, *lines]) + "\n", encoding="utf-8")
+            env_path.chmod(0o600)  # the key lives here — owner-only
+            typer.echo(f"written to {env_path.resolve()} (key stored there only, mode 600)")
         else:
-            masked = key[:4] + "…" if len(key) > 4 else "…"
+            masked = "…" + key[-4:] if len(key) > 8 else "…"  # last 4: prefixes are guessable
             typer.echo("add to your environment (key shown masked; re-run with --write to store):")
             typer.echo("  SPORTSDATA_AGENTS_ENGINE_BACKEND=remote")
             typer.echo(f"  SPORTSDATA_AGENTS_ENGINE_API_URL={url}")
