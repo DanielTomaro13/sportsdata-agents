@@ -23,6 +23,7 @@ from sportsdata_agents.operations.ingestion.store import line_movement
 
 QUANT_TOOL_NAMES = {
     "engine_fair_prices",
+    "engine_health",
     "save_model",
     "record_predictions",
     "list_models",
@@ -137,6 +138,58 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
             model_id = str(artifact.id)
             await session.commit()
         return {**result, "recorded": recorded, "skipped_unmappable": skipped, "model_id": model_id}
+
+    async def engine_health(args: dict[str, Any]) -> Any:
+        """Model-health snapshot: backend status, a timed test price, and 24h
+        engine-prediction / model_value-alert counts. A silently wrong engine
+        manufactures fake edge — check this before trusting a value board."""
+        import time
+
+        from sqlalchemy import func
+
+        from sportsdata_agents.data.models import Alert
+        from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
+
+        out: dict[str, Any] = {}
+        try:
+            engine = resolve_engine()
+        except (EngineUnavailable, ValueError) as e:
+            return {"status": "unavailable", "error": str(e)}
+        if engine is None:
+            return {"status": "not_configured",
+                    "hint": "set SPORTSDATA_AGENTS_ENGINE_BACKEND=local or =remote"}
+        started = time.monotonic()
+        try:
+            board = engine.price_board(
+                "afl", "HEALTH-CHECK", {"h2h": [1.80, 2.10], "total": [165.5, 1.9, 1.9]}
+            )
+            out |= {"status": "ok", "sports": engine.sports(),
+                    "test_price_ms": round((time.monotonic() - started) * 1000),
+                    "test_markets": len(board)}
+        except (EngineUnavailable, ValueError) as e:
+            out |= {"status": "degraded", "error": str(e)}
+        day_ago = dt.datetime.now(dt.UTC) - dt.timedelta(hours=24)
+        async with session_factory() as session:
+            predictions_24h = (
+                await session.execute(
+                    select(func.count()).select_from(Prediction).join(
+                        ModelArtifact, Prediction.model_id == ModelArtifact.id
+                    ).where(
+                        Prediction.tenant_id == scope.tenant_id,
+                        Prediction.workspace_id == scope.workspace_id,
+                        ModelArtifact.name.startswith("engine:", autoescape=True),
+                        Prediction.predicted_at > day_ago,
+                    )
+                )
+            ).scalar_one()
+            alerts_24h = (
+                await session.execute(
+                    select(func.count()).select_from(Alert).where(
+                        Alert.kind == "model_value", Alert.created_at > day_ago
+                    )
+                )
+            ).scalar_one()
+        return {**out, "engine_predictions_24h": predictions_24h, "model_value_alerts_24h": alerts_24h}
 
     async def save_model(args: dict[str, Any]) -> Any:
         """{name, sport, market?, params?, calibration{brier,log_loss,n}} → persist a
@@ -393,6 +446,7 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         )
 
     return [
+        _tool("engine_health", engine_health, {}, []),
         _tool(
             "engine_fair_prices",
             engine_fair_prices,

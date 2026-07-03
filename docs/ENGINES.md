@@ -51,6 +51,20 @@ simulated mean; books quote many more). Full-board family expansion widens
 this in a later milestone; the join never fabricates a price for a line the
 engine didn't compute.
 
+## Free quant additions (engine-independent)
+
+- **`quant.devig`** — proportional and piecewise-curve de-vig. The curve
+  models how books actually shape margin (longshot ramp, flat body,
+  compressed favourite tail); on odds-on quotes proportional removal strips
+  margin that cannot exist. Fit shape parameters per book from history.
+- **`quant.racing_place`** — the textbook Harville (1973) win-to-place
+  converter: exact top-1/2/3 probabilities from win odds. Uncalibrated (it
+  overrates favourites deeper in the order) but free and far better than
+  guessing.
+- **`engine_health` tool** — backend status, a timed test price, and 24h
+  engine-prediction/alert counts. A silently wrong engine manufactures fake
+  edge; check health before trusting a value board.
+
 ## Noise discipline
 
 Engine prices carry `std_error`. Every consumer here treats differences

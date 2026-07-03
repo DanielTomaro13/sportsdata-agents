@@ -71,3 +71,40 @@ def test_warehouse_key_mapping() -> None:
     assert _warehouse_key("win", "Gossamer Glow", None) == ("win", "Gossamer Glow")
     assert _warehouse_key("h2h_3way", "draw", None) is None  # no stable convention: skip
     assert _warehouse_key("team_total_home", "over", 90.5) is None
+
+
+def test_devig_curve_vs_proportional_on_odds_on_quotes() -> None:
+    from sportsdata_agents.quant.devig import (
+        OverroundCurve,
+        piecewise_fair_probabilities,
+        proportional_fair_probabilities,
+    )
+
+    odds = {"fav": 1.07, "second": 8.0, "third": 15.0, "long": 34.0}
+    proportional = proportional_fair_probabilities(odds)
+    piecewise = piecewise_fair_probabilities(odds)
+    assert sum(proportional.values()) == pytest.approx(1.0)
+    assert sum(piecewise.values()) == pytest.approx(1.0)
+    # the curve refuses to strip impossible margin off the odds-on quote...
+    assert piecewise["fav"] > proportional["fav"] + 0.03
+    # ...and takes proportionally more off the longshot
+    assert piecewise["long"] < proportional["long"]
+
+    with pytest.raises(ValueError, match="incomplete or arbed"):
+        proportional_fair_probabilities({"a": 3.0, "b": 3.5})
+    with pytest.raises(ValueError):
+        OverroundCurve(max_margin=0.5, high_break=0.8)  # non-monotone shape
+
+
+def test_harville_place_probabilities() -> None:
+    from sportsdata_agents.quant.racing_place import harville_place_probabilities
+
+    win = {"A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1}
+    top2 = harville_place_probabilities(win, 2)
+    top3 = harville_place_probabilities(win, 3)
+    assert sum(top2.values()) == pytest.approx(2.0, abs=1e-12)
+    assert sum(top3.values()) == pytest.approx(3.0, abs=1e-12)
+    assert top3["A"] > top2["A"] > win["A"] / sum(win.values())
+    assert harville_place_probabilities({"A": 0.6, "B": 0.4}, 2) == {"A": 1.0, "B": 1.0}
+    with pytest.raises(ValueError):
+        harville_place_probabilities({"A": 0.5, "B": -0.1}, 2)
