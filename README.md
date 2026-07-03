@@ -180,10 +180,9 @@ in one supervised process on the user's machine — their compute, their warehou
 their own odds capture, BYO model key. On top of P0–P3 (the operations plane and
 its merged self-improvement PRs, the line monitor + **cross-book arbitrage watch**
 with honesty re-measurement, prediction markets beside the bookmakers, fantasy +
-agent-builder + Discord), P4 added: the **web chat UI** with self-serve plan
-upgrades and the learned-skills panel; **offline Ed25519 licensing** (3 tiers +
-add-ons, fails open to free) with a provider-agnostic **billing webhook**
-(Paddle/LemonSqueezy → signed licence, SMTP delivery, `/licence/refresh`); the
+agent-builder + Discord), P4 added: the **web chat UI** with the
+learned-skills panel (everything is free and open source — the old tier/licensing
+machinery is dormant, see [`docs/SECURITY.md`](docs/SECURITY.md)); the
 **macOS packaging + signing pipeline** (tag → notarized DMG, pending only the Apple
 Developer ID); a signed **OTA data feed**; daemon hardening (DNS-rebind guard,
 crash-restart supervision); the **generalist** growth loop; and the **operator
