@@ -87,9 +87,9 @@ def test_demo_only_gate_hides_the_model_spend_routes(monkeypatch: pytest.MonkeyP
     assert gated.get("/agents").status_code == 404
 
 
-def test_chat_ui_is_served_for_an_entitled_build_and_gated_for_free() -> None:
-    """The web chat UI mounts at / for a chat-entitled build; a free product
-    build (pubkey set, no license) serves the API but not the UI."""
+def test_chat_ui_is_served_on_every_build() -> None:
+    """Free & open source: the web chat UI mounts at / regardless of any baked
+    pubkey — there is no gated build any more."""
     from pathlib import Path
 
     import sportsdata_agents.gateway.demo as demo_module
@@ -99,24 +99,13 @@ def test_chat_ui_is_served_for_an_entitled_build_and_gated_for_free() -> None:
     ui_index = Path(demo_module.__file__).parent / "ui" / "index.html"
     assert ui_index.is_file()  # the UI ships with the package
 
-    async def fake_run_demo(prompt_id: str) -> dict[str, Any]:
-        demo_module.demo_prompt(prompt_id)
-        return {"prompt_id": prompt_id, "answer": "ok", "tool_calls": [], "cost_usd": 0.0}
-
     stub = type("StubSession", (), {"agent_name": "orchestrator"})()
-
-    # entitled (no pubkey baked → dev-unrestricted): the UI is served at /
-    served = TestClient(create_app(session=stub), base_url="http://127.0.0.1")
-    assert served.get("/").status_code == 200
-    assert "sports" in served.get("/").text.lower()
-    assert served.get("/healthz").status_code == 200  # API routes still win
-
-    # free product build: pubkey set, no license → chat UI not mounted
     saved = lic.LICENSE_PUBLIC_KEY_B64
-    lic.LICENSE_PUBLIC_KEY_B64 = "bakedkey"
+    lic.LICENSE_PUBLIC_KEY_B64 = "bakedkey"  # even a "product" build serves the UI
     try:
-        gated = TestClient(create_app(session=stub), base_url="http://127.0.0.1")
-        assert gated.get("/").status_code == 404  # no UI
-        assert gated.get("/healthz").status_code == 200  # but the API is alive
+        served = TestClient(create_app(session=stub), base_url="http://127.0.0.1")
+        assert served.get("/").status_code == 200
+        assert "sports" in served.get("/").text.lower()
+        assert served.get("/healthz").status_code == 200  # API routes still win
     finally:
         lic.LICENSE_PUBLIC_KEY_B64 = saved

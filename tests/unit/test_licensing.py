@@ -107,11 +107,13 @@ def test_current_entitlements_uses_a_valid_license(
     keypair: tuple[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     priv, pub = keypair
+    # Free & open source: a licence (even a valid lower-tier one) no longer
+    # narrows anything — everyone resolves to the unrestricted entitlements.
     token = lic.issue_license(priv, tier="plus", issued_to="d@x", addons=["slack"], days=30)
     monkeypatch.setenv("SPORTSDATA_LICENSE", token)
     monkeypatch.setattr(lic, "LICENSE_PUBLIC_KEY_B64", pub)
     e = ents_mod.current_entitlements()
-    assert e.tier == "plus" and e.chat_ui and e.has_addon("slack")
+    assert e.mcp_quota == -1 and e.chat_ui and e.full_app and e.agents is None
 
 
 def test_extra_mcp_addon_raises_quota() -> None:
@@ -169,28 +171,21 @@ def test_enforce_gates_raise_below_tier() -> None:
     require_addon("slack", pro)  # no raise
 
 
-def test_unlicensed_source_build_is_unrestricted_but_product_build_gates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No baked-in pubkey (source/server) → full access. A product build (pubkey
-    set) with no valid license → free tier. This keeps `agents …` from source
-    uncrippled while letting a shipped build enforce."""
+def test_every_build_is_unrestricted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Free & open source: source build or product build, licence or not — the
+    seams stay wired but nothing gates. (The OPERATOR claim is separate and
+    still enforced by scheduler.is_operator.)"""
     from sportsdata_agents.licensing import enforce
 
-    for var in ("SPORTSDATA_LICENSE",):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(lic, "get_keychain_secret", lambda name: None, raising=False)
-    import sportsdata_agents.secrets as secrets
-    monkeypatch.setattr(secrets, "get_keychain_secret", lambda name: None)
-
+    monkeypatch.delenv("SPORTSDATA_LICENSE", raising=False)
     monkeypatch.setattr(lic, "LICENSE_PUBLIC_KEY_B64", "")  # source build
-    assert ents_mod.current_entitlements().full_app is True  # unrestricted
+    assert ents_mod.current_entitlements().full_app is True
     enforce.require_full_app()  # no raise
 
     monkeypatch.setattr(lic, "LICENSE_PUBLIC_KEY_B64", "somebakedkey")  # product build
-    assert ents_mod.current_entitlements().tier == "free"
-    with pytest.raises(enforce.EntitlementError):
-        enforce.require_full_app()
+    e = ents_mod.current_entitlements()
+    assert e.full_app is True and e.mcp_quota == -1
+    enforce.require_full_app()  # still no raise
 
 
 def test_unknown_addons_are_ignored_defensively() -> None:

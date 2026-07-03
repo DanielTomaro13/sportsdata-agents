@@ -92,14 +92,15 @@ def entitlements_for_tier(tier: Tier, addons: frozenset[str] | None = None, seat
 _DEV_UNLIMITED = replace(TIERS["pro"], note="unlicensed build — enforcement inactive")
 
 
-def current_entitlements() -> Entitlements:
-    """The entitlements for the running install: the loaded license; free tier
-    when a product build has no valid license; unrestricted on an unlicensed
-    source/server build (no public key baked in)."""
-    from .license import LICENSE_PUBLIC_KEY_B64, load_license
+# The whole platform is FREE and open source (2026-07): everyone gets the
+# unrestricted entitlements, licence or not. The tier/enforcement machinery is
+# kept (dormant) so the seams stay testable and a future hosted/premium offering
+# could re-activate it — but no product build gates anything on payment. The
+# OPERATOR gate is unrelated to this and still requires a signed operator claim
+# (scheduler.is_operator) — that protects the owner's ops deployment, not revenue.
+_EVERYONE = replace(TIERS["pro"], note="free & open source — everything included")
 
-    claims = load_license()
-    if claims is not None:
-        tier: Tier = claims.tier  # type: ignore[assignment]  # verified ∈ base/plus/pro
-        return entitlements_for_tier(tier, frozenset(claims.addons), seats=claims.seats)
-    return TIERS["free"] if LICENSE_PUBLIC_KEY_B64 else _DEV_UNLIMITED
+
+def current_entitlements() -> Entitlements:
+    """Everyone runs unrestricted — the platform is free (see note above)."""
+    return _EVERYONE

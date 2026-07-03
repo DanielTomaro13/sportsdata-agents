@@ -474,10 +474,6 @@ def create_app(
             "seats": ent.seats,
             "note": ent.note,
             "version": pkg_version,
-            "upgrade_url": os.environ.get(
-                "SPORTSDATA_UPGRADE_URL",
-                "https://danieltomaro13.github.io/sportsdata-site/#pricing",
-            ),
         }
 
     @app.get("/account")
@@ -486,39 +482,8 @@ def create_app(
         can show the plan and offer a one-click upgrade."""
         return _account_payload()
 
-    # The live Stripe-hosted Payment Links (public — they're on the marketing site's
-    # stripe.json). The app only ever HANDS OFF to the browser; no payment, card, or
-    # checkout logic exists in the app (workbench B6).
-    _MARKETPLACE_PLANS: tuple[dict[str, Any], ...] = (
-        {"sku": "base", "name": "Base", "usd_month": 15,
-         "desc": "5 sport data feeds of your choice, in your own AI client.",
-         "url": "https://buy.stripe.com/cNi00c0aTdFg5rBeiBcV200"},
-        {"sku": "sport_addon", "name": "Sport feed", "usd_month": 5,
-         "desc": "One extra sport data feed beyond your first 5.",
-         "url": "https://buy.stripe.com/4gM00c9Lt6cO8DNgqJcV201"},
-        {"sku": "gambling_addon", "name": "Gambling feed", "usd_month": 15,
-         "desc": "One live bookmaker / odds feed (Sportsbet, TAB, Betfair, Pinnacle…).",
-         "url": "https://buy.stripe.com/9B65kw8Hp1Wy07hb6pcV202"},
-        {"sku": "all_access", "name": "All-access", "usd_month": 99,
-         "desc": "Every sport and gambling feed — the whole catalogue.",
-         "url": "https://buy.stripe.com/4gM00c2j10Su4nx5M5cV203"},
-    )
-
-    @app.get("/marketplace")
-    async def marketplace() -> dict[str, Any]:
-        """The in-app storefront (workbench B6): plans with their hosted checkout
-        links, the feed-picker URL, and the install's current entitlements. Each
-        link is env-overridable (``SPORTSDATA_BUY_URL_<SKU>``) so a test-mode or
-        regional Stripe account never needs a code change."""
-        plans = [
-            {**p, "url": os.environ.get(f"SPORTSDATA_BUY_URL_{p['sku'].upper()}", p["url"])}
-            for p in _MARKETPLACE_PLANS
-        ]
-        return {
-            "plans": plans,
-            "feeds_url": os.environ.get("SPORTSDATA_FEEDS_URL", "https://sportsdata-ai.com/feeds.html"),
-            "account": _account_payload(),
-        }
+    # (The B6 marketplace/storefront routes lived here until the platform went free
+    # and open source — the app no longer sells anything.)
 
     @app.get("/skills")
     async def skills_route() -> dict[str, Any]:
@@ -951,28 +916,6 @@ def create_app(
         except Exception as e:
             return JSONResponse({"detail": f"could not start ops run: {e}"}, status_code=503)
         return JSONResponse({"ok": True, "started": True, "agent": agent})
-
-    @app.post("/account/activate")
-    async def activate(body: dict[str, Any]) -> JSONResponse:
-        """Activate (or upgrade to) a licence key from the UI: verify it, store it in
-        the OS keychain, and return the refreshed entitlements. Self-serve upgrade —
-        buy → paste the emailed key → instantly on the new tier."""
-        from sportsdata_agents.licensing import verify_license
-        from sportsdata_agents.licensing.license import KEYCHAIN_LICENSE_NAME
-        from sportsdata_agents.secrets import set_keychain_secret
-
-        key = str(body.get("key", "")).strip()
-        if not key:
-            return JSONResponse({"detail": "a licence key is required"}, status_code=422)
-        try:
-            claims = verify_license(key)
-        except Exception as e:  # bad signature / expired / no pubkey baked (dev build)
-            return JSONResponse({"detail": f"that key did not verify: {e}"}, status_code=400)
-        if not set_keychain_secret(KEYCHAIN_LICENSE_NAME, key):
-            from sportsdata_agents.paths import data_dir
-
-            (data_dir() / "license.key").write_text(key, encoding="utf-8")
-        return JSONResponse({"ok": True, "issued_to": claims.issued_to, "account": _account_payload()})
 
     @app.post("/message", response_model=None)
     async def message(

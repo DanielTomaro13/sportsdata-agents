@@ -1,59 +1,16 @@
 {
-  // sportsdata entitlement service — the small always-on piece (Phase 1).
-  // Takes the Stripe webhook, stores entitlements in D1, issues + serves signed
-  // licences, and proxies the credentialed feeds (DataGolf + TAB).
+  // sportsdata API worker — slimmed to a download redirect + health endpoint now the
+  // product is free and open source (the commerce backend lives in git history).
   "name": "sportsdata-entitlement",
   "main": "src/index.ts",
   "compatibility_date": "2024-11-01",
-  // Ed25519 (Web Crypto) + fetch — no nodejs_compat needed.
   "observability": { "enabled": true },
-  // Branded API host (Phase 4). MUST keep workers_dev TRUE alongside it: the shipped MCP
-  // bakes the workers.dev URL as its default entitlement endpoint (licence.py), and
-  // already-sent email links point there too — adding a custom domain otherwise turns the
-  // workers.dev subdomain OFF, which would break installed customers.
+  // Keep BOTH hosts: shipped binaries + old emails point at workers.dev, the site and
+  // newer emails at the custom domain. Adding a custom domain disables workers.dev by
+  // default — workers_dev MUST stay true.
   "workers_dev": true,
   "routes": [
     { "pattern": "api.sportsdata-ai.com", "custom_domain": true }
-  ],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "sportsdata-entitlement",
-      // filled by `wrangler d1 create` (see README) — paste the id here:
-      "database_id": "e2b00865-bb2a-4f2d-b5c7-110a22688fd4"
-    }
-  ],
-  // DataGolf proxy rate limits — our shared key is suspended for 5 min past 45 req/min,
-  // so cap the GLOBAL rate at 40/60s and give each licence a fair 15/60s slice.
-  // (Rate-limit binding ships under `unsafe.bindings` on wrangler 3.x.)
-  "unsafe": {
-    "bindings": [
-      { "name": "DATAGOLF_GLOBAL_RL", "type": "ratelimit", "namespace_id": "1001", "simple": { "limit": 40, "period": 60 } },
-      { "name": "DATAGOLF_KEY_RL", "type": "ratelimit", "namespace_id": "1002", "simple": { "limit": 15, "period": 60 } }
-    ]
-  }
-  // R2 download origin (optional) — serves the binary from R2 with the GitHub release as
-  // fallback (removes GitHub as the single origin + its rate limits). OS-aware: /download
-  // picks latest/sportsdata-mcp-macos.zip or latest/sportsdata-mcp-windows.zip by the
-  // request User-Agent. To enable (one-time; needs the r2 scope — `wrangler login` again
-  // if `wrangler r2 bucket create` says unauthorised, or create the bucket in the dash):
-  //   1. wrangler r2 bucket create sportsdata-downloads
-  //   2. UNCOMMENT the binding below and `wrangler deploy`
-  //   3. sh ../../scripts/publish-r2.sh   (uploads the latest release's assets; re-run per release)
-  // Missing objects fall back to the GitHub path, so a half-configured deploy still serves.
-  // "r2_buckets": [
-  //   { "binding": "DOWNLOAD_BUCKET", "bucket_name": "sportsdata-downloads" }
-  // ],
-  // Secrets (set with `wrangler secret put …`, never in this file):
-  //   STRIPE_SECRET_KEY            — your Stripe secret (server-side API calls)
-  //   STRIPE_WEBHOOK_SECRET        — the webhook signing secret (whsec_…)
-  //   SIGNING_KEY_PKCS8_B64        — Ed25519 private key, PKCS8 DER, base64 (keygen script)
-  //   SIGNING_KID                  — key id stamped on tokens (default "k1"; set on rotation)
-  //   DATAGOLF_KEY                 — your DataGolf key (proxy attaches it server-side)
-  //   DATAGOLF_KEYS                — optional comma-separated POOL (spreads load; falls back to DATAGOLF_KEY)
-  //   DOWNLOAD_TOKEN_SECRET        — enables the email's download-only token link (else ?key= fallback)
-  //   DOWNLOAD_R2_KEY              — object key of the build in R2 (default sportsdata-mcp-latest.dmg)
-  //   TAB_CLIENT_ID / TAB_CLIENT_SECRET — TAB OAuth creds (proxy mints tokens server-side)
-  //   RESEND_API_KEY               — enables the fulfilment email (Phase 5); inert if unset
-  //   LICENCE_FROM_EMAIL           — verified Resend sender (defaults to onboarding@resend.dev)
+  ]
+  // Optional var: GITHUB_RELEASE_REPO — owner/repo override for the /download redirect.
 }
