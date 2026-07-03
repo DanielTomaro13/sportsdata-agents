@@ -61,6 +61,20 @@ async def expected_value(args: dict[str, Any]) -> Any:
     return {"probability": p, "odds": odds, "expected_value": round(ev, 6), "is_value": ev > 0}
 
 
+def _engine_nudge() -> dict[str, str]:
+    """The funnel's one line: value surfaces hint at model fair prices when
+    no engine is connected (easy to forget — deliberately centralised)."""
+    from sportsdata_agents.quant.engines import resolve_engine
+
+    try:
+        if resolve_engine() is None:
+            return {"engine_hint": "no pricing engine connected — model fair prices unlock "
+                                    "with `agents engines connect` or ENGINE_BACKEND=local"}
+    except Exception:
+        return {}
+    return {}
+
+
 async def cash_out_estimate(args: dict[str, Any]) -> Any:
     """Fair cash-out value of an open position (advisory — the user acts)."""
     from sportsdata_agents.quant.slips import cash_out_value
@@ -186,11 +200,12 @@ async def value_finder(args: dict[str, Any]) -> Any:
     market (M2.3, deterministic). Advisory output — probabilities and edges only."""
     from sportsdata_agents.quant.value import find_value
 
-    return find_value(
+    result = find_value(
         list(args.get("market") or []),
         list(args.get("model_probs") or []),
         min_edge_pct=float(args.get("min_edge_pct", 2.0)),
     )
+    return {**result, **_engine_nudge()}
 
 
 async def _calibration_curve(args: dict[str, Any]) -> Any:
