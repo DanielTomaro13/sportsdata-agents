@@ -200,6 +200,9 @@ class RemoteEngineBackend:
     """Client for the hosted pricing API (service ships in a later milestone)."""
 
     def __init__(self, base_url: str, api_key: str) -> None:
+        # base_url is OPERATOR-configured (env), so this is trusted config, not
+        # user input: the bearer is sent only to the URL the operator set. Do
+        # not wire ENGINE_API_URL to any request/tool-influenced value.
         if not base_url or not api_key:
             raise EngineUnavailable(
                 "engine backend 'remote' needs ENGINE_API_URL and ENGINE_API_KEY configured"

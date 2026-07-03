@@ -45,6 +45,8 @@ def redundant_legs(legs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     defaults True). Returns ``[{first, second, reason}]`` where reason is
     ``duplicate`` or ``opposed``.
     """
+    if len(legs) > 200:
+        raise ValueError(f"too many legs ({len(legs)}) — redundancy check is quadratic; cap is 200")
     flagged: list[dict[str, Any]] = []
     for i, a in enumerate(legs):
         for b in legs[i + 1 :]:
