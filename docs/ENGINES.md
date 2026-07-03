@@ -42,6 +42,15 @@ live it reports unavailable rather than erroring.
   with correlated-exposure annotation). Advisory only — the platform never
   places bets.
 
+## Coverage note
+
+The derivative comparison joins on exact (market, selection, line) keys, so
+its breadth is the **intersection** of the engine's board ladder and the
+book's quoted ladder (an engine board prices ~5 lines per family around its
+simulated mean; books quote many more). Full-board family expansion widens
+this in a later milestone; the join never fabricates a price for a line the
+engine didn't compute.
+
 ## Noise discipline
 
 Engine prices carry `std_error`. Every consumer here treats differences

@@ -36,6 +36,7 @@ from typing import Any, Protocol
 from ..config import get_settings
 
 __all__ = [
+    "FOOTY_SPORTS",
     "EnginePrice",
     "EngineUnavailable",
     "LocalEngineBackend",
