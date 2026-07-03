@@ -8,12 +8,12 @@ version = "0.40.0"
 description = "Agentic platform over the sportsdata-mcp tool catalogue — a configurable team of LLM agents for sports research, odds intelligence, modelling, fantasy and tracking. Advisory only."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 authors = [{ name = "Daniel Tomaro" }]
 keywords = ["mcp", "agents", "llm", "sports-data"]
 classifiers = [
   "Development Status :: 4 - Beta",
-  "License :: Other/Proprietary License",
+  "License :: OSI Approved :: MIT License",
   # Safety net: PyPI rejects any upload carrying a "Private ::" classifier.
   "Private :: Do Not Upload",
   "Programming Language :: Python :: 3.12",

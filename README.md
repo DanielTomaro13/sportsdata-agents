@@ -202,5 +202,4 @@ in [`docs/history/BUILD_PLAN.md`](docs/history/BUILD_PLAN.md), and
 
 ---
 
-Private & proprietary. Copyright (c) 2026 Daniel Tomaro. All rights reserved — see
-[`LICENSE`](./LICENSE).
+Open source under the [MIT License](./LICENSE). Copyright (c) 2026 Daniel Tomaro.
