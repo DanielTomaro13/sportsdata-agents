@@ -1,7 +1,14 @@
 # Security & cost controls
 
+> **Free & open source note (2026-07).** The platform no longer sells anything —
+> the entitlement/tier system described in §2 is dormant (`current_entitlements()`
+> returns the unrestricted set for everyone). §1 (cost), §3 (operator) and §4
+> (daemon) remain fully enforced; §2 is kept as the design record for the seams,
+> which still exist and stay testable.
+
 How the platform stops three things: **spend exceeding a budget**, **paid features
-used without paying**, and **anyone but the product owner reaching operator mode**.
+used without paying** (dormant — see the note above), and **anyone but the product
+owner reaching operator mode**.
 It is deliberately strict and states its own limits honestly — a local-first
 desktop app has a different threat model from a server, and this says where the
 hard guarantees are and where they aren't.

@@ -4,7 +4,7 @@
 > [Repo structure](docs/STRUCTURE.md) · [Agent roster](docs/AGENTS.md) ·
 > [Operating it](docs/OPERATING.md) · [Security & cost controls](docs/SECURITY.md) ·
 > [Updating the app](docs/UPDATING.md) · [Next steps](docs/NEXT_STEPS.md) ·
-> [Pricing](PRICING.md) · [Releasing](RELEASE.md). These are kept current by the
+> [Releasing](RELEASE.md). These are kept current by the
 > `docs_keeper` ops agent.
 
 An agentic platform that turns the [`sportsdata-mcp`](https://github.com/DanielTomaro13/sportsdata-mcp)
@@ -33,9 +33,6 @@ checklist to tick off while coding (P0 → P4, milestones, exit gates).
 🖥️ **[`P4_DESKTOP_PLAN.md`](docs/history/P4_DESKTOP_PLAN.md)** — the P4 replan: a downloadable
 desktop app (the Cursor-style harness on the user's machine) instead of hosted SaaS —
 shell options, process/storage/secrets architecture, trade-offs, revised milestones.
-
-💳 **[`PRICING.md`](./PRICING.md)** — the three tiers (Base / Plus / Pro), add-ons,
-suggested prices, and how the offline license gating works.
 
 📐 **[`PLAN.md`](docs/history/PLAN.md)** — the full architecture: the two-plane design, the agent
 roster, the user-customizable agent-spec format, the data model, orchestration & model
@@ -108,15 +105,13 @@ resolution) against a committed baseline.
 
 ## Quickstart
 
-This is a **private repository**; you need read access to both repos.
-
 ```bash
 # 1) The data plane (sibling checkout, its own venv)
-git clone git@github.com:DanielTomaro13/sportsdata-mcp.git
+git clone https://github.com/DanielTomaro13/sportsdata-mcp.git
 cd sportsdata-mcp && python -m venv .venv && .venv/bin/pip install -e . && cd ..
 
 # 2) The agent plane
-git clone git@github.com:DanielTomaro13/sportsdata-agents.git
+git clone https://github.com/DanielTomaro13/sportsdata-agents.git
 cd sportsdata-agents && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 # 3) Configure (.env — see .env.example)

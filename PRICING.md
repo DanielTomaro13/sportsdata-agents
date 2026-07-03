@@ -1,3 +1,6 @@
+> **Historical.** The platform went free and open source (MIT) in July 2026 —
+> nothing below is for sale. Kept for the design record.
+
 # sportsdata — tiers & pricing
 
 Three products on one engine, gated by an offline-verified license key
