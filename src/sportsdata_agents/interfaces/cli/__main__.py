@@ -1706,20 +1706,38 @@ def price_slate(
         engine = make_engine(settings.database_url)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        from sportsdata_agents.quant.ratings import record_ratings_slate
+
         try:
+            scope = TenantScope(settings.default_tenant, settings.default_workspace)
+            now = _dt.datetime.now(_dt.UTC)
             async with make_sessionmaker(engine)() as session:
                 report = await record_slate(
-                    session, TenantScope(settings.default_tenant, settings.default_workspace),
-                    now=_dt.datetime.now(_dt.UTC), anchor_minutes=anchor_minutes,
+                    session, scope, now=now, anchor_minutes=anchor_minutes,
+                    dedupe_hours=dedupe_hours, max_events=max_events,
+                )
+            # the book-independent fair prices ride the same job: ratings from
+            # results, form from the TAB capture — its own session so a locked
+            # anchored pass never poisons this one
+            async with make_sessionmaker(engine)() as session:
+                ratings_report = await record_ratings_slate(
+                    session, scope, now=now,
                     dedupe_hours=dedupe_hours, max_events=max_events,
                 )
         finally:
             await engine.dispose()
         if report.get("error"):
             console.print(f"[yellow]slate: {report['error']}[/yellow]")
-            return
-        console.print(f"recorded={report['recorded']} events={report['events']} "
-                      f"deduped={report['skipped_dedupe']} unseedable={report['skipped_unseedable']}")
+        else:
+            console.print(f"recorded={report['recorded']} events={report['events']} "
+                          f"deduped={report['skipped_dedupe']} unseedable={report['skipped_unseedable']}")
+        if ratings_report.get("error"):
+            console.print(f"[yellow]ratings: {ratings_report['error']}[/yellow]")
+        else:
+            console.print(f"ratings: recorded={ratings_report['recorded']} "
+                          f"events={ratings_report['events']} "
+                          f"deduped={ratings_report['skipped_dedupe']} "
+                          f"unrated={ratings_report['skipped_unrated']}")
 
     asyncio.run(_run())
 

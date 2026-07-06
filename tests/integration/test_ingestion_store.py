@@ -41,15 +41,24 @@ def _point(odds: float, selection: str = "home", book: str = "TabAustralia") -> 
 
 
 async def test_capture_dedupe_and_line_movement(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
-    """The M2.1 exit gate: three captures, one price move → snapshots keep every
-    observation, prices keep only the change-points, the movement query shows them."""
-    await record_points(db_sessionmaker, [_point(1.85), _point(2.00, "away")], captured_at=T0)
-    await record_points(db_sessionmaker, [_point(1.85), _point(2.00, "away")], captured_at=T1)  # unchanged
-    await record_points(db_sessionmaker, [_point(1.92), _point(2.00, "away")], captured_at=T2)  # home moves
+    """The M2.1 exit gate: three captures, one price move → snapshots keep one
+    row per price LEVEL (an unchanged capture refreshes captured_at in place),
+    prices keep the change-points, the movement query shows them."""
+    r0 = await record_points(db_sessionmaker, [_point(1.85), _point(2.00, "away")], captured_at=T0)
+    r1 = await record_points(db_sessionmaker, [_point(1.85), _point(2.00, "away")], captured_at=T1)  # unchanged
+    r2 = await record_points(db_sessionmaker, [_point(1.92), _point(2.00, "away")], captured_at=T2)  # home moves
+    assert (r0["refreshed"], r1["refreshed"], r2["refreshed"]) == (0, 2, 1)
 
     async with db_sessionmaker() as s:
-        assert (await s.execute(select(func.count()).select_from(OddsSnapshot))).scalar_one() == 6
+        # home: a 1.85 row + a 1.92 row; away: ONE 2.00 row, refreshed twice
+        assert (await s.execute(select(func.count()).select_from(OddsSnapshot))).scalar_one() == 3
         assert (await s.execute(select(func.count()).select_from(Price))).scalar_one() == 3  # 2 first + 1 move
+        # the unchanged away row carries the LATEST confirmation time — the
+        # staleness gates read captured_at as "when was this price last alive"
+        away_at = (await s.execute(
+            select(OddsSnapshot.captured_at).where(OddsSnapshot.selection == "away")
+        )).scalar_one()
+        assert away_at.replace(tzinfo=dt.UTC) == T2
 
     movement = await line_movement(db_sessionmaker, event_external_id="0042500403", selection="home")
     assert [(m["prev_odds"], m["odds"]) for m in movement] == [(None, 1.85), (1.85, 1.92)]
@@ -107,7 +116,8 @@ async def test_ingest_once_isolates_feed_failures(db_sessionmaker: async_session
 
     report = await ingest_once(manager, db_sessionmaker, [bad, good])
     assert report["bad"]["ok"] is False and "upstream 500" in report["bad"]["error"]
-    assert report["good"] == {"ok": True, "snapshots": 1, "price_changes": 1}  # bad didn't sink good
+    assert report["good"] == {"ok": True, "snapshots": 1, "price_changes": 1,
+                              "refreshed": 0}  # bad didn't sink good
 
 
 async def test_ingest_once_fetches_feeds_in_parallel(

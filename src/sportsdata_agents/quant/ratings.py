@@ -1,0 +1,340 @@
+"""Book-independent fair prices: ratings from results, form from race form.
+
+``record_slate`` (quant.slate) prices boards CALIBRATED to a book's own
+anchors — the consistency fair. This module records the OTHER fair price:
+what the engine thinks with **no book input at all**.
+
+- Team sports (footy family): ratings are fitted from the warehouse's own
+  settled results (``event_results`` carries "score": "H-A" from the league
+  scoreboards) and turned into expected-margin/expected-total levers.
+- Racing: each runner's past placings (``race_form``, the TAB form capture)
+  become decayed form probabilities per the engine's form model.
+
+Both record predictions under ``engine-ratings:{sport}`` / ``engine-form:racing``
+artifacts — alongside ``engine:{sport}`` (the anchored fair), the warehouse
+holds BOTH fair prices per market, and the backtest/CLV loop grades each
+independently. Sparse early data degrades cleanly: too few results or no
+form rows means the sport is skipped and the report says so.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import logging
+import re
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from sportsdata_agents.data.models import EventResult, OddsSnapshot, Prediction, RaceForm
+from sportsdata_agents.data.repository import TenantScope
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["RATINGS_SPORTS", "record_ratings_slate"]
+
+# engine sport -> warehouse labels; the footy-family ratings model fits any
+# sport whose results carry scores, so this list grows with results coverage
+RATINGS_SPORTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("afl", ("australian_rules", "afl")),
+    ("rugby_league", ("rugby_league",)),
+    ("rugby_union", ("rugby_union",)),
+)
+
+MIN_RESULTS = 40  # a ratings fit off a weekend of scores is noise, not opinion
+_VS_SPLIT = re.compile(r"\s+(?:v|vs|vs\.|@)\s+", re.IGNORECASE)
+_SCORE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
+
+
+def _parse_result(name: str, score: str, winner: str) -> tuple[str, str, int, int] | None:
+    """(home, away, home_score, away_score) from a result row — None when the
+    name or score doesn't parse, or the score contradicts the graded winner
+    (a swapped scoreline poisons the fit worse than a missing one)."""
+    parts = _VS_SPLIT.split(name.strip())
+    match = _SCORE.match(score.strip())
+    if len(parts) != 2 or not match:
+        return None
+    home, away = (p.strip() for p in parts)
+    home_score, away_score = int(match.group(1)), int(match.group(2))
+    graded = "home" if home_score > away_score else "away" if away_score > home_score else "draw"
+    if winner in ("home", "away") and graded != winner:
+        return None
+    return home, away, home_score, away_score
+
+
+def parse_last_starts(text: str, days_since_run: Any) -> list[Any]:
+    """PastRun rows from a compact form string like "f2134152662".
+
+    The string is recent-first finishing positions: digits 1-9 are placings,
+    "0" reads as 10th, letters (f/x/p/…) are non-finishes — scored as a
+    tail-of-field run. Field size and exact spacing aren't in the string, so
+    the model sees the honest approximation: a typical field of 10 and a
+    start every ~14 days behind the known days_since_run. The decay does the
+    rest — recent digits dominate."""
+    from sportsdata_engines.ratings.racing import PastRun
+
+    field_size = 10
+    try:
+        first_gap = float(days_since_run)
+    except (TypeError, ValueError):
+        first_gap = 14.0
+    runs: list[Any] = []
+    for index, char in enumerate(str(text or "").strip()):
+        if char.isdigit():
+            position = 10 if char == "0" else int(char)
+        elif char.isalpha():
+            position = field_size  # fell/pulled up — a run, and a bad one
+        else:
+            continue
+        runs.append(PastRun(position=min(position, field_size), field_size=field_size,
+                            age_days=first_gap + 14.0 * index))
+    return runs
+
+
+async def _fit_footy(session: AsyncSession, labels: tuple[str, ...], now: dt.datetime) -> Any:
+    """A ratings object from this sport's settled results — None below MIN_RESULTS."""
+    from sportsdata_engines.ratings.footy import MatchResult, fit_footy_ratings
+
+    rows = (await session.execute(
+        select(EventResult).where(EventResult.sport.in_(labels))
+    )).scalars().all()
+    results: list[Any] = []
+    for row in rows:
+        meta = row.meta or {}
+        parsed = _parse_result(str(meta.get("event_name") or ""),
+                               str(meta.get("score") or ""),
+                               str(row.winning_selection))
+        if parsed is None:
+            continue
+        home, away, home_score, away_score = parsed
+        stamp = row.start_time or row.settled_at
+        if stamp is None:
+            continue
+        stamp = stamp if stamp.tzinfo else stamp.replace(tzinfo=dt.UTC)
+        age_days = max(0.0, (now - stamp).total_seconds() / 86_400.0)
+        results.append(MatchResult(home=home, away=away, home_score=home_score,
+                                   away_score=away_score, age_days=age_days))
+    if len(results) < MIN_RESULTS:
+        return None
+    return fit_footy_ratings(results)
+
+
+async def _upcoming_events(
+    session: AsyncSession, labels: tuple[str, ...], now: dt.datetime, horizon_hours: float
+) -> list[tuple[str, str, str, str]]:
+    """(provider, book, event_id, event_name) for events jumping inside the
+    horizon — from the freshest snapshot per event."""
+    rows = (await session.execute(
+        select(OddsSnapshot.provider, OddsSnapshot.book,
+               OddsSnapshot.event_external_id, OddsSnapshot.event_name)
+        .where(OddsSnapshot.sport.in_(labels),
+               OddsSnapshot.start_time > now,
+               OddsSnapshot.start_time < now + dt.timedelta(hours=horizon_hours))
+        .distinct()
+    )).all()
+    seen: set[tuple[str, str]] = set()
+    out: list[tuple[str, str, str, str]] = []
+    for provider, book, event_id, name in rows:
+        if (book, event_id) in seen or not name:
+            continue
+        seen.add((book, event_id))
+        out.append((provider, book, event_id, name))
+    return out
+
+
+async def _dedupe_hit(session: AsyncSession, scope: TenantScope, artifact_id: Any,
+                      book: str, event_id: str, now: dt.datetime, hours: float) -> bool:
+    fresh = (await session.execute(
+        select(Prediction.id).where(
+            Prediction.tenant_id == scope.tenant_id,
+            Prediction.workspace_id == scope.workspace_id,
+            Prediction.model_id == artifact_id,
+            Prediction.provider == book,
+            Prediction.event_external_id == event_id,
+            Prediction.predicted_at > now - dt.timedelta(hours=hours),
+        ).limit(1)
+    )).scalar_one_or_none()
+    return fresh is not None
+
+
+async def record_ratings_slate(
+    session: AsyncSession,
+    scope: TenantScope,
+    *,
+    now: dt.datetime,
+    horizon_hours: float = 48.0,
+    dedupe_hours: float = 12.0,
+    max_events: int = 40,
+) -> dict[str, Any]:
+    """Record book-independent fair prices: ratings boards for team sports,
+    form boards for racing. Returns {"recorded","events","skipped_*",...}."""
+    try:
+        from sportsdata_engines.core.types import FixtureInputs
+    except ImportError:
+        return {"recorded": 0, "events": 0,
+                "error": "ratings pricing needs the local engines package"}
+    import importlib
+
+    from sportsdata_agents.tools.quant import _warehouse_key
+
+    recorded = 0
+    events_priced = 0
+    skipped_dedupe = 0
+    skipped_unrated = 0
+
+    async def _record_board(artifact_name: str, sport: str, book: str, event_id: str,
+                            board: list[Any]) -> int:
+        nonlocal recorded
+        added = 0
+        for price in board:
+            prob = float(getattr(price, "fair_probability", 0.0))
+            if not 0.0 < prob < 1.0:
+                continue
+            key = _warehouse_key(price.market, price.selection, price.line)
+            if key is None:
+                continue
+            market, selection = key
+            session.add(Prediction(
+                tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                model_id=artifacts[artifact_name], provider=book,
+                event_external_id=event_id, market=market, selection=selection,
+                prob=Decimal(str(round(prob, 5))), predicted_at=now,
+            ))
+            added += 1
+        recorded += added
+        return added
+
+    artifacts: dict[str, Any] = {}
+
+    async def _artifact(name: str, sport: str) -> None:
+        """The auto-managed ratings artifact — its own name, never the anchored
+        engine:{sport} one, so the two fair-price families grade separately."""
+        if name in artifacts:
+            return
+        from sportsdata_agents.data.models import ModelArtifact
+
+        found = (await session.execute(
+            select(ModelArtifact).where(
+                ModelArtifact.tenant_id == scope.tenant_id,
+                ModelArtifact.workspace_id == scope.workspace_id,
+                ModelArtifact.name == name,
+            ).order_by(ModelArtifact.version.desc()).limit(1)
+        )).scalar_one_or_none()
+        if found is None:
+            found = ModelArtifact(
+                tenant_id=scope.tenant_id, workspace_id=scope.workspace_id,
+                name=name, version=1, sport=sport, market="board",
+                params={"backend": "ratings", "source": "ratings-slate"},
+                calibration={"source": "ratings", "measured_by": "replay"},
+                trained_at=dt.datetime.now(dt.UTC),
+            )
+            session.add(found)
+            await session.flush()
+        artifacts[name] = found.id
+        await session.commit()
+
+    # ── team sports: ratings from settled results ──────────────────────────
+    for sport, labels in RATINGS_SPORTS:
+        try:
+            ratings = await _fit_footy(session, labels, now)
+        except ImportError:
+            return {"recorded": recorded, "events": events_priced,
+                    "error": "ratings pricing needs the local engines package"}
+        if ratings is None:
+            continue  # not enough scored results yet — accrues daily
+        module = importlib.import_module(f"sportsdata_engines.{sport}")
+        name = f"engine-ratings:{sport}"
+        await _artifact(name, sport)
+        for _provider, book, event_id, event_name in await _upcoming_events(
+                session, labels, now, horizon_hours):
+            if events_priced >= max_events:
+                break
+            parts = _VS_SPLIT.split(event_name.strip())
+            if len(parts) != 2:
+                continue
+            home, away = (p.strip() for p in parts)
+            try:
+                margin, total = ratings.expected_margin_total(home, away)
+            except (KeyError, ValueError):
+                skipped_unrated += 1  # a team the results history hasn't seen
+                continue
+            if await _dedupe_hit(session, scope, artifacts[name], book, event_id,
+                                 now, dedupe_hours):
+                skipped_dedupe += 1
+                continue
+            inputs = FixtureInputs(sport=sport, fixture_id=event_id,
+                                   levers={"expected_margin": float(margin),
+                                           "expected_total": float(total)})
+            try:
+                board = module.price_board(inputs)
+            except (ValueError, RuntimeError) as e:
+                logger.info("ratings slate: could not price %s/%s: %s", sport, event_id, e)
+                continue
+            if await _record_board(name, sport, book, event_id, board):
+                events_priced += 1
+                await session.commit()
+
+    # ── racing: form probabilities from the TAB form capture ───────────────
+    try:
+        from sportsdata_engines import racing as racing_module
+        from sportsdata_engines.ratings.racing import form_win_probabilities
+    except ImportError:
+        return {"recorded": recorded, "events": events_priced,
+                "skipped_dedupe": skipped_dedupe, "skipped_unrated": skipped_unrated,
+                "error": "ratings pricing needs the local engines package"}
+    form_rows = (await session.execute(
+        select(RaceForm).where(RaceForm.start_time > now,
+                               RaceForm.start_time < now + dt.timedelta(hours=6.0))
+    )).scalars().all()
+    if form_rows:
+        name = "engine-form:racing"
+        await _artifact(name, "racing")
+    for race in form_rows:
+        if events_priced >= max_events:
+            break
+        history: dict[str, list[Any]] = {}
+        numbers: dict[str, Any] = {}
+        for runner in race.runners or []:
+            if runner.get("scratched"):
+                continue
+            runs = parse_last_starts(runner.get("last_starts") or "",
+                                     runner.get("days_since_run"))
+            if runs:
+                label = str(runner.get("name") or runner.get("number"))
+                history[label] = runs
+                numbers[label] = runner.get("number")
+        if len(history) < 3:
+            continue  # a form price off one or two exposed runners is a guess
+        if await _dedupe_hit(session, scope, artifacts[name], "TAB", race.race_key,
+                             now, dedupe_hours):
+            skipped_dedupe += 1
+            continue
+        probabilities = form_win_probabilities(history)
+        inputs = FixtureInputs(
+            sport="racing", fixture_id=race.race_key,
+            levers=racing_module.board.win_levers(probabilities),
+            participants=list(probabilities),
+        )
+        try:
+            board = racing_module.board.price_board(inputs)
+        except (ValueError, RuntimeError) as e:
+            logger.info("form slate: could not price %s: %s", race.race_key, e)
+            continue
+        # predictions keyed by SADDLE NUMBER where known — racing results
+        # record the winning number, so number-keyed rows settle directly
+        import dataclasses
+
+        renamed = []
+        for price in board:
+            number = numbers.get(price.selection)
+            if number is not None and price.market == "win":
+                price = dataclasses.replace(price, selection=str(number))
+            renamed.append(price)
+        if await _record_board(name, "racing", "TAB", race.race_key, renamed):
+            events_priced += 1
+            await session.commit()
+
+    return {"recorded": recorded, "events": events_priced,
+            "skipped_dedupe": skipped_dedupe, "skipped_unrated": skipped_unrated}

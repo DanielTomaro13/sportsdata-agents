@@ -68,7 +68,8 @@ async def test_p2_quant_loop_end_to_end(db_sessionmaker: async_sessionmaker[Asyn
     feed = Feed(name="nba_odds", tool="nba_odds_today", mcp_groups=("nba.public.cdn",),
                 normalizer=normalize_nba_odds)
     r1 = await ingest_once(manager, db_sessionmaker, [feed])
-    assert r1["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2}  # first sightings
+    assert r1["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2,
+                          "refreshed": 0}  # first sightings
 
     tools = {t.name: t for t in quant_tools(db_sessionmaker, SCOPE)}
 
@@ -92,7 +93,8 @@ async def test_p2_quant_loop_end_to_end(db_sessionmaker: async_sessionmaker[Asyn
 
     # ── the market moves after the prediction: the closing capture ─────────
     r2 = await ingest_once(manager, db_sessionmaker, [feed])
-    assert r2["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2}  # both moved
+    assert r2["nba_odds"] == {"ok": True, "snapshots": 2, "price_changes": 2,
+                          "refreshed": 0}  # both moved
 
     # ── 3. VALUE: model vs the ENTRY market → the +EV alert ───────────────
     movement = await tools["query_line_movement"].execute({"event_external_id": "G1"})

@@ -35,6 +35,7 @@ SLATE_SPORTS: tuple[tuple[str, str], ...] = (
     ("afl", "australian_rules"),
     ("afl", "afl"),
     ("rugby_league", "rugby_league"),
+    ("rugby_union", "rugby_union"),
     ("soccer", "soccer"),
     ("baseball", "baseball"),
     ("basketball", "basketball"),
@@ -42,7 +43,52 @@ SLATE_SPORTS: tuple[tuple[str, str], ...] = (
     ("nfl", "american_football"),
     ("cricket", "cricket"),
     ("ice_hockey", "ice_hockey"),
+    # beyond the spine: sports whose anchors are NOT h2h+total pairs — each
+    # gets its seed from _seed_for below
+    ("tennis", "tennis"),
+    ("darts", "darts"),
+    ("snooker", "snooker"),
+    ("mma", "mma"),
+    ("mma", "ufc_mma"),
+    ("mma", "martial_arts"),
+    # racing: the win board is the anchor; recorded fair win/place probabilities
+    # settle against racing results (selections are saddle numbers on both sides)
+    ("racing", "horse_racing"),
+    ("racing", "greyhound_racing"),
+    ("racing", "harness_racing"),
 )
+
+# sports whose engine seed is just the two-way h2h pair (no total required)
+_H2H_ONLY_SPORTS = {"darts", "snooker", "mma"}
+
+
+def _seed_for(sport: str, event_rows: list[Any]) -> dict[str, Any] | None:
+    """The engine seed for one event's latest rows, in the sport's own anchor
+    shape — None when the event isn't seedable (missing anchors)."""
+    from sportsdata_agents.operations.monitoring import _footy_engine_inputs
+
+    if sport == "racing":
+        win_odds = {r.selection: float(r.odds) for r in event_rows
+                    if r.market.lower() == "win"}
+        return {"win_odds": win_odds} if len(win_odds) >= 2 else None
+    seed, _ = _footy_engine_inputs(event_rows)
+    if sport in _H2H_ONLY_SPORTS:
+        # the contest/mma anchor is the h2h pair alone — totals (if the books
+        # even quote them) are in different units per sport and not required
+        h2h = seed.get("h2h") if seed else None
+        if h2h is None:
+            pair: dict[str, float] = {}
+            for row in event_rows:
+                side = row.selection.lower()
+                if row.market.lower() in ("h2h", "2way", "head_to_head", "match_winner") \
+                        and side in ("home", "away"):
+                    pair[side] = float(row.odds)
+            h2h = [pair["home"], pair["away"]] if len(pair) == 2 else None
+        return {"h2h": h2h} if h2h else None
+    if seed is not None and sport == "tennis":
+        # tennis totals are GAMES — the engine's anchor key says so
+        seed = {"h2h": seed["h2h"], "total_games": seed["total"]}
+    return seed
 
 
 async def record_slate(
@@ -60,7 +106,6 @@ async def record_slate(
     Returns {"recorded", "events", "skipped_dedupe", "skipped_unseedable"}.
     Degrades cleanly: no engine configured -> nothing recorded, said so.
     """
-    from sportsdata_agents.operations.monitoring import _footy_engine_inputs
     from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
     from sportsdata_agents.tools.quant import _warehouse_key
 
@@ -83,7 +128,8 @@ async def record_slate(
     # predictions commit in their own small transaction.
     anchor_cutoff = now - dt.timedelta(minutes=anchor_minutes)
     ttl_cutoff = now - dt.timedelta(hours=24.0)
-    anchor_markets = {"2way", "h2h", "head_to_head", "match_winner", "total", "totals"}
+    anchor_markets = {"2way", "h2h", "head_to_head", "match_winner", "total", "totals",
+                      "win"}  # racing's anchor is the win board
     recorded = 0
     events_priced = 0
     skipped_dedupe = 0
@@ -107,7 +153,7 @@ async def record_slate(
                 for r in event_rows if r.market.lower() in anchor_markets
             ):
                 continue  # nothing moved — the previous snapshot still stands
-            seed, _ = _footy_engine_inputs(event_rows)
+            seed = _seed_for(sport, event_rows)
             if seed is None:
                 skipped_unseedable += 1
                 continue
