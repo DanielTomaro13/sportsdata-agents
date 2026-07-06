@@ -210,7 +210,7 @@ def test_feed_registry_is_discovery_driven() -> None:
 
     assert "nba_odds" not in FEEDS  # the CDN aggregator stays out: books of record only
     hot = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
-           "pointsbet_all", "betr_all", "fanduel_us", "fanduel_racing_win"}
+           "pointsbet_all", "betr_all", "dabble_all", "fanduel_us", "fanduel_racing_win"}
     books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books", "pointsbet_books"}
     racing = {"tab_racing", "sportsbet_racing", "betr_racing", "pointsbet_racing", "unibet_racing"}
     futures = {"tab_racing_futures", "sportsbet_racing_futures",
@@ -1066,3 +1066,90 @@ def test_normalize_polymarket_events() -> None:
     assert binary["yes"].odds == pytest.approx(5.0, abs=1e-3)
     assert normalize_polymarket_all({}) == []
     assert normalize_polymarket_all([]) == []
+
+
+DABBLE_PAYLOAD = {
+    "competitions": [
+        {
+            "sport": "Australian Rules",
+            "competition": "AFL Matches",
+            "fixtures": [
+                {   # listing row for the SAME fixture as the detail below —
+                    # the detail's fuller board must win in the sink
+                    "id": "fx-1",
+                    "name": "Fremantle Dockers v Sydney Swans",
+                    "advertisedStart": "2026-07-09T10:10:00.000Z",
+                    "markets": [{"id": "m-h2h", "name": "Match Winner", "isDisplayed": True}],
+                    "selections": [{"id": "s-freo", "name": "Fremantle", "isDisplayed": True}],
+                    "prices": [{"marketId": "m-h2h", "selectionId": "s-freo", "price": 1.50}],
+                },
+                {   # listing-only fixture (no detail fetched this cycle)
+                    "id": "fx-2",
+                    "name": "Carlton v Collingwood",
+                    "markets": [{"id": "m2", "name": "Match Winner"}],
+                    "selections": [{"id": "s2", "name": "Carlton"}],
+                    "prices": [{"marketId": "m2", "selectionId": "s2", "price": 2.10}],
+                },
+            ],
+            "details": [
+                {
+                    "id": "fx-1",
+                    "name": "Fremantle Dockers v Sydney Swans",
+                    "advertisedStart": "2026-07-09T10:10:00.000Z",
+                    "markets": [
+                        {"id": "m-h2h", "name": "Match Winner", "isDisplayed": True},
+                        {"id": "m-q1", "name": "First Quarter Winner", "isDisplayed": True},
+                        {"id": "m-hidden", "name": "Ghost Market", "isDisplayed": False},
+                        {"id": "m-prop", "name": "Player Disposals O/U (24.5)", "isDisplayed": True},
+                    ],
+                    "selections": [
+                        {"id": "s-freo", "name": "Fremantle", "isDisplayed": True},
+                        {"id": "s-syd", "name": "Sydney", "isDisplayed": True},
+                        {"id": "s-scr", "name": "Scratched Guy", "isScratched": True},
+                        {"id": "s-over", "name": "Over", "isDisplayed": True},
+                    ],
+                    "prices": [
+                        {"marketId": "m-h2h", "selectionId": "s-freo", "price": 1.46},
+                        {"marketId": "m-q1", "selectionId": "s-syd", "price": 2.30},
+                        {"marketId": "m-hidden", "selectionId": "s-freo", "price": 3.0},
+                        {"marketId": "m-h2h", "selectionId": "s-scr", "price": 9.0},
+                        {"marketId": "m-prop", "selectionId": "s-over", "price": 1.87},
+                        {"marketId": "m-h2h", "selectionId": "s-freo", "price": 0.5},
+                    ],
+                    "playerProps": [
+                        {"playerId": "p1", "playerName": "Nat Fyfe", "teamName": "Fremantle",
+                         "selectionId": "s-over", "marketId": "m-prop",
+                         "stats": ["disposals"], "value": 24.5, "lineType": "over"},
+                    ],
+                }
+            ],
+        }
+    ]
+}
+
+
+def test_normalize_dabble_all() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_dabble_all
+
+    points = normalize_dabble_all(DABBLE_PAYLOAD)
+    by_key = {(p.event_external_id, p.market, p.selection): p for p in points}
+    # detail normalizes first: its h2h price (1.46) beats the listing's 1.50
+    freo = by_key[("fx-1", "h2h", "home")]
+    assert (freo.provider, freo.book, freo.odds) == ("dabble", "Dabble", 1.46)
+    assert freo.sport == "australian_rules"
+    assert freo.meta["competition"] == "AFL Matches"
+    # quarter derivative captured with the away side resolved from "X v Y"
+    assert by_key[("fx-1", "first quarter winner", "away")].odds == 2.30
+    # hidden market and scratched selection are skipped
+    assert not any(p.market == "ghost market" for p in points)
+    assert not any(p.selection == "scratched guy" for p in points)
+    # Pick'em playerProps join enriches the priced selection's meta
+    prop = by_key[("fx-1", "player disposals o/u (24.5)", "over")]
+    assert prop.meta["player"] == "Nat Fyfe"
+    assert prop.meta["stat"] == "disposals"
+    assert prop.meta["stat_line"] == 24.5
+    assert prop.meta["line_type"] == "over"
+    # listing-only fixture still captures
+    assert by_key[("fx-2", "h2h", "home")].odds == 2.10
+    assert normalize_dabble_all({}) == []
+    assert normalize_dabble_all([]) == []

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_betr_all,
     fetch_betr_races,
+    fetch_dabble_all,
     fetch_entain_all,
     fetch_fanduel_pages,
     fetch_fanduel_races,
@@ -49,6 +50,7 @@ from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
     normalize_betr_all,
     normalize_betr_races,
+    normalize_dabble_all,
     normalize_entain_all,
     normalize_fanduel_pages,
     normalize_fanduel_races,
@@ -157,6 +159,15 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("betr.sport",),
         normalizer=normalize_betr_all,
         fetch=fetch_betr_all,
+        interval_s=600,
+    ),
+    "dabble_all": Feed(
+        name="dabble_all",
+        provider="dabble",
+        tool="dabble_active_competitions",  # label; discovery -> fixtures -> details
+        mcp_groups=("dabble.sport",),
+        normalizer=normalize_dabble_all,
+        fetch=fetch_dabble_all,
         interval_s=600,
     ),
     "fanduel_us": Feed(

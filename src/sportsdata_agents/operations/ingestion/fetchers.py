@@ -966,3 +966,58 @@ async def fetch_polymarket_all(manager: Any) -> dict[str, Any]:
         if len(rows) < 100:
             break
     return {"pages": pages}
+
+
+_DABBLE_RACING_SPORTS = frozenset(
+    {"thoroughbred racing", "greyhound racing", "harness racing", "racing futures"}
+)
+DABBLE_COMPETITIONS_PER_CYCLE = 8
+
+
+async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
+    """Dabble: active competitions → per-competition fixture listings (featured
+    prices inline) → per-fixture details for the FULL board (300+ markets on a
+    liquid fixture, incl. quarter/half derivatives and the playerProps block
+    that joins Pick'em stat lines onto priced selections). Racing categories
+    are skipped — Dabble racing rides a different surface (deferred with the
+    racing spec)."""
+    listing = await manager.call_tool("dabble_active_competitions", {})
+    comps = ((listing or {}).get("data") or {}).get("activeCompetitions") or []
+    comps = [c for c in comps
+             if str(c.get("sportName", "")).lower() not in _DABBLE_RACING_SPORTS
+             and c.get("id")]
+    out: list[dict[str, Any]] = []
+    details_budget = MAX_EVENTS_PER_CYCLE
+    for comp in _take_rotating("dabble_all", comps, DABBLE_COMPETITIONS_PER_CYCLE):
+        try:
+            fixtures = await manager.call_tool(
+                "dabble_competition_fixtures", {"competitionId": str(comp["id"])}
+            )
+        except Exception as e:  # one competition failing must not sink the cycle
+            logger.warning("dabble competition %s failed: %s", comp.get("name"), e)
+            continue
+        rows = [f for f in ((fixtures or {}).get("data") or []) if isinstance(f, dict)]
+        details: list[Any] = []
+        for fixture in rows:
+            if details_budget <= 0:
+                break
+            fixture_id = fixture.get("id")
+            if not fixture_id or str(fixture.get("status", "Open")) not in ("Open", ""):
+                continue
+            try:
+                detail = await manager.call_tool(
+                    "dabble_fixture_details", {"fixtureId": str(fixture_id)}
+                )
+                body = (detail or {}).get("sportFixtureDetail") or detail
+                if isinstance(body, dict):
+                    details.append(body)
+                    details_budget -= 1
+            except Exception as e:
+                logger.warning("dabble fixture %s detail failed: %s", fixture_id, e)
+        out.append({
+            "sport": str(comp.get("sportName", "?")),
+            "competition": str(comp.get("name", "?")),
+            "fixtures": rows,
+            "details": details,
+        })
+    return {"competitions": out}

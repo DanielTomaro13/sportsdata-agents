@@ -1114,3 +1114,73 @@ def normalize_polymarket_all(payload: Any) -> list[PricePoint]:
                         market=market_key, selection=selection.lower(), odds=odds, meta=meta,
                     ))
     return sink.points
+
+
+# ─── Dabble (shape captured live 2026-07-06) ──────────────────────────────
+
+
+def normalize_dabble_all(payload: Any) -> list[PricePoint]:
+    """Dabble fixtures (via fetch_dabble_all): the relational shape — markets[],
+    selections[] and prices[] joined by ids on each fixture. Details carry the
+    full board (300+ markets on a liquid fixture); listing rows carry only the
+    featured markets, so details normalize FIRST and the sink keeps their
+    price when a fixture appears in both.
+
+    The playerProps block is Dabble's Pick'em product riding the same payload:
+    most prop rows join a PRICED selection by selectionId (963/1022 on the
+    capture fixture), so the price captures generically and the structured
+    stat line (player, stat, line, over/under) enriches its meta — the first
+    structured stat-lines source in the warehouse."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    for group in payload.get("competitions", []) or []:
+        sport = canonical_sport(str(group.get("sport", "?")))
+        competition = str(group.get("competition", "?"))
+        details = [d for d in group.get("details", []) or [] if isinstance(d, dict)]
+        detailed_ids = {str(d.get("id")) for d in details}
+        listing_only = [f for f in group.get("fixtures", []) or []
+                        if isinstance(f, dict) and str(f.get("id")) not in detailed_ids]
+        for fixture in [*details, *listing_only]:
+            _normalize_dabble_fixture(sink, fixture, sport, competition)
+    return sink.points
+
+
+def _normalize_dabble_fixture(sink: _Sink, fixture: dict[str, Any], sport: str,
+                              competition: str) -> None:
+    fixture_id = str(fixture.get("id") or "")
+    if not fixture_id:
+        return
+    event_name = str(fixture.get("name") or fixture.get("displayName") or "?")
+    markets = {m.get("id"): m for m in fixture.get("markets", []) or [] if isinstance(m, dict)}
+    selections = {s.get("id"): s for s in fixture.get("selections", []) or [] if isinstance(s, dict)}
+    props = {p.get("selectionId"): p for p in fixture.get("playerProps", []) or []
+             if isinstance(p, dict)}
+    for row in fixture.get("prices", []) or []:
+        if not isinstance(row, dict):
+            continue
+        odds = _odds_ok(row.get("price"))
+        if odds is None:
+            continue
+        market = markets.get(row.get("marketId")) or {}
+        selection = selections.get(row.get("selectionId")) or {}
+        if selection.get("isScratched") or market.get("isDisplayed") is False \
+                or selection.get("isDisplayed") is False:
+            continue
+        market_key = canonical_market(str(market.get("name", "?")))
+        side = _side_from_event_name(str(selection.get("name", "")), event_name)
+        meta: dict[str, Any] = {"competition": competition,
+                                "start_time": fixture.get("advertisedStart")}
+        prop = props.get(row.get("selectionId"))
+        if prop:
+            stats = prop.get("stats") or []
+            meta.update({"player": prop.get("playerName"), "team": prop.get("teamName"),
+                         "stat": stats[0] if stats else None,
+                         "stat_line": prop.get("value"), "line_type": prop.get("lineType")})
+        sink.add(PricePoint(
+            provider="dabble", book="Dabble", sport=sport,
+            event_external_id=fixture_id, event_name=event_name,
+            market=market_key,
+            selection=side or str(selection.get("name", "?")).lower(),
+            odds=odds, meta=meta,
+        ))
