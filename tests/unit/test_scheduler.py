@@ -97,6 +97,19 @@ def test_lock_skips_concurrent_run(tmp_path: Any, monkeypatch: Any) -> None:
     assert acquire_lock("jobx") is not None  # released — reacquirable
 
 
+def test_empty_lock_is_stale_and_reclaimed(tmp_path: Any, monkeypatch: Any) -> None:
+    """A holder that died before writing its pid leaves a 0-byte lock. pid 0
+    would signal OUR process group (always alive) — it must count as stale,
+    not held (lived: ingest wedged 10 days behind an empty lock)."""
+    monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
+    empty = tmp_path / "locks" / "joby.lock"
+    empty.parent.mkdir(parents=True, exist_ok=True)
+    empty.touch()
+    reclaimed = acquire_lock("joby")
+    assert reclaimed is not None  # empty lock reclaimed, not treated as live
+    assert reclaimed.read_text().strip().isdigit()  # and OUR pid is now inside
+
+
 def test_failure_handoff_to_the_error_agent(tmp_path: Any, monkeypatch: Any) -> None:
     """Consecutive failures: deterministic health first, then ONE triage handoff.
     The self-healing handoff is operator maintenance (runs ops agents, opens PRs)."""

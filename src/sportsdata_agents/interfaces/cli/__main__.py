@@ -1284,10 +1284,16 @@ def schedule(
 
     async def _pace() -> int | None:
         from sportsdata_agents.config import get_settings
-        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.data.db import ensure_schema, make_engine, make_sessionmaker
 
         engine = make_engine(get_settings().database_url)
         try:
+            # the conductor is the one process guaranteed to run before every
+            # job, so it owns keeping the SQLite warehouse's schema current —
+            # without this, a model that grows a column strands every cron job
+            # on OperationalError (lived: resolve failed 1391 consecutive runs
+            # on a missing odds_snapshots.end_time)
+            await ensure_schema(engine)
             return pace_for(await seconds_to_nearest_start(make_sessionmaker(engine)))
         except Exception:  # pacing is an optimisation — a DB hiccup must not stop the tick
             return None

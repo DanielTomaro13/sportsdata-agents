@@ -282,6 +282,12 @@ def acquire_lock(job_name: str) -> Path | None:
     except FileExistsError:
         try:
             pid = int(path.read_text().strip() or 0)
+            if pid <= 0:
+                # a holder that crashed between creating the file and writing
+                # its pid leaves an empty lock; os.kill(0, 0) signals OUR OWN
+                # process group and always succeeds, wedging the job forever
+                # (lived: ingest locked out 10 days by a 0-byte lock)
+                raise ValueError("lock file carries no pid")
             os.kill(pid, 0)  # raises if the holder is gone
             return None  # held by a live process — skip this run
         except (ValueError, ProcessLookupError, PermissionError):
