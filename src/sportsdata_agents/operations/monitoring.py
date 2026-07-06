@@ -781,7 +781,11 @@ async def _watch_racing_value(
             f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}"
             f" — check the live price before betting"
         )
-        bucket = int(candidate["edge_pct"] / 3.0)
+        # dedupe ONCE per race+runner+book for the window — the old edge/3
+        # bucket re-fired the same runner every few minutes as its edge drifted
+        # up (e.g. +24% then +50% as the price firmed), spamming repeats. A
+        # materially bigger opportunity (a whole 25-point band) still re-alerts.
+        bucket = int(candidate["edge_pct"] / 25.0)
         key = (f"racing_value:{candidate['race']}:{candidate['runner']}"
                f":{candidate['book']}:{bucket}")
         payload = {**candidate, "kelly_stake": round(kelly, 2), "bankroll": bankroll}

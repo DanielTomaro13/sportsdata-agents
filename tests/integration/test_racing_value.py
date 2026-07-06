@@ -108,6 +108,33 @@ async def test_thin_betfair_race_falls_back_to_consensus(
     assert all(c["exchange_matched"] is None for c in found)
 
 
+async def test_absurd_edge_is_refused_as_a_data_artifact(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A runner whose fair is trustworthy (inside max_fair_odds) but whose book
+    price implies an enormous edge is a mis-read/scratched-runner artifact, not
+    a bet — the max_edge_pct ceiling refuses it."""
+    async with db_sessionmaker() as s:
+        for runner, number, odds in (("Boat Race", 1, 2.2), ("Silver Comet", 2, 3.4),
+                                     ("Rusty Rancher", 4, 4.8), ("Night Parade", 7, 9.0)):
+            s.add(_betfair_row(runner, number, odds))  # fair on Rusty ~5.36
+        # PointsBet lists Rusty at 15.00 — a +180% "edge" no clean market offers
+        for book, event_id, prices in (
+            ("PointsBet", "PB-R5", ((1, "Boat Race", 2.10), (2, "Silver Comet", 3.20),
+                                    (4, "Rusty Rancher", 15.00), (7, "Night Parade", 8.00))),
+            ("TAB", "TAB-R5", ((1, "Boat Race", 2.15), (2, "Silver Comet", 3.30),
+                               (4, "Rusty Rancher", 4.60), (7, "Night Parade", 8.50))),
+            ("Sportsbet", "SB-R5", ((1, "Boat Race", 2.10), (2, "Silver Comet", 3.25),
+                                    (4, "Rusty Rancher", 4.50), (7, "Night Parade", 8.20))),
+        ):
+            for number, runner, odds in prices:
+                s.add(_book_row(book, event_id, number, runner, odds))
+        await s.commit()
+    async with db_sessionmaker() as s:
+        found = await scan_racing_value(s, min_edge_pct=8.0, now=NOW)
+    assert not any(c["runner"] == "Rusty Rancher" and c["edge_pct"] > 60.0 for c in found), found
+
+
 async def test_consensus_mode_without_the_exchange(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:

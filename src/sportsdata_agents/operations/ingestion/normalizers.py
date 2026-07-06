@@ -810,13 +810,18 @@ def normalize_sportsbet_races(payload: Any) -> list[PricePoint]:
             for sel in market.get("selections", []) or []:
                 odds = _odds_ok((sel.get("price") or {}).get("winPrice"))
                 if odds is None:
-                    # racecards carry a prices[] array; fixed odds inline a winPrice
-                    # (tote-only entries — MID/MDP — carry none, so off fixed-odds
-                    # hours a card honestly yields nothing)
+                    # The prices[] array carries MULTIPLE price codes per runner:
+                    # "L" = the LIVE FIXED odds shown on the site (what a punter
+                    # bets), and "MID" = a tote/parimutuel midpoint ESTIMATE that
+                    # on thin pools spikes wildly (lived: a dog fixed at 3.0 had
+                    # MID 41, flagged as +831% phantom value). Take the fixed "L"
+                    # price ONLY — a fixed quote always carries fractional num/den;
+                    # a tote-only runner (MID with no fixed) honestly yields nothing.
                     for row in sel.get("prices", []) or []:
-                        odds = _odds_ok(row.get("winPrice"))
-                        if odds is not None:
-                            break
+                        if row.get("priceCode") == "L" or row.get("winPriceNum") is not None:
+                            odds = _odds_ok(row.get("winPrice"))
+                            if odds is not None:
+                                break
                 if odds is None:
                     continue
                 number = sel.get("runnerNumber") or sel.get("number")

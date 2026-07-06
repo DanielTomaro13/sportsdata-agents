@@ -72,6 +72,7 @@ async def scan_racing_value(
     hours: float = 0.75,
     min_edge_pct: float = 8.0,
     max_fair_odds: float = 12.0,
+    max_edge_pct: float = 60.0,
     max_staleness_minutes: float = 10.0,
     min_matched: float = 500.0,
     exclude_books: tuple[str, ...] = ("FanDuel",),  # not bettable from AU
@@ -200,6 +201,12 @@ async def scan_racing_value(
                     continue  # longshot territory — proportional de-vig lies out here
                 edge_pct = (odds * fair - 1.0) * 100.0
                 if edge_pct < min_edge_pct:
+                    continue
+                # a genuine racing value edge vs the pack is rarely huge; an
+                # enormous one is almost always a data artifact (a mis-read
+                # price, a scratched/suspended runner the book still lists) —
+                # NOT a bet. The ceiling refuses to alert on the implausible.
+                if edge_pct > max_edge_pct:
                     continue
                 number = unit.numbers.get(name)
                 found.append({
