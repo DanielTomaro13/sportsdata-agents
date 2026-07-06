@@ -156,12 +156,17 @@ async def _context(session: AsyncSession, row: Price) -> dict[str, Any]:
     if who and str(who).strip().lower() != row.selection.lower():
         selection = f"{row.selection} ({who})"
     matched = (snap.meta or {}).get("total_matched") if snap else None
+    race = str((snap.meta or {}).get("race") or "") if snap else ""
+    if race and race.split()[0] not in event:
+        event = f"{event} · {race}"  # Betfair names the MEETING; the race rides meta
     return {"event": event, "sport": sport, "selection": selection,
             "start_time": snap.start_time if snap else None, "matched": matched}
 
 
 def _match(row: Price, params: dict[str, Any]) -> bool:
     if row.sport in (params.get("exclude_sports") or ()):
+        return False
+    if params.get("engine_sports_only") and row.sport not in _engine_labels():
         return False
     for field in ("sport", "market", "selection", "book", "provider"):
         want = params.get(field)
@@ -178,6 +183,25 @@ def _started(start_time: Any) -> bool:
         return False
     when = start_time if start_time.tzinfo else start_time.replace(tzinfo=dt.UTC)
     return when <= dt.datetime.now(dt.UTC)
+
+
+def _engine_labels() -> set[str]:
+    """Every warehouse sport label the engine prices (the slate's map)."""
+    from sportsdata_agents.quant.slate import SLATE_SPORTS
+
+    return {label for _sport, label in SLATE_SPORTS}
+
+
+def _lacks_clear_ev(sub: Subscription, odds: float, engine_fair: float | None) -> bool:
+    """True = suppress: the watch demands a POSITIVE engine edge
+    (min_engine_edge_pct) and this price doesn't show one — including when
+    the slate simply hasn't priced the market (no fair = no demonstrated EV)."""
+    floor = sub.params.get("min_engine_edge_pct")
+    if floor is None:
+        return False
+    if engine_fair is None or engine_fair <= 0:
+        return True
+    return (float(odds) / engine_fair - 1.0) * 100.0 < float(floor)
 
 
 def _engine_veto(sub: Subscription, odds: float, engine_fair: float | None,
@@ -258,6 +282,8 @@ async def _watch_line_move(
         quotes = await _cross_book_quotes(session, row)
         if _engine_veto(sub, float(row.odds), engine_fair, quotes):
             continue
+        if _lacks_clear_ev(sub, float(row.odds), engine_fair):
+            continue
         engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
         board = " · ".join(f"{b} {o:.2f}" for b, o in
                            sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
@@ -301,6 +327,8 @@ async def _watch_steam(
             engine_fair = await _engine_fair_for(session, market, selection, event_id=event)
             quotes = await _cross_book_quotes(session, series[-1])
             if _engine_veto(sub, float(series[-1].odds), engine_fair, quotes):
+                continue
+            if _lacks_clear_ev(sub, float(series[-1].odds), engine_fair):
                 continue
             engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
             traded = f" ({_fmt_money(float(ctx['matched']))} matched)" if ctx.get("matched") else ""

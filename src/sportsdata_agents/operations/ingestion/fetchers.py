@@ -719,6 +719,51 @@ async def fetch_sportsbet_races(manager: Any) -> dict[str, Any]:
     return {"events": cards.get("events") or [], "sports": sports, "meetings": meetings}
 
 
+# live-verified category ids from the meetings route (Ipswich=horse,
+# Romford Bags=greyhound, Globe Derby=harness)
+_ENTAIN_CATEGORY_SPORT = {
+    "4a2788f8-e825-4d36-9894-efd4baf1cfae": "horse_racing",
+    "9daef0d7-bf3c-4f50-921d-8e818c60fe61": "greyhound_racing",
+    "161d9be2-e909-4326-8c2c-35ed71fb460b": "harness_racing",
+}
+
+
+async def fetch_entain_races(manager: Any) -> dict[str, Any]:
+    """Ladbrokes: meetings(today) → soonest future races → one priced racecard
+    each (price_fluctuations' LAST value is the live fixed win price)."""
+    import datetime as _dt
+
+    day = await manager.call_tool(
+        "entain_racing_meeting",
+        {"date": _dt.date.today().isoformat(), "timezone": "Australia/Melbourne"})
+    meetings = day.get("meetings") or {}
+    now = _dt.datetime.now(_dt.UTC)
+    pending: list[tuple[_dt.datetime, dict[str, Any]]] = []
+    for race in (day.get("races") or {}).values():
+        try:
+            start = _dt.datetime.fromisoformat(
+                str(race.get("advertised_start", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        meeting = meetings.get(race.get("meeting_id") or "") or {}
+        if start > now and meeting:
+            race["_venue"] = meeting.get("name")
+            race["_sport"] = _ENTAIN_CATEGORY_SPORT.get(str(meeting.get("category_id")))
+            if race["_sport"]:
+                pending.append((start, race))
+    pending.sort(key=lambda p: p[0])
+    out: list[dict[str, Any]] = []
+    for start, race in pending[:RACES_PER_CYCLE]:
+        try:
+            card = await manager.call_tool("entain_racing_racecard", {"id": race["id"]})
+            out.append({"race_id": race["id"], "venue": race["_venue"],
+                        "race_no": race.get("number"), "sport": race["_sport"],
+                        "start": start.isoformat(), "card": card.get("data") or {}})
+        except Exception as e:
+            logger.warning("entain racecard %s failed: %s", race.get("id"), e)
+    return {"races": out}
+
+
 async def fetch_betr_races(manager: Any) -> dict[str, Any]:
     """BetR: Next5Races (all codes) → full racecards (Outcomes with WIN+PLC prices)."""
     n5 = await manager.call_tool("betr_next5_races", {"EventTypeFilter": 7, "CountryFilter": 0})

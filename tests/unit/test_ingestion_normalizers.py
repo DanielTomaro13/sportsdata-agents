@@ -213,7 +213,7 @@ def test_feed_registry_is_discovery_driven() -> None:
            "pointsbet_all", "betr_all", "dabble_all", "betfair_all", "fanduel_us",
            "fanduel_racing_win"}
     books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books", "pointsbet_books"}
-    racing = {"tab_racing", "sportsbet_racing", "betr_racing", "pointsbet_racing", "unibet_racing"}
+    racing = {"tab_racing", "sportsbet_racing", "betr_racing", "entain_racing", "pointsbet_racing", "unibet_racing"}
     futures = {"tab_racing_futures", "sportsbet_racing_futures",
                "pointsbet_racing_futures", "unibet_racing_futures"}
     prediction = {"kalshi_all", "polymarket_all"}

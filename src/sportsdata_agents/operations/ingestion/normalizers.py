@@ -842,6 +842,42 @@ def normalize_sportsbet_races(payload: Any) -> list[PricePoint]:
     return sink.points
 
 
+def normalize_entain_races(payload: Any) -> list[PricePoint]:
+    """Ladbrokes racecards: entrants keyed by uuid; the LIVE fixed win price is
+    the tail of price_fluctuations[entrant_id] (the prices{} table mixes ~50
+    price types — flucs, totes, deductions — with no legend; the fluctuation
+    series is the one unambiguous fixed-odds source, PointsBet-style)."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    for entry in payload.get("races", []) or []:
+        card = entry.get("card") or {}
+        race_id = str(entry.get("race_id") or "")
+        venue, race_no = entry.get("venue"), entry.get("race_no")
+        if not race_id or not venue or not race_no:
+            continue
+        event_name = f"{venue} R{race_no}"
+        sport = str(entry.get("sport") or "horse_racing")
+        flucs = card.get("price_fluctuations") or {}
+        for ent_id, entrant in (card.get("entrants") or {}).items():
+            if not isinstance(entrant, dict) or entrant.get("visible") is False:
+                continue
+            series = flucs.get(ent_id) or []
+            odds = _odds_ok(series[-1] if series else None)
+            if odds is None:
+                continue
+            number = entrant.get("number")
+            selection = str(number) if number is not None else str(entrant.get("name", "?")).lower()
+            sink.add(PricePoint(
+                provider="entain_racing", book="Ladbrokes", sport=sport,
+                event_external_id=race_id, event_name=event_name,
+                market="win", selection=selection, odds=odds,
+                meta={"runner": entrant.get("name"), "runner_number": number,
+                      "post_time": entry.get("start")},
+            ))
+    return sink.points
+
+
 def normalize_betr_races(payload: Any) -> list[PricePoint]:
     """BetR racecards: Outcomes[].FixedPrices[] rows keyed by MarketTypeCode
     (WIN/PLC + whatever else the card carries — capture everything)."""
