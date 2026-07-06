@@ -1201,7 +1201,8 @@ def monitor(
     watch: str | None = typer.Option(None, "--add", help='Create a watch inline: "name:kind:threshold" '
                                                          '(e.g. "big-moves:line_move:8").'),
     channel: str = typer.Option("log", "--channel", help='Push target for --add: Slack channel id, '
-                                                         '"discord[:ENV_VAR]" (webhook), or "log".'),
+                                                         '"discord[:ENV_VAR]" (webhook), '
+                                                         '"ntfy[:ENV_VAR]" (phone push), or "log".'),
 ) -> None:
     """Run one monitoring pass: every active watch scans the price stream since its
     cursor and fires push alerts (M3.2). Deterministic — no LLM. The conductor

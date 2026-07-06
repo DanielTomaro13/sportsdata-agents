@@ -53,8 +53,8 @@ Pusher = Callable[[Subscription, str], Awaitable[bool]]
 
 async def slack_pusher(subscription: Subscription, message: str) -> bool:
     """Route the alert to the subscription's channel — a Slack channel id,
-    "discord[:ENV_VAR]" for a webhook, or "log". (The name predates Discord
-    parity; this is the platform router.)"""
+    "discord[:ENV_VAR]" for a webhook, "ntfy[:ENV_VAR]" for phone push, or
+    "log". (The name predates the platform parity; this is the router.)"""
     from sportsdata_agents.observability.notify import push_to_channel
 
     return await push_to_channel(subscription.channel or "", message)
