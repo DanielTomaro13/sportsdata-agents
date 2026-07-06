@@ -114,20 +114,23 @@ async def ingest_sportsbet_form(
         number = event.get("raceNumber")
         if not venue or number is None:
             continue
-        runners: list[dict[str, Any]] = []
+        # scan every market: only some carry the runner statistics block, and
+        # greyhound cards may carry none at all (a horses feature)
+        by_number: dict[Any, dict[str, Any]] = {}
         for market in event.get("markets") or []:
             if not isinstance(market, dict):
                 continue
             for sel in market.get("selections") or []:
+                number = sel.get("runnerNumber")
+                if number is None or number in by_number:
+                    continue
                 stats = sel.get("statistics") or {}
                 runs = [r for r in (parse_recent_start(line, now)
                                     for line in stats.get("recentStarts") or []) if r]
-                if not runs or sel.get("runnerNumber") is None:
-                    continue
-                runners.append({"number": sel.get("runnerNumber"),
-                                "name": sel.get("name"), "scratched": bool(sel.get("isOut")),
-                                "runs": runs})
-            break  # the primary market carries every runner once
+                if runs:
+                    by_number[number] = {"number": number, "name": sel.get("name"),
+                                         "scratched": bool(sel.get("isOut")), "runs": runs}
+        runners = list(by_number.values())
         if len(runners) < 3:
             continue
         start = event.get("startTime")
