@@ -324,6 +324,27 @@ class Price(Base):
     prev_odds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)  # None = first sighting
 
 
+class RaceForm(Base):
+    """Official form for one race (GLOBAL) — barriers, weights, jockeys and past
+    performances from TAB's authenticated form guide. The racing ratings' REAL
+    inputs (market-only signals can't see a wide barrier or a 3kg swing)."""
+
+    __tablename__ = "race_form"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(String(64), index=True, default="tab")
+    # "{date}:{raceType}:{venueMnemonic}:{raceNumber}" — TAB's own race identity
+    race_key: Mapped[str] = mapped_column(String(128), index=True, unique=True)
+    meeting_date: Mapped[str] = mapped_column(String(10))
+    race_type: Mapped[str] = mapped_column(String(1))  # R / G / H
+    venue_mnemonic: Mapped[str] = mapped_column(String(16))
+    race_number: Mapped[int] = mapped_column(Integer)
+    start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # per-runner form dicts: number, name, barrier, weight, jockey/driver,
+    # last starts, official ratings — trimmed from the form guide
+    runners: Mapped[list] = mapped_column(JSON, default=list)
+    captured_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+
+
 class EventResult(Base):
     """Final result per event (GLOBAL) — what backtests settle against (M2.3)."""
 

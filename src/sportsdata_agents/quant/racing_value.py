@@ -43,6 +43,8 @@ _RACE_NO = re.compile(r"\bR(\d+)\b", re.IGNORECASE)
 @dataclass
 class _RaceUnit:
     book: str
+    provider: str
+    event_id: str
     event_name: str
     sport: str
     race_no: int
@@ -108,7 +110,9 @@ async def scan_racing_value(
         unit = units.get(key)
         if unit is None:
             unit = units[key] = _RaceUnit(
-                book=row.book, event_name=row.event_name, sport=row.sport,
+                book=row.book, provider=row.provider,
+                event_id=row.event_external_id,
+                event_name=row.event_name, sport=row.sport,
                 race_no=race_no, start=_as_utc(row.start_time))
         unit.runners[name] = float(row.odds)  # ascending order: last write wins
         if row.book == exchange_book and meta.get("total_matched") is not None:
@@ -210,6 +214,10 @@ async def scan_racing_value(
                     "versus": versus,
                     "edge_pct": round(edge_pct, 2),
                     "start_time": start.isoformat() if start else None,
+                    # settlement keys: the P&L scoreboard grades the alert
+                    # against this event's recorded result
+                    "provider": unit.provider,
+                    "event_external_id": unit.event_id,
                     "exchange_matched": round(matched, 2) if matched is not None else None,
                     # when the flagged book's price was captured — the market
                     # keeps moving after the alert, especially near the jump

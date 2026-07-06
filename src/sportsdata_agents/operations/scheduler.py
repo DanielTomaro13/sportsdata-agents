@@ -114,8 +114,17 @@ JOBS: tuple[Job, ...] = (
         log="cron.log", interval_s=1800, timeout_s=1200),
     Job(name="custodian", args=("custodian",),
         log="cron.log", interval_s=3600, timeout_s=1800),
+    # official race form (TAB authenticated tier) — the ratings' real inputs;
+    # a no-op (zero rows, logged) when the operator has no TAB keys configured
+    Job(name="form", args=("form",),
+        log="cron.log", interval_s=1800, timeout_s=900),
     Job(name="results", args=("results",),
         log="cron.log", at=(23, 40), timeout_s=1800),
+    # the weekly measured scoreboard: every alert's PRINTED Kelly stake graded
+    # against recorded results, pushed to the operator's phone — Sunday evening,
+    # after the week's racing results have landed
+    Job(name="scoreboard", args=("scoreboard", "--push"),
+        log="cron.log", weekday=6, at=(9, 30), timeout_s=600),
     Job(name="steward", args=("steward",),
         log="steward.log", weekday=0, at=(9, 0), timeout_s=1800),
     Job(name="eval_benchmark",

@@ -9,6 +9,7 @@ and are isolated per-feed.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -1026,9 +1027,9 @@ BETFAIR_EVENT_TYPES: dict[str, str] = {
     "7522": "basketball", "6423": "american_football", "7511": "baseball", "3": "golf",
 }
 BETFAIR_TYPES_PER_CYCLE = 4
-# racing is pinned into every cycle (~130 markets on a busy card), so the cap
-# leaves room for the rotating sports window too
-BETFAIR_MARKETS_PER_CYCLE = 300
+# racing is pinned into every cycle, so the cap leaves room for the rotating
+# sports window too; override with SPORTSDATA_AGENTS_BETFAIR_MARKETS_PER_CYCLE
+BETFAIR_MARKETS_PER_CYCLE = 600
 _BETFAIR_PRICE_BATCH = 25
 
 
@@ -1046,7 +1047,12 @@ async def fetch_betfair_all(manager: Any) -> dict[str, Any]:
     racing = [t for t in ("7", "4339") if t in BETFAIR_EVENT_TYPES]
     others = sorted(set(BETFAIR_EVENT_TYPES) - set(racing))
     type_ids = racing + _take_rotating("betfair_all", others, BETFAIR_TYPES_PER_CYCLE)
-    market_ids: list[str] = []
+    # (market id, start time) — SOONEST-STARTING FIRST under the cycle cap, so
+    # what is ON RIGHT NOW (tonight's dogs/harness, the next UK race) always
+    # beats tomorrow's cards. The old first-N slice let one busy type's future
+    # card crowd every other type out entirely (lived: 443 horse markets ate a
+    # 300 cap and tonight's greyhounds captured ZERO while races were running).
+    found: list[tuple[str, str]] = []
     for type_id in type_ids:
         try:
             nav = await manager.call_tool("betfair_navigation", {
@@ -1059,13 +1065,18 @@ async def fetch_betfair_all(manager: Any) -> dict[str, Any]:
         except Exception as e:
             logger.warning("betfair navigation %s failed: %s", type_id, e)
             continue
-        market_ids.extend(
-            str(n["nodeId"]).split(":", 1)[1]
-            for n in nav.get("nodes", []) or []
-            if n.get("nodeType") == "MARKET" and ":" in str(n.get("nodeId", ""))
-        )
+        for n in nav.get("nodes", []) or []:
+            if n.get("nodeType") != "MARKET" or ":" not in str(n.get("nodeId", "")):
+                continue
+            info = n.get("marketInfo") or {}
+            found.append((str(n["nodeId"]).split(":", 1)[1],
+                          str(info.get("marketTime") or "9999")))
+    found.sort(key=lambda pair: pair[1])
+    cap = int(os.environ.get("SPORTSDATA_AGENTS_BETFAIR_MARKETS_PER_CYCLE",
+                             str(BETFAIR_MARKETS_PER_CYCLE)))
+    market_ids = [mid for mid, _ in found[:cap]]
     batches: list[Any] = []
-    for start in range(0, min(len(market_ids), BETFAIR_MARKETS_PER_CYCLE), _BETFAIR_PRICE_BATCH):
+    for start in range(0, len(market_ids), _BETFAIR_PRICE_BATCH):
         batch = market_ids[start:start + _BETFAIR_PRICE_BATCH]
         try:
             batches.append(await manager.call_tool("betfair_market_prices",

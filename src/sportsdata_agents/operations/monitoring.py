@@ -697,8 +697,9 @@ async def _watch_exchange_value(
         bucket = int(candidate["edge_pct"] / 2.0)  # re-fire when the edge grows a band
         key = (f"exchange_value:{candidate['fixture_id']}:{candidate['market']}"
                f":{candidate['outcome']}:{candidate['book']}:{bucket}")
+        payload = {**candidate, "kelly_stake": round(kelly, 2), "bankroll": bankroll}
         if await _fire(session, sub, kind="exchange_value", key=key, message=message,
-                       payload=candidate, pusher=pusher):
+                       payload=payload, pusher=pusher):
             fired += 1
     return fired
 
@@ -758,8 +759,9 @@ async def _watch_racing_value(
         bucket = int(candidate["edge_pct"] / 3.0)
         key = (f"racing_value:{candidate['race']}:{candidate['runner']}"
                f":{candidate['book']}:{bucket}")
+        payload = {**candidate, "kelly_stake": round(kelly, 2), "bankroll": bankroll}
         if await _fire(session, sub, kind="racing_value", key=key, message=message,
-                       payload=candidate, pusher=pusher):
+                       payload=payload, pusher=pusher):
             fired += 1
     return fired
 
@@ -803,8 +805,9 @@ async def _watch_prediction_value(
         bucket = int(candidate["edge_pct"] / 5.0)
         key = (f"prediction_value:{candidate['polymarket_event']}"
                f":{candidate['outcome']}:{candidate['back']}:{bucket}")
+        payload = {**candidate, "kelly_stake": round(kelly, 2), "bankroll": bankroll}
         if await _fire(session, sub, kind="prediction_value", key=key, message=message,
-                       payload=candidate, pusher=pusher):
+                       payload=payload, pusher=pusher):
             fired += 1
     return fired
 

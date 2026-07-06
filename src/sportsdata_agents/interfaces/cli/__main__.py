@@ -1199,6 +1199,49 @@ def migrate_warehouse_cmd(
 
 
 @app.command()
+def scoreboard(
+    days: int = typer.Option(7, "--days", help="Window to grade (default: the last week)."),
+    push: bool = typer.Option(False, "--push", help="Broadcast the report to the operator "
+                                                    "channels (ntfy/Slack/Discord) as well."),
+) -> None:
+    """Alert P&L: grade every alert's PRINTED Kelly stake against recorded
+    results — racing settles fully; arbs report locked profit when still
+    takeable; other value kinds join the P&L with Phase B."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.observability.notify import operator_broadcast, slack_to_plain
+    from sportsdata_agents.quant.scoreboard import alert_pnl, format_scoreboard
+
+    console = Console()
+
+    async def _run() -> None:
+        import datetime as dt
+
+        engine = make_engine(get_settings().database_url)
+        sf = make_sessionmaker(engine)
+        try:
+            async with sf() as session:
+                report = await alert_pnl(
+                    session, since=dt.datetime.now(dt.UTC) - dt.timedelta(days=days))
+            text = format_scoreboard(report)
+            console.print(slack_to_plain(text))
+            if push:
+                await operator_broadcast(text)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+@app.command()
 def monitor(
     watch: str | None = typer.Option(None, "--add", help='Create a watch inline: "name:kind:threshold" '
                                                          '(e.g. "big-moves:line_move:8").'),
@@ -1362,6 +1405,47 @@ def steward(
         async with session:
             result = await session.run(prompt)
         _render_result(console, result)
+
+    asyncio.run(_run())
+
+
+@app.command()
+def form() -> None:
+    """Capture official race form (barriers, weights, jockeys, past starts) via
+    TAB's authenticated tier into race_form — the racing ratings' real inputs.
+    Needs TAB_CLIENT_ID/TAB_CLIENT_SECRET; cron half-hourly during racing."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.mcp.manager import MCPManager
+    from sportsdata_agents.operations.ingestion.form import ingest_tab_form
+    from sportsdata_agents.operations.ingestion.worker import INGEST_MAX_BYTES
+
+    console = Console()
+    settings = get_settings()
+
+    async def _run() -> None:
+        engine = make_engine(settings.database_url)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        sf = make_sessionmaker(engine)
+        try:
+            async with MCPManager(
+                groups=["tab.racing"], command=settings.mcp_command,
+                extra_env={"SPORTSDATA_MCP_MAX_BYTES": str(INGEST_MAX_BYTES)},
+            ) as manager:
+                report = await ingest_tab_form(manager, sf)
+            console.print(f"✓ form: {report}")
+        finally:
+            await engine.dispose()
 
     asyncio.run(_run())
 
