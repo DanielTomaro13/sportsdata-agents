@@ -115,6 +115,7 @@ WATCH_PARAMS: dict[str, Params] = {
                                    "mode is unaffected)"),
         "engine_gate": (False, "suppress consensus-mode alerts the engine fair disagrees "
                                "with (exchange-mode alerts are already corroborated)"),
+        "sharp_books": (["Pinnacle", "Betfair"], "books listed first on the cross-book board"),
         "bankroll": (100.0, "kelly stake sizing base"),
     },
     "back_lay": {

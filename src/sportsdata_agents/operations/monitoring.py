@@ -370,6 +370,7 @@ async def _watch_line_move(
                              engine_fair, quotes):
             continue
         engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
+        traded = f" ({_fmt_money(float(ctx['matched']))} matched)" if ctx.get("matched") else ""
         jump = ""
         if ctx.get("start_time") and not _started(ctx["start_time"]):
             jump = f" · starts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
@@ -378,7 +379,7 @@ async def _watch_line_move(
             f":chart_with_upwards_trend: line move [{ctx['sport']}] {ctx['event']}\n"
             f"{row.book} · {row.market} · {ctx['selection']} — "
             f"{float(row.prev_odds):.2f} → {float(row.odds):.2f} ({direction} {move:.1f}%)"
-            f"{engine_note}{jump}"
+            f"{engine_note}{traded}{jump}"
             + _format_board(quotes, sharps)
         )
         key = f"line_move:{row.book}:{row.event_external_id}:{row.market}:{row.selection}"
@@ -1065,6 +1066,11 @@ async def _watch_racing_value(
         bucket = int(candidate["edge_pct"] / 25.0)
         key = (f"racing_value:{candidate['race']}:{candidate['runner']}"
                f":{candidate['book']}:{bucket}")
+        board = await _racing_board(
+            session, str(candidate["race"]), "win",
+            str(candidate.get("runner_number") or ""), str(candidate["book"]))
+        sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
+        message += _format_board(board, sharps)
         payload = {**candidate, "kelly_stake": round(kelly, 2), "bankroll": bankroll}
         if await _fire(session, sub, kind="racing_value", key=key, message=message,
                        payload=payload, pusher=pusher):
