@@ -54,6 +54,8 @@ WATCH_PARAMS: dict[str, Params] = {
                                       "table tennis, boxing...)"),
         "drift_value_only": (False, "suppress DRIFT alerts unless another book or the "
                                     "engine prices it shorter than the drifted-to price"),
+        "exchange_min_matched": (1000.0, "exchange rows need this much traded — a "
+                                         "near-untraded market's moves are stray orders"),
         **_ROW_FILTERS,
     },
     "steam": {
@@ -69,6 +71,8 @@ WATCH_PARAMS: dict[str, Params] = {
                                       "table tennis, boxing...)"),
         "drift_value_only": (False, "suppress DRIFT alerts unless another book or the "
                                     "engine prices it shorter than the drifted-to price"),
+        "exchange_min_matched": (1000.0, "exchange rows need this much traded — a "
+                                         "near-untraded market's moves are stray orders"),
         **_ROW_FILTERS,
     },
     "value": {

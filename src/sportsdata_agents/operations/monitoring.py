@@ -236,6 +236,20 @@ def _format_board(quotes: dict[str, float], sharps: list[str]) -> str:
     return f"\nacross books: {board}"
 
 
+def _thin_exchange(sub: Subscription, ctx: dict[str, Any]) -> bool:
+    """True = suppress: the row is an EXCHANGE quote (it carries matched-money
+    meta) with less traded than exchange_min_matched — a near-untraded market's
+    "moves" are stray orders appearing and vanishing, not the market walking
+    (lived: a leftover 1.81 back on a 100-1 horse read as a 2,552% drift)."""
+    matched = ctx.get("matched")
+    if matched is None:
+        return False  # not an exchange row — books have no matched concept
+    try:
+        return float(matched) < float(sub.params.get("exchange_min_matched", 1000.0))
+    except (TypeError, ValueError):
+        return False
+
+
 def _drift_suppressed(sub: Subscription, drifting: bool, odds: float,
                       engine_fair: float | None, quotes: dict[str, float]) -> bool:
     """True = suppress a DRIFT alert: nobody prices it shorter than the
@@ -340,6 +354,8 @@ async def _watch_line_move(
         ctx = await _context(session, row)
         if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
             continue  # in-play prices move for game reasons, not market ones
+        if _thin_exchange(sub, ctx):
+            continue
         engine_fair = await _engine_fair_for(
             session, row.market, row.selection, event_id=row.event_external_id)
         quotes = await _cross_book_quotes(session, row)
@@ -394,6 +410,8 @@ async def _watch_steam(
             ctx = await _context(session, series[-1])
             if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
                 continue  # in-play prices move for game reasons, not market ones
+            if _thin_exchange(sub, ctx):
+                continue
             arrow = "drifting" if directions == {1} else "steaming in"
             engine_fair = await _engine_fair_for(session, market, selection, event_id=event)
             quotes = await _cross_book_quotes(session, series[-1])

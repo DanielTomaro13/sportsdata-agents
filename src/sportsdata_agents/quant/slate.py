@@ -79,8 +79,19 @@ def _seed_for(sport: str, event_rows: list[Any]) -> dict[str, Any] | None:
 
     if sport == "racing":
         win_odds = {r.selection: float(r.odds) for r in event_rows
-                    if r.market.lower() == "win"}
-        return {"win_odds": win_odds} if len(win_odds) >= 2 else None
+                    if r.market.lower() == "win" and float(r.odds) > 1.0}
+        if len(win_odds) < 2:
+            return None
+        # POISONED-BOARD GUARD (same lesson as the value scan): a stray junk
+        # quote — a 1.81 back left on a 100-1 horse — drags the implied sum
+        # far off a real board's (books ~1.1-1.35 overround; exchange backs
+        # just under 1). Seeding the engine from it records garbage fairs
+        # that then pass alert gates (lived: "engine fair 2.74" on a 48.0
+        # drifter). Out-of-band boards seed NOTHING.
+        inv = sum(1.0 / o for o in win_odds.values())
+        if not 0.85 <= inv <= 1.45:
+            return None
+        return {"win_odds": win_odds}
     if sport == "golf":
         win_odds = {r.selection: float(r.odds) for r in event_rows
                     if r.market.lower() in _GOLF_WIN_MARKETS}

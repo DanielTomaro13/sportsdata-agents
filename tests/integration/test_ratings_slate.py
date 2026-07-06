@@ -55,9 +55,13 @@ def test_seed_for_sport_shapes() -> None:
         def __init__(self, market: str, selection: str, odds: float) -> None:
             self.market, self.selection, self.odds = market, selection, odds
 
-    racing = _seed_for("racing", [Row("win", "1", 2.5), Row("win", "2", 3.0)])
-    assert racing == {"win_odds": {"1": 2.5, "2": 3.0}}
+    racing = _seed_for("racing", [Row("win", "1", 2.5), Row("win", "2", 3.0),
+                                  Row("win", "3", 4.0), Row("win", "4", 6.0)])
+    assert racing == {"win_odds": {"1": 2.5, "2": 3.0, "3": 4.0, "4": 6.0}}
     assert _seed_for("racing", [Row("win", "1", 2.5)]) is None  # one runner isn't a race
+    # a poisoned board (stray short back on a longshot field) seeds NOTHING
+    assert _seed_for("racing", [Row("win", "1", 1.81), Row("win", "2", 34.0),
+                                Row("win", "3", 51.0), Row("win", "4", 67.0)]) is None
     mma = _seed_for("mma", [Row("h2h", "home", 1.7), Row("h2h", "away", 2.1)])
     assert mma == {"h2h": [1.7, 2.1]}
     tennis = _seed_for("tennis", [
