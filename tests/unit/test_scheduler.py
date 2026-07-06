@@ -162,6 +162,6 @@ def test_paced_feeds_floor_only_the_fast_tiers() -> None:
     paced = {f.name: f.interval_s for f in paced_feeds(list(FEEDS.values()), 120)}
     assert paced["unibet_all"] == 120  # hot tier accelerates
     assert paced["kalshi_all"] == 120  # prediction tier accelerates
-    assert paced["fanduel_racing_win"] == 120  # already fast, floor is a no-op direction
+    assert paced["fanduel_racing_win"] == 60  # already faster than the floor — untouched
     assert paced["sportsbet_books"] == 3600  # firehose tiers NEVER accelerate
     assert paced["tab_racing_futures"] == 3600

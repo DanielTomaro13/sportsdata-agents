@@ -842,7 +842,11 @@ def normalize_betr_races(payload: Any) -> list[PricePoint]:
         event_id = str(card.get("EventId", ""))
         if not event_id:
             continue
-        event_name = str(card.get("EventName") or "")
+        # "VENUE R<n>" is the cross-book race identity the value scan
+        # clusters on; BetR's own EventName is a sponsor label
+        venue, race_no = entry.get("venue"), entry.get("race_no")
+        event_name = (f"{venue} R{race_no}" if venue and race_no
+                      else str(card.get("EventName") or ""))
         sport = str(entry.get("sport") or "horse_racing")
         for outcome in card.get("Outcomes", []) or []:
             number = str(outcome.get("OutcomeId") or "?")
@@ -909,7 +913,11 @@ def normalize_unibet_races(payload: Any) -> list[PricePoint]:
         if not event_key:
             continue
         sport = str(entry.get("sport") or "horse_racing")
-        event_name = str(event.get("name") or event_key)
+        # same canonical race identity as every other book (sponsor label kept
+        # as fallback for ante-post cards that aren't numbered races)
+        venue, race_no = entry.get("venue"), entry.get("race_no")
+        event_name = (f"{venue} R{race_no}" if venue and race_no
+                      else str(event.get("name") or event_key))
         for competitor in event.get("competitors", []) or []:
             if competitor.get("scratched") or competitor.get("isScratched"):
                 continue

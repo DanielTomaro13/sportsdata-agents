@@ -678,14 +678,19 @@ def test_normalize_tab_races_win_and_place() -> None:
 def test_normalize_betr_races_market_codes() -> None:
     from sportsdata_agents.operations.ingestion.normalizers import normalize_betr_races
 
-    payload = {"races": [{"sport": "horse_racing", "card": {
-        "EventId": 88112233, "EventName": "Sale R1", "AdvertisedStartTime": "2026-06-11T02:00:00Z",
+    payload = {"races": [{"sport": "horse_racing", "venue": "Sale", "race_no": 1, "card": {
+        "EventId": 88112233, "EventName": "Gartelmann Wines Hcp",
+        "AdvertisedStartTime": "2026-06-11T02:00:00Z",
         "Outcomes": [{"OutcomeId": 1, "OutcomeName": "Seen You Later", "FixedPrices": [
             {"MarketTypeCode": "WIN", "Price": 51.0}, {"MarketTypeCode": "PLC", "Price": 4.6}]}],
     }}]}
     points = normalize_betr_races(payload)
     assert {(p.market, p.selection, p.odds) for p in points} == {("win", "1", 51.0), ("place", "1", 4.6)}
     assert points[0].provider == "betr_racing"
+    # the race scan clusters on "VENUE R<n>" — the sponsor label was invisible
+    # to it (lived: BetR never joined a cluster, never alerted, never fed
+    # consensus); identity now rides from the Next5 discovery step
+    assert points[0].event_name == "Sale R1"
 
 
 def test_normalize_pointsbet_races_fluctuations() -> None:
@@ -710,6 +715,7 @@ def test_normalize_unibet_races_current_fluc() -> None:
 
     payload = {"races": [{
         "sport": "horse_racing", "eventKey": "202606110400.T.AUS.casino.4",
+        "venue": "Casino", "race_no": 4,
         "card": {"data": {"viewer": {"event": {
             "name": "Thomas Noble & Russell (Bm66)",
             "competitors": [{
@@ -726,6 +732,7 @@ def test_normalize_unibet_races_current_fluc() -> None:
     by_key = {(p.market, p.selection): p.odds for p in points}
     assert by_key == {("win", "7"): 12.0, ("place", "7"): 3.2}
     assert points[0].provider == "unibet_racing"
+    assert points[0].event_name == "Casino R4"  # not the sponsor label
 
 
 def test_normalize_sportsbet_races_uses_market_parser() -> None:

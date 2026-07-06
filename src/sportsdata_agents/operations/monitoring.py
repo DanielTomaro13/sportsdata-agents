@@ -591,6 +591,31 @@ def _fmt_money(amount: float | None) -> str:
     return f"${amount:.0f}"
 
 
+def _local_hhmm(iso: str | None, tz_name: str) -> str:
+    """A UTC timestamp rendered as HH:MM on the user's wall clock — alerts
+    printed raw UTC and read hours wrong to a human (lived: 'jumps 10:48'
+    for a race jumping 20:48 in Melbourne)."""
+    if not iso:
+        return ""
+    from zoneinfo import ZoneInfo
+
+    when = dt.datetime.fromisoformat(iso)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.UTC)
+    try:
+        return when.astimezone(ZoneInfo(tz_name)).strftime("%H:%M")
+    except Exception:  # unknown zone name — UTC beats a crash
+        return when.strftime("%H:%M UTC")
+
+
+def _tz_for(sub: Subscription) -> str:
+    """Per-watch tz param wins; else the operator's env; else Melbourne."""
+    import os
+
+    return str(sub.params.get("tz")
+               or os.environ.get("SPORTSDATA_AGENTS_TZ", "Australia/Melbourne"))
+
+
 def _age_label(seen: str | None, now: dt.datetime) -> str:
     """How old the alerted price is — the market keeps moving after capture,
     so every alert says when its price was seen (lived: an alert quoted 4.80,
@@ -740,7 +765,7 @@ async def _watch_racing_value(
         number = f" (#{candidate['runner_number']})" if candidate.get("runner_number") else ""
         jump = ""
         if candidate.get("start_time"):
-            jump = f" · jumps {candidate['start_time'][11:16]}"
+            jump = f" · jumps {_local_hhmm(candidate['start_time'], _tz_for(sub))}"
         traded = ""
         if candidate.get("exchange_matched") is not None:
             traded = f" ({_fmt_money(candidate['exchange_matched'])} matched)"

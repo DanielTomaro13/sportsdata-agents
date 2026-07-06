@@ -4,13 +4,15 @@
     {
       "now": "2026-06-16T10:01:30",
       "due": [
-        "ingest"
+        "ingest",
+        "monitor"
       ]
     },
     {
       "now": "2026-06-16T10:05:30",
       "due": [
-        "ingest"
+        "ingest",
+        "monitor"
       ]
     },
     {

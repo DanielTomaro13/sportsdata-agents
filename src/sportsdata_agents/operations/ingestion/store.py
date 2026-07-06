@@ -125,8 +125,18 @@ async def record_points(
     *,
     captured_at: dt.datetime | None = None,
 ) -> dict[str, int]:
-    """Persist one capture: every point → a snapshot row; moved prices → change-points."""
+    """Persist one capture: every point → a snapshot row; moved prices → change-points.
+
+    SPORTSDATA_AGENTS_SKIP_MARKETS (csv of market keys, e.g. "forecast,quinella,
+    first_four") drops those markets at the door — the operator's storage dial
+    for exotics the scans never read. Empty (default) stores everything."""
+    import os
+
     captured_at = captured_at or dt.datetime.now(dt.UTC)
+    skip = {m.strip().lower() for m in
+            os.environ.get("SPORTSDATA_AGENTS_SKIP_MARKETS", "").split(",") if m.strip()}
+    if skip:
+        points = [p for p in points if p.market.lower() not in skip]
     if not points:
         return {"snapshots": 0, "price_changes": 0}
     changes = 0

@@ -197,7 +197,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("fanduel.racing",),
         normalizer=normalize_fanduel_races,
         fetch=fetch_fanduel_races,
-        interval_s=120,  # racing prices move fast near post
+        interval_s=60,  # racing prices move fast near post
     ),
     # ── full-book tier (60min): EVERY market of every fixture ──────────────
     # Entain/BetR/FanDuel/racing already deliver their full books through the hot
@@ -256,7 +256,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("tab.racing",),
         normalizer=normalize_tab_races,
         fetch=fetch_tab_races,
-        interval_s=120,
+        interval_s=60,
     ),
     "sportsbet_racing": Feed(
         name="sportsbet_racing",
@@ -265,7 +265,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("sportsbet.racing",),
         normalizer=normalize_sportsbet_races,
         fetch=fetch_sportsbet_races,
-        interval_s=120,
+        interval_s=60,
     ),
     "betr_racing": Feed(
         name="betr_racing",
@@ -274,7 +274,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("betr.racing",),
         normalizer=normalize_betr_races,
         fetch=fetch_betr_races,
-        interval_s=120,
+        interval_s=60,
     ),
     "pointsbet_racing": Feed(
         name="pointsbet_racing",
@@ -283,7 +283,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("pointsbet.racing",),
         normalizer=normalize_pointsbet_races,
         fetch=fetch_pointsbet_races,
-        interval_s=120,
+        interval_s=60,
     ),
     "unibet_racing": Feed(
         name="unibet_racing",
@@ -292,7 +292,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("unibet.racing",),
         normalizer=normalize_unibet_races,
         fetch=fetch_unibet_races,
-        interval_s=300,
+        interval_s=60,
     ),
     # ── racing FUTURES tier (B11): ante-post Cup/carnival outrights ─────────
     # Priced months out and slow-moving — full-book cadence, rotating windows.

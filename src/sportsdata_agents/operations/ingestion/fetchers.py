@@ -705,7 +705,10 @@ async def fetch_betr_races(manager: Any) -> dict[str, Any]:
             continue
         try:
             card = await manager.call_tool("betr_race", {"eventId": race["EventId"]})
-            out.append({"sport": _race_sport(item.get("EventType")), "card": card})
+            out.append({"sport": _race_sport(item.get("EventType")), "card": card,
+                        # the race scan clusters on "VENUE R<n>" — BetR's card
+                        # name is a sponsor label, so identity rides from Next5
+                        "venue": race.get("Venue"), "race_no": race.get("RaceNo")})
         except Exception as e:
             logger.warning("betr race %s failed: %s", race.get("EventId"), e)
     return {"races": out}
@@ -755,17 +758,19 @@ async def fetch_unibet_races(manager: Any) -> dict[str, Any]:
     # eventKey stamps are MEETING-day codes (all of a meeting's races share one), so
     # race times aren't knowable from the listing — fetch candidates (skipping
     # resulted ones) and keep cards that actually carry fixed prices.
-    keys: list[tuple[str, str]] = []
+    keys: list[tuple[str, str, str, Any]] = []
     for meeting in meets:
         race_type = str(meeting.get("raceType") or "")
+        venue = str(meeting.get("name") or "")
         for event in meeting.get("events", []) or []:
             key = str(event.get("eventKey") or "")
             name = str(event.get("name") or "")
             status = str(event.get("resultStatus") or "")
             if key and not name.endswith("Races Today") and status in ("", "Unknown", "None"):
-                keys.append((race_type, key))
+                # sequence is the race number; the event name is a sponsor label
+                keys.append((race_type, key, venue, event.get("sequence")))
     out: list[dict[str, Any]] = []
-    for race_type, key in keys[: RACES_PER_CYCLE * 3]:
+    for race_type, key, venue, race_no in keys[: RACES_PER_CYCLE * 3]:
         if len(out) >= RACES_PER_CYCLE:
             break
         try:
@@ -777,7 +782,8 @@ async def fetch_unibet_races(manager: Any) -> dict[str, Any]:
             event = ((data.get("viewer") or {}).get("event")) or data.get("event") or {}
             if not event.get("hasFixedPrices"):
                 continue  # not priced yet (or already run) — try the next race
-            out.append({"sport": _race_sport(race_type), "eventKey": key, "card": card})
+            out.append({"sport": _race_sport(race_type), "eventKey": key, "card": card,
+                        "venue": venue, "race_no": race_no})
         except Exception as e:
             logger.warning("unibet race %s failed: %s", key, e)
     return {"races": out}
