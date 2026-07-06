@@ -123,17 +123,32 @@ def _emojify(text: str) -> str:
 
 def discord_embed(text: str) -> dict:
     """A colour-striped embed from an alert message: first line is the title,
-    the rest the body; the leading emoji picks the colour."""
+    the rest the body; the leading emoji picks the colour. An "across books:"
+    line becomes a FIELD GRID — one inline field per book, an actual table."""
     first_code = _EMOJI.match(text.strip())
     color = _DEFAULT_EMBED_COLOR
     if first_code:
         color = _EMBED_STYLE.get(first_code.group(0).strip(":"), ("", _DEFAULT_EMBED_COLOR))[1]
     title, _, body = text.strip().partition("\n")
-    return {
+    fields: list[dict] = []
+    kept_lines: list[str] = []
+    for line in body.splitlines():
+        if line.startswith("across books:"):
+            for pair in line.removeprefix("across books:").split("·"):
+                parts = pair.strip().rsplit(" ", 1)
+                if len(parts) == 2:
+                    fields.append({"name": parts[0][:64], "value": f"**{parts[1]}**",
+                                   "inline": True})
+            continue
+        kept_lines.append(line)
+    embed = {
         "title": _emojify(slack_to_discord(title)).strip()[:256],
-        "description": _emojify(slack_to_discord(body)).strip()[:4000],
+        "description": _emojify(slack_to_discord("\n".join(kept_lines))).strip()[:4000],
         "color": color,
     }
+    if fields:
+        embed["fields"] = fields[:12]
+    return embed
 
 
 async def post_discord(webhook_url: str, text: str) -> bool:

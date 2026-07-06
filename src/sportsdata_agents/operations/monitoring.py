@@ -185,6 +185,55 @@ def _started(start_time: Any) -> bool:
     return when <= dt.datetime.now(dt.UTC)
 
 
+_RACING_LABELS = ("horse_racing", "greyhound_racing", "harness_racing",
+                  "thoroughbred_racing")
+
+
+async def _racing_board(session: AsyncSession, event_name: str, market: str,
+                        selection: str, book: str) -> dict[str, float]:
+    """Other books' latest price for the same runner — racing events don't map
+    through the fixture resolver, but every book (and now Ladbrokes) names the
+    race "Venue R<n>" and keys runners by saddle number, so name equality IS
+    the join."""
+    if not event_name:
+        return {}
+    rows = (await session.execute(
+        select(OddsSnapshot.book, OddsSnapshot.odds, OddsSnapshot.captured_at)
+        .where(OddsSnapshot.event_name == event_name,
+               OddsSnapshot.market == market,
+               OddsSnapshot.selection == selection,
+               OddsSnapshot.book != book)
+        .order_by(OddsSnapshot.captured_at.desc()).limit(40)
+    )).all()
+    quotes: dict[str, float] = {}
+    for other_book, odds, _at in rows:
+        quotes.setdefault(other_book, float(odds))  # newest first
+    return quotes
+
+
+def _format_board(quotes: dict[str, float], sharps: list[str]) -> str:
+    """The cross-book line, SHARPS FIRST, then the rest by best price."""
+    if not quotes:
+        return ""
+    lead = [(b, quotes[b]) for b in sharps if b in quotes]
+    rest = sorted(((b, o) for b, o in quotes.items() if b not in sharps),
+                  key=lambda kv: -kv[1])[:8 - len(lead)]
+    board = " · ".join(f"{b} {o:.2f}" for b, o in [*lead, *rest])
+    return f"\nacross books: {board}"
+
+
+def _drift_suppressed(sub: Subscription, drifting: bool, odds: float,
+                      engine_fair: float | None, quotes: dict[str, float]) -> bool:
+    """True = suppress a DRIFT alert: nobody prices it shorter than the
+    drifted-to price (no other book, not the engine) — a friendless drift is
+    an event signal (scratching, team news), not value."""
+    if not drifting or not sub.params.get("drift_value_only"):
+        return False
+    if engine_fair is not None and engine_fair < float(odds):
+        return False
+    return not any(o < float(odds) for o in quotes.values())
+
+
 def _engine_labels() -> set[str]:
     """Every warehouse sport label the engine prices (the slate's map)."""
     from sportsdata_agents.quant.slate import SLATE_SPORTS
@@ -280,19 +329,27 @@ async def _watch_line_move(
         engine_fair = await _engine_fair_for(
             session, row.market, row.selection, event_id=row.event_external_id)
         quotes = await _cross_book_quotes(session, row)
+        if not quotes and ctx["sport"] in _RACING_LABELS:
+            quotes = await _racing_board(session, str(ctx["event"]).split(" · ")[0],
+                                         row.market, row.selection, row.book)
         if _engine_veto(sub, float(row.odds), engine_fair, quotes):
             continue
         if _lacks_clear_ev(sub, float(row.odds), engine_fair):
             continue
+        if _drift_suppressed(sub, direction == "drifted", float(row.odds),
+                             engine_fair, quotes):
+            continue
         engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
-        board = " · ".join(f"{b} {o:.2f}" for b, o in
-                           sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
+        jump = ""
+        if ctx.get("start_time") and not _started(ctx["start_time"]):
+            jump = f" · starts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
+        sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
         message = (
             f":chart_with_upwards_trend: line move [{ctx['sport']}] {ctx['event']}\n"
             f"{row.book} · {row.market} · {ctx['selection']} — "
             f"{float(row.prev_odds):.2f} → {float(row.odds):.2f} ({direction} {move:.1f}%)"
-            f"{engine_note}"
-            + (f"\nacross books: {board}" if board else "")
+            f"{engine_note}{jump}"
+            + _format_board(quotes, sharps)
         )
         key = f"line_move:{row.book}:{row.event_external_id}:{row.market}:{row.selection}"
         if await _fire(session, sub, kind="line_move", key=key, message=message,
@@ -326,21 +383,29 @@ async def _watch_steam(
             arrow = "drifting" if directions == {1} else "steaming in"
             engine_fair = await _engine_fair_for(session, market, selection, event_id=event)
             quotes = await _cross_book_quotes(session, series[-1])
-            if _engine_veto(sub, float(series[-1].odds), engine_fair, quotes):
+            if not quotes and ctx["sport"] in _RACING_LABELS:
+                quotes = await _racing_board(session, str(ctx["event"]).split(" · ")[0],
+                                             market, selection, book)
+            current = float(series[-1].odds)
+            if _engine_veto(sub, current, engine_fair, quotes):
                 continue
-            if _lacks_clear_ev(sub, float(series[-1].odds), engine_fair):
+            if _lacks_clear_ev(sub, current, engine_fair):
+                continue
+            if _drift_suppressed(sub, arrow == "drifting", current, engine_fair, quotes):
                 continue
             engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
             traded = f" ({_fmt_money(float(ctx['matched']))} matched)" if ctx.get("matched") else ""
-            board = " · ".join(f"{b} {o:.2f}" for b, o in
-                               sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
+            jump = ""
+            if ctx.get("start_time") and not _started(ctx["start_time"]):
+                jump = f" · starts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
+            sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
             message = (
                 f":fire: steam [{ctx['sport']}] {ctx['event']}\n"
                 f"{book} · {market} · {ctx['selection']} — {arrow}, "
                 f"{len(series)} consecutive moves, "
-                f"{float(series[0].prev_odds or 0):.2f} → {float(series[-1].odds):.2f}"
-                f"{engine_note}{traded}"
-                + (f"\nacross books: {board}" if board else "")
+                f"{float(series[0].prev_odds or 0):.2f} → {current:.2f}"
+                f"{engine_note}{traded}{jump}"
+                + _format_board(quotes, sharps)
             )
             # band the dedupe by streak length: the alert fires when the streak
             # first reaches min_moves (so the count reads exactly the threshold),

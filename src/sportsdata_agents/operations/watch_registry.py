@@ -52,6 +52,8 @@ WATCH_PARAMS: dict[str, Params] = {
                                       "beat the engine fair by this % (no engine price = no alert)"),
         "engine_sports_only": (False, "ignore sports the engine cannot price (esports, "
                                       "table tennis, boxing...)"),
+        "drift_value_only": (False, "suppress DRIFT alerts unless another book or the "
+                                    "engine prices it shorter than the drifted-to price"),
         **_ROW_FILTERS,
     },
     "steam": {
@@ -65,6 +67,8 @@ WATCH_PARAMS: dict[str, Params] = {
                                       "beat the engine fair by this % (no engine price = no alert)"),
         "engine_sports_only": (False, "ignore sports the engine cannot price (esports, "
                                       "table tennis, boxing...)"),
+        "drift_value_only": (False, "suppress DRIFT alerts unless another book or the "
+                                    "engine prices it shorter than the drifted-to price"),
         **_ROW_FILTERS,
     },
     "value": {
