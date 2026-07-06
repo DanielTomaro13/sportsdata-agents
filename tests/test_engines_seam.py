@@ -162,3 +162,66 @@ def test_seam_prefers_the_canonical_dispatch(monkeypatch: pytest.MonkeyPatch) ->
     assert len(backend.sports()) == 15  # dispatch owns the sport list
     board = backend.price_board("sport3", "X", {})
     assert board[0].fair_probability == 0.55
+
+
+def test_seam_sgm_quote_and_stake_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The v1.9 seam surfaces: SGM joint quotes and error-aware Kelly staking
+    reach the platform through the same local backend."""
+    _fake_engines_modules(monkeypatch)
+
+    class FakeSlipLeg:
+        def __init__(self, market: str, selection: str, line: float | None = None,
+                     odds: float | None = None) -> None:
+            self.market, self.selection, self.line, self.odds = market, selection, line, odds
+
+    class FakeQuote:
+        fair_probability = 0.31
+        fair_odds = 1 / 0.31
+        independent_probability = 0.25
+        correlation_lift = 0.31 / 0.25
+        std_error = 0.005
+        joint_legs = ("h2h|home|None",)
+        independent_legs = ()
+        warnings = ()
+
+    core_types = types.ModuleType("sportsdata_engines.core.types")
+    core_types.SlipLeg = FakeSlipLeg  # type: ignore[attr-defined]
+
+    pricing = types.ModuleType("sportsdata_engines.service.pricing")
+    seen: dict[str, Any] = {}
+
+    def sgm_quote_any(sport: str, fixture_id: str, legs: list[Any],
+                      quotes: dict[str, Any], **kw: Any) -> FakeQuote:
+        seen["call"] = (sport, fixture_id, [(x.market, x.selection, x.line) for x in legs])
+        return FakeQuote()
+
+    pricing.sgm_quote_any = sgm_quote_any  # type: ignore[attr-defined]
+
+    class FakeStaked:
+        def __init__(self, label: str, stake: float) -> None:
+            self.label, self.stake = label, stake
+            self.p_win, self.odds, self.expected_profit = 0.55, 2.0, 1.0
+
+    staking = types.ModuleType("sportsdata_engines.core.staking")
+    staking.stake_plan = lambda rows, bankroll, **caps: [  # type: ignore[attr-defined]
+        FakeStaked(label, 25.0) for (label, p, o, se) in rows if p * o > 1.0
+    ]
+
+    for name, module in {"sportsdata_engines.core.types": core_types,
+                         "sportsdata_engines.service.pricing": pricing,
+                         "sportsdata_engines.core.staking": staking}.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    backend = LocalEngineBackend()
+    quote = backend.sgm_quote("afl", "F-1", {"h2h": [1.6, 2.4]},
+                              [{"market": "h2h", "selection": "home"},
+                               {"market": "period_total:1", "selection": "over", "line": 41.5}])
+    assert quote["fair_probability"] == 0.31
+    assert quote["correlation_lift"] == pytest.approx(0.31 / 0.25)
+    assert seen["call"][2][1] == ("period_total:1", "over", 41.5)
+
+    stakes = backend.stake_plan([{"label": "edge", "p_win": 0.55, "odds": 2.0},
+                                 {"label": "no-edge", "p_win": 0.45, "odds": 2.0}],
+                                1000.0, fraction=0.25)
+    assert [s["label"] for s in stakes] == ["edge"]
+    assert stakes[0]["stake"] == 25.0

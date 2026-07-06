@@ -23,6 +23,8 @@ from sportsdata_agents.operations.ingestion.store import line_movement
 
 QUANT_TOOL_NAMES = {
     "engine_fair_prices",
+    "engine_sgm_quote",
+    "engine_stake_plan",
     "engine_health",
     "save_model",
     "record_predictions",
@@ -155,6 +157,64 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
             model_id = str(artifact.id)
             await session.commit()
         return {**result, "recorded": recorded, "skipped_unmappable": skipped, "model_id": model_id}
+
+    async def engine_sgm_quote(args: dict[str, Any]) -> Any:
+        """{sport, fixture_id, quotes, legs} — fair joint price for a same-game
+        multi from the configured pricing engine. Legs are graded against the
+        SAME simulated games the fixture's board comes from, so the quote
+        carries the real correlation; correlation_lift (joint / independence
+        product) is what a book's SGM haircut is guessing at. Handicap/total
+        legs need .5 lines. quotes: the fixture's anchor odds, same shapes as
+        engine_fair_prices."""
+        from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
+
+        try:
+            engine = resolve_engine()
+        except (EngineUnavailable, ValueError) as e:
+            return {"error": str(e)}
+        if engine is None:
+            return {"error": "no pricing engine configured",
+                    "hint": "set SPORTSDATA_AGENTS_ENGINE_BACKEND=local or =remote"}
+        legs = list(args.get("legs") or [])
+        if not legs:
+            raise ValueError("an SGM needs at least one leg: [{market, selection, line?}]")
+        try:
+            quote = engine.sgm_quote(str(args["sport"]), str(args["fixture_id"]),
+                                     dict(args.get("quotes") or {}), legs)
+        except (EngineUnavailable, ValueError) as e:
+            return {"error": str(e)}
+        return {"sport": args["sport"], "fixture_id": args["fixture_id"], **quote}
+
+    async def engine_stake_plan(args: dict[str, Any]) -> Any:
+        """{picks, bankroll, fraction?, max_exposure?, max_single?} — error-aware
+        Kelly stakes for a slate of edges. Each pick is {label, p_win, odds,
+        std_error?}: the model's own std_error shrinks the edge before sizing,
+        so inside-the-band edges size to ZERO — an alert without a stake is
+        noise, not value. Caps: fraction (Kelly multiplier, default 0.25),
+        max_exposure (total, default 0.20), max_single (per bet, default 0.05)."""
+        from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
+
+        try:
+            engine = resolve_engine()
+        except (EngineUnavailable, ValueError) as e:
+            return {"error": str(e)}
+        if engine is None:
+            return {"error": "no pricing engine configured",
+                    "hint": "set SPORTSDATA_AGENTS_ENGINE_BACKEND=local or =remote"}
+        picks = list(args.get("picks") or [])
+        if not picks:
+            raise ValueError("stake plan needs picks: [{label, p_win, odds, std_error?}]")
+        bankroll = float(args["bankroll"])
+        caps = {k: float(args[k]) for k in ("fraction", "max_exposure", "max_single")
+                if args.get(k) is not None}
+        try:
+            stakes = engine.stake_plan(picks, bankroll, **caps)
+        except (EngineUnavailable, ValueError, KeyError, TypeError) as e:
+            return {"error": str(e)}
+        total = sum(s["stake"] for s in stakes)
+        return {"bankroll": bankroll, "stakes": stakes,
+                "total_staked": round(total, 2),
+                "exposure": round(total / bankroll, 4) if bankroll else 0.0}
 
     async def engine_health(args: dict[str, Any]) -> Any:
         """Model-health snapshot: backend status, a timed test price, and 24h
@@ -485,6 +545,40 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 "provider": {"type": "string", "description": "Required with record: whose listing sides refer to"},
             },
             ["sport", "fixture_id", "quotes"],
+        ),
+        _tool(
+            "engine_sgm_quote",
+            engine_sgm_quote,
+            {
+                "sport": {"type": "string", "description": "Engine sport (any of the 15)"},
+                "fixture_id": {"type": "string"},
+                "quotes": {
+                    "type": "object",
+                    "description": "The fixture's anchor odds — same shapes as engine_fair_prices",
+                },
+                "legs": {
+                    "type": "array",
+                    "description": "SGM legs: [{market, selection, line?}] — .5 lines for handicaps/totals",
+                    "items": {"type": "object"},
+                },
+            },
+            ["sport", "fixture_id", "quotes", "legs"],
+        ),
+        _tool(
+            "engine_stake_plan",
+            engine_stake_plan,
+            {
+                "picks": {
+                    "type": "array",
+                    "description": "[{label, p_win, odds, std_error?}] — the slate of candidate edges",
+                    "items": {"type": "object"},
+                },
+                "bankroll": {"type": "number"},
+                "fraction": {"type": "number", "description": "Kelly multiplier (default 0.25)"},
+                "max_exposure": {"type": "number", "description": "Total bankroll share cap (default 0.20)"},
+                "max_single": {"type": "number", "description": "Per-bet bankroll share cap (default 0.05)"},
+            },
+            ["picks", "bankroll"],
         ),
         _tool(
             "save_model",

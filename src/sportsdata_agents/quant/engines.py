@@ -84,6 +84,20 @@ class PricingEngine(Protocol):
         """Model fair prices for a fixture's whole board, seeded from quotes."""
         ...
 
+    def sgm_quote(self, sport: str, fixture_id: str, quotes: dict[str, Any],
+                  legs: list[dict[str, Any]]) -> dict[str, Any]:
+        """Joint same-game-multi quote with the correlation lift explicit.
+
+        Returns the wire shape: fair_probability, fair_odds,
+        independent_probability, correlation_lift, std_error, joint_legs,
+        independent_legs, warnings."""
+        ...
+
+    def stake_plan(self, picks: list[dict[str, Any]], bankroll: float,
+                   **caps: float) -> list[dict[str, Any]]:
+        """Error-aware Kelly stakes for (label, p_win, odds, std_error) picks."""
+        ...
+
 
 class LocalEngineBackend:
     """Prices with a locally installed engines package (optional import).
@@ -130,6 +144,48 @@ class LocalEngineBackend:
         if sport == "tennis":
             return self._tennis(fixture_id, quotes)
         raise EngineUnavailable(f"local engine does not price sport {sport!r} yet")
+
+    def sgm_quote(self, sport: str, fixture_id: str, quotes: dict[str, Any],
+                  legs: list[dict[str, Any]]) -> dict[str, Any]:
+        try:
+            from sportsdata_engines.core.types import SlipLeg
+            from sportsdata_engines.service.pricing import sgm_quote_any
+        except ImportError as exc:
+            raise EngineUnavailable(
+                "SGM quoting needs sportsdata-engines >= 1.9 installed"
+            ) from exc
+        try:
+            slip = [SlipLeg(str(leg["market"]), str(leg["selection"]), line=leg.get("line"))
+                    for leg in legs]
+            quote = sgm_quote_any(sport, fixture_id, slip, quotes)
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"malformed SGM leg: {exc}") from exc
+        except RuntimeError as exc:  # CalibrationError and kin
+            raise EngineUnavailable(str(exc)) from exc
+        return {
+            "fair_probability": quote.fair_probability,
+            "fair_odds": quote.fair_odds,
+            "independent_probability": quote.independent_probability,
+            "correlation_lift": quote.correlation_lift,
+            "std_error": quote.std_error,
+            "joint_legs": list(quote.joint_legs),
+            "independent_legs": list(quote.independent_legs),
+            "warnings": list(quote.warnings),
+        }
+
+    def stake_plan(self, picks: list[dict[str, Any]], bankroll: float,
+                   **caps: float) -> list[dict[str, Any]]:
+        try:
+            from sportsdata_engines.core.staking import stake_plan as plan
+        except ImportError as exc:
+            raise EngineUnavailable(
+                "staking needs the sportsdata-engines package installed"
+            ) from exc
+        rows = [(str(p.get("label", f"pick-{i}")), float(p["p_win"]), float(p["odds"]),
+                 float(p.get("std_error", 0.0))) for i, p in enumerate(picks)]
+        staked = plan(rows, bankroll, **caps)
+        return [{"label": s.label, "stake": s.stake, "p_win": s.p_win,
+                 "odds": s.odds, "expected_profit": s.expected_profit} for s in staked]
 
     def _tennis(self, fixture_id: str, quotes: dict[str, Any]) -> list[EnginePrice]:
         from sportsdata_engines.core import FixtureInputs
@@ -225,6 +281,19 @@ class RemoteEngineBackend:
             )
             for row in payload["prices"]
         ]
+
+    def sgm_quote(self, sport: str, fixture_id: str, quotes: dict[str, Any],
+                  legs: list[dict[str, Any]]) -> dict[str, Any]:
+        payload = self._post("/v1/sgm", {"sport": sport, "fixture_id": fixture_id,
+                                         "quotes": quotes, "legs": legs})
+        return {k: payload.get(k) for k in (
+            "fair_probability", "fair_odds", "independent_probability",
+            "correlation_lift", "std_error", "joint_legs", "independent_legs", "warnings")}
+
+    def stake_plan(self, picks: list[dict[str, Any]], bankroll: float,
+                   **caps: float) -> list[dict[str, Any]]:
+        payload = self._post("/v1/stake-plan", {"picks": picks, "bankroll": bankroll, **caps})
+        return list(payload.get("stakes", []))
 
     def _get(self, path: str) -> Any:
         return self._request("GET", path, None)
