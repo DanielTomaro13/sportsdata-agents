@@ -1042,7 +1042,10 @@ async def fetch_betfair_all(manager: Any) -> dict[str, Any]:
     for type_id in type_ids:
         try:
             nav = await manager.call_tool("betfair_navigation", {
-                "nodeIds": f"EVENT_TYPE:{type_id}", "attachments": "MENU,EVENT,MARKET",
+                # string_csv params cross the MCP layer as LISTS (the
+                # dispatcher joins them) — a joined string fails validation
+                "nodeIds": [f"EVENT_TYPE:{type_id}"],
+                "attachments": ["MENU", "EVENT", "MARKET"],
                 "maxOutDistance": 5, "maxResults": 150,
             })
         except Exception as e:
@@ -1058,7 +1061,7 @@ async def fetch_betfair_all(manager: Any) -> dict[str, Any]:
         batch = market_ids[start:start + _BETFAIR_PRICE_BATCH]
         try:
             batches.append(await manager.call_tool("betfair_market_prices",
-                                                   {"marketIds": ",".join(batch)}))
+                                                   {"marketIds": batch}))
         except Exception as e:
             logger.warning("betfair bymarket batch failed: %s", e)
     return {"batches": batches}

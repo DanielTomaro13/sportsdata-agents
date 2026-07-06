@@ -615,6 +615,42 @@ async def _watch_arb(
     return fired
 
 
+async def _watch_exchange_value(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
+) -> int:
+    """Book price vs the de-vigged exchange fair on the same fixture — the
+    model-free value signal (the exchange's money is the opinion). Dedupe
+    buckets the edge so a GROWING premium re-fires."""
+    from sportsdata_agents.quant.arbitrage import scan_exchange_premium
+
+    exchange_book = str(sub.params.get("exchange_book", "Betfair"))
+    min_edge = float(sub.params.get("min_edge_pct", 3.0))
+    hours = float(sub.params.get("hours", 1.0))
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    candidates = await scan_exchange_premium(
+        session, exchange_book=exchange_book, hours=hours,
+        min_edge_pct=min_edge, limit=cap * 3, now=now)
+    fired = 0
+    for candidate in candidates:
+        if fired >= cap:
+            break
+        message = (
+            f":scales: exchange premium +{candidate['edge_pct']:.1f}% "
+            f"[{candidate['sport']}] {candidate['fixture']}\n"
+            f"{candidate['book']} pays {candidate['odds']:.2f} on "
+            f"{candidate['market']} · {candidate['outcome']} — "
+            f"{exchange_book} fair {candidate['exchange_fair_odds']:.2f}\n"
+            f"_vs de-vigged exchange back prices; verify the leg is live_"
+        )
+        bucket = int(candidate["edge_pct"] / 2.0)  # re-fire when the edge grows a band
+        key = (f"exchange_value:{candidate['fixture_id']}:{candidate['market']}"
+               f":{candidate['outcome']}:{candidate['book']}:{bucket}")
+        if await _fire(session, sub, kind="exchange_value", key=key, message=message,
+                       payload=candidate, pusher=pusher):
+            fired += 1
+    return fired
+
+
 async def _push_digest(
     session: AsyncSession, sub: Subscription, pusher: Pusher, now: dt.datetime
 ) -> bool:
@@ -759,6 +795,8 @@ async def run_watches(
                     fired = await _watch_value(session, sub, push)
                 elif sub.kind == "scratching":
                     fired = await _watch_scratching(session, sub, push)
+                elif sub.kind == "exchange_value":
+                    fired = await _watch_exchange_value(session, sub, push, now=now)
                 elif sub.kind == "arb":
                     fired = await _watch_arb(session, sub, push, now=now)
                 elif sub.kind == "model_value":

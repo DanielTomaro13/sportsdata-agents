@@ -167,22 +167,22 @@ def arbs_for_fixture(
     return sorted(out, key=lambda a: -a["margin_pct"])
 
 
-async def scan_arbs(
+async def collect_fixture_boards(
     session: AsyncSession,
     *,
     hours: float = 6.0,
-    threshold_pct: float = 1.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
-    limit: int = 20,
     max_fixtures: int = 400,
     now: dt.datetime | None = None,
-) -> list[dict[str, Any]]:
-    """Pre-game arbs across every fixture with ≥2 books re-captured within
-    ``hours``.
+) -> tuple[dict[uuid.UUID, Fixture], dict[tuple[uuid.UUID, str], list[dict[str, Any]]]]:
+    """The cross-book board per (fixture, market): every book's latest LISTED
+    quote joined through the resolver's event->fixture mapping.
 
-    Bulk-queried: the warehouse is millions of rows and the arb watch shares a
+    Bulk-queried: the warehouse is millions of rows and the watches share a
     5-minute cycle (and a SQLite writer) with everything else — per-fixture
-    round-trips measured in the MINUTES; three chunked queries take seconds."""
+    round-trips measured in the MINUTES; three chunked queries take seconds.
+    Shared by the arb scan (sum of best inverses) and the exchange premium
+    scan (book price vs de-vigged exchange fair) — one collection, two maths."""
     now = now or dt.datetime.now(dt.UTC)
     cutoff = now - dt.timedelta(hours=hours)
     fresh = {
@@ -208,7 +208,7 @@ async def scan_arbs(
         if len({m.provider for m in ms}) >= 2
     }
     if not candidates:
-        return []
+        return {}, {}
     fixtures = {
         f.id: f
         for f in (
@@ -268,29 +268,124 @@ async def scan_arbs(
             "odds": odds,
             "event_name": names.get((provider, external_id), ""),
         })
+    return fixtures, grouped
 
+
+def _pre_game(fixture: Fixture | None, now: dt.datetime) -> bool:
+    """Unknown start → we CANNOT confirm the game is pre-game, so a signal here
+    could be a stale leg on a live/finished game. Treat unknown as unsafe and
+    skip — a clean board is the honest norm, never a fabricated edge live."""
+    if fixture is None or fixture.start_time is None:
+        return False
+    start = fixture.start_time
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=dt.UTC)
+    return start > now
+
+
+async def scan_arbs(
+    session: AsyncSession,
+    *,
+    hours: float = 6.0,
+    threshold_pct: float = 1.0,
+    markets: tuple[str, ...] = DEFAULT_MARKETS,
+    limit: int = 20,
+    max_fixtures: int = 400,
+    now: dt.datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Pre-game arbs across every fixture with ≥2 books re-captured within
+    ``hours`` (collection shared with the exchange premium scan)."""
+    now = now or dt.datetime.now(dt.UTC)
+    fixtures, grouped = await collect_fixture_boards(
+        session, hours=hours, markets=markets, max_fixtures=max_fixtures, now=now)
     found: list[dict[str, Any]] = []
     for (fixture_id, market), rows in grouped.items():
         fixture = fixtures.get(fixture_id)
-        if fixture is None:
-            continue
-        start = fixture.start_time
-        # Unknown start → we CANNOT confirm the game is pre-game, so an arb here could be a
-        # stale leg on a live/finished game (e.g. an exchange contract whose fixture carries
-        # no real start). Treat unknown as unsafe and skip — the module's ethos is that a
-        # clean board is the honest norm, never a fabricated margin on a live game.
-        if start is None:
-            continue
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=dt.UTC)
-        if start <= now:
-            continue  # in play or done — not an offer anyone can take
+        if fixture is None or not _pre_game(fixture, now):
+            continue  # in play, done, or unconfirmable — not an offer anyone can take
         for arb in arbs_for_fixture(fixture.name, market, rows, threshold_pct=threshold_pct):
             arb["fixture_id"] = str(fixture_id)
             arb["sport"] = fixture.sport
             arb["start_time"] = fixture.start_time.isoformat() if fixture.start_time else None
             found.append(arb)
     found.sort(key=lambda a: -a["margin_pct"])
+    return found[:limit]
+
+
+async def scan_exchange_premium(
+    session: AsyncSession,
+    *,
+    exchange_book: str = "Betfair",
+    hours: float = 6.0,
+    min_edge_pct: float = 3.0,
+    markets: tuple[str, ...] = DEFAULT_MARKETS,
+    limit: int = 20,
+    max_fixtures: int = 400,
+    now: dt.datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Book price vs the DE-VIGGED exchange fair on the same fixture — the
+    model-free value signal. The exchange's back prices carry only the
+    back/lay spread as overround; a proportional de-vig across the market's
+    outcomes yields the fair probabilities, and any book paying more than
+    fair is a premium: ``edge_pct = book_odds * fair_prob - 1``.
+
+    Honest caveats ride every candidate: the exchange charges commission on
+    winnings (2-8 pct of PROFIT, not turnover — an edge inside commission is
+    still real against the book), and thin exchange markets make a noisy
+    fair (min_liability guards via the outcome count only; sizing is the
+    staking module's job)."""
+    now = now or dt.datetime.now(dt.UTC)
+    fixtures, grouped = await collect_fixture_boards(
+        session, hours=hours, markets=markets, max_fixtures=max_fixtures, now=now)
+    found: list[dict[str, Any]] = []
+    for (fixture_id, market), rows in grouped.items():
+        fixture = fixtures.get(fixture_id)
+        if fixture is None or not _pre_game(fixture, now):
+            continue
+        exchange: dict[str, float] = {}
+        others: list[dict[str, Any]] = []
+        for row in rows:
+            outcome = _canonical_outcome(str(row["selection"]), str(row["event_name"]),
+                                         fixture.name)
+            if outcome is None:
+                continue
+            if row["book"] == exchange_book:
+                # best back per outcome (dedupe keeps the latest listed)
+                exchange[outcome] = max(exchange.get(outcome, 0.0), float(row["odds"]))
+            else:
+                others.append({**row, "outcome": outcome})
+        if len(exchange) < 2 or not others:
+            continue  # a one-sided exchange market cannot be de-vigged
+        inv = sum(1.0 / o for o in exchange.values())
+        # exchange BACKS sit above fair by the spread, so their implied sum is
+        # naturally a little under 1 (a tight tennis market ~0.97); only a sum
+        # far below that means a stale/suspended side manufacturing fair odds
+        if inv < 0.90:
+            continue
+        fair = {outcome: (1.0 / odds) / inv for outcome, odds in exchange.items()}
+        for row in others:
+            prob = fair.get(row["outcome"])
+            if prob is None:
+                continue
+            edge_pct = (float(row["odds"]) * prob - 1.0) * 100.0
+            if edge_pct < min_edge_pct:
+                continue
+            found.append({
+                "fixture_id": str(fixture_id),
+                "fixture": fixture.name,
+                "sport": fixture.sport,
+                "market": market,
+                "outcome": row["outcome"],
+                "book": row["book"],
+                "odds": float(row["odds"]),
+                "exchange_fair_odds": round(1.0 / prob, 3),
+                "exchange_back": exchange[row["outcome"]],
+                "edge_pct": round(edge_pct, 2),
+                "start_time": fixture.start_time.isoformat() if fixture.start_time else None,
+                "note": "edge vs de-vigged exchange back prices; exchange commission "
+                        "applies to exchange bets only, not this book bet",
+            })
+    found.sort(key=lambda c: -c["edge_pct"])
     return found[:limit]
 
 
