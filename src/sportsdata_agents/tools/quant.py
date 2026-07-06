@@ -25,6 +25,7 @@ QUANT_TOOL_NAMES = {
     "engine_fair_prices",
     "engine_sgm_quote",
     "engine_stake_plan",
+    "engine_stat_prices",
     "engine_health",
     "save_model",
     "record_predictions",
@@ -215,6 +216,34 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         return {"bankroll": bankroll, "stakes": stakes,
                 "total_staked": round(total, 2),
                 "exposure": round(total / bankroll, 4) if bankroll else 0.0}
+
+    async def engine_stat_prices(args: dict[str, Any]) -> Any:
+        """{entity, stat, quotes, thresholds?} — fit one player/team/match
+        stat's model from a book's threshold quotes and return the FAIR
+        ladder. quotes: [{threshold, odds, devigged?}] — needs >= 2 distinct
+        thresholds (shape is unidentified from one point); mark a de-vigged
+        two-way probability with devigged=true so it anchors the level. The
+        stat is a label, never a code path — disposals, points, tackles,
+        hits-allowed all fit the same way. The Dabble feed's stat-line meta
+        (player/stat/stat_line) supplies ladders straight from capture."""
+        from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
+
+        try:
+            engine = resolve_engine()
+        except (EngineUnavailable, ValueError) as e:
+            return {"error": str(e)}
+        if engine is None:
+            return {"error": "no pricing engine configured",
+                    "hint": "set SPORTSDATA_AGENTS_ENGINE_BACKEND=local or =remote"}
+        quotes = list(args.get("quotes") or [])
+        if len(quotes) < 2:
+            raise ValueError("stat fitting needs >= 2 quotes: [{threshold, odds, devigged?}]")
+        thresholds = [int(n) for n in (args.get("thresholds") or [])] or None
+        try:
+            return engine.stat_prices(str(args["entity"]), str(args["stat"]),
+                                      quotes, thresholds)
+        except (EngineUnavailable, ValueError, KeyError, TypeError) as e:
+            return {"error": str(e)}
 
     async def engine_health(args: dict[str, Any]) -> Any:
         """Model-health snapshot: backend status, a timed test price, and 24h
@@ -563,6 +592,25 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                 },
             },
             ["sport", "fixture_id", "quotes", "legs"],
+        ),
+        _tool(
+            "engine_stat_prices",
+            engine_stat_prices,
+            {
+                "entity": {"type": "string", "description": "Player/team/match entity label"},
+                "stat": {"type": "string", "description": "The stat label (disposals, points, tackles...)"},
+                "quotes": {
+                    "type": "array",
+                    "description": "[{threshold, odds, devigged?}] — >= 2 distinct thresholds",
+                    "items": {"type": "object"},
+                },
+                "thresholds": {
+                    "type": "array",
+                    "description": "Extra ladder rungs to price beyond the quoted ones",
+                    "items": {"type": "integer"},
+                },
+            },
+            ["entity", "stat", "quotes"],
         ),
         _tool(
             "engine_stake_plan",

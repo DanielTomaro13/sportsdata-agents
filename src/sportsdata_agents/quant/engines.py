@@ -98,6 +98,11 @@ class PricingEngine(Protocol):
         """Error-aware Kelly stakes for (label, p_win, odds, std_error) picks."""
         ...
 
+    def stat_prices(self, entity: str, stat: str, quotes: list[dict[str, Any]],
+                    thresholds: list[int] | None = None) -> dict[str, Any]:
+        """Fit one entity-stat's model from threshold quotes; fair ladder back."""
+        ...
+
 
 class LocalEngineBackend:
     """Prices with a locally installed engines package (optional import).
@@ -186,6 +191,16 @@ class LocalEngineBackend:
         staked = plan(rows, bankroll, **caps)
         return [{"label": s.label, "stake": s.stake, "p_win": s.p_win,
                  "odds": s.odds, "expected_profit": s.expected_profit} for s in staked]
+
+    def stat_prices(self, entity: str, stat: str, quotes: list[dict[str, Any]],
+                    thresholds: list[int] | None = None) -> dict[str, Any]:
+        try:
+            from sportsdata_engines.service.pricing import stat_prices_any
+        except ImportError as exc:
+            raise EngineUnavailable(
+                "stat fitting needs sportsdata-engines >= 1.9.1 installed"
+            ) from exc
+        return dict(stat_prices_any(entity, stat, quotes, thresholds=thresholds))
 
     def _tennis(self, fixture_id: str, quotes: dict[str, Any]) -> list[EnginePrice]:
         from sportsdata_engines.core import FixtureInputs
@@ -294,6 +309,12 @@ class RemoteEngineBackend:
                    **caps: float) -> list[dict[str, Any]]:
         payload = self._post("/v1/stake-plan", {"picks": picks, "bankroll": bankroll, **caps})
         return list(payload.get("stakes", []))
+
+    def stat_prices(self, entity: str, stat: str, quotes: list[dict[str, Any]],
+                    thresholds: list[int] | None = None) -> dict[str, Any]:
+        return dict(self._post("/v1/stat-prices", {
+            "entity": entity, "stat": stat, "quotes": quotes, "thresholds": thresholds,
+        }))
 
     def _get(self, path: str) -> Any:
         return self._request("GET", path, None)

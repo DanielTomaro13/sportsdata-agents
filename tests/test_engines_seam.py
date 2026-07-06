@@ -225,3 +225,26 @@ def test_seam_sgm_quote_and_stake_plan(monkeypatch: pytest.MonkeyPatch) -> None:
                                 1000.0, fraction=0.25)
     assert [s["label"] for s in stakes] == ["edge"]
     assert stakes[0]["stake"] == 25.0
+
+
+def test_seam_stat_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stat-fitting seam: entity-stat quotes in, fair ladder out."""
+    _fake_engines_modules(monkeypatch)
+    pricing = types.ModuleType("sportsdata_engines.service.pricing")
+
+    def stat_prices_any(entity: str, stat: str, quotes: list[Any],
+                        thresholds: list[int] | None = None) -> dict[str, Any]:
+        return {"entity": entity, "stat": stat,
+                "model": {"mu": 22.9, "dispersion": 1.55},
+                "fit": {"margin": 1.06, "rmse_log": 0.01, "n_quotes": len(quotes)},
+                "prices": [{"market": f"stat_threshold:{stat}", "selection": entity,
+                            "line": 20.0, "fair_probability": 0.7}]}
+
+    pricing.stat_prices_any = stat_prices_any  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sportsdata_engines.service.pricing", pricing)
+
+    backend = LocalEngineBackend()
+    out = backend.stat_prices("N. Fyfe", "disposals",
+                              [{"threshold": 20, "odds": 1.62}, {"threshold": 25, "odds": 2.9}])
+    assert out["model"]["mu"] == 22.9
+    assert out["prices"][0]["market"] == "stat_threshold:disposals"
