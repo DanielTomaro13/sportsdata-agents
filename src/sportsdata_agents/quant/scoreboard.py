@@ -27,7 +27,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sportsdata_agents.data.models import Alert, EventResult
+from sportsdata_agents.data.models import Alert, Event, EventResult
 
 __all__ = ["alert_pnl", "format_scoreboard"]
 
@@ -48,20 +48,44 @@ async def alert_pnl(
     arbs = {"fired": 0, "measured": 0, "still_takeable": 0, "locked_profit": 0.0}
     other: dict[str, dict[str, int]] = {}
 
-    # one query for every result the racing alerts might need
+    # Results are recorded under ONE provider's race ids while alerts carry
+    # the FLAGGED book's — a direct (provider, event) lookup would leave most
+    # books' alerts pending forever. The resolver maps every book's event onto
+    # a shared fixture, so settlement joins THROUGH the fixture (the same
+    # pattern the backtester settles predictions with).
     keys = {(str((a.payload or {}).get("provider", "")),
              str((a.payload or {}).get("event_external_id", "")))
             for a in alerts if a.kind == "racing_value"}
     keys.discard(("", ""))
     results: dict[tuple[str, str], str] = {}
+    fixture_by_key: dict[tuple[str, str], Any] = {}
+    result_by_fixture: dict[Any, str] = {}
     if keys:
+        ext_ids = {e for _p, e in keys}
+        mappings = (await session.execute(
+            select(Event).where(Event.external_id.in_(ext_ids),
+                                Event.fixture_id.is_not(None))
+        )).scalars().all()
+        for m in mappings:
+            if (m.provider, m.external_id) in keys:
+                fixture_by_key[(m.provider, m.external_id)] = m.fixture_id
+        siblings: list[Event] = []
+        if fixture_by_key:
+            siblings = list((await session.execute(
+                select(Event).where(
+                    Event.fixture_id.in_(set(fixture_by_key.values())))
+            )).scalars().all())
+        sibling_fixture = {(s.provider, s.external_id): s.fixture_id for s in siblings}
+        all_ext = ext_ids | {e for _p, e in sibling_fixture}
         rows = (await session.execute(
-            select(EventResult).where(
-                EventResult.event_external_id.in_({e for _p, e in keys})
-            )
+            select(EventResult).where(EventResult.event_external_id.in_(all_ext))
         )).scalars().all()
         for r in rows:
-            results[(r.provider, r.event_external_id)] = str(r.winning_selection)
+            selection = str(r.winning_selection)
+            results[(r.provider, r.event_external_id)] = selection
+            fixture = sibling_fixture.get((r.provider, r.event_external_id))
+            if fixture is not None and selection.isdigit():
+                result_by_fixture.setdefault(fixture, selection)
 
     for alert in alerts:
         payload = alert.payload or {}
@@ -70,8 +94,12 @@ async def alert_pnl(
             stake = float(payload.get("kelly_stake") or 0.0)
             number = payload.get("runner_number")
             key = (str(payload.get("provider", "")), str(payload.get("event_external_id", "")))
-            winner = results.get(key)
-            if not stake or number is None or winner is None:
+            winner: str | None = results.get(key)
+            if winner is None:
+                winner = result_by_fixture.get(fixture_by_key.get(key))
+            # a mis-merged fixture carrying a league-style winner ("home") must
+            # leave the alert pending, never grade it a loss
+            if not stake or number is None or winner is None or not winner.isdigit():
                 racing["pending"] += 1
                 continue
             racing["settled"] += 1

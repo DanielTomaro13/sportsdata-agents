@@ -24,6 +24,25 @@ def test_ladder_holds_with_space_and_tightens_under_pressure() -> None:
     assert retention.plan_retention(2.0) == 14
 
 
+def test_budget_forces_retention_when_percent_ladder_holds() -> None:
+    """A small disk at 4x capture fills while everything is 'recent' — the
+    SIZE budget is the control that actually bites (lived: disk-full killed
+    the monitor while the percent ladder said 30 days)."""
+    gb = 2**30
+    assert retention.plan_budget_days(int(11 * gb), int(12 * gb)) is None  # within budget
+    assert retention.plan_budget_days(int(13 * gb), int(12 * gb)) == 7
+    assert retention.plan_budget_days(int(19 * gb), int(12 * gb)) == 3
+    assert retention.plan_budget_days(int(25 * gb), int(12 * gb)) == 1
+    assert retention.plan_budget_days(int(13 * gb), 0) is None  # budget 0 = disabled
+
+
+def test_warehouse_bytes_counts_the_wal(tmp_path) -> None:
+    db = tmp_path / "w.db"
+    db.write_bytes(b"x" * 1000)
+    (tmp_path / "w.db-wal").write_bytes(b"y" * 500)
+    assert retention.warehouse_bytes(db) == 1500
+
+
 def test_sqlite_path_extraction() -> None:
     assert retention.sqlite_path("sqlite+aiosqlite:////tmp/x.db") == Path("/tmp/x.db")
     assert retention.sqlite_path("sqlite+aiosqlite://") is None  # in-memory

@@ -38,7 +38,16 @@ RETENTION_LADDER: tuple[tuple[float, int | None], ...] = (
 )
 ESCALATE_BELOW_PCT = 10.0  # the operator hears about it before it becomes an outage
 ESCALATE_COOLDOWN_S = 24 * 3600  # …once a day, not once an hour
-BACKUP_KEEP = 3
+# One rolling backup by default: each gzip of a warehouse this size is ~4GB,
+# and three of them once outgrew the disk faster than the data did (lived:
+# "database or disk is full" killed the monitor while 12GB of backups sat idle).
+BACKUP_KEEP = 1
+# The warehouse's TOTAL size budget (db + WAL), the PRIMARY retention control:
+# percentage ladders can't help when the disk is small and everything is
+# recent — at 4x capture the db outgrows the disk while nothing is "old".
+BUDGET_GB_DEFAULT = 12.0
+# keep-days by budget overshoot: over -> 7d, 1.5x over -> 3d, 2x over -> 1d
+BUDGET_LADDER: tuple[tuple[float, int], ...] = ((2.0, 1), (1.5, 3), (1.0, 7))
 WEEKLY_BACKUP_S = 7 * 24 * 3600
 PRUNE_BACKUP_S = 24 * 3600  # a prune that deletes rows wants a backup ≤1 day old
 VACUUM_MIN_INTERVAL_S = 7 * 24 * 3600  # VACUUM is heavy I/O against the live writer
@@ -71,6 +80,47 @@ def plan_retention(free_pct: float) -> int | None:
         if free_pct > floor:
             return keep_days
     return RETENTION_LADDER[-1][1]
+
+
+def warehouse_budget_bytes() -> int:
+    import os
+
+    gb = float(os.environ.get("SPORTSDATA_AGENTS_WAREHOUSE_BUDGET_GB", str(BUDGET_GB_DEFAULT)))
+    return int(gb * 2**30)
+
+
+def warehouse_bytes(db_path: Path) -> int:
+    """db + WAL: the WAL is real disk (lived: 4.3GB of it) and grows without
+    bound when constant readers starve the checkpointer."""
+    total = db_path.stat().st_size if db_path.exists() else 0
+    wal = db_path.with_name(db_path.name + "-wal")
+    if wal.exists():
+        total += wal.stat().st_size
+    return total
+
+
+def plan_budget_days(size_bytes: int, budget_bytes: int) -> int | None:
+    """keep-days forced by the SIZE budget; None = within budget."""
+    if budget_bytes <= 0 or size_bytes <= budget_bytes:
+        return None
+    ratio = size_bytes / budget_bytes
+    for floor, keep_days in BUDGET_LADDER:
+        if ratio >= floor:
+            return keep_days
+    return BUDGET_LADDER[-1][1]
+
+
+def checkpoint_wal(db_path: Path) -> int:
+    """PRAGMA wal_checkpoint(TRUNCATE): flush + shrink the WAL to zero. Cheap
+    when it succeeds; a busy writer just means fewer pages move this pass.
+    Returns the WAL size after (bytes)."""
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
+    wal = db_path.with_name(db_path.name + "-wal")
+    return wal.stat().st_size if wal.exists() else 0
 
 
 def backups_dir() -> Path:
@@ -146,6 +196,13 @@ async def run_custodian(
     status = disk_status(db_path)
     report["disk"] = status
     keep_days = force_days if force_days is not None else plan_retention(status["free_pct"])
+    # the SIZE budget is the primary control — the tighter answer wins
+    size_bytes = warehouse_bytes(db_path)
+    budget_days = plan_budget_days(size_bytes, warehouse_budget_bytes())
+    report["warehouse_gb"] = round(size_bytes / 2**30, 2)
+    if budget_days is not None and (keep_days is None or budget_days < keep_days):
+        keep_days = budget_days
+        report["budget_forced"] = True
     report["keep_days"] = keep_days
 
     def _age_s(key: str) -> float:
@@ -179,6 +236,8 @@ async def run_custodian(
             )
         finally:
             await engine.dispose()
+        # reclaim the WAL every prune pass — it is disk like any other
+        report["wal_after_bytes"] = checkpoint_wal(db_path)
         if report["pruned"] and _age_s("last_vacuum_at") > VACUUM_MIN_INTERVAL_S:
             report["vacuumed"] = maybe_vacuum(db_path)
             if report["vacuumed"]:
