@@ -266,7 +266,12 @@ async def _watch_steam(
                 f"{engine_note}"
                 + await _cross_book_line(session, series[-1])
             )
-            key = f"steam:{book}:{event}:{market}:{selection}"
+            # band the dedupe by streak length: the alert fires when the streak
+            # first reaches min_moves (so the count reads exactly the threshold),
+            # then AGAIN each time it doubles — a runaway steam says "8 moves",
+            # "12 moves" instead of going silent after the first ping
+            band = len(series) // max(min_moves, 1)
+            key = f"steam:{book}:{event}:{market}:{selection}:{band}"
             if await _fire(session, sub, kind="steam", key=key, message=message,
                            payload={"moves": len(series)}, pusher=pusher):
                 fired += 1
