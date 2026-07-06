@@ -218,10 +218,14 @@ async def _watch_line_move(
             continue
         direction = "shortened" if float(row.odds) < float(row.prev_odds) else "drifted"
         ctx = await _context(session, row)
+        engine_fair = await _engine_fair_for(
+            session, row.market, row.selection, event_id=row.event_external_id)
+        engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
         message = (
             f":chart_with_upwards_trend: line move [{ctx['sport']}] {ctx['event']}\n"
             f"{row.book} · {row.market} · {ctx['selection']} — "
             f"{float(row.prev_odds):.2f} → {float(row.odds):.2f} ({direction} {move:.1f}%)"
+            f"{engine_note}"
             + await _cross_book_line(session, row)
         )
         key = f"line_move:{row.book}:{row.event_external_id}:{row.market}:{row.selection}"
@@ -252,11 +256,14 @@ async def _watch_steam(
         if len(series) >= min_moves and len(directions) == 1:
             arrow = "drifting" if directions == {1} else "steaming in"
             ctx = await _context(session, series[-1])
+            engine_fair = await _engine_fair_for(session, market, selection, event_id=event)
+            engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
             message = (
                 f":fire: steam [{ctx['sport']}] {ctx['event']}\n"
                 f"{book} · {market} · {ctx['selection']} — {arrow}, "
                 f"{len(series)} consecutive moves, "
                 f"{float(series[0].prev_odds or 0):.2f} → {float(series[-1].odds):.2f}"
+                f"{engine_note}"
                 + await _cross_book_line(session, series[-1])
             )
             key = f"steam:{book}:{event}:{market}:{selection}"
@@ -582,31 +589,42 @@ async def _watch_scratching(
 
 
 async def _engine_fair_for(
-    session: AsyncSession, event_id: Any, runner_number: Any
+    session: AsyncSession, market: Any, selection: Any, *,
+    event_id: Any = None, fixture_id: Any = None,
 ) -> float | None:
-    """The engine's own fair odds for this runner, from the slate's recorded
-    predictions (engine:racing = anchored, engine-form:racing = form-based;
-    the anchored one wins when both exist). None when the slate hasn't priced
-    this race yet — the alert simply shows the market fair alone."""
-    if not event_id or runner_number is None:
+    """The ENGINE's own fair odds for a market/selection, from the slate's
+    recorded predictions (anchored engine:{sport} first — it sorts before the
+    ratings/form artifacts alphabetically — then the book-free fairs). Looked
+    up by the book's event id, or through the fixture mapping when only the
+    shared fixture is known (exchange candidates). None when the slate hasn't
+    priced it yet — the alert simply shows the market fair alone."""
+    if not market or selection is None or (not event_id and not fixture_id):
         return None
     from sportsdata_agents.data.models import ModelArtifact
 
-    row = (await session.execute(
+    stmt = (
         select(Prediction.prob)
         .join(ModelArtifact, ModelArtifact.id == Prediction.model_id)
         .where(
-            ModelArtifact.name.in_(("engine:racing", "engine-form:racing")),
-            Prediction.event_external_id == str(event_id),
-            Prediction.market == "win",
-            Prediction.selection == str(runner_number),
+            ModelArtifact.name.like("engine%"),
+            Prediction.market == str(market),
+            Prediction.selection == str(selection),
         )
-        .order_by(
-            # anchored artifact sorts before form alphabetically — exploit it
-            ModelArtifact.name, Prediction.predicted_at.desc(),
-        )
+        .order_by(ModelArtifact.name, Prediction.predicted_at.desc())
         .limit(1)
-    )).scalar_one_or_none()
+    )
+    if event_id:
+        stmt = stmt.where(Prediction.event_external_id == str(event_id))
+    else:
+        import uuid as _uuid
+
+        try:
+            fixture_uuid = _uuid.UUID(str(fixture_id))
+        except (ValueError, AttributeError):
+            return None
+        stmt = stmt.join(Event, Event.external_id == Prediction.event_external_id
+                         ).where(Event.fixture_id == fixture_uuid)
+    row = (await session.execute(stmt)).scalar_one_or_none()
     if row is None:
         return None
     prob = float(row)
@@ -765,12 +783,16 @@ async def _watch_exchange_value(
         bankroll = float(sub.params.get("bankroll", 100.0))
         kelly = _kelly_stake(1.0 / candidate["exchange_fair_odds"],
                              candidate["odds"], bankroll)
+        engine_fair = await _engine_fair_for(
+            session, candidate["market"], candidate["outcome"],
+            fixture_id=candidate.get("fixture_id"))
+        engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
         message = (
             f":scales: exchange premium +{candidate['edge_pct']:.1f}% "
             f"[{candidate['sport']}] {candidate['fixture']}\n"
             f"{candidate['book']} pays {candidate['odds']:.2f} on "
             f"{candidate['market']} · {candidate['outcome']} — "
-            f"{exchange_book} fair {candidate['exchange_fair_odds']:.2f} "
+            f"{exchange_book} fair {candidate['exchange_fair_odds']:.2f}{engine_note} "
             f"({_fmt_money(candidate.get('exchange_matched'))} matched)\n"
             f"kelly ${kelly:.2f} on ${bankroll:.0f}"
             f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}\n"
@@ -830,7 +852,8 @@ async def _watch_racing_value(
             traded = f" ({_fmt_money(candidate['exchange_matched'])} matched)"
         engine_note = ""
         engine_fair = await _engine_fair_for(
-            session, candidate.get("event_external_id"), candidate.get("runner_number"))
+            session, "win", candidate.get("runner_number"),
+            event_id=candidate.get("event_external_id"))
         if engine_fair is not None:
             engine_note = f" · engine fair {engine_fair:.2f}"
             candidate = {**candidate, "engine_fair_odds": round(engine_fair, 2)}

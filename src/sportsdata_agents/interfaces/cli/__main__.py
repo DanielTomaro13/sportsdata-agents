@@ -1679,7 +1679,7 @@ def price_slate(
                                          help="Scan events whose h2h/total anchors moved this recently."),
     dedupe_hours: float = typer.Option(12.0, "--dedupe-hours",
                                        help="At most one recording per (book, event) in this window."),
-    max_events: int = typer.Option(40, "--max-events", help="Board-pricing cap per run."),
+    max_events: int = typer.Option(80, "--max-events", help="Board-pricing cap per run."),
 ) -> None:
     """Record engine fair prices for the upcoming slate (the measurement half
     of the value loop: model_value alerts price boards inline, THIS persists

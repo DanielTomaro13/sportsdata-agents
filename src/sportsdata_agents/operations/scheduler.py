@@ -110,8 +110,10 @@ JOBS: tuple[Job, ...] = (
     # as predictions (the measurement trail backtest/CLV grade), while the
     # model_value watch handles the live alerts — recording is cheap and
     # deduped per (book, event) inside record_slate
+    # 15-min cadence: alerts LOOK UP the slate's engine fairs — a sparser
+    # slate means alerts without an engine price beside the market fair
     Job(name="slate", args=("price-slate",),
-        log="cron.log", interval_s=1800, timeout_s=1200),
+        log="cron.log", interval_s=900, timeout_s=840),
     Job(name="custodian", args=("custodian",),
         log="cron.log", interval_s=3600, timeout_s=1800),
     # official race form (TAB authenticated tier) — the ratings' real inputs;
