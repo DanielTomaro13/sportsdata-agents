@@ -342,31 +342,38 @@ async def scan_exchange_premium(
         fixture = fixtures.get(fixture_id)
         if fixture is None or not _pre_game(fixture, now):
             continue
-        exchange: dict[str, float] = {}
+        # BUCKET BY LINE: totals list several lines (over/under 165.5, 220.5, …)
+        # under one (fixture, "total") group. De-vigging them together sums
+        # inverses across lines (inv≈2.0 for two lines) and mangles every edge —
+        # each line is its own two-way market and must be de-vigged alone.
+        exchange: dict[str, dict[str, float]] = {}  # line -> {outcome: back odds}
         others: list[dict[str, Any]] = []
         for row in rows:
             outcome = _canonical_outcome(str(row["selection"]), str(row["event_name"]),
                                          fixture.name)
             if outcome is None:
                 continue
+            _, line = _board_key(market, outcome)
             if row["book"] == exchange_book:
-                # best back per outcome (dedupe keeps the latest listed)
-                exchange[outcome] = max(exchange.get(outcome, 0.0), float(row["odds"]))
+                bucket = exchange.setdefault(line, {})
+                # latest listed wins (rows arrive newest-last per collect order)
+                bucket[outcome] = float(row["odds"])
             else:
-                others.append({**row, "outcome": outcome})
-        if len(exchange) < 2 or not others:
-            continue  # a one-sided exchange market cannot be de-vigged
-        inv = sum(1.0 / o for o in exchange.values())
-        # exchange BACKS sit above fair by the spread, so their implied sum is
-        # naturally a little under 1 (a tight tennis market ~0.97); only a sum
-        # far below that means a stale/suspended side manufacturing fair odds
-        if inv < 0.90:
-            continue
-        fair = {outcome: (1.0 / odds) / inv for outcome, odds in exchange.items()}
+                others.append({**row, "outcome": outcome, "line": line})
         for row in others:
-            prob = fair.get(row["outcome"])
-            if prob is None:
+            board = exchange.get(row["line"])
+            if not board or len(board) < 2:
+                continue  # no de-viggable exchange market at this line
+            inv = sum(1.0 / o for o in board.values())
+            # exchange BACKS sit above fair by the spread, so their implied sum
+            # is naturally a little under 1 (a tight two-way ~0.97); only a sum
+            # far below that means a stale/suspended side manufacturing fair odds
+            if inv < 0.90:
                 continue
+            back = board.get(row["outcome"])
+            if back is None:
+                continue
+            prob = (1.0 / back) / inv
             edge_pct = (float(row["odds"]) * prob - 1.0) * 100.0
             if edge_pct < min_edge_pct:
                 continue
@@ -379,7 +386,7 @@ async def scan_exchange_premium(
                 "book": row["book"],
                 "odds": float(row["odds"]),
                 "exchange_fair_odds": round(1.0 / prob, 3),
-                "exchange_back": exchange[row["outcome"]],
+                "exchange_back": back,
                 "edge_pct": round(edge_pct, 2),
                 "start_time": fixture.start_time.isoformat() if fixture.start_time else None,
                 "note": "edge vs de-vigged exchange back prices; exchange commission "

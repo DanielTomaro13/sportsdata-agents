@@ -1144,8 +1144,9 @@ def test_normalize_dabble_all() -> None:
     # hidden market and scratched selection are skipped
     assert not any(p.market == "ghost market" for p in points)
     assert not any(p.selection == "scratched guy" for p in points)
-    # Pick'em playerProps join enriches the priced selection's meta
-    prop = by_key[("fx-1", "player disposals o/u (24.5)", "over")]
+    # Pick'em playerProps join enriches meta AND folds player+line into the
+    # selection so generic over/under can't collide across players
+    prop = by_key[("fx-1", "player disposals o/u (24.5)", "nat fyfe over 24.5")]
     assert prop.meta["player"] == "Nat Fyfe"
     assert prop.meta["stat"] == "disposals"
     assert prop.meta["stat_line"] == 24.5
@@ -1234,3 +1235,45 @@ def test_normalize_betfair_exchange() -> None:
     assert home.market == "h2h"  # "Match Odds" folds via the dictionary
     assert normalize_betfair_all({}) == []
     assert normalize_betfair_all([]) == []
+
+
+def test_normalize_betfair_racing_keys_each_race_separately() -> None:
+    """Review finding: a Betfair EVENT is a whole meeting, so keying rows on the
+    meeting id collided same-named runners across races (the sink deduped the
+    later one away). Each race must key on its own market id."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_betfair_all
+
+    def runner(sel_id: int, name: str, price: float) -> dict:
+        return {"selectionId": sel_id, "description": {"runnerName": name},
+                "state": {"status": "ACTIVE"},
+                "exchange": {"availableToBack": [{"price": price, "size": 50.0}]}}
+
+    payload = {"batches": [{
+        "eventTypes": [{
+            "eventTypeId": 7,
+            "eventNodes": [{
+                "eventId": 33999,
+                "event": {"eventName": "Flemington (AUS) 6th Jul"},
+                "marketNodes": [
+                    {"marketId": "1.111", "description": {"marketName": "R3 1200m Hcap",
+                                                          "marketType": "WIN"},
+                     "state": {"status": "OPEN"},
+                     "runners": [runner(1, "4. Bold Venture", 2.5)]},
+                    {"marketId": "1.222", "description": {"marketName": "R7 1600m Hcap",
+                                                          "marketType": "WIN"},
+                     "state": {"status": "OPEN"},
+                     "runners": [runner(2, "4. Bold Venture", 3.0)]},
+                ],
+            }],
+        }],
+    }]}
+    points = normalize_betfair_all(payload)
+    assert len(points) == 2  # both races survive the sink dedup
+    by_race = {p.meta["race"]: p for p in points}
+    assert by_race["R3 1200m Hcap"].odds == 2.5
+    assert by_race["R7 1600m Hcap"].odds == 3.0
+    # distinct event keys per race; the race label rides the event name
+    assert by_race["R3 1200m Hcap"].event_external_id != by_race["R7 1600m Hcap"].event_external_id
+    assert "R3 1200m Hcap" in by_race["R3 1200m Hcap"].event_name
+    assert by_race["R3 1200m Hcap"].meta["runner_number"] == 4
+    assert by_race["R3 1200m Hcap"].selection == "bold venture"

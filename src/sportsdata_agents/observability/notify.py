@@ -52,6 +52,18 @@ def slack_to_plain(text: str) -> str:
     return _EMOJI.sub("", _BOLD.sub(r"\1", text)).strip()
 
 
+def _ascii_header(text: str) -> str:
+    """Fold a title to ASCII for an HTTP header (latin-1 only). Accents map to
+    their base letter (José→Jose), Unicode dashes to '-', anything else drops —
+    an un-encodable char here would sink the whole ntfy push inside httpx."""
+    import unicodedata
+
+    # em dash / en dash / curly apostrophe (escaped so linters don't trip)
+    folded = (text.replace("\u2014", "-").replace("\u2013", "-")
+              .replace("\u2019", "'"))
+    return unicodedata.normalize("NFKD", folded).encode("ascii", "ignore").decode("ascii")
+
+
 def discord_webhook_for(channel: str) -> str | None:
     """The webhook URL a subscription channel names; None = not configured."""
     _, _, env_name = channel.partition(":")
@@ -110,7 +122,7 @@ async def post_ntfy(topic_url: str, text: str, *, priority: str | None = None) -
     plain = slack_to_plain(text)
     # first line becomes the notification title; the rest the body
     title, _, body = plain.partition("\n")
-    headers = {"Title": title[:250]} if body else {}
+    headers = {"Title": _ascii_header(title[:250])} if body else {}
     if priority:
         headers["Priority"] = priority
     async with httpx.AsyncClient(timeout=15) as client:

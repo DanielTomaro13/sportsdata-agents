@@ -704,6 +704,46 @@ async def _watch_racing_value(
     return fired
 
 
+async def _watch_prediction_value(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
+) -> int:
+    """Kalshi vs Polymarket disagreeing on the SAME question — value on markets
+    no bookmaker offers (elections, geopolitics, crypto, culture). Alerts carry
+    the plain-English question and outcome, never tickers."""
+    from sportsdata_agents.quant.prediction_bridge import scan_prediction_disagreements
+
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    candidates = await scan_prediction_disagreements(
+        session,
+        hours=float(sub.params.get("hours", 6.0)),
+        min_edge_pct=float(sub.params.get("min_edge_pct", 10.0)),
+        q_threshold=float(sub.params.get("q_threshold", 0.7)),
+        prob_band=(float(sub.params.get("min_prob", 0.05)),
+                   float(sub.params.get("max_prob", 0.95))),
+        min_volume=float(sub.params.get("min_volume", 100.0)),
+        max_staleness_minutes=float(sub.params.get("max_staleness_minutes", 90.0)),
+        limit=cap * 3, now=now)
+    fired = 0
+    for candidate in candidates:
+        if fired >= cap:
+            break
+        other = "Polymarket" if candidate["back"] == "Kalshi" else "Kalshi"
+        message = (
+            f":crystal_ball: prediction value +{candidate['edge_pct']:.1f}% — "
+            f"{candidate['question']}\n"
+            f"{candidate['back']} pays {candidate['back_odds']:.2f} on "
+            f"{candidate['outcome']} vs {other} fair {candidate['fair_odds']:.2f}"
+            f" — confirm both platforms settle the question the same way"
+        )
+        bucket = int(candidate["edge_pct"] / 5.0)
+        key = (f"prediction_value:{candidate['polymarket_event']}"
+               f":{candidate['outcome']}:{candidate['back']}:{bucket}")
+        if await _fire(session, sub, kind="prediction_value", key=key, message=message,
+                       payload=candidate, pusher=pusher):
+            fired += 1
+    return fired
+
+
 async def _watch_stat_value(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime
 ) -> int:
@@ -964,6 +1004,8 @@ async def run_watches(
                     fired = await _watch_scratching(session, sub, push)
                 elif sub.kind == "racing_value":
                     fired = await _watch_racing_value(session, sub, push, now=now)
+                elif sub.kind == "prediction_value":
+                    fired = await _watch_prediction_value(session, sub, push, now=now)
                 elif sub.kind == "stat_value":
                     fired = await _watch_stat_value(session, sub, push, now=now)
                 elif sub.kind == "exchange_value":

@@ -70,6 +70,34 @@ async def test_scan_finds_the_premium_and_skips_fair_books(
     assert hit["exchange_fair_odds"] == pytest.approx(1 / fair, abs=0.01)
 
 
+async def test_totals_devig_per_line_not_across_lines(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Review finding: two total lines under one (fixture, 'total') board were
+    de-vigged TOGETHER (inv≈2.0), mangling every edge. Each line is its own
+    two-way market."""
+    fixture_id = uuid.uuid4()
+    async with db_sessionmaker() as s:
+        s.add(Fixture(id=fixture_id, sport="basketball", external_id="FX-T",
+                      name="Hawks v Wolves", start_time=NOW + dt.timedelta(hours=3)))
+        await s.flush()
+        s.add(Event(fixture_id=fixture_id, provider="betfair", external_id="BF-T"))
+        s.add(Event(fixture_id=fixture_id, provider="sportsbet", external_id="SB-T"))
+        for sel, odds in (("over 165.5", 1.95), ("under 165.5", 1.95),
+                          ("over 220.5", 6.0), ("under 220.5", 1.12)):
+            s.add(_snap("betfair", "Betfair", "BF-T", sel, odds,
+                        "Hawks v Wolves", market="total"))
+        # book pays 2.30 on over 165.5: fair prob 0.5 -> +15% vs THIS line only
+        s.add(_snap("sportsbet", "sportsbet", "SB-T", "over 165.5", 2.30,
+                    "Hawks v Wolves", market="total"))
+        await s.commit()
+    async with db_sessionmaker() as s:
+        found = await scan_exchange_premium(s, min_edge_pct=3.0, now=NOW)
+    assert len(found) == 1, found
+    # 1.95/1.95 de-vig -> fair prob exactly 0.5; the 220.5 line must not bleed in
+    assert found[0]["edge_pct"] == pytest.approx(2.30 * 0.5 * 100 - 100, abs=0.05)
+
+
 async def test_watch_fires_once_and_dedupes(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:

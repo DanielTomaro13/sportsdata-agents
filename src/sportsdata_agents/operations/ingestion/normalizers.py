@@ -1179,17 +1179,24 @@ def _normalize_dabble_fixture(sink: _Sink, fixture: dict[str, Any], sport: str,
         if isinstance(saddle, int) and saddle > 0:
             meta["runner"] = selection.get("name")
         prop = props.get(row.get("selectionId"))
+        selection_name = side or str(selection.get("name", "?")).lower()
         if prop:
             stats = prop.get("stats") or []
-            meta.update({"player": prop.get("playerName"), "team": prop.get("teamName"),
+            player = prop.get("playerName")
+            meta.update({"player": player, "team": prop.get("teamName"),
                          "stat": stats[0] if stats else None,
                          "stat_line": prop.get("value"), "line_type": prop.get("lineType")})
+            # a prop's raw selection is often a bare "over"/"under"; the sink key
+            # is (provider, book, fixture, market, selection), so if a market
+            # groups several players under one name those bare sides collide and
+            # all but the first drop. Fold player + line into the selection.
+            if player and prop.get("value") is not None:
+                selection_name = (f"{player} {prop.get('lineType', '')} "
+                                  f"{prop.get('value')}").strip().lower()
         sink.add(PricePoint(
             provider="dabble", book="Dabble", sport=sport,
             event_external_id=fixture_id, event_name=event_name,
-            market=market_key,
-            selection=side or str(selection.get("name", "?")).lower(),
-            odds=odds, meta=meta,
+            market=market_key, selection=selection_name, odds=odds, meta=meta,
         ))
 
 
@@ -1261,7 +1268,15 @@ def _normalize_betfair_market(sink: _Sink, market: dict[str, Any], sport: str,
                                 "start_time": description.get("marketTime"),
                                 "runner": name}
         selection = side or name.lower()
+        # a Betfair EVENT is a whole meeting whose markets are the races; each
+        # race must key on its own market id, or the sink's (provider, book,
+        # event, market, selection) dedup collides same-named runners ACROSS
+        # races of the meeting and silently drops the later one
+        row_event_id = event_id
+        row_event_name = event_name
         if racing_family:
+            market_id = str(market.get("marketId") or market_name)
+            row_event_id = f"{event_id}:{market_id}"
             # a runner name like "4. Rusty Rancher" carries the saddle number;
             # the race itself is the MARKET ("R5 1200m Hcap") on the meeting
             prefix = _RUNNER_PREFIX.match(name)
@@ -1270,8 +1285,11 @@ def _normalize_betfair_market(sink: _Sink, market: dict[str, Any], sport: str,
                 meta["runner"] = _RUNNER_PREFIX.sub("", name)
                 selection = meta["runner"].lower()
             meta["race"] = market_name
+            # the racing scan matches on "<venue> R<n>" — carry a resolvable
+            # race label combining the meeting and the race name
+            row_event_name = f"{event_name} {market_name}".strip()
         sink.add(PricePoint(
             provider="betfair", book="Betfair", sport=sport,
-            event_external_id=event_id, event_name=event_name,
+            event_external_id=row_event_id, event_name=row_event_name,
             market=market_key, selection=selection, odds=odds, meta=meta,
         ))

@@ -136,6 +136,18 @@ async def test_post_ntfy_title_body_and_priority(monkeypatch: Any) -> None:
     await notify.post_ntfy("https://ntfy.sh/sd-x", "*ARB 2.4%* on h2h")
     assert "Title" not in calls[1]["headers"]
     assert calls[1]["content"] == "ARB 2.4% on h2h"
+    # review finding: HTTP headers are latin-1 only — an em-dash or accented
+    # name in the title raised UnicodeEncodeError inside httpx and the push was
+    # silently lost (every racing_value alert). Title folds to ASCII; the body
+    # keeps full Unicode.
+    await notify.post_ntfy(
+        "https://ntfy.sh/sd-x",
+        ":racehorse: racing value +9.1% — Flemington R5\n"
+        "Sportsbet pays 4.20 on Jos\u00e9\u2019s Caf\u00e9")
+    title = calls[2]["headers"]["Title"]
+    title.encode("ascii")  # must not raise
+    assert title == "racing value +9.1% - Flemington R5"
+    assert "Jos\u00e9\u2019s Caf\u00e9" in calls[2]["content"]
 
 
 async def test_alert_subscription_can_target_discord(monkeypatch: Any) -> None:
