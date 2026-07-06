@@ -22,11 +22,19 @@ class FakeSession:
 
 
 @pytest.fixture
-async def client():
+async def client(tmp_path, monkeypatch):
+    # hermetic: on a dev box .env points at a REAL populated warehouse (the
+    # cron writes alerts all day) — the "empty" assertions need their own db
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATABASE_URL",
+                       f"sqlite+aiosqlite:///{tmp_path}/empty.db")
+    from sportsdata_agents.config import get_settings
+
+    get_settings.cache_clear()
     app = create_app(session=FakeSession())
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
         yield c
+    get_settings.cache_clear()
 
 
 async def test_alerts_graceful_empty(client: httpx.AsyncClient):

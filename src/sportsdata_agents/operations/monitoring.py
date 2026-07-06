@@ -591,6 +591,28 @@ def _fmt_money(amount: float | None) -> str:
     return f"${amount:.0f}"
 
 
+def _age_label(seen: str | None, now: dt.datetime) -> str:
+    """How old the alerted price is — the market keeps moving after capture,
+    so every alert says when its price was seen (lived: an alert quoted 4.80,
+    the runner was 3.30 by the time the phone buzzed)."""
+    if not seen:
+        return ""
+    with_tz = dt.datetime.fromisoformat(seen)
+    if with_tz.tzinfo is None:
+        with_tz = with_tz.replace(tzinfo=dt.UTC)
+    minutes = max(0.0, (now - with_tz).total_seconds() / 60.0)
+    label = "just now" if minutes < 1.0 else f"{minutes:.0f}m ago"
+    return f" · price seen {label}"
+
+
+def _kelly_stake(fair_prob: float, odds: float, bankroll: float) -> float:
+    """Full-Kelly stake on a bankroll: f = (p*o - 1)/(o - 1). The caller only
+    asks when edge > 0, so f is positive and < bankroll by construction."""
+    if odds <= 1.0:
+        return 0.0
+    return max(0.0, bankroll * (fair_prob * odds - 1.0) / (odds - 1.0))
+
+
 async def _watch_arb(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
 ) -> int:
@@ -601,24 +623,30 @@ async def _watch_arb(
     threshold = float(sub.params.get("threshold_pct", 1.0))
     hours = float(sub.params.get("hours", 1.0))
     cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    bankroll = float(sub.params.get("bankroll", 100.0))
     arbs = await scan_arbs(
         session, hours=hours, threshold_pct=threshold,
         min_matched=float(sub.params.get("min_matched", 1000.0)),
+        max_age_minutes=float(sub.params.get("max_age_minutes", 20.0)),
         limit=cap * 3, now=now)
     fired = 0
     for arb in arbs:
         if fired >= cap:
             break
         line = f" {arb['line']}" if arb["line"] else ""
+        # equalised dollar stakes on the bankroll; same payout whichever wins
+        profit = bankroll * (1.0 / arb["sum_inverse"] - 1.0)
         legs_text = "\n".join(
             f"• {leg['outcome']}: {leg['book']} {leg['odds']:.2f} — "
-            f"stake {leg['stake_share'] * 100:.1f}%"
+            f"stake ${leg['stake_share'] * bankroll:.2f}"
             + (f" · {_fmt_money(leg['matched'])} matched" if "matched" in leg else "")
+            + _age_label(leg.get("seen"), now or dt.datetime.now(dt.UTC))
             for leg in arb["legs"]
         )
         message = (
             f":money_with_wings: ARB {arb['margin_pct']:.2f}% [{arb['sport']}] {arb['fixture']}\n"
-            f"{arb['market']}{line} — equalised stakes:\n{legs_text}\n"
+            f"{arb['market']}{line} — on a ${bankroll:.0f} bankroll "
+            f"(locked profit ${profit:.2f}):\n{legs_text}\n"
             f"_gross margin — verify every leg is live; exchange legs pay fees; "
             f"books may limit or void_"
         )
@@ -652,6 +680,9 @@ async def _watch_exchange_value(
     for candidate in candidates:
         if fired >= cap:
             break
+        bankroll = float(sub.params.get("bankroll", 100.0))
+        kelly = _kelly_stake(1.0 / candidate["exchange_fair_odds"],
+                             candidate["odds"], bankroll)
         message = (
             f":scales: exchange premium +{candidate['edge_pct']:.1f}% "
             f"[{candidate['sport']}] {candidate['fixture']}\n"
@@ -659,6 +690,8 @@ async def _watch_exchange_value(
             f"{candidate['market']} · {candidate['outcome']} — "
             f"{exchange_book} fair {candidate['exchange_fair_odds']:.2f} "
             f"({_fmt_money(candidate.get('exchange_matched'))} matched)\n"
+            f"kelly ${kelly:.2f} on ${bankroll:.0f}"
+            f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}\n"
             f"_vs de-vigged exchange back prices; verify the leg is live_"
         )
         bucket = int(candidate["edge_pct"] / 2.0)  # re-fire when the edge grows a band
@@ -710,12 +743,17 @@ async def _watch_racing_value(
         traded = ""
         if candidate.get("exchange_matched") is not None:
             traded = f" ({_fmt_money(candidate['exchange_matched'])} matched)"
+        bankroll = float(sub.params.get("bankroll", 100.0))
+        kelly = _kelly_stake(1.0 / candidate["fair_odds"], candidate["odds"], bankroll)
         message = (
             f":racehorse: racing value +{candidate['edge_pct']:.1f}% — "
             f"{candidate['race']}\n"
             f"{candidate['book']} pays {candidate['odds']:.2f} on "
             f"{candidate['runner']}{number} vs {candidate['versus']} "
-            f"fair {candidate['fair_odds']:.2f}{traded}{jump}"
+            f"fair {candidate['fair_odds']:.2f}{traded}{jump}\n"
+            f"kelly ${kelly:.2f} on ${bankroll:.0f}"
+            f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}"
+            f" — check the live price before betting"
         )
         bucket = int(candidate["edge_pct"] / 3.0)
         key = (f"racing_value:{candidate['race']}:{candidate['runner']}"
@@ -750,13 +788,16 @@ async def _watch_prediction_value(
         if fired >= cap:
             break
         other = "Polymarket" if candidate["back"] == "Kalshi" else "Kalshi"
+        bankroll = float(sub.params.get("bankroll", 100.0))
+        kelly = _kelly_stake(1.0 / candidate["fair_odds"], candidate["back_odds"], bankroll)
         message = (
             f":crystal_ball: prediction value +{candidate['edge_pct']:.1f}% — "
             f"{candidate['question']}\n"
             f"{candidate['back']} pays {candidate['back_odds']:.2f} on "
             f"{candidate['outcome']} vs {other} fair {candidate['fair_odds']:.2f}"
             f" (K vol {_fmt_money(candidate.get('kalshi_volume'))} · "
-            f"P vol {_fmt_money(candidate.get('polymarket_volume'))})"
+            f"P vol {_fmt_money(candidate.get('polymarket_volume'))})\n"
+            f"kelly ${kelly:.2f} on ${bankroll:.0f}"
             f" — confirm both platforms settle the question the same way"
         )
         bucket = int(candidate["edge_pct"] / 5.0)

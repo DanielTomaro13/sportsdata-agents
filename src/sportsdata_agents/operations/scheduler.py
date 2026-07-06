@@ -101,8 +101,11 @@ JOBS: tuple[Job, ...] = (
     # incremental (it skips already-mapped events), so a frequent run is cheap.
     Job(name="resolve", args=("resolve",),
         log="cron.log", interval_s=600, timeout_s=1800),
+    # 2 minutes, not 5: alert latency stacks capture lag on top of monitor
+    # lag, and a fast market (tennis, racing near the jump) moves through a
+    # 5-minute window (lived: alerts quoting prices the market had left)
     Job(name="monitor", args=("monitor",),
-        log="monitor.log", interval_s=300, timeout_s=600),
+        log="monitor.log", interval_s=120, timeout_s=600),
     # slate runs AFTER monitor in a tick: it persists the engine's fair prices
     # as predictions (the measurement trail backtest/CLV grade), while the
     # model_value watch handles the live alerts — recording is cheap and

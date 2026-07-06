@@ -154,6 +154,7 @@ def arbs_for_fixture(
                 # exchange legs carry the market's traded volume; books have none
                 **({"matched": round(float(e["matched"]), 2)}
                    if e.get("matched") is not None else {}),
+                **({"seen": e["seen"].isoformat()} if e.get("seen") is not None else {}),
             }
             for outcome, e in sorted(best.items())
         ]
@@ -239,7 +240,7 @@ async def collect_fixture_boards(
     # written every capture (prices only on change), so a row inside the window
     # proves the book still lists the selection — change-points can be stale for
     # delisted markets and would manufacture monster "arbs"
-    latest: dict[tuple[str, str, str, str], tuple[str, float, float | None]] = {}
+    latest: dict[tuple[str, str, str, str], tuple[str, float, float | None, dt.datetime]] = {}
     names: dict[tuple[str, str], str] = {}
     for chunk in _chunks(external_ids):
         snap_rows = (
@@ -248,7 +249,7 @@ async def collect_fixture_boards(
                     OddsSnapshot.provider, OddsSnapshot.book,
                     OddsSnapshot.event_external_id, OddsSnapshot.selection,
                     OddsSnapshot.market, OddsSnapshot.odds, OddsSnapshot.event_name,
-                    OddsSnapshot.meta,
+                    OddsSnapshot.meta, OddsSnapshot.captured_at,
                 )
                 .where(
                     OddsSnapshot.event_external_id.in_(chunk),
@@ -258,7 +259,7 @@ async def collect_fixture_boards(
                 .order_by(OddsSnapshot.captured_at)
             )
         ).all()
-        for provider, book, external_id, selection, market, odds, event_name, meta in snap_rows:
+        for provider, book, external_id, selection, market, odds, event_name, meta, seen in snap_rows:
             # ascending — last write per key wins
             if (provider, external_id) in pair_to_fixture:
                 # exchange-style liquidity: Betfair's traded volume, or a
@@ -274,15 +275,17 @@ async def collect_fixture_boards(
                             matched = float(raw)
                         except (TypeError, ValueError):
                             matched = None
-                latest[(provider, book, external_id, selection)] = (market, float(odds), matched)
+                seen_utc = seen if seen.tzinfo else seen.replace(tzinfo=dt.UTC)
+                latest[(provider, book, external_id, selection)] = (
+                    market, float(odds), matched, seen_utc)
                 names[(provider, external_id)] = str(event_name or "")
 
     grouped: dict[tuple[uuid.UUID, str], list[dict[str, Any]]] = {}
-    for (provider, book, external_id, selection), (market, odds, matched) in latest.items():
+    for (provider, book, external_id, selection), (market, odds, matched, seen) in latest.items():
         fixture_id = pair_to_fixture[(provider, external_id)]
         grouped.setdefault((fixture_id, market), []).append({
             "provider": provider, "book": book, "selection": selection,
-            "odds": odds, "matched": matched,
+            "odds": odds, "matched": matched, "seen": seen,
             "event_name": names.get((provider, external_id), ""),
         })
     return fixtures, grouped
@@ -306,6 +309,7 @@ async def scan_arbs(
     hours: float = 6.0,
     threshold_pct: float = 1.0,
     min_matched: float = 1000.0,
+    max_age_minutes: float = 20.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -328,6 +332,12 @@ async def scan_arbs(
         # open, deliberately: the API sends it in practice)
         rows = [r for r in rows
                 if r.get("matched") is None or float(r["matched"]) >= min_matched]
+        # FRESHNESS: an arb is only real if every leg's price was seen just
+        # now — a leg captured half an hour ago on a fast market (tennis!) is
+        # the market's PAST, and alerting it reads prices that no longer exist
+        age_bound = dt.timedelta(minutes=max_age_minutes)
+        rows = [r for r in rows
+                if r.get("seen") is None or now - r["seen"] <= age_bound]
         for arb in arbs_for_fixture(fixture.name, market, rows, threshold_pct=threshold_pct):
             arb["fixture_id"] = str(fixture_id)
             arb["sport"] = fixture.sport
@@ -428,6 +438,7 @@ async def scan_exchange_premium(
                 "exchange_back": back,
                 "exchange_matched": round(matched, 2),
                 "edge_pct": round(edge_pct, 2),
+                "seen": row["seen"].isoformat() if row.get("seen") is not None else None,
                 "start_time": fixture.start_time.isoformat() if fixture.start_time else None,
                 "note": "edge vs de-vigged exchange back prices; exchange commission "
                         "applies to exchange bets only, not this book bet",

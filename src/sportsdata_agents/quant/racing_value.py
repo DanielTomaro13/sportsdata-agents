@@ -211,6 +211,9 @@ async def scan_racing_value(
                     "edge_pct": round(edge_pct, 2),
                     "start_time": start.isoformat() if start else None,
                     "exchange_matched": round(matched, 2) if matched is not None else None,
+                    # when the flagged book's price was captured — the market
+                    # keeps moving after the alert, especially near the jump
+                    "seen": unit.last_seen.isoformat() if unit.last_seen else None,
                 })
     found.sort(key=lambda c: -c["edge_pct"])
     return found[:limit]

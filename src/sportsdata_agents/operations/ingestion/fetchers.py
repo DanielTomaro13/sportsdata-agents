@@ -1026,7 +1026,9 @@ BETFAIR_EVENT_TYPES: dict[str, str] = {
     "7522": "basketball", "6423": "american_football", "7511": "baseball", "3": "golf",
 }
 BETFAIR_TYPES_PER_CYCLE = 4
-BETFAIR_MARKETS_PER_CYCLE = 150
+# racing is pinned into every cycle (~130 markets on a busy card), so the cap
+# leaves room for the rotating sports window too
+BETFAIR_MARKETS_PER_CYCLE = 300
 _BETFAIR_PRICE_BATCH = 25
 
 
@@ -1037,7 +1039,13 @@ async def fetch_betfair_all(manager: Any) -> dict[str, Any]:
     split is load-bearing: byevent STRIPS exchange prices and 400s on
     multi-id batches, so it is not used at all. Uses the public `_ak` web
     key the site itself uses."""
-    type_ids = _take_rotating("betfair_all", sorted(BETFAIR_EVENT_TYPES), BETFAIR_TYPES_PER_CYCLE)
+    # racing rides EVERY cycle — it is the racing_value scan's fair-price
+    # source and races jump all day; on the shared rotation it only came up
+    # every ~110 minutes, so the exchange fair was stale for most races.
+    # The remaining sports share the rotating window as before.
+    racing = [t for t in ("7", "4339") if t in BETFAIR_EVENT_TYPES]
+    others = sorted(set(BETFAIR_EVENT_TYPES) - set(racing))
+    type_ids = racing + _take_rotating("betfair_all", others, BETFAIR_TYPES_PER_CYCLE)
     market_ids: list[str] = []
     for type_id in type_ids:
         try:

@@ -201,6 +201,12 @@ async def test_watch_fires_once_and_dedupes(
     report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW)
     assert report["alerts"] == 1
     assert "exchange premium" in pushed[0] and "sportsbet" in pushed[0]
+    # the alert carries actionable sizing + honesty about the price's age:
+    # kelly on the default $100 bankroll, and when the price was captured
+    fair = (1 / 4.8) / (1 / 1.3 + 1 / 4.8)
+    kelly = 100.0 * (fair * 5.5 - 1.0) / (5.5 - 1.0)
+    assert f"kelly ${kelly:.2f} on $100" in pushed[0]
+    assert "price seen 10m ago" in pushed[0]
     # unchanged condition -> deduped
     report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW + dt.timedelta(minutes=5))
     assert report["alerts"] == 0
