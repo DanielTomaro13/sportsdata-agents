@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.operations.ingestion.fetchers import (
+    fetch_betfair_all,
     fetch_betr_all,
     fetch_betr_races,
     fetch_dabble_all,
@@ -48,6 +49,7 @@ from sportsdata_agents.operations.ingestion.fetchers import (
 )
 from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
+    normalize_betfair_all,
     normalize_betr_all,
     normalize_betr_races,
     normalize_dabble_all,
@@ -159,6 +161,15 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("betr.sport",),
         normalizer=normalize_betr_all,
         fetch=fetch_betr_all,
+        interval_s=600,
+    ),
+    "betfair_all": Feed(
+        name="betfair_all",
+        provider="betfair",
+        tool="betfair_market_prices",  # label; navigation -> byevent -> bymarket
+        mcp_groups=("betfair.exchange", "betfair.navigation"),
+        normalizer=normalize_betfair_all,
+        fetch=fetch_betfair_all,
         interval_s=600,
     ),
     "dabble_all": Feed(

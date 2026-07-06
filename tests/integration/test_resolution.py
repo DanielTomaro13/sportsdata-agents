@@ -42,16 +42,16 @@ async def test_overrides_extend_without_code(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     overrides = tmp_path / "dict.local.json"
-    overrides.write_text('{"markets": {"h2h": ["match odds"]}, "sports": {"soccer": ["epl"]}}')
+    overrides.write_text('{"markets": {"h2h": ["straight up winner"]}, "sports": {"soccer": ["epl"]}}')
     monkeypatch.setenv("SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES", str(overrides))
     reload_dictionary()
     try:
-        assert canonical_market("Match Odds") == "h2h"
+        assert canonical_market("Straight Up Winner") == "h2h"
         assert canonical_sport("EPL") == "soccer"
     finally:
         monkeypatch.delenv("SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES")
         reload_dictionary()
-    assert canonical_market("match odds") == "match odds"  # gone with the override file
+    assert canonical_market("straight up winner") == "straight up winner"  # gone with the override file
 
 
 async def test_steward_tools_enforce_merge_safety(

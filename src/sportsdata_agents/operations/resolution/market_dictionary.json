@@ -1,122 +1,124 @@
 {
-  "_doc": "The canonical market/sport dictionary — DATA, not code (maintained by the market_steward agent; local overrides merge from SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES, default ./market_dictionary.local.json). Renames only, never excludes: unmapped names flow through book-named. Qualifier markets (1st half, overtime-only, quarters, alternates) must NOT alias into base families — different settlement rules are different markets.",
-  "markets": {
-    "h2h": [
-      "head to head",
-      "match result",
-      "moneyline",
-      "money line",
-      "match betting",
-      "match winner",
-      "kxnbagame",
-      "kxabagame",
-      "kxacbgame",
-      "kxaflgame",
-      "kxahlgame",
-      "kxarglnbgame",
-      "kxbblgame",
-      "kxbbserieagame",
-      "kxbbseriebgame",
-      "kxbolpdivgame",
-      "kxbslgame",
-      "kxbsngame",
-      "kxcanplgame",
-      "kxcflgame",
-      "kxchlldpgame",
-      "kxcs2game",
-      "kxeculpgame",
-      "kxgblgame",
-      "kxislgame",
-      "kxkbogame",
-      "kxlaliga2game",
-      "kxlnbelitegame",
-      "kxlolgame",
-      "kxlpbgame",
-      "kxmlbasgame",
-      "kxmlbgame",
-      "kxncaabbgame",
-      "kxncaafgame",
-      "kxnflgame",
-      "kxnhlgame",
-      "kxnpbgame",
-      "kxowgame",
-      "kxplkgame",
-      "kxr6game",
-      "kxspbgame",
-      "kxuflgame",
-      "kxuslcupgame",
-      "kxuslgame",
-      "kxvalorantgame",
-      "kxvbagame",
-      "kxvtbgame",
-      "kxwcgame",
-      "kxwnbagame"
-    ],
-    "spread": [
-      "line",
-      "point spread",
-      "handicap",
-      "match handicap",
-      "match handicap (2-way)",
-      "pick your own line"
-    ],
-    "total": [
-      "totals",
-      "total points",
-      "total points (over/under)",
-      "over/under",
-      "total points over/under",
-      "total match points"
-    ]
-  },
-  "sports": {
-    "australian_rules": [
-      "afl",
-      "aussie rules",
-      "australian rules",
-      "afl football"
-    ],
-    "rugby_league": [
-      "nrl",
-      "rugby league"
-    ],
-    "rugby_union": [
-      "rugby union",
-      "rugby"
-    ],
-    "basketball": [
-      "nba",
-      "wnba",
-      "basket",
-      "basketball - us"
-    ],
-    "baseball": [
-      "mlb"
-    ],
-    "ice_hockey": [
-      "nhl",
-      "ice hockey"
-    ],
-    "american_football": [
-      "nfl",
-      "american football"
-    ],
-    "soccer": [
-      "football",
-      "mls"
-    ],
-    "horse_racing": [
-      "thoroughbred",
-      "horses",
-      "horse"
-    ],
-    "greyhound_racing": [
-      "greyhound",
-      "greyhounds"
-    ],
-    "harness_racing": [
-      "harness",
-      "trots"
-    ]
-  }
+ "_doc": "The canonical market/sport dictionary \u2014 DATA, not code (maintained by the market_steward agent; local overrides merge from SPORTSDATA_AGENTS_DICTIONARY_OVERRIDES, default ./market_dictionary.local.json). Renames only, never excludes: unmapped names flow through book-named. Qualifier markets (1st half, overtime-only, quarters, alternates) must NOT alias into base families \u2014 different settlement rules are different markets.",
+ "markets": {
+  "h2h": [
+   "head to head",
+   "match result",
+   "moneyline",
+   "money line",
+   "match betting",
+   "match winner",
+   "kxnbagame",
+   "kxabagame",
+   "kxacbgame",
+   "kxaflgame",
+   "kxahlgame",
+   "kxarglnbgame",
+   "kxbblgame",
+   "kxbbserieagame",
+   "kxbbseriebgame",
+   "kxbolpdivgame",
+   "kxbslgame",
+   "kxbsngame",
+   "kxcanplgame",
+   "kxcflgame",
+   "kxchlldpgame",
+   "kxcs2game",
+   "kxeculpgame",
+   "kxgblgame",
+   "kxislgame",
+   "kxkbogame",
+   "kxlaliga2game",
+   "kxlnbelitegame",
+   "kxlolgame",
+   "kxlpbgame",
+   "kxmlbasgame",
+   "kxmlbgame",
+   "kxncaabbgame",
+   "kxncaafgame",
+   "kxnflgame",
+   "kxnhlgame",
+   "kxnpbgame",
+   "kxowgame",
+   "kxplkgame",
+   "kxr6game",
+   "kxspbgame",
+   "kxuflgame",
+   "kxuslcupgame",
+   "kxuslgame",
+   "kxvalorantgame",
+   "kxvbagame",
+   "kxvtbgame",
+   "kxwcgame",
+   "kxwnbagame",
+   "match odds",
+   "moneyline 2-way"
+  ],
+  "spread": [
+   "line",
+   "point spread",
+   "handicap",
+   "match handicap",
+   "match handicap (2-way)",
+   "pick your own line"
+  ],
+  "total": [
+   "totals",
+   "total points",
+   "total points (over/under)",
+   "over/under",
+   "total points over/under",
+   "total match points"
+  ]
+ },
+ "sports": {
+  "australian_rules": [
+   "afl",
+   "aussie rules",
+   "australian rules",
+   "afl football"
+  ],
+  "rugby_league": [
+   "nrl",
+   "rugby league"
+  ],
+  "rugby_union": [
+   "rugby union",
+   "rugby"
+  ],
+  "basketball": [
+   "nba",
+   "wnba",
+   "basket",
+   "basketball - us"
+  ],
+  "baseball": [
+   "mlb"
+  ],
+  "ice_hockey": [
+   "nhl",
+   "ice hockey"
+  ],
+  "american_football": [
+   "nfl",
+   "american football"
+  ],
+  "soccer": [
+   "football",
+   "mls"
+  ],
+  "horse_racing": [
+   "thoroughbred",
+   "horses",
+   "horse"
+  ],
+  "greyhound_racing": [
+   "greyhound",
+   "greyhounds"
+  ],
+  "harness_racing": [
+   "harness",
+   "trots"
+  ]
+ }
 }

@@ -1191,3 +1191,69 @@ def _normalize_dabble_fixture(sink: _Sink, fixture: dict[str, Any], sport: str,
             selection=side or str(selection.get("name", "?")).lower(),
             odds=odds, meta=meta,
         ))
+
+
+# ─── Betfair exchange (shape captured live 2026-07-06) ────────────────────
+
+_BETFAIR_SPORTS = {
+    "7": "horse_racing", "4339": "greyhound_racing", "61420": "australian_rules",
+    "1477": "rugby_league", "2": "tennis", "1": "soccer", "4": "cricket",
+    "7522": "basketball", "6423": "american_football", "7511": "baseball", "3": "golf",
+}
+
+
+def normalize_betfair_all(payload: Any) -> list[PricePoint]:
+    """Betfair bymarket batches (via fetch_betfair_all): the exchange's own
+    back/lay ladders. The captured odds is the BEST BACK price — what a
+    backer actually gets, the sharpest fair-price anchor available; the best
+    lay and matched volume ride meta so de-vigging can use the spread."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    for batch in payload.get("batches", []) or []:
+        if not isinstance(batch, dict):
+            continue
+        for event_type in batch.get("eventTypes", []) or []:
+            sport = _BETFAIR_SPORTS.get(str(event_type.get("eventTypeId")),
+                                        str(event_type.get("eventTypeId")))
+            for event_node in event_type.get("eventNodes", []) or []:
+                event_id = str(event_node.get("eventId", ""))
+                event = event_node.get("event") or {}
+                event_name = str(event.get("eventName", "?"))
+                if not event_id:
+                    continue
+                for market in event_node.get("marketNodes", []) or []:
+                    _normalize_betfair_market(sink, market, sport, event_id, event_name)
+    return sink.points
+
+
+def _normalize_betfair_market(sink: _Sink, market: dict[str, Any], sport: str,
+                              event_id: str, event_name: str) -> None:
+    state = market.get("state") or {}
+    if str(state.get("status", "OPEN")) != "OPEN":
+        return
+    description = market.get("description") or {}
+    market_key = canonical_market(str(description.get("marketName")
+                                      or description.get("marketType") or "?"))
+    for runner in market.get("runners", []) or []:
+        if str((runner.get("state") or {}).get("status", "ACTIVE")) != "ACTIVE":
+            continue
+        exchange = runner.get("exchange") or {}
+        backs = exchange.get("availableToBack") or []
+        lays = exchange.get("availableToLay") or []
+        odds = _odds_ok(backs[0].get("price")) if backs else None
+        if odds is None:
+            continue  # empty ladder — nothing a backer can take
+        name = str((runner.get("description") or {}).get("runnerName", "?"))
+        side = _side_from_event_name(name, event_name)
+        sink.add(PricePoint(
+            provider="betfair", book="Betfair", sport=sport,
+            event_external_id=event_id, event_name=event_name,
+            market=market_key, selection=side or name.lower(), odds=odds,
+            meta={"lay": lays[0].get("price") if lays else None,
+                  "back_size": backs[0].get("size") if backs else None,
+                  "total_matched": state.get("totalMatched"),
+                  "market_id": market.get("marketId"),
+                  "start_time": description.get("marketTime"),
+                  "runner": name},
+        ))

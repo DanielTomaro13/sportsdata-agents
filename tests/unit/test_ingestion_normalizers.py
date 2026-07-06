@@ -210,7 +210,8 @@ def test_feed_registry_is_discovery_driven() -> None:
 
     assert "nba_odds" not in FEEDS  # the CDN aggregator stays out: books of record only
     hot = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
-           "pointsbet_all", "betr_all", "dabble_all", "fanduel_us", "fanduel_racing_win"}
+           "pointsbet_all", "betr_all", "dabble_all", "betfair_all", "fanduel_us",
+           "fanduel_racing_win"}
     books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books", "pointsbet_books"}
     racing = {"tab_racing", "sportsbet_racing", "betr_racing", "pointsbet_racing", "unibet_racing"}
     futures = {"tab_racing_futures", "sportsbet_racing_futures",
@@ -1180,3 +1181,56 @@ def test_normalize_dabble_racing_uses_saddle_numbers() -> None:
     assert runner.selection == "3"
     assert runner.meta["runner"] == "Eden's Dream"
     assert runner.odds == 1.35
+
+
+BETFAIR_PAYLOAD = {"batches": [{
+    "eventTypes": [{
+        "eventTypeId": 2,
+        "eventNodes": [{
+            "eventId": 35790054,
+            "event": {"eventName": "De Minaur v Cobolli"},
+            "marketNodes": [
+                {"marketId": "1.259741854",
+                 "description": {"marketName": "Match Odds", "marketTime": "2026-07-06T12:00:00Z"},
+                 "state": {"status": "OPEN", "totalMatched": 50000.0},
+                 "runners": [
+                     {"selectionId": 1, "description": {"runnerName": "Alex De Minaur"},
+                      "state": {"status": "ACTIVE"},
+                      "exchange": {"availableToBack": [{"price": 1.30, "size": 283.57}],
+                                   "availableToLay": [{"price": 1.31, "size": 666.51}]}},
+                     {"selectionId": 2, "description": {"runnerName": "Flavio Cobolli"},
+                      "state": {"status": "ACTIVE"},
+                      "exchange": {"availableToBack": [{"price": 4.4, "size": 100.0}],
+                                   "availableToLay": [{"price": 4.6, "size": 90.0}]}},
+                     {"selectionId": 3, "description": {"runnerName": "Ghost"},
+                      "state": {"status": "REMOVED"},
+                      "exchange": {"availableToBack": [{"price": 9.0, "size": 5.0}]}},
+                     {"selectionId": 4, "description": {"runnerName": "Empty Ladder"},
+                      "state": {"status": "ACTIVE"}, "exchange": {}},
+                 ]},
+                {"marketId": "1.9", "description": {"marketName": "Suspended Market"},
+                 "state": {"status": "SUSPENDED"},
+                 "runners": [{"description": {"runnerName": "X"}, "state": {"status": "ACTIVE"},
+                              "exchange": {"availableToBack": [{"price": 2.0, "size": 10.0}]}}]},
+            ],
+        }],
+    }],
+}]}
+
+
+def test_normalize_betfair_exchange() -> None:
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_betfair_all
+
+    points = normalize_betfair_all(BETFAIR_PAYLOAD)
+    by_sel = {p.selection: p for p in points}
+    # sides resolve from the "A v B" event name; best back is the odds
+    assert set(by_sel) == {"home", "away"}  # removed runner, empty ladder, suspended market all skipped
+    home = by_sel["home"]
+    assert (home.provider, home.book, home.sport) == ("betfair", "Betfair", "tennis")
+    assert home.odds == 1.30
+    assert home.meta["lay"] == 1.31
+    assert home.meta["total_matched"] == 50000.0
+    assert home.meta["market_id"] == "1.259741854"
+    assert home.market == "h2h"  # "Match Odds" folds via the dictionary
+    assert normalize_betfair_all({}) == []
+    assert normalize_betfair_all([]) == []

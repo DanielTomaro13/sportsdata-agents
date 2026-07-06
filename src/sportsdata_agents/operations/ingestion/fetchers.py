@@ -1017,3 +1017,48 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
             "details": details,
         })
     return {"competitions": out}
+
+
+# Betfair navigation event types we capture (the exchange's own tree ids).
+BETFAIR_EVENT_TYPES: dict[str, str] = {
+    "7": "horse_racing", "4339": "greyhound_racing", "61420": "australian_rules",
+    "1477": "rugby_league", "2": "tennis", "1": "soccer", "4": "cricket",
+    "7522": "basketball", "6423": "american_football", "7511": "baseball", "3": "golf",
+}
+BETFAIR_TYPES_PER_CYCLE = 4
+BETFAIR_MARKETS_PER_CYCLE = 150
+_BETFAIR_PRICE_BATCH = 25
+
+
+async def fetch_betfair_all(manager: Any) -> dict[str, Any]:
+    """Betfair exchange, NO API key: navigation with MARKET attachments hands
+    back market ids directly (1000+ per event type in one call — probed live
+    2026-07-06), then bymarket returns the full back/lay ladders. The route
+    split is load-bearing: byevent STRIPS exchange prices and 400s on
+    multi-id batches, so it is not used at all. Uses the public `_ak` web
+    key the site itself uses."""
+    type_ids = _take_rotating("betfair_all", sorted(BETFAIR_EVENT_TYPES), BETFAIR_TYPES_PER_CYCLE)
+    market_ids: list[str] = []
+    for type_id in type_ids:
+        try:
+            nav = await manager.call_tool("betfair_navigation", {
+                "nodeIds": f"EVENT_TYPE:{type_id}", "attachments": "MENU,EVENT,MARKET",
+                "maxOutDistance": 5, "maxResults": 150,
+            })
+        except Exception as e:
+            logger.warning("betfair navigation %s failed: %s", type_id, e)
+            continue
+        market_ids.extend(
+            str(n["nodeId"]).split(":", 1)[1]
+            for n in nav.get("nodes", []) or []
+            if n.get("nodeType") == "MARKET" and ":" in str(n.get("nodeId", ""))
+        )
+    batches: list[Any] = []
+    for start in range(0, min(len(market_ids), BETFAIR_MARKETS_PER_CYCLE), _BETFAIR_PRICE_BATCH):
+        batch = market_ids[start:start + _BETFAIR_PRICE_BATCH]
+        try:
+            batches.append(await manager.call_tool("betfair_market_prices",
+                                                   {"marketIds": ",".join(batch)}))
+        except Exception as e:
+            logger.warning("betfair bymarket batch failed: %s", e)
+    return {"batches": batches}
