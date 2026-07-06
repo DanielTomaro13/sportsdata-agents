@@ -32,6 +32,7 @@ async def _seed(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
         s.add(Fixture(id=fixture_id, sport="tennis", external_id="FX-1",
                       name="Alex De Minaur v Flavio Cobolli",
                       start_time=NOW + dt.timedelta(hours=3)))
+        await s.flush()  # the FK-enforcing Postgres matrix needs the fixture first
         s.add(Event(fixture_id=fixture_id, provider="betfair", external_id="BF-1"))
         s.add(Event(fixture_id=fixture_id, provider="sportsbet", external_id="SB-1"))
         s.add(Event(fixture_id=fixture_id, provider="dabble", external_id="DB-1"))
