@@ -1524,10 +1524,14 @@ def form() -> None:
         sf = make_sessionmaker(engine)
         try:
             async with MCPManager(
-                groups=["tab.racing"], command=settings.mcp_command,
+                groups=["tab.racing", "sportsbet.racing"], command=settings.mcp_command,
                 extra_env={"SPORTSDATA_MCP_MAX_BYTES": str(INGEST_MAX_BYTES)},
             ) as manager:
                 report = await ingest_tab_form(manager, sf)
+                from sportsdata_agents.operations.ingestion.form import ingest_sportsbet_form
+
+                sb_report = await ingest_sportsbet_form(manager, sf)
+                report = {"tab": report, "sportsbet": sb_report}
             console.print(f"✓ form: {report}")
         finally:
             await engine.dispose()

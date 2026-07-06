@@ -687,6 +687,14 @@ def normalize_fanduel_races(payload: Any) -> list[PricePoint]:
             continue
         track = (race.get("track") or {}).get("name") or race.get("trackName") or "?"
         sport = "greyhound_racing" if race.get("isGreyhound") else "horse_racing"
+        # pari-mutuel: the WIN pool is the money behind these tote odds — the
+        # exchange-liquidity gates and displays read it exactly like matched
+        win_pool = None
+        for pool in race.get("racePools") or []:
+            code = str(((pool.get("wagerType") or {}).get("code")) or "")
+            if code in ("WN", "Win", "WIN"):
+                win_pool = pool.get("amount")
+                break
         for bi in race.get("bettingInterests", []) or []:
             runners = bi.get("runners") or []
             if runners and all(r.get("scratched") for r in runners):
@@ -703,7 +711,9 @@ def normalize_fanduel_races(payload: Any) -> list[PricePoint]:
                 event_external_id=race_id, event_name=f"{track} R{race.get('raceNumber')}",
                 market="win", selection=str(bi.get("biNumber")), odds=round(odds, 3),
                 meta={"post_time": race.get("postTime"),
-                      "runner": (runners[0].get("horseName") if runners else None)},
+                      "runner": (runners[0].get("horseName") if runners else None),
+                      **({"total_matched": win_pool, "money_kind": "pool"}
+                         if win_pool is not None else {})},
             ))
     return sink.points
 

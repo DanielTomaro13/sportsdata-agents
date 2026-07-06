@@ -18,6 +18,7 @@ from sportsdata_agents.operations.watch_registry import (
 DISPATCHED_KINDS = {
     "arb", "line_move", "steam", "value", "scratching", "model_value",
     "exchange_value", "stat_value", "racing_value", "prediction_value", "back_lay",
+    "bsp_value",
 }
 
 

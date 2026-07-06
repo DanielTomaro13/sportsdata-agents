@@ -129,15 +129,15 @@ async def test_ratings_slate_records_book_free_predictions(
 async def test_form_slate_prices_a_race_from_form_alone(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
+    def runs(*positions: int) -> list[dict]:
+        return [{"position": p, "field_size": 8, "age_days": 10.0 + 14 * i}
+                for i, p in enumerate(positions)]
+
     runners = [
-        {"number": 1, "name": "FAST CAR", "last_starts": "11212", "days_since_run": 9,
-         "scratched": False},
-        {"number": 2, "name": "MID PACK", "last_starts": "44554", "days_since_run": 12,
-         "scratched": False},
-        {"number": 3, "name": "BACKMARKER", "last_starts": "89907", "days_since_run": 20,
-         "scratched": False},
-        {"number": 4, "name": "SCRATCHED ONE", "last_starts": "1111", "days_since_run": 7,
-         "scratched": True},
+        {"number": 1, "name": "FAST CAR", "runs": runs(1, 1, 2, 1, 2), "scratched": False},
+        {"number": 2, "name": "MID PACK", "runs": runs(4, 4, 5, 5, 4), "scratched": False},
+        {"number": 3, "name": "BACKMARKER", "runs": runs(8, 8, 7, 8, 7), "scratched": False},
+        {"number": 4, "name": "SCRATCHED ONE", "runs": runs(1, 1, 1), "scratched": True},
     ]
     async with db_sessionmaker() as s:
         s.add(RaceForm(provider="tab_racing", race_key="2026-07-07:G:QST:R9",

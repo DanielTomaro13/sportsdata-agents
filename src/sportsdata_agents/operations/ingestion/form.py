@@ -52,6 +52,111 @@ def _trim_runner(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_RECENT_START = __import__("re").compile(
+    r"^(?P<pos>[A-Za-z]{1,3}|\d{1,2}) of (?P<field>\d{1,2})\s.+?"
+    r"(?P<day>\d{1,2}) (?P<mon>[A-Za-z]{3,9}) (?P<yr>\d{2})\b")
+_MONTHS = {m[:3].lower(): i + 1 for i, m in enumerate(
+    ("January", "February", "March", "April", "May", "June", "July",
+     "August", "September", "October", "November", "December"))}
+
+
+def parse_recent_start(text: str, now: dt.datetime) -> dict[str, Any] | None:
+    """One STRUCTURED past run from a racecard's recent-start line —
+    "5 of 8 KARTEPE 14.94 lens 23 June 26 1400m ..." → position 5 of a
+    9-runner field, aged from the printed date. Letters (F/PU/DNF) are
+    non-finishes: scored as last of field."""
+    match = _RECENT_START.match(str(text or "").strip())
+    if not match:
+        return None
+    field = int(match.group("field")) + 1  # "of 8" counts the OTHERS beaten
+    pos = match.group("pos")
+    position = field if pos.isalpha() else min(int(pos), field)
+    month = _MONTHS.get(match.group("mon")[:3].lower())
+    if month is None:
+        return None
+    try:
+        ran = dt.datetime(2000 + int(match.group("yr")), month,
+                          int(match.group("day")), tzinfo=dt.UTC)
+    except ValueError:
+        return None
+    age_days = (now - ran).total_seconds() / 86_400.0
+    if age_days < 0:
+        return None
+    return {"position": position, "field_size": field, "age_days": round(age_days, 1)}
+
+
+async def ingest_sportsbet_form(
+    manager: Any,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    """STRUCTURED run-by-run form from Sportsbet racecards (no auth needed):
+    each selection's statistics.recentStarts lines carry position, field size
+    and date — the exact inputs the form model wants, where TAB's guide only
+    offers aggregates. Covers AU + international racing."""
+    from sportsdata_agents.operations.ingestion.fetchers import fetch_sportsbet_races
+
+    now = now or dt.datetime.now(dt.UTC)
+    date = now.astimezone(_AEST).strftime("%Y-%m-%d")
+    try:
+        payload = await fetch_sportsbet_races(manager)
+    except Exception as e:
+        logger.warning("sportsbet form: racecards fetch failed: %s", e)
+        return {"ok": False, "error": str(e)[:200]}
+    sports = payload.get("sports") or {}
+    meetings = payload.get("meetings") or {}
+    type_code = {"horse_racing": "R", "greyhound_racing": "G", "harness_racing": "H"}
+    rows: list[dict[str, Any]] = []
+    for event in payload.get("events") or []:
+        event_id = str(event.get("id", ""))
+        venue = meetings.get(event_id) or event.get("competitionName") or ""
+        number = event.get("raceNumber")
+        if not venue or number is None:
+            continue
+        runners: list[dict[str, Any]] = []
+        for market in event.get("markets") or []:
+            if not isinstance(market, dict):
+                continue
+            for sel in market.get("selections") or []:
+                stats = sel.get("statistics") or {}
+                runs = [r for r in (parse_recent_start(line, now)
+                                    for line in stats.get("recentStarts") or []) if r]
+                if not runs or sel.get("runnerNumber") is None:
+                    continue
+                runners.append({"number": sel.get("runnerNumber"),
+                                "name": sel.get("name"), "scratched": bool(sel.get("isOut")),
+                                "runs": runs})
+            break  # the primary market carries every runner once
+        if len(runners) < 3:
+            continue
+        start = event.get("startTime")
+        start_dt = (dt.datetime.fromtimestamp(float(start), tz=dt.UTC)
+                    if isinstance(start, int | float) else None)
+        rows.append({"race_key": f"{date}:S:{venue}:R{number}",
+                     "race_type": type_code.get(str(sports.get(event_id)), "R"),
+                     "venue": str(venue)[:16], "number": int(number),
+                     "start": start_dt, "runners": runners})
+    stored = 0
+    if rows:
+        async with session_factory() as session:
+            existing = {r.race_key for r in (await session.execute(
+                select(RaceForm).where(RaceForm.meeting_date == date,
+                                       RaceForm.provider == "sportsbet_racing")
+            )).scalars().all()}
+            for row in rows:
+                if row["race_key"] in existing:
+                    continue
+                session.add(RaceForm(
+                    provider="sportsbet_racing", race_key=row["race_key"],
+                    meeting_date=date, race_type=row["race_type"],
+                    venue_mnemonic=row["venue"], race_number=row["number"],
+                    start_time=row["start"], runners=row["runners"], captured_at=now))
+                stored += 1
+            await session.commit()
+    return {"ok": True, "races": len(rows), "stored": stored}
+
+
 async def ingest_tab_form(
     manager: Any,
     session_factory: async_sessionmaker[AsyncSession],

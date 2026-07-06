@@ -327,19 +327,27 @@ async def record_ratings_slate(
     for race in form_rows:
         if events_priced >= max_events:
             break
+        from sportsdata_engines.ratings.racing import PastRun
+
         history: dict[str, list[Any]] = {}
         numbers: dict[str, Any] = {}
-        for runner in race.runners or []:
-            if runner.get("scratched"):
-                continue
-            runs = parse_last_starts(runner.get("last_starts") or "",
-                                     runner.get("days_since_run"))
+        field = [r for r in (race.runners or []) if not r.get("scratched")]
+        for runner in field:
+            # STRUCTURED runs only (position/field_size/age_days parsed from a
+            # racecard's run-by-run history). The compact-string approximation
+            # is retired from pricing: it produced near-uniform probabilities
+            # on thin fields ("fair 4.00" on a 20.0 dog) — recorded garbage.
+            runs = [PastRun(position=int(r["position"]), field_size=int(r["field_size"]),
+                            age_days=float(r["age_days"]))
+                    for r in runner.get("runs") or [] if isinstance(r, dict)]
             if runs:
                 label = str(runner.get("name") or runner.get("number"))
                 history[label] = runs
                 numbers[label] = runner.get("number")
-        if len(history) < 3:
-            continue  # a form price off one or two exposed runners is a guess
+        # a fair needs MOST of the field exposed — pricing 3 of 10 runners
+        # overstates every probability
+        if len(history) < 3 or (field and len(history) < 0.6 * len(field)):
+            continue
         if await _dedupe_hit(session, scope, artifacts[name], "TAB", race.race_key,
                              now, dedupe_hours):
             skipped_dedupe += 1

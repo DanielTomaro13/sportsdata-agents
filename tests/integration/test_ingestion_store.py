@@ -333,7 +333,7 @@ async def test_line_monitor_fires_and_dedupes(
 
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
     assert report["alerts"] == 1 and len(pushed) == 1
-    assert "2.00 → 1.70" in pushed[0] and "shortened" in pushed[0]
+    assert "2.00 to 1.70" in pushed[0] and "shortened" in pushed[0]
     async with db_sessionmaker() as s:
         alert = (await s.execute(select(Alert))).scalar_one()
         assert alert.pushed is True and alert.kind == "line_move"
@@ -380,7 +380,7 @@ async def test_steam_and_value_watches(
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
     kinds = {m.split(" — ")[0] for m in pushed}
     assert report["alerts"] == 2  # one steam + one value (0.70*1.70 = +19% edge)
-    assert any("steam" in k for k in kinds) and any("value" in k for k in kinds)
+    assert any("steam" in k.lower() for k in kinds) and any("value" in k.lower() for k in kinds)
 
 
 async def test_alert_shows_other_books_for_the_same_market(
@@ -427,7 +427,7 @@ async def test_alert_shows_other_books_for_the_same_market(
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
     assert report["alerts"] == 1
     assert "Western Bulldogs v Adelaide Crows" in pushed[0]
-    assert "across books: TAB 1.95" in pushed[0]  # orientation-translated quote
+    assert "TAB 1.95" in pushed[0]  # orientation-translated quote
 
 
 async def test_migrate_warehouse_roundtrip(
