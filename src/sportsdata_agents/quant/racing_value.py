@@ -14,10 +14,12 @@ covers the race, else from the MEDIAN of the other books' de-vigged prices
 is the signal: ``edge_pct = odds * fair_prob - 1``.
 
 LONGSHOT HONESTY: proportional de-vig overstates longshot probabilities
-(the favourite-longshot bias the deferred per-book margin curves will fix
-properly), so a 100-1 runner reads as a monster "edge" against a naive
-fair. Runners whose fair odds exceed ``max_fair_odds`` are NOT flagged —
-the scan only speaks where the de-vig is trustworthy.
+(the favourite-longshot bias), so a 100-1 runner reads as a monster "edge"
+against a naive fair. Two defences: per-book MARGIN CURVES are fitted from
+each book's own boards in the window (>=3 races) and de-vig longshots
+honestly; and runners whose fair odds exceed ``max_fair_odds`` are still
+never flagged — the ceiling is the belt to the curve's braces. Without the
+engines package the scan falls back to proportional de-vig unchanged.
 """
 
 from __future__ import annotations
@@ -57,6 +59,43 @@ class _RaceUnit:
     def devig(self) -> dict[str, float]:
         inv = sum(1.0 / o for o in self.runners.values())
         return {name: (1.0 / odds) / inv for name, odds in self.runners.items()}
+
+
+def _book_curves(units: list[_RaceUnit], exchange_book: str) -> dict[str, Any]:
+    """A margin curve per book, fitted from that book's own boards in the
+    window (>=3 full races). Empty dict when the engines package is absent or
+    a book lacks boards — callers fall back to proportional de-vig."""
+    try:
+        from sportsdata_engines.racing.infer import fit_margin_curve
+    except ImportError:
+        return {}
+    boards: dict[str, list[dict[str, float]]] = {}
+    for unit in units:
+        if unit.book == exchange_book or len(unit.runners) < 4:
+            continue  # tiny fields tell a curve nothing
+        boards.setdefault(unit.book, []).append(
+            {name: 1.0 / odds for name, odds in unit.runners.items()})
+    curves: dict[str, Any] = {}
+    for book, book_boards in boards.items():
+        if len(book_boards) < 3:
+            continue
+        with contextlib.suppress(ValueError):
+            curves[book] = fit_margin_curve(book_boards)[0]
+    return curves
+
+
+def _devig(unit: _RaceUnit, curve: Any) -> dict[str, float]:
+    """The unit's fair probabilities — through the book's fitted margin curve
+    when one exists (honest longshots), else proportional."""
+    if curve is not None:
+        try:
+            from sportsdata_engines.racing.infer import win_probabilities_from_marked
+
+            return win_probabilities_from_marked(
+                {name: 1.0 / odds for name, odds in unit.runners.items()}, curve=curve)
+        except Exception:
+            pass
+    return unit.devig()
 
 
 def _as_utc(when: dt.datetime | None) -> dt.datetime | None:
@@ -146,6 +185,7 @@ async def scan_racing_value(
         if not placed:
             clusters.append([unit])
 
+    curves = _book_curves(list(units.values()), exchange_book)
     found: list[dict[str, Any]] = []
     for cluster in clusters:
         # STALENESS: books re-quote on different cadences — a quote much older
@@ -178,8 +218,8 @@ async def scan_racing_value(
         flaggable = [u for u in books if u.book not in exclude_books]
         if exchange is None and len(books) < min_consensus_books:
             continue  # consensus needs a pack to be out from
-        fairs = {u.book: u.devig() for u in books}
-        exchange_fair = exchange.devig() if exchange else None
+        fairs = {u.book: _devig(u, curves.get(u.book)) for u in books}
+        exchange_fair = exchange.devig() if exchange else None  # backs carry ~no margin
         for unit in flaggable:
             start = unit.start
             if start is not None and start <= now:

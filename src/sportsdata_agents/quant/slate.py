@@ -56,7 +56,14 @@ SLATE_SPORTS: tuple[tuple[str, str], ...] = (
     ("racing", "horse_racing"),
     ("racing", "greyhound_racing"),
     ("racing", "harness_racing"),
+    # golf: the outright field is the anchor (win probabilities per player)
+    ("golf", "golf"),
+    ("golf", "pga"),
 )
+
+# the golf outright market under its captured aliases
+_GOLF_WIN_MARKETS = {"outright", "outright betting", "to win", "winner", "win only",
+                     "win only img", "win"}
 
 # sports whose engine seed is just the two-way h2h pair (no total required)
 _H2H_ONLY_SPORTS = {"darts", "snooker", "mma"}
@@ -71,6 +78,11 @@ def _seed_for(sport: str, event_rows: list[Any]) -> dict[str, Any] | None:
         win_odds = {r.selection: float(r.odds) for r in event_rows
                     if r.market.lower() == "win"}
         return {"win_odds": win_odds} if len(win_odds) >= 2 else None
+    if sport == "golf":
+        win_odds = {r.selection: float(r.odds) for r in event_rows
+                    if r.market.lower() in _GOLF_WIN_MARKETS}
+        # a couple of quotes is a matchup, not a field — the engine wants the board
+        return {"win_odds": win_odds} if len(win_odds) >= 5 else None
     seed, _ = _footy_engine_inputs(event_rows)
     if sport in _H2H_ONLY_SPORTS:
         # the contest/mma anchor is the h2h pair alone — totals (if the books
@@ -129,7 +141,7 @@ async def record_slate(
     anchor_cutoff = now - dt.timedelta(minutes=anchor_minutes)
     ttl_cutoff = now - dt.timedelta(hours=24.0)
     anchor_markets = {"2way", "h2h", "head_to_head", "match_winner", "total", "totals",
-                      "win"}  # racing's anchor is the win board
+                      "win", *_GOLF_WIN_MARKETS}  # racing/golf anchor on the win board
     recorded = 0
     events_priced = 0
     skipped_dedupe = 0

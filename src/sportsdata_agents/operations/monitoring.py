@@ -955,10 +955,11 @@ async def _watch_stat_value(
     book's OWN threshold ladder (via the engine seam), then flag rungs that
     disagree with the ladder's fitted level — the consistency edge on props.
 
-    Reads the structured stat lines the Dabble feed captures (meta carries
-    player/stat/stat_line/line_type on each priced selection); O/U pairs at
-    the same line de-vig into anchors that pin the fit's level. Degrades
-    cleanly with no engine configured."""
+    Reads structured stat lines from EVERY book whose captures carry
+    player/stat/stat_line/line_type meta (Dabble natively; other books via the
+    ingest prop tagger); O/U pairs at the same line de-vig into anchors that
+    pin the fit's level. params.book narrows to one book; unset scans all.
+    Ladders never mix books. Degrades cleanly with no engine configured."""
     import math
 
     from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
@@ -972,23 +973,29 @@ async def _watch_stat_value(
         logger.info("stat_value watch %s: no engine configured — skipping", sub.name)
         return 0
 
-    book = str(sub.params.get("book", "Dabble"))
+    book_filter = sub.params.get("book")  # None = every prop-tagged book
     min_edge = float(sub.params.get("min_edge_pct", 5.0))
     hours = float(sub.params.get("hours", 2.0))
     min_rungs = int(sub.params.get("min_rungs", 3))
     max_rmse = float(sub.params.get("max_rmse_log", 0.08))
     cap = int(sub.params.get("max_alerts_per_cycle", 5))
 
+    from sqlalchemy import String, cast
+
     from sportsdata_agents.data.models import OddsSnapshot
 
-    rows = (await session.execute(
-        select(OddsSnapshot).where(
-            OddsSnapshot.book == book,
-            OddsSnapshot.captured_at > now - dt.timedelta(hours=hours),
-        ).order_by(OddsSnapshot.captured_at)
-    )).scalars().all()
-    # latest quote per (event, player, stat, line, side); meta marks prop rows
-    ladders: dict[tuple[str, str, str], dict[tuple[float, str], float]] = {}
+    stmt = select(OddsSnapshot).where(
+        OddsSnapshot.captured_at > now - dt.timedelta(hours=hours),
+        # only prop-tagged rows leave the database — the all-books scan must
+        # not hydrate every captured market to find the few ladders
+        cast(OddsSnapshot.meta, String).like('%"player"%'),
+    )
+    if book_filter:
+        stmt = stmt.where(OddsSnapshot.book == str(book_filter))
+    rows = (await session.execute(stmt.order_by(OddsSnapshot.captured_at))).scalars().all()
+    # latest quote per (book, event, player, stat, line, side) — one book's
+    # ladder is internally consistent; a cross-book blend is not a ladder
+    ladders: dict[tuple[str, str, str, str], dict[tuple[float, str], float]] = {}
     names: dict[str, str] = {}
     sports: dict[str, str] = {}
     for row in rows:
@@ -997,13 +1004,13 @@ async def _watch_stat_value(
         side = str(meta.get("line_type", "")).lower()
         if not player or not stat or line is None or side not in ("over", "under"):
             continue
-        key = (row.event_external_id, str(player), str(stat))
+        key = (row.book, row.event_external_id, str(player), str(stat))
         ladders.setdefault(key, {})[(float(line), side)] = float(row.odds)
         names[row.event_external_id] = row.event_name
         sports[row.event_external_id] = row.sport
 
     fired = 0
-    for (event_id, player, stat), quotes_by_rung in sorted(ladders.items()):
+    for (book, event_id, player, stat), quotes_by_rung in sorted(ladders.items()):
         if fired >= cap:
             break
         lines = sorted({line for line, _ in quotes_by_rung})
@@ -1050,7 +1057,7 @@ async def _watch_stat_value(
                 f"(mu {fit['model']['mu']:.1f}, {len(seam_quotes)} rungs)"
             )
             bucket = int(edge_pct / 2.0)
-            alert_key = f"stat_value:{event_id}:{player}:{stat}:{line}:{side}:{bucket}"
+            alert_key = f"stat_value:{book}:{event_id}:{player}:{stat}:{line}:{side}:{bucket}"
             if await _fire(session, sub, kind="stat_value", key=alert_key, message=message,
                            payload={"event_external_id": event_id, "player": player,
                                     "stat": stat, "line": line, "side": side,

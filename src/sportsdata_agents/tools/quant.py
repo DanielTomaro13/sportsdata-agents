@@ -47,6 +47,37 @@ def _warehouse_line_suffix(line: float) -> str:
     return f" {line}"
 
 
+# Engine market family → warehouse family name for every BOUNDED family the
+# boards emit. Recording is the point even where no book quotes that family
+# yet: the row settles against results later, and joins appear the moment a
+# capture uses the name. Racing exotics and per-pair h2h stay out — they are
+# combinatorial (an 8-field first four is 1,680 rows per race) with no
+# captured quotes to join, storage for nothing.
+_FAMILY_NAMES: dict[str, str] = {
+    "h2h_3way": "win-draw-win",
+    "btts": "both teams to score",
+    "margin_bands": "exact winning margin",
+    "team_total_home": "team total home",
+    "team_total_away": "team total away",
+    "first_half_h2h": "first half h2h",
+    "first_half_line": "first half spread",
+    "first_half_total": "first half total",
+    # tennis
+    "total_games": "total games",
+    "set_handicap": "set handicap",
+    "total_sets": "total sets",
+    "correct_score_sets": "correct score sets",
+    "game_handicap": "game handicap",
+    # contest (snooker/darts)
+    "total_units": "total units",
+    "unit_handicap": "unit handicap",
+    "correct_score": "correct score",
+    # mma
+    "total_rounds": "total rounds",
+    "goes_distance": "goes the distance",
+}
+
+
 def _warehouse_key(market: str, selection: str, line: float | None) -> tuple[str, str] | None:
     """Engine board keys → the warehouse's captured-price convention, so recorded
     predictions actually JOIN price rows (value watch / backtest / CLV match on
@@ -64,6 +95,10 @@ def _warehouse_key(market: str, selection: str, line: float | None) -> tuple[str
         # only the engine's pays-3 line joins them; recording every place depth
         # would file contradictory probabilities under one key (phantom edges)
         return ("place", selection) if int(line) == 3 else None
+    family = _FAMILY_NAMES.get(market)
+    if family is not None:
+        suffix = _warehouse_line_suffix(line) if line is not None else ""
+        return family, f"{selection}{suffix}"
     return None
 
 

@@ -41,6 +41,15 @@ RATINGS_SPORTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("afl", ("australian_rules", "afl")),
     ("rugby_league", ("rugby_league",)),
     ("rugby_union", ("rugby_union",)),
+    # the ratings model is margin/total math, not footy-specific — every spine
+    # sport whose results carry scores fits the same way. The MIN_RESULTS floor
+    # keeps each sport OFF until its history is deep enough to be an opinion.
+    ("basketball", ("basketball", "nba")),
+    ("baseball", ("baseball", "mlb")),
+    ("nfl", ("nfl", "american_football")),
+    ("soccer", ("soccer",)),
+    ("ice_hockey", ("ice_hockey", "nhl")),
+    ("cricket", ("cricket",)),
 )
 
 MIN_RESULTS = 40  # a ratings fit off a weekend of scores is noise, not opinion

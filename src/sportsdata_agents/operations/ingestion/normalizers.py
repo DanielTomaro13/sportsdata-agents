@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -165,6 +165,13 @@ class _Sink:
     def add(self, point: PricePoint) -> None:
         if point.key not in self._seen:
             self._seen.add(point.key)
+            # every book's props flow through here — tag the ones whose
+            # market/selection names carry a ladder shape (prop_tagger)
+            from sportsdata_agents.operations.ingestion.prop_tagger import tag_prop
+
+            tagged = tag_prop(point.market, point.selection, point.meta)
+            if tagged is not point.meta:
+                point = replace(point, meta=tagged)
             self.points.append(point)
 
 

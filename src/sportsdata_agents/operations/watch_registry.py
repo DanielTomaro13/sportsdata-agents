@@ -107,7 +107,7 @@ WATCH_PARAMS: dict[str, Params] = {
         "bankroll": (100.0, "stake sizing base"),
     },
     "stat_value": {
-        "book": ("Dabble", "which book's stat ladders to price"),
+        "book": (None, "one book's ladders only; unset = every prop-tagged book"),
         "min_edge_pct": (5.0, "quoted rung pays above the fitted fair by this %"),
         "hours": (2.0, "how far back to look for ladder quotes"),
         "min_rungs": (3, "distinct thresholds needed before a fit is trusted"),

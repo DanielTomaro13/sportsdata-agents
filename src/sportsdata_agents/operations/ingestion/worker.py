@@ -464,13 +464,22 @@ async def ingest_once(
     Feeds fetch IN PARALLEL (each hits a different book's servers, so the wall
     clock of a tick is the slowest feed, not the sum — sequential ticks left
     every book behind the slow one many minutes stale, and the cross-book scans
-    read that asymmetry as edge). Warehouse writes stay SERIALIZED: SQLite has
-    one writer, and interleaved write transactions only trade throughput for
-    lock churn."""
+    read that asymmetry as edge). Warehouse writes serialize ONLY on SQLite
+    (one writer; interleaving just trades throughput for lock churn) — on
+    Postgres they run concurrently with the fetches."""
     feeds = feeds if feeds is not None else list(FEEDS.values())
     report: dict[str, Any] = {}
     fetch_gate = asyncio.Semaphore(INGEST_CONCURRENCY)
-    write_gate = asyncio.Lock()
+    # SQLite has ONE writer, so warehouse writes serialize behind this lock
+    # (the measured cycle cost: ~5 min of queued writes). Postgres handles
+    # concurrent writers natively — the gate opens right up and the cycle's
+    # wall clock collapses to the slowest fetch.
+    import contextlib
+
+    from sportsdata_agents.config import get_settings
+
+    sqlite_backend = "sqlite" in str(get_settings().database_url)
+    write_gate: Any = asyncio.Lock() if sqlite_backend else contextlib.nullcontext()
 
     async def _run(feed: Feed) -> None:
         try:

@@ -76,8 +76,13 @@ def test_warehouse_key_mapping() -> None:
     assert _warehouse_key("line", "home", -15.5) == ("spread", "home -15.5")
     assert _warehouse_key("total", "over", 186.5) == ("total", "over 186.5")
     assert _warehouse_key("win", "Gossamer Glow", None) == ("win", "Gossamer Glow")
-    assert _warehouse_key("h2h_3way", "draw", None) is None  # no stable convention: skip
-    assert _warehouse_key("team_total_home", "over", 90.5) is None
+    # the full-board families map to their warehouse names (record-now contract)
+    assert _warehouse_key("h2h_3way", "draw", None) == ("win-draw-win", "draw")
+    assert _warehouse_key("margin_bands", "home 1-39", None) == ("exact winning margin", "home 1-39")
+    assert _warehouse_key("first_half_total", "over", 92.5) == ("first half total", "over 92.5")
+    assert _warehouse_key("total_games", "over", 22.5) == ("total games", "over 22.5")
+    assert _warehouse_key("exacta", "1-2", None) is None  # combinatorial exotics stay out
+    assert _warehouse_key("team_total_home", "over", 90.5) == ("team total home", "over 90.5")
 
 
 def test_devig_curve_vs_proportional_on_odds_on_quotes() -> None:
