@@ -817,7 +817,6 @@ def ingest(
     from sportsdata_agents.data.db import make_engine, make_sessionmaker
     from sportsdata_agents.mcp.manager import MCPManager
     from sportsdata_agents.operations.ingestion import (
-        FEEDS,
         feeds_due_in_window,
         ingest_once,
         prune_snapshots,
@@ -827,7 +826,10 @@ def ingest(
 
     console = Console()
     settings = get_settings()
-    feeds = list(FEEDS.values()) if feed is None else [FEEDS[feed]]
+    from sportsdata_agents.operations.ingestion.worker import tuned_feeds
+
+    # operator cadence overrides (priority sharps tier + explicit per-feed map)
+    feeds = tuned_feeds() if feed is None else [next(f for f in tuned_feeds() if f.name == feed)]
     from sportsdata_agents.tools.ops import disabled_feeds as _disabled
 
     skip = _disabled()

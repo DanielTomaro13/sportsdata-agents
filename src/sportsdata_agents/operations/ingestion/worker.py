@@ -107,7 +107,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("sportsbet.sports",),
         normalizer=normalize_sportsbet_all,
         fetch=fetch_sportsbet_all,
-        interval_s=600,
+        interval_s=120,
     ),
     "tab_all": Feed(
         name="tab_all",
@@ -116,7 +116,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("tab.sports",),
         normalizer=normalize_tab_all,
         fetch=fetch_tab_all,
-        interval_s=900,  # competition pages are MB-scale
+        interval_s=300,  # competition pages are MB-scale — on-par-ish, not reckless
     ),
     "unibet_all": Feed(
         name="unibet_all",
@@ -125,7 +125,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("unibet.sport",),
         normalizer=normalize_unibet_all,
         fetch=fetch_unibet_all,
-        interval_s=300,
+        interval_s=120,
     ),
     "entain_all": Feed(
         name="entain_all",
@@ -134,7 +134,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("entain.rest", "entain.graphql"),  # graphql: SportingCategories discovery
         normalizer=normalize_entain_all,
         fetch=fetch_entain_all,
-        interval_s=300,
+        interval_s=120,
     ),
     "pinnacle_all": Feed(
         name="pinnacle_all",
@@ -143,7 +143,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("pinnacle.sports",),
         normalizer=partial(normalize_pinnacle_league, sport="?"),  # _sport rides each matchup
         fetch=fetch_pinnacle_all,
-        interval_s=300,
+        interval_s=120,
     ),
     "pointsbet_all": Feed(
         name="pointsbet_all",
@@ -152,7 +152,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("pointsbet.sports",),
         normalizer=partial(normalize_pointsbet_events, sport="?"),  # className labels each event
         fetch=fetch_pointsbet_all,
-        interval_s=900,  # listings only — pointsbet_books owns the ~5MB details (B6)
+        interval_s=300,  # listings only — pointsbet_books owns the ~5MB details (B6)
     ),
     "betr_all": Feed(
         name="betr_all",
@@ -161,7 +161,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("betr.sport",),
         normalizer=normalize_betr_all,
         fetch=fetch_betr_all,
-        interval_s=600,
+        interval_s=120,
     ),
     "betfair_all": Feed(
         name="betfair_all",
@@ -170,7 +170,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("betfair.exchange", "betfair.navigation"),
         normalizer=normalize_betfair_all,
         fetch=fetch_betfair_all,
-        interval_s=600,
+        interval_s=60,  # THE sharp price — racing rides every cycle
     ),
     "dabble_all": Feed(
         name="dabble_all",
@@ -179,7 +179,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("dabble.sport",),
         normalizer=normalize_dabble_all,
         fetch=fetch_dabble_all,
-        interval_s=600,
+        interval_s=120,
     ),
     "fanduel_us": Feed(
         name="fanduel_us",
@@ -256,7 +256,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("tab.racing",),
         normalizer=normalize_tab_races,
         fetch=fetch_tab_races,
-        interval_s=180,
+        interval_s=120,
     ),
     "sportsbet_racing": Feed(
         name="sportsbet_racing",
@@ -265,7 +265,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("sportsbet.racing",),
         normalizer=normalize_sportsbet_races,
         fetch=fetch_sportsbet_races,
-        interval_s=180,
+        interval_s=120,
     ),
     "betr_racing": Feed(
         name="betr_racing",
@@ -274,7 +274,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("betr.racing",),
         normalizer=normalize_betr_races,
         fetch=fetch_betr_races,
-        interval_s=180,
+        interval_s=120,
     ),
     "pointsbet_racing": Feed(
         name="pointsbet_racing",
@@ -283,7 +283,7 @@ FEEDS: dict[str, Feed] = {
         mcp_groups=("pointsbet.racing",),
         normalizer=normalize_pointsbet_races,
         fetch=fetch_pointsbet_races,
-        interval_s=180,
+        interval_s=120,
     ),
     "unibet_racing": Feed(
         name="unibet_racing",
@@ -364,6 +364,50 @@ FEEDS: dict[str, Feed] = {
 }
 
 
+def tuned_feeds(feeds: list[Feed] | None = None) -> list[Feed]:
+    """The feed list with the OPERATOR'S cadence overrides applied — every
+    entry point (CLI cron, ops tools, run_loop) goes through here so a user
+    retunes capture speed without touching code:
+
+    - ``SPORTSDATA_AGENTS_PRIORITY_FEEDS`` — comma-separated feed names to run
+      hottest (default: the sharps, ``betfair_all,pinnacle_all`` — their prices
+      ARE the market's opinion; everyone else is compared against them).
+    - ``SPORTSDATA_AGENTS_PRIORITY_INTERVAL_S`` — the priority tier's cadence
+      (default 60; a feed's own interval wins when already faster).
+    - ``SPORTSDATA_AGENTS_FEED_INTERVALS`` — JSON map of feed name → seconds;
+      the final word, wins over everything (e.g. '{"tab_all": 60}').
+    """
+    import json
+    import os
+    from dataclasses import replace
+
+    feeds = list(FEEDS.values()) if feeds is None else list(feeds)
+    priority = {
+        name.strip()
+        for name in os.environ.get(
+            "SPORTSDATA_AGENTS_PRIORITY_FEEDS", "betfair_all,pinnacle_all"
+        ).split(",")
+        if name.strip()
+    }
+    priority_s = int(os.environ.get("SPORTSDATA_AGENTS_PRIORITY_INTERVAL_S", "60"))
+    overrides: dict[str, int] = {}
+    raw = os.environ.get("SPORTSDATA_AGENTS_FEED_INTERVALS", "")
+    if raw:
+        try:
+            overrides = {str(k): int(v) for k, v in json.loads(raw).items()}
+        except (ValueError, TypeError):
+            logger.warning("SPORTSDATA_AGENTS_FEED_INTERVALS is not a JSON name->seconds map; ignored")
+    out: list[Feed] = []
+    for feed in feeds:
+        interval = feed.interval_s
+        if feed.name in priority:
+            interval = min(interval, priority_s)
+        if feed.name in overrides:
+            interval = overrides[feed.name]
+        out.append(replace(feed, interval_s=interval) if interval != feed.interval_s else feed)
+    return out
+
+
 PACE_SCOPE_MAX_INTERVAL_S = 900  # only hot/prediction tiers accelerate
 
 
@@ -394,22 +438,37 @@ def feeds_due_in_window(
     ]
 
 
+INGEST_CONCURRENCY = 6  # simultaneous provider fetches (distinct hosts)
+
+
 async def ingest_once(
     manager: Any,  # MCPManager (Any: tests inject a fake with .call_tool)
     session_factory: async_sessionmaker[AsyncSession],
     feeds: list[Feed] | None = None,
 ) -> dict[str, Any]:
-    """Run each feed once: fetch → normalize → record. Failures are per-feed."""
+    """Run each feed once: fetch → normalize → record. Failures are per-feed.
+
+    Feeds fetch IN PARALLEL (each hits a different book's servers, so the wall
+    clock of a tick is the slowest feed, not the sum — sequential ticks left
+    every book behind the slow one many minutes stale, and the cross-book scans
+    read that asymmetry as edge). Warehouse writes stay SERIALIZED: SQLite has
+    one writer, and interleaved write transactions only trade throughput for
+    lock churn."""
     feeds = feeds if feeds is not None else list(FEEDS.values())
     report: dict[str, Any] = {}
-    for feed in feeds:
+    fetch_gate = asyncio.Semaphore(INGEST_CONCURRENCY)
+    write_gate = asyncio.Lock()
+
+    async def _run(feed: Feed) -> None:
         try:
-            if feed.fetch is not None:  # multi-call providers compose their own payload
-                payload = await feed.fetch(manager)
-            else:
-                payload = await manager.call_tool(feed.tool, feed.arguments or {})
-            points = feed.normalizer(payload)  # raw: shapes differ (TAB dict, sportsbet list)
-            stats = await record_points(session_factory, points)
+            async with fetch_gate:
+                if feed.fetch is not None:  # multi-call providers compose their own payload
+                    payload = await feed.fetch(manager)
+                else:
+                    payload = await manager.call_tool(feed.tool, feed.arguments or {})
+                points = feed.normalizer(payload)  # raw: shapes differ (TAB dict, sportsbet list)
+            async with write_gate:
+                stats = await record_points(session_factory, points)
             report[feed.name] = {"ok": True, **stats}
             if not points:  # reachable but empty (off-season, shape drift) — visible, not silent
                 report[feed.name]["note"] = "feed returned no price points"
@@ -419,6 +478,8 @@ async def ingest_once(
         except Exception as e:  # one bad feed must not sink the rest
             logger.warning("feed %s failed: %s: %s", feed.name, type(e).__name__, e)
             report[feed.name] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    await asyncio.gather(*(_run(feed) for feed in feeds))
     return report
 
 

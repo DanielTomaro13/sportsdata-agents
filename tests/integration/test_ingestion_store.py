@@ -110,6 +110,54 @@ async def test_ingest_once_isolates_feed_failures(db_sessionmaker: async_session
     assert report["good"] == {"ok": True, "snapshots": 1, "price_changes": 1}  # bad didn't sink good
 
 
+async def test_ingest_once_fetches_feeds_in_parallel(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Feeds overlap on the wire: a tick's wall clock is the slowest feed, not
+    the sum (sequential ticks left every book stale behind the slow one, and
+    the cross-book scans read that asymmetry as edge)."""
+    import asyncio
+
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_nba_odds
+
+    in_flight, peak = 0, 0
+
+    class SlowManager:
+        async def call_tool(self, tool: str, args: dict) -> object:
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.05)
+            in_flight -= 1
+            return NBA_MINI
+
+    feeds = [Feed(name=f"feed{i}", tool="nba_odds_today", mcp_groups=("nba",),
+                  normalizer=normalize_nba_odds) for i in range(4)]
+    report = await ingest_once(SlowManager(), db_sessionmaker, feeds)
+    assert all(report[f.name]["ok"] for f in feeds)
+    assert peak >= 3, f"fetches did not overlap (peak concurrency {peak})"
+
+
+def test_tuned_feeds_priority_and_overrides(monkeypatch) -> None:
+    """Cadence is the OPERATOR'S dial: sharps default to the hot tier, and an
+    explicit per-feed map is the final word."""
+    from sportsdata_agents.operations.ingestion.worker import FEEDS, tuned_feeds
+
+    by_name = {f.name: f for f in tuned_feeds()}
+    # sharps ride the priority tier by default
+    assert by_name["betfair_all"].interval_s == 60
+    assert by_name["pinnacle_all"].interval_s == 60
+    # a custom priority list + explicit override both apply
+    monkeypatch.setenv("SPORTSDATA_AGENTS_PRIORITY_FEEDS", "tab_all")
+    monkeypatch.setenv("SPORTSDATA_AGENTS_PRIORITY_INTERVAL_S", "45")
+    monkeypatch.setenv("SPORTSDATA_AGENTS_FEED_INTERVALS", '{"unibet_all": 999}')
+    by_name = {f.name: f for f in tuned_feeds()}
+    assert by_name["tab_all"].interval_s == 45
+    assert by_name["unibet_all"].interval_s == 999
+    # non-priority feeds keep their spec'd cadence
+    assert by_name["pinnacle_all"].interval_s == FEEDS["pinnacle_all"].interval_s
+
+
 async def test_run_loop_respects_per_feed_intervals(db_sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     from sportsdata_agents.operations.ingestion.normalizers import normalize_nba_odds
 
