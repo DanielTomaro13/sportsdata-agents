@@ -968,9 +968,6 @@ async def fetch_polymarket_all(manager: Any) -> dict[str, Any]:
     return {"pages": pages}
 
 
-_DABBLE_RACING_SPORTS = frozenset(
-    {"thoroughbred racing", "greyhound racing", "harness racing", "racing futures"}
-)
 DABBLE_COMPETITIONS_PER_CYCLE = 8
 
 
@@ -978,14 +975,13 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
     """Dabble: active competitions → per-competition fixture listings (featured
     prices inline) → per-fixture details for the FULL board (300+ markets on a
     liquid fixture, incl. quarter/half derivatives and the playerProps block
-    that joins Pick'em stat lines onto priced selections). Racing categories
-    are skipped — Dabble racing rides a different surface (deferred with the
-    racing spec)."""
+    that joins Pick'em stat lines onto priced selections). RACING rides the
+    SAME routes (verified live 2026-07-06): each race is a fixture whose
+    details carry Fixed/SP win-place + exotics as Racing* resultingTypes —
+    meeting competitions rotate through with everything else."""
     listing = await manager.call_tool("dabble_active_competitions", {})
     comps = ((listing or {}).get("data") or {}).get("activeCompetitions") or []
-    comps = [c for c in comps
-             if str(c.get("sportName", "")).lower() not in _DABBLE_RACING_SPORTS
-             and c.get("id")]
+    comps = [c for c in comps if c.get("id")]
     out: list[dict[str, Any]] = []
     details_budget = MAX_EVENTS_PER_CYCLE
     for comp in _take_rotating("dabble_all", comps, DABBLE_COMPETITIONS_PER_CYCLE):

@@ -1153,3 +1153,30 @@ def test_normalize_dabble_all() -> None:
     assert by_key[("fx-2", "h2h", "home")].odds == 2.10
     assert normalize_dabble_all({}) == []
     assert normalize_dabble_all([]) == []
+
+
+def test_normalize_dabble_racing_uses_saddle_numbers() -> None:
+    """Racing rides the same relational shape; runners keep the warehouse
+    racing convention (saddle number = selection, name in meta)."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_dabble_all
+
+    payload = {"competitions": [{
+        "sport": "Greyhound Racing", "competition": "Ballarat",
+        "fixtures": [],
+        "details": [{
+            "id": "race-1", "name": "A1 Signage (1-2 Wins)",
+            "markets": [{"id": "m-fw", "name": "Fixed Win", "resultingType": "RacingFixedWin"}],
+            "selections": [
+                {"id": "s-3", "name": "Eden's Dream", "saddleNumber": 3},
+                {"id": "s-5", "name": "Scratched Dog", "saddleNumber": 5, "isScratched": True},
+            ],
+            "prices": [{"marketId": "m-fw", "selectionId": "s-3", "price": 1.35},
+                       {"marketId": "m-fw", "selectionId": "s-5", "price": 9.0}],
+        }],
+    }]}
+    points = normalize_dabble_all(payload)
+    assert len(points) == 1  # the scratched runner is skipped
+    runner = points[0]
+    assert runner.selection == "3"
+    assert runner.meta["runner"] == "Eden's Dream"
+    assert runner.odds == 1.35

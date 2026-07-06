@@ -1169,8 +1169,15 @@ def _normalize_dabble_fixture(sink: _Sink, fixture: dict[str, Any], sport: str,
             continue
         market_key = canonical_market(str(market.get("name", "?")))
         side = _side_from_event_name(str(selection.get("name", "")), event_name)
+        # racing runners follow the warehouse racing convention: the saddle
+        # number is the selection (cross-book comparable), the name rides meta
+        saddle = selection.get("saddleNumber")
+        if isinstance(saddle, int) and saddle > 0:
+            side = str(saddle)
         meta: dict[str, Any] = {"competition": competition,
                                 "start_time": fixture.get("advertisedStart")}
+        if isinstance(saddle, int) and saddle > 0:
+            meta["runner"] = selection.get("name")
         prop = props.get(row.get("selectionId"))
         if prop:
             stats = prop.get("stats") or []
