@@ -189,6 +189,20 @@ _RACING_LABELS = ("horse_racing", "greyhound_racing", "harness_racing",
                   "thoroughbred_racing")
 
 
+def _racing_board_key(ctx_event: str) -> str:
+    """The books' race identity from an alert context event label. Book rows
+    are already "Venue R6"; exchange rows read "Gosford (AUS) 7th Jul · R10
+    388m Gr5" (meeting + meta race) — reduce both to "Venue R<n>"."""
+    import re as _re
+
+    base, _, race = ctx_event.partition(" · ")
+    match = _re.search(r"\bR(\d+)\b", race or base)
+    venue = base.split(" (")[0].strip()
+    if race and match:
+        return f"{venue} R{match.group(1)}"
+    return base.strip()
+
+
 async def _racing_board(session: AsyncSession, event_name: str, market: str,
                         selection: str, book: str) -> dict[str, float]:
     """Other books' latest price for the same runner — racing events don't map
@@ -330,7 +344,7 @@ async def _watch_line_move(
             session, row.market, row.selection, event_id=row.event_external_id)
         quotes = await _cross_book_quotes(session, row)
         if not quotes and ctx["sport"] in _RACING_LABELS:
-            quotes = await _racing_board(session, str(ctx["event"]).split(" · ")[0],
+            quotes = await _racing_board(session, _racing_board_key(str(ctx["event"])),
                                          row.market, row.selection, row.book)
         if _engine_veto(sub, float(row.odds), engine_fair, quotes):
             continue
@@ -384,7 +398,7 @@ async def _watch_steam(
             engine_fair = await _engine_fair_for(session, market, selection, event_id=event)
             quotes = await _cross_book_quotes(session, series[-1])
             if not quotes and ctx["sport"] in _RACING_LABELS:
-                quotes = await _racing_board(session, str(ctx["event"]).split(" · ")[0],
+                quotes = await _racing_board(session, _racing_board_key(str(ctx["event"])),
                                              market, selection, book)
             current = float(series[-1].odds)
             if _engine_veto(sub, current, engine_fair, quotes):
@@ -753,8 +767,15 @@ async def _engine_fair_for(
         .join(ModelArtifact, ModelArtifact.id == Prediction.model_id)
         .where(
             ModelArtifact.name.like("engine%"),
+            # the form-based racing fair is approximation-grade (compact form
+            # strings, assumed field sizes) — recorded for grading, but it must
+            # not DISPLAY on alerts or drive gates (lived: "engine fair 4.00"
+            # on a 20.0 greyhound waved junk drifts through)
+            ModelArtifact.name != "engine-form:racing",
             Prediction.market == str(market),
             Prediction.selection == str(selection),
+            # a fair from this morning is not a fair for this race
+            Prediction.predicted_at > dt.datetime.now(dt.UTC) - dt.timedelta(hours=6),
         )
         .order_by(ModelArtifact.name, Prediction.predicted_at.desc())
         .limit(1)
