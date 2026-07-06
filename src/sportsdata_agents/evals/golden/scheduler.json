@@ -19,7 +19,8 @@
       "due": [
         "ingest",
         "monitor",
-        "resolve"
+        "resolve",
+        "slate"
       ]
     },
     {
@@ -39,6 +40,7 @@
         "ingest",
         "monitor",
         "resolve",
+        "slate",
         "steward"
       ]
     },
@@ -48,7 +50,8 @@
         "eval_benchmark",
         "ingest",
         "monitor",
-        "resolve"
+        "resolve",
+        "slate"
       ]
     },
     {
@@ -59,7 +62,8 @@
         "ingest",
         "monitor",
         "resolve",
-        "site_manager"
+        "site_manager",
+        "slate"
       ]
     },
     {
@@ -70,7 +74,8 @@
         "ingest",
         "monitor",
         "refresh_books",
-        "resolve"
+        "resolve",
+        "slate"
       ]
     },
     {
@@ -81,7 +86,8 @@
         "ingest",
         "monitor",
         "ops_health",
-        "resolve"
+        "resolve",
+        "slate"
       ]
     },
     {
@@ -91,7 +97,8 @@
         "custodian",
         "ingest",
         "monitor",
-        "resolve"
+        "resolve",
+        "slate"
       ]
     }
   ]

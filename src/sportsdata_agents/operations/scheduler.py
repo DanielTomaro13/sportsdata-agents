@@ -103,6 +103,12 @@ JOBS: tuple[Job, ...] = (
         log="cron.log", interval_s=600, timeout_s=1800),
     Job(name="monitor", args=("monitor",),
         log="monitor.log", interval_s=300, timeout_s=600),
+    # slate runs AFTER monitor in a tick: it persists the engine's fair prices
+    # as predictions (the measurement trail backtest/CLV grade), while the
+    # model_value watch handles the live alerts — recording is cheap and
+    # deduped per (book, event) inside record_slate
+    Job(name="slate", args=("price-slate",),
+        log="cron.log", interval_s=1800, timeout_s=1200),
     Job(name="custodian", args=("custodian",),
         log="cron.log", interval_s=3600, timeout_s=1800),
     Job(name="results", args=("results",),

@@ -1498,6 +1498,57 @@ def eval_cmd(
     console.print("[green]✓ no regressions against baseline[/green]")
 
 
+@app.command(name="price-slate")
+def price_slate(
+    anchor_minutes: float = typer.Option(45.0, "--anchor-minutes",
+                                         help="Scan events whose h2h/total anchors moved this recently."),
+    dedupe_hours: float = typer.Option(12.0, "--dedupe-hours",
+                                       help="At most one recording per (book, event) in this window."),
+    max_events: int = typer.Option(40, "--max-events", help="Board-pricing cap per run."),
+) -> None:
+    """Record engine fair prices for the upcoming slate (the measurement half
+    of the value loop: model_value alerts price boards inline, THIS persists
+    them as predictions so backtest/CLV can grade the engine later)."""
+    import asyncio
+    import datetime as _dt
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.base import Base
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.data.repository import TenantScope
+    from sportsdata_agents.quant.slate import record_slate
+
+    console = Console()
+
+    async def _run() -> None:
+        settings = get_settings()
+        engine = make_engine(settings.database_url)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        try:
+            async with make_sessionmaker(engine)() as session:
+                report = await record_slate(
+                    session, TenantScope(settings.default_tenant, settings.default_workspace),
+                    now=_dt.datetime.now(_dt.UTC), anchor_minutes=anchor_minutes,
+                    dedupe_hours=dedupe_hours, max_events=max_events,
+                )
+        finally:
+            await engine.dispose()
+        if report.get("error"):
+            console.print(f"[yellow]slate: {report['error']}[/yellow]")
+            return
+        console.print(f"recorded={report['recorded']} events={report['events']} "
+                      f"deduped={report['skipped_dedupe']} unseedable={report['skipped_unseedable']}")
+
+    asyncio.run(_run())
+
+
 @app.command()
 def resolve(
     dry_run: bool = typer.Option(False, "--dry-run", help="Report what would map without writing."),

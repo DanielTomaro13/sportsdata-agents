@@ -28,11 +28,13 @@ def make_engine(url: str) -> AsyncEngine:
     """Create an async engine for ``url`` (driver imported lazily on first connect).
 
     SQLite gets a busy timeout: the cron'd ingest writes every few minutes, and a
-    single-writer database must make concurrent readers WAIT, not fail with
-    'database is locked' (interim until the P3 Postgres move)."""
+    single-writer database must make concurrent writers WAIT, not fail with
+    'database is locked' (interim until the P3 Postgres move). 120s because an
+    ingest batch commit on a multi-GB warehouse can hold the write lock well
+    past 30s (lived: the slate recorder lost the race on its first live run)."""
     kwargs: dict[str, object] = {"pool_pre_ping": True, "future": True}
     if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"timeout": 30}
+        kwargs["connect_args"] = {"timeout": 120}
     return create_async_engine(url, **kwargs)
 
 

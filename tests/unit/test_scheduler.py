@@ -59,9 +59,9 @@ def test_calendar_due_daily_and_weekly() -> None:
 def test_registry_covers_the_nine_retired_cron_lines(monkeypatch: Any) -> None:
     monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")  # operator: the full job set runs
     names = {j.name for j in JOBS}
-    assert names == {"ingest", "monitor", "custodian", "resolve", "results", "steward",
-                     "eval_benchmark", "site_manager", "refresh_books", "ops_health",
-                     "budget_watch"}
+    assert names == {"ingest", "monitor", "slate", "custodian", "resolve", "results",
+                     "steward", "eval_benchmark", "site_manager", "refresh_books",
+                     "ops_health", "budget_watch"}
     custodian = next(j for j in JOBS if j.name == "custodian")
     assert custodian.interval_s == 3600  # hourly pressure check; the run decides hold/prune
     ingest = next(j for j in JOBS if j.name == "ingest")
@@ -84,7 +84,7 @@ def test_operator_only_jobs_never_run_on_a_customer_install(monkeypatch: Any) ->
     fired: set[str] = set()
     for minute in range(7 * 24 * 60):
         fired |= {j.name for j in due_jobs(start + dt.timedelta(minutes=minute), 60)}
-    assert fired == {"ingest", "monitor", "custodian", "resolve", "results", "steward"}
+    assert fired == {"ingest", "monitor", "slate", "custodian", "resolve", "results", "steward"}
     assert not (fired & operator_only)
 
 
