@@ -185,8 +185,9 @@ async def _fire(
     ).scalars().first()
     if recent is not None:
         return False
-    if float(subscription.params.get("digest_hours", 0) or 0) > 0:
-        pushed = False  # digest watches batch their pushes (see _push_digest)
+    if float(subscription.params.get("digest_hours", 0) or 0) > 0 or _in_quiet_hours(subscription):
+        pushed = False  # digest watches batch pushes; quiet hours keep the
+        # phone silent overnight — either way the alert ROW is still the record
     else:
         try:
             pushed = await pusher(subscription, message)
@@ -616,6 +617,30 @@ def _tz_for(sub: Subscription) -> str:
                or os.environ.get("SPORTSDATA_AGENTS_TZ", "Australia/Melbourne"))
 
 
+def _in_quiet_hours(sub: Subscription, now: dt.datetime | None = None) -> bool:
+    """True inside the watch's quiet_hours window ('23-08', local hours) — the
+    phone stays silent but the alert row is still written. A malformed spec
+    reads as no quiet hours: silence must be something the user clearly asked for."""
+    spec = str(sub.params.get("quiet_hours") or "")
+    if "-" not in spec:
+        return False
+    try:
+        start, end = (int(part) for part in spec.split("-", 1))
+    except ValueError:
+        return False
+    if not (0 <= start <= 23 and 0 <= end <= 23) or start == end:
+        return False
+    from zoneinfo import ZoneInfo
+
+    try:
+        hour = (now or dt.datetime.now(dt.UTC)).astimezone(ZoneInfo(_tz_for(sub))).hour
+    except Exception:
+        return False
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end  # window wraps midnight (the usual case)
+
+
 def _age_label(seen: str | None, now: dt.datetime) -> str:
     """How old the alerted price is — the market keeps moving after capture,
     so every alert says when its price was seen (lived: an alert quoted 4.80,
@@ -753,6 +778,7 @@ async def _watch_racing_value(
     candidates = await scan_racing_value(
         session, exchange_book=str(sub.params.get("exchange_book", "Betfair")),
         hours=hours, min_edge_pct=min_edge,
+        max_edge_pct=float(sub.params.get("max_edge_pct", 60.0)),
         max_fair_odds=float(sub.params.get("max_fair_odds", 12.0)),
         max_staleness_minutes=float(sub.params.get("max_staleness_minutes", 10.0)),
         min_matched=float(sub.params.get("min_matched", 500.0)),

@@ -1762,3 +1762,267 @@ def resolve(
                       f"unnamed={stats['skipped_unnamed']}")
 
     asyncio.run(_run())
+
+
+# ── watches: the notification-preference console ────────────────────────────
+# Every alert kind's knobs live in operations.watch_registry; these commands
+# make them USER-editable without touching SQL or JSON by hand.
+
+watches_app = typer.Typer(
+    name="watches",
+    help="Your alert watches: list them, tune any knob (`set name key=value`), "
+         "add/enable/disable/remove, and `kinds` documents every parameter.",
+    no_args_is_help=True,
+)
+app.add_typer(watches_app, name="watches")
+
+
+def _watches_session():
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+
+    engine = make_engine(get_settings().database_url)
+    return engine, make_sessionmaker(engine)
+
+
+async def _watch_by_name(session: Any, name: str) -> Any:
+    from sqlalchemy import select
+
+    from sportsdata_agents.data.models import Subscription
+
+    sub = (await session.execute(
+        select(Subscription).where(Subscription.name == name))).scalars().first()
+    if sub is None:
+        typer.echo(f"error: no watch named {name!r} — see `agents watches list`", err=True)
+        raise typer.Exit(1)
+    return sub
+
+
+def _parse_kv(pairs: list[str]) -> dict[str, Any]:
+    from sportsdata_agents.operations.watch_registry import parse_value
+
+    updates: dict[str, Any] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            typer.echo(f"error: expected key=value, got {pair!r}", err=True)
+            raise typer.Exit(1)
+        key, raw = pair.split("=", 1)
+        updates[key.strip()] = parse_value(raw)
+    return updates
+
+
+@watches_app.command(name="list")
+def watches_list() -> None:
+    """Every watch: kind, channel, on/off, custom knobs, and recent activity."""
+    import asyncio
+    import datetime as _dt
+
+    from rich.console import Console
+    from rich.table import Table
+
+    async def _run() -> None:
+        from sqlalchemy import func, select
+
+        from sportsdata_agents.data.models import Alert, Subscription
+
+        engine, sf = _watches_session()
+        try:
+            async with sf() as session:
+                subs = (await session.execute(
+                    select(Subscription).order_by(Subscription.kind, Subscription.name)
+                )).scalars().all()
+                table = Table(title="alert watches")
+                for col in ("name", "kind", "channel", "on", "custom params", "7d", "last fired"):
+                    table.add_column(col)
+                week_ago = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=7)
+                for sub in subs:
+                    fired = (await session.execute(
+                        select(func.count(Alert.id), func.max(Alert.created_at))
+                        .where(Alert.subscription_id == sub.id, Alert.created_at >= week_ago)
+                    )).one()
+                    custom = ", ".join(f"{k}={v}" for k, v in sorted((sub.params or {}).items()))
+                    table.add_row(
+                        sub.name, sub.kind, sub.channel or "log",
+                        "✓" if sub.active else "✗",
+                        custom or "[dim](defaults)[/dim]",
+                        str(fired[0] or 0),
+                        str(fired[1] or "-"),
+                    )
+                Console().print(table)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+@watches_app.command(name="kinds")
+def watches_kinds(
+    kind: str | None = typer.Argument(None, help="One kind for full detail; omit for the overview."),
+) -> None:
+    """Every watch kind and every knob it honours — defaults and meanings."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from sportsdata_agents.operations.watch_registry import (
+        COMMON_PARAMS,
+        WATCH_PARAMS,
+        params_for,
+    )
+
+    console = Console()
+    if kind:
+        if kind not in WATCH_PARAMS:
+            typer.echo(f"error: unknown kind {kind!r} — kinds: {', '.join(sorted(WATCH_PARAMS))}",
+                       err=True)
+            raise typer.Exit(1)
+        table = Table(title=f"{kind} — every knob (set with: agents watches set NAME key=value)")
+        for col in ("param", "default", "what it does"):
+            table.add_column(col)
+        for name, (default, help_text) in params_for(kind).items():
+            table.add_row(name, repr(default), help_text)
+        console.print(table)
+        return
+    table = Table(title="watch kinds (agents watches kinds KIND for full detail)")
+    for col in ("kind", "its knobs"):
+        table.add_column(col)
+    for kind_name, params in sorted(WATCH_PARAMS.items()):
+        table.add_row(kind_name, ", ".join(sorted(params)))
+    console.print(table)
+    console.print(f"[dim]every kind also honours: {', '.join(sorted(COMMON_PARAMS))}[/dim]")
+
+
+@watches_app.command(name="add")
+def watches_add(
+    name: str = typer.Argument(..., help="A name for the watch (unique)."),
+    kind: str = typer.Argument(..., help="A watch kind — see `agents watches kinds`."),
+    params: list[str] = typer.Argument(None, help="Any key=value knobs (validated against the kind)."),
+    channel: str = typer.Option("ntfy", "--channel", help='Push target: "ntfy[:ENV]", Slack channel id, '
+                                                          '"discord[:ENV]", or "log".'),
+) -> None:
+    """Create a watch. Knobs you don't set use the kind's defaults."""
+    import asyncio
+
+    from sportsdata_agents.operations.watch_registry import validate_params
+
+    updates = _parse_kv(params or [])
+    problems = validate_params(kind, updates)
+    if problems:
+        for problem in problems:
+            typer.echo(f"error: {problem}", err=True)
+        raise typer.Exit(1)
+
+    async def _run() -> None:
+        from sportsdata_agents.data.base import Base
+        from sportsdata_agents.data.models import Subscription
+
+        engine, sf = _watches_session()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        try:
+            async with sf() as session:
+                session.add(Subscription(tenant_id="local", workspace_id="local",
+                                         name=name, kind=kind, channel=channel,
+                                         params=updates))
+                await session.commit()
+        finally:
+            await engine.dispose()
+        typer.echo(f"✓ watch {name!r} ({kind}, channel={channel}"
+                   + (f", {updates}" if updates else "") + ")")
+
+    asyncio.run(_run())
+
+
+@watches_app.command(name="set")
+def watches_set(
+    name: str = typer.Argument(..., help="The watch to change."),
+    params: list[str] = typer.Argument(..., help="key=value knobs; channel=... and active=... "
+                                                 "work too; key=null resets a knob to its default."),
+) -> None:
+    """Tune a watch. Example: agents watches set racing-value min_edge_pct=10 quiet_hours=23-08."""
+    import asyncio
+
+    from sportsdata_agents.operations.watch_registry import validate_params
+
+    updates = _parse_kv(params)
+
+    async def _run() -> None:
+        engine, sf = _watches_session()
+        try:
+            async with sf() as session:
+                sub = await _watch_by_name(session, name)
+                if "channel" in updates:
+                    sub.channel = str(updates.pop("channel"))
+                if "active" in updates:
+                    sub.active = bool(updates.pop("active"))
+                problems = validate_params(sub.kind, updates)
+                if problems:
+                    for problem in problems:
+                        typer.echo(f"error: {problem}", err=True)
+                    raise typer.Exit(1)
+                merged = dict(sub.params or {})
+                for key, value in updates.items():
+                    if value is None:
+                        merged.pop(key, None)  # back to the kind's default
+                    else:
+                        merged[key] = value
+                sub.params = merged
+                await session.commit()
+                custom = ", ".join(f"{k}={v}" for k, v in sorted(merged.items())) or "(defaults)"
+                typer.echo(f"✓ {sub.name} [{sub.kind}] channel={sub.channel} "
+                           f"active={bool(sub.active)} — {custom}")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def _watches_toggle(name: str, active: bool) -> None:
+    import asyncio
+
+    async def _run() -> None:
+        engine, sf = _watches_session()
+        try:
+            async with sf() as session:
+                sub = await _watch_by_name(session, name)
+                sub.active = active
+                await session.commit()
+                typer.echo(f"✓ {name} {'enabled' if active else 'disabled'}")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+@watches_app.command(name="enable")
+def watches_enable(name: str = typer.Argument(..., help="The watch to turn on.")) -> None:
+    """Turn a watch on."""
+    _watches_toggle(name, True)
+
+
+@watches_app.command(name="disable")
+def watches_disable(name: str = typer.Argument(..., help="The watch to turn off.")) -> None:
+    """Turn a watch off (kept, not deleted — re-enable any time)."""
+    _watches_toggle(name, False)
+
+
+@watches_app.command(name="rm")
+def watches_rm(name: str = typer.Argument(..., help="The watch to delete.")) -> None:
+    """Delete a watch (its past alerts stay in the record)."""
+    import asyncio
+
+    async def _run() -> None:
+        engine, sf = _watches_session()
+        try:
+            async with sf() as session:
+                sub = await _watch_by_name(session, name)
+                await session.delete(sub)
+                await session.commit()
+                typer.echo(f"✓ watch {name!r} removed")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
