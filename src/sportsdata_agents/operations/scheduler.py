@@ -360,55 +360,79 @@ def run_tick(
     jobs: Sequence[Job] = JOBS,
     runner: Runner | None = None,
 ) -> TickReport:
-    """One scheduler tick: run every due job sequentially, record outcomes,
-    and hand persistent failures to the error agent."""
+    """One scheduler tick: run every due job IN PARALLEL (each already holds
+    its own lock, so overlapping ticks dedupe per job), record outcomes, and
+    hand persistent failures to the error agent.
+
+    Parallel is load-bearing: sequentially, a long ingest held monitor hostage
+    and the effective alert cadence became the ingest duration (lived: 2-minute
+    monitor running every ~15 — alerts arriving after the market moved)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     run = runner or _default_runner
     binary = _agents_binary()
     report = TickReport(pace=pace)
-    for job in due_jobs(now, period_s, jobs):
-        lock = acquire_lock(job.name)
-        if lock is None:
-            report.skipped_locked.append(job.name)
-            continue
-        try:
-            argv = [binary, *job.args]
-            if job.paced and pace is not None:
-                argv += ["--pace", str(pace)]
-            started = dt.datetime.now(dt.UTC)
-            try:
-                proc = run(job, argv)
-                ok, returncode = proc.returncode == 0, proc.returncode
-            except subprocess.TimeoutExpired:
-                ok, returncode = False, -1
-            duration = (dt.datetime.now(dt.UTC) - started).total_seconds()
-            failures = record_outcome(job.name, ok=ok, returncode=returncode, duration_s=duration)
-            report.ran.append(job.name)
-            if ok:
-                continue
-            report.failed.append(job.name)
-            logger.warning("job %s failed (rc=%s, %s consecutive)", job.name, returncode, failures)
-            # The self-healing handoff is OPERATOR maintenance (it runs ops agents and
-            # opens PRs to your repo). On a customer install a failed job is just logged
-            # + surfaced by the app's own health/alerts — never spawns an ops agent.
-            if not is_operator():
-                continue
-            if failures >= HEALTH_AFTER_FAILURES and job.name != "ops_health":
-                health = next(j for j in jobs if j.name == "ops_health")
-                run(health, [binary, *health.args])
-                report.health_triggered = True
-            if failures >= TRIAGE_AFTER_FAILURES and triage_allowed(job.name):
-                prompt = (
-                    f"The scheduled job '{job.name}' has failed {failures} times in a row "
-                    f"(last rc={returncode}; log: {job.log}). Diagnose with your tools — "
-                    f"feed_health first — remediate within your allow-list, or escalate."
-                )
-                triage = Job(name="incident_triage", args=("ops", "run", "incident_triage", prompt),
-                             log="ops.log", timeout_s=1800)
-                run(triage, [binary, *triage.args])
-                report.triage_triggered.append(job.name)
-        finally:
-            lock.unlink(missing_ok=True)
+    due = due_jobs(now, period_s, jobs)
+    with ThreadPoolExecutor(max_workers=max(1, len(due) or 1)) as pool:
+        futures = [(job, pool.submit(_run_one_job, job, run, binary, pace, jobs, report))
+                   for job in due]
+        for _job, future in futures:
+            future.result()  # exceptions surface; report is filled by the worker
     return report
+
+
+def _run_one_job(
+    job: Job,
+    run: Runner,
+    binary: str,
+    pace: int | None,
+    jobs: Sequence[Job],
+    report: TickReport,
+) -> None:
+    """One job's full lifecycle (lock → run → outcome bookkeeping). Report list
+    appends are safe: lists are only appended (GIL-atomic), never rebound."""
+    lock = acquire_lock(job.name)
+    if lock is None:
+        report.skipped_locked.append(job.name)
+        return
+    try:
+        argv = [binary, *job.args]
+        if job.paced and pace is not None:
+            argv += ["--pace", str(pace)]
+        started = dt.datetime.now(dt.UTC)
+        try:
+            proc = run(job, argv)
+            ok, returncode = proc.returncode == 0, proc.returncode
+        except subprocess.TimeoutExpired:
+            ok, returncode = False, -1
+        duration = (dt.datetime.now(dt.UTC) - started).total_seconds()
+        failures = record_outcome(job.name, ok=ok, returncode=returncode, duration_s=duration)
+        report.ran.append(job.name)
+        if ok:
+            return
+        report.failed.append(job.name)
+        logger.warning("job %s failed (rc=%s, %s consecutive)", job.name, returncode, failures)
+        # The self-healing handoff is OPERATOR maintenance (it runs ops agents and
+        # opens PRs to your repo). On a customer install a failed job is just logged
+        # + surfaced by the app's own health/alerts — never spawns an ops agent.
+        if not is_operator():
+            return
+        if failures >= HEALTH_AFTER_FAILURES and job.name != "ops_health":
+            health = next(j for j in jobs if j.name == "ops_health")
+            run(health, [binary, *health.args])
+            report.health_triggered = True
+        if failures >= TRIAGE_AFTER_FAILURES and triage_allowed(job.name):
+            prompt = (
+                f"The scheduled job '{job.name}' has failed {failures} times in a row "
+                f"(last rc={returncode}; log: {job.log}). Diagnose with your tools — "
+                f"feed_health first — remediate within your allow-list, or escalate."
+            )
+            triage = Job(name="incident_triage", args=("ops", "run", "incident_triage", prompt),
+                         log="ops.log", timeout_s=1800)
+            run(triage, [binary, *triage.args])
+            report.triage_triggered.append(job.name)
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 def status() -> dict[str, dict]:
