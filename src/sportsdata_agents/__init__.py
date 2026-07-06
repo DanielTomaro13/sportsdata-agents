@@ -5,6 +5,6 @@ Advisory only: no agent ever places a bet or moves money. See docs/ARCHITECTURE.
 
 from __future__ import annotations
 
-__version__ = "0.53.2"
+__version__ = "0.54.0"
 
 __all__ = ["__version__"]

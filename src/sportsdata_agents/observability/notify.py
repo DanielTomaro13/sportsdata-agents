@@ -95,6 +95,47 @@ async def post_slack(channel: str, text: str) -> bool:
     return ok
 
 
+# alert-kind styling: the leading emoji shortcode picks the embed's colour
+# strip and its unicode stand-in (Discord embeds do NOT render :shortcodes:)
+_EMBED_STYLE: dict[str, tuple[str, int]] = {
+    "racehorse": ("\U0001F3C7", 0x2ECC71),          # racing — green
+    "fire": ("\U0001F525", 0xE67E22),               # steam — orange
+    "scales": ("\u2696\uFE0F", 0x3498DB),          # exchange premium — blue
+    "dart": ("\U0001F3AF", 0x9B59B6),               # stat/prop value — purple
+    "chart_with_upwards_trend": ("\U0001F4C8", 0x1ABC9C),  # line move — teal
+    "moneybag": ("\U0001F4B0", 0xF1C40F),           # arb — gold
+    "money_with_wings": ("\U0001F4B8", 0xF1C40F),
+    "crystal_ball": ("\U0001F52E", 0x9B59B6),       # prediction markets
+    "rotating_light": ("\U0001F6A8", 0xE74C3C),     # incidents — red
+    "white_check_mark": ("\u2705", 0x2ECC71),
+    "warning": ("\u26A0\uFE0F", 0xF39C12),
+    "floppy_disk": ("\U0001F4BE", 0x95A5A6),
+    "bar_chart": ("\U0001F4CA", 0x3498DB),
+    "bell": ("\U0001F514", 0x95A5A6),
+}
+_DEFAULT_EMBED_COLOR = 0x95A5A6
+
+
+def _emojify(text: str) -> str:
+    """Shortcodes → unicode (embeds don't render shortcodes); unknown ones drop."""
+    return _EMOJI.sub(lambda m: _EMBED_STYLE.get(m.group(0).strip(":"), ("", 0))[0], text)
+
+
+def discord_embed(text: str) -> dict:
+    """A colour-striped embed from an alert message: first line is the title,
+    the rest the body; the leading emoji picks the colour."""
+    first_code = _EMOJI.match(text.strip())
+    color = _DEFAULT_EMBED_COLOR
+    if first_code:
+        color = _EMBED_STYLE.get(first_code.group(0).strip(":"), ("", _DEFAULT_EMBED_COLOR))[1]
+    title, _, body = text.strip().partition("\n")
+    return {
+        "title": _emojify(slack_to_discord(title)).strip()[:256],
+        "description": _emojify(slack_to_discord(body)).strip()[:4000],
+        "color": color,
+    }
+
+
 async def post_discord(webhook_url: str, text: str) -> bool:
     if not webhook_url:
         logger.info("discord (unconfigured): %s", text)
@@ -102,9 +143,11 @@ async def post_discord(webhook_url: str, text: str) -> bool:
     import httpx
 
     async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.post(
-            webhook_url, json={"content": slack_to_discord(text)[:DISCORD_LIMIT]}
-        )
+        response = await client.post(webhook_url, json={"embeds": [discord_embed(text)]})
+        if response.status_code not in (200, 204):
+            # a malformed embed must never lose the alert — plain text fallback
+            response = await client.post(
+                webhook_url, json={"content": slack_to_discord(text)[:DISCORD_LIMIT]})
     ok = response.status_code in (200, 204)
     if not ok:
         logger.warning("discord push failed: %s %s", response.status_code, response.text[:200])
@@ -123,6 +166,9 @@ async def post_ntfy(topic_url: str, text: str, *, priority: str | None = None) -
     # first line becomes the notification title; the rest the body
     title, _, body = plain.partition("\n")
     headers = {"Title": _ascii_header(title[:250])} if body else {}
+    lead = _EMOJI.match(text.strip())
+    if lead:
+        headers["Tags"] = lead.group(0).strip(":")  # ntfy renders the emoji
     if priority:
         headers["Priority"] = priority
     async with httpx.AsyncClient(timeout=15) as client:

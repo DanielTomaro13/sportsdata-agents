@@ -37,9 +37,11 @@ SLATE_SPORTS: tuple[tuple[str, str], ...] = (
     ("rugby_league", "rugby_league"),
     ("rugby_union", "rugby_union"),
     ("soccer", "soccer"),
+    ("soccer", "football"),  # Kambi/Unibet's label for the same sport
     ("baseball", "baseball"),
     ("basketball", "basketball"),
     ("basketball", "nba"),
+    ("basketball", "wnba"),
     ("nfl", "american_football"),
     ("cricket", "cricket"),
     ("ice_hockey", "ice_hockey"),
@@ -54,6 +56,7 @@ SLATE_SPORTS: tuple[tuple[str, str], ...] = (
     # racing: the win board is the anchor; recorded fair win/place probabilities
     # settle against racing results (selections are saddle numbers on both sides)
     ("racing", "horse_racing"),
+    ("racing", "thoroughbred_racing"),  # RacingAndSports' label
     ("racing", "greyhound_racing"),
     ("racing", "harness_racing"),
     # golf: the outright field is the anchor (win probabilities per player)
