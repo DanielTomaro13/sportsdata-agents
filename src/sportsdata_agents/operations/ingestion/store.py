@@ -210,16 +210,34 @@ async def line_movement(
     ]
 
 
+PRUNE_BATCH_ROWS = 200_000
+PRUNE_MAX_BATCHES = 25  # per pass — the hourly custodian finishes the tail
+
+
 async def prune_snapshots(
     session_factory: async_sessionmaker[AsyncSession], *, older_than_days: int = 90
 ) -> int:
     """Manual retention for non-Timescale deployments: raw snapshots beyond the window
-    go; the change-point series in ``prices`` is the durable record and is kept."""
+    go; the change-point series in ``prices`` is the durable record and is kept.
+
+    Deletes in BATCHES, one committed transaction each: a single-transaction
+    delete of tens of millions of rows held the warehouse's only writer for
+    30+ CPU-minutes and ballooned the WAL past 8GB while alerting starved
+    (lived). A bounded pass leaves the tail for the next custodian run."""
     cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=older_than_days)
-    async with session_factory() as session:
-        result = await session.execute(delete(OddsSnapshot).where(OddsSnapshot.captured_at < cutoff))
-        await session.commit()
-    pruned = int(getattr(result, "rowcount", 0) or 0)
+    pruned = 0
+    for _ in range(PRUNE_MAX_BATCHES):
+        async with session_factory() as session:
+            batch_ids = select(OddsSnapshot.id).where(
+                OddsSnapshot.captured_at < cutoff
+            ).limit(PRUNE_BATCH_ROWS).scalar_subquery()
+            result = await session.execute(
+                delete(OddsSnapshot).where(OddsSnapshot.id.in_(batch_ids)))
+            await session.commit()
+        got = int(getattr(result, "rowcount", 0) or 0)
+        pruned += got
+        if got < PRUNE_BATCH_ROWS:
+            break  # window clear
     if pruned:
         logger.info("pruned %d snapshots older than %dd", pruned, older_than_days)
     return pruned
