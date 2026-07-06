@@ -35,7 +35,27 @@ def make_engine(url: str) -> AsyncEngine:
     kwargs: dict[str, object] = {"pool_pre_ping": True, "future": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"timeout": 120}
-    return create_async_engine(url, **kwargs)
+    engine = create_async_engine(url, **kwargs)
+    if url.startswith("sqlite"):
+        # WAL is load-bearing, not a nicety: ingest (a ~60s writer) and monitor
+        # (a ~60s reader) are SEPARATE processes. In the default DELETE mode
+        # every commit takes an exclusive lock that blocks readers and vice
+        # versa — both jobs burned a large share of their 60s budget waiting
+        # (measured: ingest 68s, "database is locked" on a bare count), and the
+        # custodian's wal_checkpoint already ASSUMED WAL that was never on.
+        # synchronous=NORMAL is safe under WAL (a crash loses at most the last
+        # commit, never corrupts) and drops a full fsync per commit.
+        from sqlalchemy import event
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _sqlite_pragmas(dbapi_conn, _rec):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.execute("PRAGMA busy_timeout=120000")
+            cur.close()
+
+    return engine
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

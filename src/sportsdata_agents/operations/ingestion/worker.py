@@ -414,12 +414,25 @@ PACE_SCOPE_MAX_INTERVAL_S = 900  # only hot/prediction tiers accelerate
 def paced_feeds(feeds: list[Feed], pace: int) -> list[Feed]:
     """Apply the proximity floor to the FAST tiers only. Flooring the 60-minute
     firehose tiers made one cycle outlast the racing cadence (observed live:
-    racing feeds silent 40+ minutes behind a continuously-locked ingest)."""
+    racing feeds silent 40+ minutes behind a continuously-locked ingest).
+
+    An EXPLICIT per-feed override (SPORTSDATA_AGENTS_FEED_INTERVALS) is the final
+    word — pacing must not silently re-floor a feed the operator deliberately
+    slowed (e.g. to save a book's quota), which contradicts tuned_feeds' contract."""
+    import json
+    import os
     from dataclasses import replace
 
+    pinned: set[str] = set()
+    raw = os.environ.get("SPORTSDATA_AGENTS_FEED_INTERVALS", "")
+    if raw:
+        try:
+            pinned = {str(k) for k in json.loads(raw)}
+        except (ValueError, TypeError):
+            pinned = set()
     return [
         replace(f, interval_s=min(f.interval_s, pace))
-        if f.interval_s <= PACE_SCOPE_MAX_INTERVAL_S else f
+        if (f.interval_s <= PACE_SCOPE_MAX_INTERVAL_S and f.name not in pinned) else f
         for f in feeds
     ]
 

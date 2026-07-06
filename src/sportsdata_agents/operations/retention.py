@@ -162,13 +162,19 @@ def backup_warehouse(db_path: Path, *, keep: int = BACKUP_KEEP) -> Path | None:
 
 def maybe_vacuum(db_path: Path) -> bool:
     """Reclaim file space only with comfortable headroom — pruned pages get
-    reused either way, so VACUUM is an optimisation, never a necessity."""
+    reused either way, so VACUUM is an optimisation, never a necessity. A locked
+    VACUUM (the 60s writer holds the db) is swallowed: it must NOT abort the
+    custodian before it persists last_backup_at, or the next hourly pass re-does
+    the multi-GB backup and three locked runs hand the job to LLM triage."""
     status = disk_status(db_path)
     if status["free_bytes"] <= status["db_bytes"] * VACUUM_HEADROOM:
         return False
     conn = sqlite3.connect(db_path, timeout=120)
     try:
         conn.execute("VACUUM")
+    except sqlite3.OperationalError as e:
+        logger.warning("VACUUM skipped (%s) — pages already reused, harmless", e)
+        return False
     finally:
         conn.close()
     return True

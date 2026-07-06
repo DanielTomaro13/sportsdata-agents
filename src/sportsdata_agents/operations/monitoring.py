@@ -1119,13 +1119,26 @@ async def run_watches(
         ).scalars().all()
         for sub in subscriptions:
             report["subscriptions"] += 1
-            cursor = sub.cursor or now - dt.timedelta(hours=6)
+            # a small safety-lag on the cursor: ingest commits change-points
+            # SECONDS after stamping changed_at, and ingest now runs concurrently
+            # with monitor every 60s — a strict "> cursor" scan would skip rows
+            # whose changed_at ≤ cursor but that committed after the last SELECT.
+            # The _fire dedupe absorbs the small re-scan overlap.
+            cursor = (sub.cursor - dt.timedelta(seconds=90)) if sub.cursor else now - dt.timedelta(hours=6)
             try:
                 if sub.kind in ("line_move", "steam"):
+                    # steam needs the FULL window_minutes to see min_moves moves —
+                    # at a 60s monitor a key has ≤1 change-point since the cursor,
+                    # so the cursor-window steam could never fire (dead watch).
+                    if sub.kind == "steam":
+                        window = float(sub.params.get("window_minutes", 30))
+                        floor = now - dt.timedelta(minutes=window)
+                    else:
+                        floor = cursor
                     rows = list(
                         (
                             await session.execute(
-                                select(Price).where(Price.changed_at > cursor).order_by(Price.changed_at)
+                                select(Price).where(Price.changed_at > floor).order_by(Price.changed_at)
                             )
                         ).scalars()
                     )

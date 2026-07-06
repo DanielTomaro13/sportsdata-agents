@@ -17,11 +17,13 @@ gateway — only the `agents ops` CLI injects them, and only into specs declarin
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import json
 import logging
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -63,16 +65,54 @@ def ops_state_path() -> Path:
     return ops_dir() / "ops_state.json"
 
 
+_OPS_STATE_THREAD_LOCK = threading.Lock()
+
+
 def read_ops_state() -> dict[str, Any]:
     path = ops_state_path()
     if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            # a torn read (another writer mid-truncate) — treat as empty rather
+            # than crash the caller; the atomic write below makes this rare
+            return {"disabled_feeds": []}
     return {"disabled_feeds": []}
 
 
 def write_ops_state(state: dict[str, Any]) -> None:
+    """Atomic write: parallel scheduler jobs (in threads) and the custodian
+    subprocess all read-modify-write this file — a plain truncate-then-write let
+    a reader see a half-written file and let simultaneous writers lose each
+    other's updates. tempfile + os.replace is atomic on POSIX."""
+    import tempfile
+
     state["updated_at"] = dt.datetime.now(dt.UTC).isoformat()
-    ops_state_path().write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    path = ops_state_path()
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(state, indent=2) + "\n")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+@contextlib.contextmanager
+def ops_state_locked() -> Any:
+    """Exclusive cross-process + cross-thread lock for a read-modify-write of ops
+    state (the scheduler's record_outcome and the custodian both mutate it).
+    Serialises so concurrent increments never lose each other."""
+    with _OPS_STATE_THREAD_LOCK, contextlib.ExitStack() as stack:
+        try:
+            import fcntl
+
+            fh = stack.enter_context(open(ops_state_path().with_suffix(".lock"), "w"))
+            fcntl.flock(fh, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            pass
+        yield
 
 
 def disabled_feeds() -> set[str]:

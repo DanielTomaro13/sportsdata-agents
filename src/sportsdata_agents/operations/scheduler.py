@@ -241,23 +241,29 @@ TRIAGE_COOLDOWN_S = 6 * 3600  # at most one triage run per job per 6h
 
 
 def record_outcome(job_name: str, *, ok: bool, returncode: int, duration_s: float) -> int:
-    """Persist the run outcome in ops_state; returns the consecutive-failure count."""
-    from sportsdata_agents.tools.ops import read_ops_state, write_ops_state
+    """Persist the run outcome in ops_state; returns the consecutive-failure count.
 
-    state = read_ops_state()
-    failures = dict(state.get("job_failures") or {})
-    runs = dict(state.get("job_runs") or {})
-    count = 0 if ok else int(failures.get(job_name, 0)) + 1
-    failures[job_name] = count
-    runs[job_name] = {
-        "at": dt.datetime.now(dt.UTC).isoformat(),
-        "ok": ok,
-        "returncode": returncode,
-        "duration_s": round(duration_s, 1),
-    }
-    state["job_failures"] = failures
-    state["job_runs"] = runs
-    write_ops_state(state)
+    The read-modify-write is locked: run_tick now runs jobs in threads, and
+    ingest+monitor finish near-simultaneously every 60s — unlocked, one job's
+    failure increment would silently overwrite the other's and the escalation
+    counter could never trip."""
+    from sportsdata_agents.tools.ops import ops_state_locked, read_ops_state, write_ops_state
+
+    with ops_state_locked():
+        state = read_ops_state()
+        failures = dict(state.get("job_failures") or {})
+        runs = dict(state.get("job_runs") or {})
+        count = 0 if ok else int(failures.get(job_name, 0)) + 1
+        failures[job_name] = count
+        runs[job_name] = {
+            "at": dt.datetime.now(dt.UTC).isoformat(),
+            "ok": ok,
+            "returncode": returncode,
+            "duration_s": round(duration_s, 1),
+        }
+        state["job_failures"] = failures
+        state["job_runs"] = runs
+        write_ops_state(state)
     return count
 
 

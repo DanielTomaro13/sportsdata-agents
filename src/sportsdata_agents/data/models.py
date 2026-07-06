@@ -281,13 +281,17 @@ class OddsSnapshot(Base):
 
     __tablename__ = "odds_snapshots"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # captured_at leads the composite time-window index below; the standalone
+    # single-column indexes on provider/book/sport/market were pure write
+    # amplification (~6 B-tree updates per insert at 17k rows/min) and served
+    # none of the hot reads, which all filter provider+event+market+selection.
     captured_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
-    provider: Mapped[str] = mapped_column(String(64), index=True)  # feed, e.g. nba_cdn
-    book: Mapped[str] = mapped_column(String(64), index=True)  # bookmaker within the feed
-    sport: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(64))  # feed, e.g. nba_cdn
+    book: Mapped[str] = mapped_column(String(64))  # bookmaker within the feed
+    sport: Mapped[str] = mapped_column(String(32))
     event_external_id: Mapped[str] = mapped_column(String(128), index=True)
     event_name: Mapped[str] = mapped_column(String(400), default="")
-    market: Mapped[str] = mapped_column(String(128), index=True)  # h2h | spread | total | ...
+    market: Mapped[str] = mapped_column(String(128))  # h2h | spread | total | ...
     selection: Mapped[str] = mapped_column(String(200))  # home | away -1.5 | over 220.5 ...
     odds: Mapped[Decimal] = mapped_column(Numeric(10, 3))
     # advertised start, parsed from provider meta at write time — the resolver
@@ -298,6 +302,13 @@ class OddsSnapshot(Base):
     # resolution/expiry). Feeds the resolver's day window; never treated as a kickoff.
     end_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        # the alert-context / latest-per-key lookup: filter the full key,
+        # ORDER BY captured_at DESC LIMIT 1 — served in full by this composite
+        Index("ix_snap_key_time", "provider", "event_external_id", "market",
+              "selection", "captured_at"),
+    )
 
 
 class Price(Base):
@@ -311,14 +322,20 @@ class Price(Base):
     __table_args__ = (
         Index("uq_prices_change", "provider", "book", "event_external_id", "market",
               "selection", "changed_at", unique=True),
+        # _load_latest_odds groups by (provider,book,event,market,selection) — an
+        # EVENT-leading index bounds it to the batch's events' history instead of
+        # walking ALL of a provider's change-points (betfair ~1.3M rows/day, never
+        # pruned): this query runs inside the write gate every tick.
+        Index("ix_prices_event_key", "event_external_id", "provider", "book",
+              "market", "selection", "changed_at"),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     changed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
-    provider: Mapped[str] = mapped_column(String(64), index=True)
-    book: Mapped[str] = mapped_column(String(64), index=True)
-    sport: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    book: Mapped[str] = mapped_column(String(64))
+    sport: Mapped[str] = mapped_column(String(32))
     event_external_id: Mapped[str] = mapped_column(String(128), index=True)
-    market: Mapped[str] = mapped_column(String(128), index=True)
+    market: Mapped[str] = mapped_column(String(128))
     selection: Mapped[str] = mapped_column(String(200))
     odds: Mapped[Decimal] = mapped_column(Numeric(10, 3))
     prev_odds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)  # None = first sighting

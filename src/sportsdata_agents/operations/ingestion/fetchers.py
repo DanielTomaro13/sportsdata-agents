@@ -168,6 +168,27 @@ def _slug(name: str) -> str:
     return "_".join(str(name).strip().lower().split())
 
 
+async def _gather_capped(coros: list, *, cap: int = 6) -> list:
+    """Run coroutines concurrently, at most ``cap`` in flight — each fetcher's
+    OWN call loop was sequential (the worker only parallelised ACROSS feeds), so
+    a tick's wall clock was one book's for-loop (measured: 24 sequential Betfair
+    batches ~12s). The MCP rate limiter enforces per-provider RPS, so a small
+    concurrency window is safe. Exceptions become None (callers filter)."""
+    import asyncio
+
+    sem = asyncio.Semaphore(cap)
+
+    async def _one(c):
+        async with sem:
+            try:
+                return await c
+            except Exception as e:  # one call failing must not sink the batch
+                logger.warning("capped-gather item failed: %s", e)
+                return None
+
+    return await asyncio.gather(*(_one(c) for c in coros))
+
+
 async def fetch_unibet_all(manager: Any) -> dict[str, Any]:
     """Kambi: group.json → every sport termKey → TWO listView calls per sport:
     matches.json (fixtures + inline offers) and competitions.json (outrights —
@@ -937,17 +958,13 @@ async def fetch_kalshi_all(manager: Any) -> dict[str, Any]:
     tail = [t for t in tickers if not t.endswith("GAME")]
     window = (_take_rotating("kalshi_game_series", game, KALSHI_GAME_SERIES_PER_CYCLE)
               + _take_rotating("kalshi_sports_series", tail, KALSHI_SPORTS_SERIES_PER_CYCLE))
-    for ticker in window:
-        try:
-            payload = await manager.call_tool("kalshi_events", {
-                "limit": 200, "status": "open", "with_nested_markets": True,
-                "series_ticker": ticker,
-            })
-        except Exception as e:
-            logger.warning("kalshi series %s failed: %s", ticker, e)
-            continue
-        if isinstance(payload, dict) and payload.get("events"):
-            pages.append(payload)
+    results = await _gather_capped(
+        [manager.call_tool("kalshi_events", {
+            "limit": 200, "status": "open", "with_nested_markets": True,
+            "series_ticker": ticker,
+        }) for ticker in window])
+    pages.extend(r for r in results
+                 if isinstance(r, dict) and r.get("events"))
     return {"pages": pages}
 
 
@@ -1081,12 +1098,8 @@ async def fetch_betfair_all(manager: Any) -> dict[str, Any]:
     cap = int(os.environ.get("SPORTSDATA_AGENTS_BETFAIR_MARKETS_PER_CYCLE",
                              str(BETFAIR_MARKETS_PER_CYCLE)))
     market_ids = [mid for mid, _ in found[:cap]]
-    batches: list[Any] = []
-    for start in range(0, len(market_ids), _BETFAIR_PRICE_BATCH):
-        batch = market_ids[start:start + _BETFAIR_PRICE_BATCH]
-        try:
-            batches.append(await manager.call_tool("betfair_market_prices",
-                                                   {"marketIds": batch}))
-        except Exception as e:
-            logger.warning("betfair bymarket batch failed: %s", e)
-    return {"batches": batches}
+    chunks = [market_ids[i:i + _BETFAIR_PRICE_BATCH]
+              for i in range(0, len(market_ids), _BETFAIR_PRICE_BATCH)]
+    results = await _gather_capped(
+        [manager.call_tool("betfair_market_prices", {"marketIds": c}) for c in chunks])
+    return {"batches": [r for r in results if r is not None]}
