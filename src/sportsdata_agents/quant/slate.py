@@ -175,6 +175,32 @@ async def record_slate(
             candidates.append((sport, book, event_id, seed))
     await session.commit()  # end the read snapshot BEFORE any write
 
+    # ESOCCER GUARD: Kambi's "football" label carries FIFA video-game matches
+    # ("River Plate (Galikooo) - Boca Juniors (drksd3)") — both sides tagged
+    # with a gamertag. The soccer model must not price video games. Women's
+    # "(W)" and similar one-letter tags are real fixtures and stay.
+    import re as _re
+
+    if candidates:
+        from sportsdata_agents.data.models import OddsSnapshot
+
+        ids = sorted({event_id for _s, _b, event_id, _seed in candidates})
+        names: dict[str, str] = {
+            str(event_id): str(name) for event_id, name in (await session.execute(
+                select(OddsSnapshot.event_external_id, OddsSnapshot.event_name)
+                .where(OddsSnapshot.event_external_id.in_(ids)).distinct()
+            )).all()}
+
+        def _is_esports(name: str) -> bool:
+            tags = _re.findall(r"\(([^)\s]{2,20})\)", name or "")
+            return len(tags) >= 2
+
+        kept = [c for c in candidates if not _is_esports(names.get(c[2], ""))]
+        if len(kept) < len(candidates):
+            logger.info("slate: %d gamertag-styled events skipped (esports)",
+                        len(candidates) - len(kept))
+        candidates = kept
+
     # cache the artifact IDS (plain uuids), never the ORM objects: a lock
     # retry rolls the session back, which expires loaded attributes — touching
     # an expired object then triggers sync IO inside the async loop (xd2s)

@@ -65,10 +65,20 @@ def _pct_move(prev: float, new: float) -> float:
 
 
 async def _cross_book_line(session: AsyncSession, row: Price) -> str:
+    """The cross-book board as a display line — see _cross_book_quotes."""
+    quotes = await _cross_book_quotes(session, row)
+    if not quotes:
+        return ""
+    board = " · ".join(f"{book} {odds:.2f}"
+                       for book, odds in sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
+    return f"\nacross books: {board}"
+
+
+async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, float]:
     """The same market at every OTHER book mapped to this event's fixture —
-    best price first. Side-relative selections (home/away) translate between
+    {book: best odds}. Side-relative selections (home/away) translate between
     books' listing orders with the settlement-grade name matching; when the
-    event isn't resolved onto a fixture yet, the line is simply omitted."""
+    event isn't resolved onto a fixture yet, the map is simply empty."""
     from sportsdata_agents.quant.backtest import _event_name_for, _translate_side
 
     mapping = (
@@ -80,7 +90,7 @@ async def _cross_book_line(session: AsyncSession, row: Price) -> str:
         )
     ).scalars().first()
     if mapping is None or mapping.fixture_id is None:
-        return ""
+        return {}
     siblings = (
         await session.execute(
             select(Event).where(
@@ -90,7 +100,7 @@ async def _cross_book_line(session: AsyncSession, row: Price) -> str:
         )
     ).scalars().all()
     if not siblings:
-        return ""
+        return {}
     side_relative = row.selection in ("home", "away", "draw")
     name_cache: dict[tuple[str, str], str] = {}
     own_name = ""
@@ -120,14 +130,10 @@ async def _cross_book_line(session: AsyncSession, row: Price) -> str:
         ).scalars().first()
         if latest is not None and latest.book != row.book:
             quotes[latest.book] = max(quotes.get(latest.book, 0.0), float(latest.odds))
-    if not quotes:
-        return ""
-    board = " · ".join(f"{book} {odds:.2f}"
-                       for book, odds in sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
-    return f"\nacross books: {board}"
+    return quotes
 
 
-async def _context(session: AsyncSession, row: Price) -> dict[str, str]:
+async def _context(session: AsyncSession, row: Price) -> dict[str, Any]:
     """Human context for an alert — the change-point series carries only keys;
     the event NAME, sport and runner/team label live in the latest snapshot."""
     snap = (
@@ -149,15 +155,42 @@ async def _context(session: AsyncSession, row: Price) -> dict[str, str]:
     selection = row.selection
     if who and str(who).strip().lower() != row.selection.lower():
         selection = f"{row.selection} ({who})"
-    return {"event": event, "sport": sport, "selection": selection}
+    matched = (snap.meta or {}).get("total_matched") if snap else None
+    return {"event": event, "sport": sport, "selection": selection,
+            "start_time": snap.start_time if snap else None, "matched": matched}
 
 
 def _match(row: Price, params: dict[str, Any]) -> bool:
+    if row.sport in (params.get("exclude_sports") or ()):
+        return False
     for field in ("sport", "market", "selection", "book", "provider"):
         want = params.get(field)
         if want and getattr(row, field) != want:
             return False
     return True
+
+
+def _started(start_time: Any) -> bool:
+    """Has the event already jumped/kicked off? In-play prices move for game
+    reasons (a goal, a set), which the pre-match watches must not read as
+    market signal."""
+    if start_time is None:
+        return False
+    when = start_time if start_time.tzinfo else start_time.replace(tzinfo=dt.UTC)
+    return when <= dt.datetime.now(dt.UTC)
+
+
+def _engine_veto(sub: Subscription, odds: float, engine_fair: float | None,
+                 quotes: dict[str, float]) -> bool:
+    """True = suppress: the ENGINE says the price is below fair (engine fair
+    odds >= the offer) and no sharp book corroborates value by quoting UNDER
+    the offer. Off by default; ``engine_gate=true`` turns it on per watch."""
+    if not sub.params.get("engine_gate") or engine_fair is None:
+        return False
+    if engine_fair < float(odds):
+        return False  # the engine itself sees value — let it through
+    sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
+    return not any(quotes.get(b, float("inf")) < float(odds) for b in sharps)
 
 
 async def _fire(
@@ -218,15 +251,22 @@ async def _watch_line_move(
             continue
         direction = "shortened" if float(row.odds) < float(row.prev_odds) else "drifted"
         ctx = await _context(session, row)
+        if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
+            continue  # in-play prices move for game reasons, not market ones
         engine_fair = await _engine_fair_for(
             session, row.market, row.selection, event_id=row.event_external_id)
+        quotes = await _cross_book_quotes(session, row)
+        if _engine_veto(sub, float(row.odds), engine_fair, quotes):
+            continue
         engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
+        board = " · ".join(f"{b} {o:.2f}" for b, o in
+                           sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
         message = (
             f":chart_with_upwards_trend: line move [{ctx['sport']}] {ctx['event']}\n"
             f"{row.book} · {row.market} · {ctx['selection']} — "
             f"{float(row.prev_odds):.2f} → {float(row.odds):.2f} ({direction} {move:.1f}%)"
             f"{engine_note}"
-            + await _cross_book_line(session, row)
+            + (f"\nacross books: {board}" if board else "")
         )
         key = f"line_move:{row.book}:{row.event_external_id}:{row.market}:{row.selection}"
         if await _fire(session, sub, kind="line_move", key=key, message=message,
@@ -254,17 +294,25 @@ async def _watch_steam(
         series.sort(key=lambda r: r.changed_at)
         directions = {1 if float(r.odds) > float(r.prev_odds or 0) else -1 for r in series}
         if len(series) >= min_moves and len(directions) == 1:
-            arrow = "drifting" if directions == {1} else "steaming in"
             ctx = await _context(session, series[-1])
+            if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
+                continue  # in-play prices move for game reasons, not market ones
+            arrow = "drifting" if directions == {1} else "steaming in"
             engine_fair = await _engine_fair_for(session, market, selection, event_id=event)
+            quotes = await _cross_book_quotes(session, series[-1])
+            if _engine_veto(sub, float(series[-1].odds), engine_fair, quotes):
+                continue
             engine_note = f" · engine fair {engine_fair:.2f}" if engine_fair else ""
+            traded = f" ({_fmt_money(float(ctx['matched']))} matched)" if ctx.get("matched") else ""
+            board = " · ".join(f"{b} {o:.2f}" for b, o in
+                               sorted(quotes.items(), key=lambda kv: -kv[1])[:6])
             message = (
                 f":fire: steam [{ctx['sport']}] {ctx['event']}\n"
                 f"{book} · {market} · {ctx['selection']} — {arrow}, "
                 f"{len(series)} consecutive moves, "
                 f"{float(series[0].prev_odds or 0):.2f} → {float(series[-1].odds):.2f}"
-                f"{engine_note}"
-                + await _cross_book_line(session, series[-1])
+                f"{engine_note}{traded}"
+                + (f"\nacross books: {board}" if board else "")
             )
             # band the dedupe by streak length: the alert fires when the streak
             # first reaches min_moves (so the count reads exactly the threshold),
@@ -859,6 +907,10 @@ async def _watch_racing_value(
         engine_fair = await _engine_fair_for(
             session, "win", candidate.get("runner_number"),
             event_id=candidate.get("event_external_id"))
+        if (sub.params.get("engine_gate") and engine_fair is not None
+                and engine_fair >= candidate["odds"]
+                and candidate.get("versus") != str(sub.params.get("exchange_book", "Betfair"))):
+            continue  # engine says no value and no exchange corroboration
         if engine_fair is not None:
             engine_note = f" · engine fair {engine_fair:.2f}"
             candidate = {**candidate, "engine_fair_odds": round(engine_fair, 2)}

@@ -26,6 +26,7 @@ COMMON_PARAMS: Params = {
 # The row-filter params the change-point watches accept (line_move/steam/value).
 _ROW_FILTERS: Params = {
     "sport": (None, "only this sport (warehouse label, e.g. tennis)"),
+    "exclude_sports": (None, "sports to ignore, e.g. table_tennis,esports"),
     "market": (None, "only this market (e.g. h2h)"),
     "selection": (None, "only this selection"),
     "book": (None, "only this bookmaker"),
@@ -42,10 +43,20 @@ WATCH_PARAMS: dict[str, Params] = {
     },
     "line_move": {
         "threshold_pct": (5.0, "single price move of at least this % fires"),
+        "pre_match_only": (True, "skip events that have already started — in-play "
+                                 "prices move for game reasons, not market ones"),
+        "engine_gate": (False, "suppress when the engine fair is above the price "
+                               "and no sharp book quotes under it"),
+        "sharp_books": (["Pinnacle", "Betfair"], "books whose lower quote overrides the engine gate"),
         **_ROW_FILTERS,
     },
     "steam": {
         "min_moves": (3, "consecutive same-direction moves on one selection"),
+        "pre_match_only": (True, "skip events that have already started — in-play "
+                                 "prices move for game reasons, not market ones"),
+        "engine_gate": (False, "suppress when the engine fair is above the price "
+                               "and no sharp book quotes under it"),
+        "sharp_books": (["Pinnacle", "Betfair"], "books whose lower quote overrides the engine gate"),
         **_ROW_FILTERS,
     },
     "value": {
@@ -86,6 +97,8 @@ WATCH_PARAMS: dict[str, Params] = {
         "min_consensus_books": (3, "consensus mode needs this many OTHER books on the race "
                                    "(lower it to cover thin international cards; Betfair "
                                    "mode is unaffected)"),
+        "engine_gate": (False, "suppress consensus-mode alerts the engine fair disagrees "
+                               "with (exchange-mode alerts are already corroborated)"),
         "bankroll": (100.0, "kelly stake sizing base"),
     },
     "back_lay": {

@@ -418,8 +418,11 @@ async def test_alert_shows_other_books_for_the_same_market(
         return True
 
     async with db_sessionmaker() as s:
+        # the fixture's start is in the (test-frozen) past — pre_match_only
+        # would rightly suppress it, and this test is about the cross-book line
         s.add(Subscription(tenant_id="t", workspace_id="w", name="moves",
-                           kind="line_move", params={"threshold_pct": 10}, channel="log"))
+                           kind="line_move", channel="log",
+                           params={"threshold_pct": 10, "pre_match_only": False}))
         await s.commit()
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
     assert report["alerts"] == 1
