@@ -85,7 +85,8 @@ async def test_post_ops_report_needs_config() -> None:
 
     tools = {t.name: t for t in ops_tools()}
     saved = {k: os.environ.pop(k, None)
-             for k in ("SLACK_BOT_TOKEN", "OPS_SLACK_CHANNEL", "OPS_DISCORD_WEBHOOK")}
+             for k in ("SLACK_BOT_TOKEN", "OPS_SLACK_CHANNEL", "OPS_DISCORD_WEBHOOK",
+                       "OPS_NTFY_URL")}
     try:
         result = await tools["post_ops_report"].execute({"title": "t"})
     finally:
@@ -134,6 +135,7 @@ async def test_escalate_is_durable(tmp_path: Any, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("SPORTSDATA_AGENTS_VAR_DIR", str(tmp_path))
     monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
     monkeypatch.delenv("OPS_DISCORD_WEBHOOK", raising=False)
+    monkeypatch.delenv("OPS_NTFY_URL", raising=False)
     from sportsdata_agents.tools.ops import read_ops_state
 
     tools = {t.name: t for t in ops_tools()}
