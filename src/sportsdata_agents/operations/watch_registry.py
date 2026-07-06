@@ -83,6 +83,9 @@ WATCH_PARAMS: dict[str, Params] = {
         "max_staleness_minutes": (10.0, "drop books whose quotes lag the freshest by more"),
         "min_matched": (500.0, "exchange race must have this much traded to be the fair"),
         "exclude_books": (["FanDuel"], "books never flagged (still feed the consensus)"),
+        "min_consensus_books": (3, "consensus mode needs this many OTHER books on the race "
+                                   "(lower it to cover thin international cards; Betfair "
+                                   "mode is unaffected)"),
         "bankroll": (100.0, "kelly stake sizing base"),
     },
     "back_lay": {

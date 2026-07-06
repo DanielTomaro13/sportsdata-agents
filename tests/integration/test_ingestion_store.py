@@ -116,8 +116,9 @@ async def test_ingest_once_isolates_feed_failures(db_sessionmaker: async_session
 
     report = await ingest_once(manager, db_sessionmaker, [bad, good])
     assert report["bad"]["ok"] is False and "upstream 500" in report["bad"]["error"]
-    assert report["good"] == {"ok": True, "snapshots": 1, "price_changes": 1,
-                              "refreshed": 0}  # bad didn't sink good
+    good = {k: v for k, v in report["good"].items() if not k.endswith("_s")}
+    assert good == {"ok": True, "snapshots": 1, "price_changes": 1,
+                    "refreshed": 0}  # bad didn't sink good
 
 
 async def test_ingest_once_fetches_feeds_in_parallel(

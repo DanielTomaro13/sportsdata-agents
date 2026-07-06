@@ -474,15 +474,22 @@ async def ingest_once(
 
     async def _run(feed: Feed) -> None:
         try:
+            import time as _time
+
+            fetch_started = _time.monotonic()
             async with fetch_gate:
                 if feed.fetch is not None:  # multi-call providers compose their own payload
                     payload = await feed.fetch(manager)
                 else:
                     payload = await manager.call_tool(feed.tool, feed.arguments or {})
                 points = feed.normalizer(payload)  # raw: shapes differ (TAB dict, sportsbet list)
+            fetch_s = _time.monotonic() - fetch_started
+            write_started = _time.monotonic()
             async with write_gate:
                 stats = await record_points(session_factory, points)
-            report[feed.name] = {"ok": True, **stats}
+            report[feed.name] = {"ok": True, **stats,
+                                 "fetch_s": round(fetch_s, 1),
+                                 "write_s": round(_time.monotonic() - write_started, 1)}
             if not points:  # reachable but empty (off-season, shape drift) — visible, not silent
                 report[feed.name]["note"] = "feed returned no price points"
             logger.info(

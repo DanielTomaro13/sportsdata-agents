@@ -650,7 +650,10 @@ async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
 # selection, win/place = markets. Soonest races first — racing prices move
 # hardest near post.
 
-RACES_PER_CYCLE = 15
+# races fetched per book per cycle. Domestic meetings sort first, so this cap
+# decides whether INTERNATIONAL races get covered during busy AU hours —
+# raise it (env) to widen coverage; each unit is one racecard request/cycle.
+RACES_PER_CYCLE = int(os.environ.get("SPORTSDATA_AGENTS_RACES_PER_CYCLE", "15"))
 _RACE_TYPE_SPORT = {
     "r": "horse_racing", "t": "horse_racing", "thoroughbred": "horse_racing",
     "horse": "horse_racing", "horse racing": "horse_racing",

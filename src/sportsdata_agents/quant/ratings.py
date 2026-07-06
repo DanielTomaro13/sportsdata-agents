@@ -48,6 +48,22 @@ _VS_SPLIT = re.compile(r"\s+(?:v|vs|vs\.|@)\s+", re.IGNORECASE)
 _SCORE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 
 
+def _match_rated(name: str, rated: list[str]) -> str | None:
+    """The rated team this book-side name refers to — the resolver's token
+    matching (drop stopwords, subset/overlap tolerant), so "Brisbane Broncos"
+    finds "Broncos". None when unknown OR ambiguous: a wrong team match would
+    price the wrong game, which is worse than not pricing."""
+    from sportsdata_agents.operations.resolution.resolver import _token_match
+
+    best: str | None = None
+    for candidate in rated:
+        if _token_match(name, candidate):
+            if best is not None and candidate != best:
+                return None
+            best = candidate
+    return best
+
+
 def _parse_result(name: str, score: str, winner: str) -> tuple[str, str, int, int] | None:
     """(home, away, home_score, away_score) from a result row — None when the
     name or score doesn't parse, or the score contradicts the graded winner
@@ -247,6 +263,7 @@ async def record_ratings_slate(
         module = importlib.import_module(f"sportsdata_engines.{sport}")
         name = f"engine-ratings:{sport}"
         await _artifact(name, sport)
+        rated_teams = list(ratings.attack)
         for _provider, book, event_id, event_name in await _upcoming_events(
                 session, labels, now, horizon_hours):
             if events_priced >= max_events:
@@ -254,11 +271,18 @@ async def record_ratings_slate(
             parts = _VS_SPLIT.split(event_name.strip())
             if len(parts) != 2:
                 continue
-            home, away = (p.strip() for p in parts)
+            # book names and scoreboard names differ ("Brisbane Broncos" vs
+            # "Broncos") — the RESOLVER's token matching already solves this
+            # for fixtures, so team identity rides the same machinery here
+            home = _match_rated(parts[0].strip(), rated_teams)
+            away = _match_rated(parts[1].strip(), rated_teams)
+            if home is None or away is None:
+                skipped_unrated += 1  # unknown or ambiguous vs the results history
+                continue
             try:
                 margin, total = ratings.expected_margin_total(home, away)
             except (KeyError, ValueError):
-                skipped_unrated += 1  # a team the results history hasn't seen
+                skipped_unrated += 1
                 continue
             if await _dedupe_hit(session, scope, artifacts[name], book, event_id,
                                  now, dedupe_hours):

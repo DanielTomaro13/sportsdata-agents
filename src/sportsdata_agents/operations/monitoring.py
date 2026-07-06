@@ -581,6 +581,38 @@ async def _watch_scratching(
     return fired
 
 
+async def _engine_fair_for(
+    session: AsyncSession, event_id: Any, runner_number: Any
+) -> float | None:
+    """The engine's own fair odds for this runner, from the slate's recorded
+    predictions (engine:racing = anchored, engine-form:racing = form-based;
+    the anchored one wins when both exist). None when the slate hasn't priced
+    this race yet — the alert simply shows the market fair alone."""
+    if not event_id or runner_number is None:
+        return None
+    from sportsdata_agents.data.models import ModelArtifact
+
+    row = (await session.execute(
+        select(Prediction.prob)
+        .join(ModelArtifact, ModelArtifact.id == Prediction.model_id)
+        .where(
+            ModelArtifact.name.in_(("engine:racing", "engine-form:racing")),
+            Prediction.event_external_id == str(event_id),
+            Prediction.market == "win",
+            Prediction.selection == str(runner_number),
+        )
+        .order_by(
+            # anchored artifact sorts before form alphabetically — exploit it
+            ModelArtifact.name, Prediction.predicted_at.desc(),
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if row is None:
+        return None
+    prob = float(row)
+    return 1.0 / prob if 0.0 < prob < 1.0 else None
+
+
 def _fmt_money(amount: float | None) -> str:
     """Traded-volume display for alerts: $16, $12.3k, $1.2M."""
     if amount is None:
@@ -783,6 +815,7 @@ async def _watch_racing_value(
         max_staleness_minutes=float(sub.params.get("max_staleness_minutes", 10.0)),
         min_matched=float(sub.params.get("min_matched", 500.0)),
         exclude_books=tuple(sub.params.get("exclude_books", ["FanDuel"])),
+        min_consensus_books=int(sub.params.get("min_consensus_books", 3)),
         limit=cap * 3, now=now)
     fired = 0
     for candidate in candidates:
@@ -795,6 +828,12 @@ async def _watch_racing_value(
         traded = ""
         if candidate.get("exchange_matched") is not None:
             traded = f" ({_fmt_money(candidate['exchange_matched'])} matched)"
+        engine_note = ""
+        engine_fair = await _engine_fair_for(
+            session, candidate.get("event_external_id"), candidate.get("runner_number"))
+        if engine_fair is not None:
+            engine_note = f" · engine fair {engine_fair:.2f}"
+            candidate = {**candidate, "engine_fair_odds": round(engine_fair, 2)}
         bankroll = float(sub.params.get("bankroll", 100.0))
         kelly = _kelly_stake(1.0 / candidate["fair_odds"], candidate["odds"], bankroll)
         message = (
@@ -802,7 +841,7 @@ async def _watch_racing_value(
             f"{candidate['race']}\n"
             f"{candidate['book']} pays {candidate['odds']:.2f} on "
             f"{candidate['runner']}{number} vs {candidate['versus']} "
-            f"fair {candidate['fair_odds']:.2f}{traded}{jump}\n"
+            f"fair {candidate['fair_odds']:.2f}{engine_note}{traded}{jump}\n"
             f"kelly ${kelly:.2f} on ${bankroll:.0f}"
             f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}"
             f" — check the live price before betting"

@@ -76,6 +76,7 @@ async def scan_racing_value(
     max_staleness_minutes: float = 10.0,
     min_matched: float = 500.0,
     exclude_books: tuple[str, ...] = ("FanDuel",),  # not bettable from AU
+    min_consensus_books: int = 3,
     min_field_overlap: int = 3,
     limit: int = 20,
     now: dt.datetime | None = None,
@@ -175,7 +176,7 @@ async def scan_racing_value(
         # steadier median) but are never flagged — an alert on a book the
         # operator cannot bet is noise
         flaggable = [u for u in books if u.book not in exclude_books]
-        if exchange is None and len(books) < 3:
+        if exchange is None and len(books) < min_consensus_books:
             continue  # consensus needs a pack to be out from
         fairs = {u.book: u.devig() for u in books}
         exchange_fair = exchange.devig() if exchange else None
@@ -191,8 +192,8 @@ async def scan_racing_value(
                     matched = exchange.matched if exchange else None
                 else:
                     others = [f[name] for b, f in fairs.items() if b != unit.book and name in f]
-                    if len(others) < 3:
-                        continue  # a 2-book "consensus" is one stale quote from a mirage
+                    if len(others) < min_consensus_books:
+                        continue  # a tiny "consensus" is one stale quote from a mirage
                     fair = statistics.median(others)
                     versus = f"consensus of {len(others)} books"
                 if fair is None or fair <= 0.0:
