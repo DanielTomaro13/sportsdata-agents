@@ -56,6 +56,9 @@ WATCH_PARAMS: dict[str, Params] = {
                                     "engine prices it shorter than the drifted-to price"),
         "exchange_min_matched": (1000.0, "exchange rows need this much traded — a "
                                          "near-untraded market's moves are stray orders"),
+        "exchange_needs_book_prices": (True, "racing: skip exchange moves while every book "
+                                             "is still SP-only — nothing is takeable until "
+                                             "fixed odds post (the value scan catches the open)"),
         **_ROW_FILTERS,
     },
     "steam": {
@@ -73,6 +76,9 @@ WATCH_PARAMS: dict[str, Params] = {
                                     "engine prices it shorter than the drifted-to price"),
         "exchange_min_matched": (1000.0, "exchange rows need this much traded — a "
                                          "near-untraded market's moves are stray orders"),
+        "exchange_needs_book_prices": (True, "racing: skip exchange moves while every book "
+                                             "is still SP-only — nothing is takeable until "
+                                             "fixed odds post (the value scan catches the open)"),
         **_ROW_FILTERS,
     },
     "value": {

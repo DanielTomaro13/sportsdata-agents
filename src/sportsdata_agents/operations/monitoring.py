@@ -250,6 +250,21 @@ def _thin_exchange(sub: Subscription, ctx: dict[str, Any]) -> bool:
         return False
 
 
+def _exchange_alone(sub: Subscription, ctx: dict[str, Any],
+                    quotes: dict[str, float]) -> bool:
+    """True = suppress: an EXCHANGE price moving on a race where every book is
+    still SP-only (no fixed odds captured anywhere). There is nothing to take —
+    you cannot bet a price that hasn't been posted; the actionable moment is
+    when the books OPEN, and the racing value scan catches that within a
+    cycle. On by default for racing rows; exchange_needs_book_prices=false
+    restores the old behaviour."""
+    if not bool(sub.params.get("exchange_needs_book_prices", True)):
+        return False
+    return (ctx.get("sport") in _RACING_LABELS
+            and ctx.get("matched") is not None  # exchange rows carry matched
+            and not quotes)
+
+
 def _drift_suppressed(sub: Subscription, drifting: bool, odds: float,
                       engine_fair: float | None, quotes: dict[str, float]) -> bool:
     """True = suppress a DRIFT alert: nobody prices it shorter than the
@@ -362,6 +377,8 @@ async def _watch_line_move(
         if not quotes and ctx["sport"] in _RACING_LABELS:
             quotes = await _racing_board(session, _racing_board_key(str(ctx["event"])),
                                          row.market, row.selection, row.book)
+        if _exchange_alone(sub, ctx, quotes):
+            continue
         if _engine_veto(sub, float(row.odds), engine_fair, quotes):
             continue
         if _lacks_clear_ev(sub, float(row.odds), engine_fair):
@@ -420,6 +437,8 @@ async def _watch_steam(
                 quotes = await _racing_board(session, _racing_board_key(str(ctx["event"])),
                                              market, selection, book)
             current = float(series[-1].odds)
+            if _exchange_alone(sub, ctx, quotes):
+                continue
             if _engine_veto(sub, current, engine_fair, quotes):
                 continue
             if _lacks_clear_ev(sub, current, engine_fair):
