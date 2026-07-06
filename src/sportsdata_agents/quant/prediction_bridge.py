@@ -197,6 +197,8 @@ async def scan_prediction_disagreements(
                 "q_match": round(ranked[0][0], 2),
                 "kalshi_event": ku.event_id,
                 "polymarket_event": pu.event_id,
+                "kalshi_volume": round(ku.volume, 2),
+                "polymarket_volume": round(pu.volume, 2),
             })
     # two Kalshi events can pair with the same Polymarket question (series
     # variants); keep only the strongest signal per (poly question, outcome)

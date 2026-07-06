@@ -22,6 +22,7 @@ the scan only speaks where the de-vig is trustworthy.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import re
 import statistics
@@ -47,6 +48,7 @@ class _RaceUnit:
     race_no: int
     start: dt.datetime | None
     last_seen: dt.datetime | None = None
+    matched: float = 0.0  # exchange only: money traded on the market
     runners: dict[str, float] = field(default_factory=dict)  # name -> odds
     numbers: dict[str, Any] = field(default_factory=dict)  # name -> saddle no
 
@@ -69,6 +71,7 @@ async def scan_racing_value(
     min_edge_pct: float = 8.0,
     max_fair_odds: float = 12.0,
     max_staleness_minutes: float = 10.0,
+    min_matched: float = 500.0,
     exclude_books: tuple[str, ...] = ("FanDuel",),  # not bettable from AU
     min_field_overlap: int = 3,
     limit: int = 20,
@@ -108,6 +111,9 @@ async def scan_racing_value(
                 book=row.book, event_name=row.event_name, sport=row.sport,
                 race_no=race_no, start=_as_utc(row.start_time))
         unit.runners[name] = float(row.odds)  # ascending order: last write wins
+        if row.book == exchange_book and meta.get("total_matched") is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                unit.matched = max(unit.matched, float(meta["total_matched"]))
         seen = row.captured_at if row.captured_at.tzinfo else row.captured_at.replace(tzinfo=dt.UTC)
         unit.last_seen = max(unit.last_seen, seen) if unit.last_seen else seen
         number = meta.get("runner_number")
@@ -145,6 +151,19 @@ async def scan_racing_value(
             cluster = [u for u in cluster if u.last_seen and freshest - u.last_seen <= bound]
         books = [u for u in cluster if u.book != exchange_book]
         exchange = next((u for u in cluster if u.book == exchange_book), None)
+        # a near-untraded exchange race is not a fair-price source — its backs
+        # are stray unmatched offers; fall back to the pack consensus instead
+        if exchange is not None and exchange.matched < min_matched:
+            exchange = None
+        # …and even a traded race can carry ONE junk quote: a stray low back on
+        # a longshot inflates that runner's de-vigged prob and every book reads
+        # +500% on it (lived: Betfair "fair" 8.6 on a horse the whole pack had
+        # at 51-67). A clean win board's back-implied sum sits just under 1;
+        # far outside that band means the board is poisoned — use the pack.
+        if exchange is not None and exchange.runners:
+            inv = sum(1.0 / o for o in exchange.runners.values())
+            if not (0.90 <= inv <= 1.15):
+                exchange = None
         if not books:
             continue
         # excluded books still CONTRIBUTE to the consensus (more data = a
@@ -160,9 +179,11 @@ async def scan_racing_value(
             if start is not None and start <= now:
                 continue  # the race has jumped — not an offer anyone can take
             for name, odds in unit.runners.items():
+                matched: float | None = None
                 if exchange_fair is not None:
                     fair = exchange_fair.get(name)
                     versus = exchange_book
+                    matched = exchange.matched if exchange else None
                 else:
                     others = [f[name] for b, f in fairs.items() if b != unit.book and name in f]
                     if len(others) < 3:
@@ -189,6 +210,7 @@ async def scan_racing_value(
                     "versus": versus,
                     "edge_pct": round(edge_pct, 2),
                     "start_time": start.isoformat() if start else None,
+                    "exchange_matched": round(matched, 2) if matched is not None else None,
                 })
     found.sort(key=lambda c: -c["edge_pct"])
     return found[:limit]

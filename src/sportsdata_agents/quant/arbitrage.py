@@ -151,6 +151,9 @@ def arbs_for_fixture(
                 "listed_as": e["selection"],
                 # equalised payout: stake share ∝ 1/odds
                 "stake_share": round((1.0 / float(e["odds"])) / inv, 4),
+                # exchange legs carry the market's traded volume; books have none
+                **({"matched": round(float(e["matched"]), 2)}
+                   if e.get("matched") is not None else {}),
             }
             for outcome, e in sorted(best.items())
         ]
@@ -236,7 +239,7 @@ async def collect_fixture_boards(
     # written every capture (prices only on change), so a row inside the window
     # proves the book still lists the selection — change-points can be stale for
     # delisted markets and would manufacture monster "arbs"
-    latest: dict[tuple[str, str, str, str], tuple[str, float]] = {}
+    latest: dict[tuple[str, str, str, str], tuple[str, float, float | None]] = {}
     names: dict[tuple[str, str], str] = {}
     for chunk in _chunks(external_ids):
         snap_rows = (
@@ -245,6 +248,7 @@ async def collect_fixture_boards(
                     OddsSnapshot.provider, OddsSnapshot.book,
                     OddsSnapshot.event_external_id, OddsSnapshot.selection,
                     OddsSnapshot.market, OddsSnapshot.odds, OddsSnapshot.event_name,
+                    OddsSnapshot.meta,
                 )
                 .where(
                     OddsSnapshot.event_external_id.in_(chunk),
@@ -254,18 +258,31 @@ async def collect_fixture_boards(
                 .order_by(OddsSnapshot.captured_at)
             )
         ).all()
-        for provider, book, external_id, selection, market, odds, event_name in snap_rows:
+        for provider, book, external_id, selection, market, odds, event_name, meta in snap_rows:
             # ascending — last write per key wins
             if (provider, external_id) in pair_to_fixture:
-                latest[(provider, book, external_id, selection)] = (market, float(odds))
+                # exchange-style liquidity: Betfair's traded volume, or a
+                # prediction platform's market volume — both answer "has real
+                # money been through this market?" Bookmaker rows have neither.
+                matched = None
+                if isinstance(meta, dict):
+                    raw = meta.get("total_matched")
+                    if raw is None:
+                        raw = meta.get("volume_24h")
+                    if raw is not None:
+                        try:
+                            matched = float(raw)
+                        except (TypeError, ValueError):
+                            matched = None
+                latest[(provider, book, external_id, selection)] = (market, float(odds), matched)
                 names[(provider, external_id)] = str(event_name or "")
 
     grouped: dict[tuple[uuid.UUID, str], list[dict[str, Any]]] = {}
-    for (provider, book, external_id, selection), (market, odds) in latest.items():
+    for (provider, book, external_id, selection), (market, odds, matched) in latest.items():
         fixture_id = pair_to_fixture[(provider, external_id)]
         grouped.setdefault((fixture_id, market), []).append({
             "provider": provider, "book": book, "selection": selection,
-            "odds": odds,
+            "odds": odds, "matched": matched,
             "event_name": names.get((provider, external_id), ""),
         })
     return fixtures, grouped
@@ -288,6 +305,7 @@ async def scan_arbs(
     *,
     hours: float = 6.0,
     threshold_pct: float = 1.0,
+    min_matched: float = 1000.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -303,6 +321,13 @@ async def scan_arbs(
         fixture = fixtures.get(fixture_id)
         if fixture is None or not _pre_game(fixture, now):
             continue  # in play, done, or unconfirmable — not an offer anyone can take
+        # a quote from a near-untraded exchange/prediction market is not a
+        # takeable leg — it is one stray unmatched offer. Bookmaker rows carry
+        # no liquidity figure (their quotes ARE firm offers) and pass through;
+        # a Betfair row whose totalMatched the API omitted also passes (fail-
+        # open, deliberately: the API sends it in practice)
+        rows = [r for r in rows
+                if r.get("matched") is None or float(r["matched"]) >= min_matched]
         for arb in arbs_for_fixture(fixture.name, market, rows, threshold_pct=threshold_pct):
             arb["fixture_id"] = str(fixture_id)
             arb["sport"] = fixture.sport
@@ -318,6 +343,7 @@ async def scan_exchange_premium(
     exchange_book: str = "Betfair",
     hours: float = 6.0,
     min_edge_pct: float = 3.0,
+    min_matched: float = 1000.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -347,6 +373,7 @@ async def scan_exchange_premium(
         # inverses across lines (inv≈2.0 for two lines) and mangles every edge —
         # each line is its own two-way market and must be de-vigged alone.
         exchange: dict[str, dict[str, float]] = {}  # line -> {outcome: back odds}
+        matched_by_line: dict[str, float] = {}  # line -> money matched on the market
         others: list[dict[str, Any]] = []
         for row in rows:
             outcome = _canonical_outcome(str(row["selection"]), str(row["event_name"]),
@@ -358,17 +385,29 @@ async def scan_exchange_premium(
                 bucket = exchange.setdefault(line, {})
                 # latest listed wins (rows arrive newest-last per collect order)
                 bucket[outcome] = float(row["odds"])
+                if row.get("matched") is not None:
+                    matched_by_line[line] = max(matched_by_line.get(line, 0.0),
+                                                float(row["matched"]))
             else:
                 others.append({**row, "outcome": outcome, "line": line})
         for row in others:
             board = exchange.get(row["line"])
             if not board or len(board) < 2:
                 continue  # no de-viggable exchange market at this line
+            # LIQUIDITY: an exchange market nobody has traded is not a market —
+            # its "backs" are junk offers nobody took (live case: $16 matched on
+            # an obscure basketball game read as a +298% "premium"). Fair prices
+            # only come from markets with real money through them.
+            matched = matched_by_line.get(row["line"], 0.0)
+            if matched < min_matched:
+                continue
             inv = sum(1.0 / o for o in board.values())
             # exchange BACKS sit above fair by the spread, so their implied sum
-            # is naturally a little under 1 (a tight two-way ~0.97); only a sum
-            # far below that means a stale/suspended side manufacturing fair odds
-            if inv < 0.90:
+            # is naturally a little under 1 (a tight two-way ~0.97). Far BELOW
+            # means a stale/suspended side manufacturing fair odds; far ABOVE
+            # means wide junk offers with no taker — neither is a priceable
+            # market (the same $16 game had backs summing to 1.74).
+            if inv < 0.90 or inv > 1.08:
                 continue
             back = board.get(row["outcome"])
             if back is None:
@@ -387,6 +426,7 @@ async def scan_exchange_premium(
                 "odds": float(row["odds"]),
                 "exchange_fair_odds": round(1.0 / prob, 3),
                 "exchange_back": back,
+                "exchange_matched": round(matched, 2),
                 "edge_pct": round(edge_pct, 2),
                 "start_time": fixture.start_time.isoformat() if fixture.start_time else None,
                 "note": "edge vs de-vigged exchange back prices; exchange commission "

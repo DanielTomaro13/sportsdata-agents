@@ -26,13 +26,16 @@ def _book_row(book: str, event_id: str, number: int, runner: str, odds: float) -
     )
 
 
-def _betfair_row(runner: str, number: int, odds: float) -> OddsSnapshot:
+def _betfair_row(runner: str, number: int, odds: float,
+                 matched: float = 25_000.0) -> OddsSnapshot:
+    # matched rides every exchange row: the scan refuses a fair from a
+    # near-untraded race, so seeds model a LIQUID market by default
     return OddsSnapshot(
         captured_at=NOW - dt.timedelta(minutes=4), provider="betfair", book="Betfair",
         sport="horse_racing", event_external_id="BF-MEETING",
         event_name="Pakenham (AUS) 6th Jul", market="win",
         selection=runner.lower(), odds=odds, start_time=JUMP,
-        meta={"runner": runner, "runner_number": number,
+        meta={"runner": runner, "runner_number": number, "total_matched": matched,
               "race": "R5 1400m Hcap", "market_id": "1.999"},
     )
 
@@ -70,9 +73,39 @@ async def test_scan_flags_the_out_book_with_horse_details(
     assert hit["book"] == "PointsBet" and hit["runner"] == "Rusty Rancher"
     assert hit["runner_number"] == 4 and hit["race"] == "Pakenham R5"
     assert hit["versus"] == "Betfair"
+    assert hit["exchange_matched"] == 25_000.0  # traded volume rides the alert
     inv = 1 / 2.2 + 1 / 3.4 + 1 / 4.8 + 1 / 9.0
     fair = (1 / 4.8) / inv
     assert hit["edge_pct"] == pytest.approx(8.0 * fair * 100 - 100, abs=0.05)
+
+
+async def test_thin_betfair_race_falls_back_to_consensus(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A near-untraded exchange race must not be the fair source — the scan
+    demotes it and prices off the pack instead."""
+    async with db_sessionmaker() as s:
+        for runner, number, odds in (("Boat Race", 1, 2.2), ("Silver Comet", 2, 3.4),
+                                     ("Rusty Rancher", 4, 4.8), ("Night Parade", 7, 9.0)):
+            s.add(_betfair_row(runner, number, odds, matched=40.0))  # $40 traded
+        for book, event_id, prices in (
+            ("PointsBet", "PB-R5", ((1, "Boat Race", 2.10), (2, "Silver Comet", 3.20),
+                                    (4, "Rusty Rancher", 8.00), (7, "Night Parade", 8.00))),
+            ("TAB", "TAB-R5", ((1, "Boat Race", 2.15), (2, "Silver Comet", 3.30),
+                               (4, "Rusty Rancher", 4.60), (7, "Night Parade", 8.50))),
+            ("Sportsbet", "SB-R5", ((1, "Boat Race", 2.10), (2, "Silver Comet", 3.25),
+                                    (4, "Rusty Rancher", 4.50), (7, "Night Parade", 8.20))),
+            ("Ladbrokes", "LB-R5", ((1, "Boat Race", 2.12), (2, "Silver Comet", 3.28),
+                                    (4, "Rusty Rancher", 4.55), (7, "Night Parade", 8.30))),
+        ):
+            for number, runner, odds in prices:
+                s.add(_book_row(book, event_id, number, runner, odds))
+        await s.commit()
+    async with db_sessionmaker() as s:
+        found = await scan_racing_value(s, min_edge_pct=8.0, now=NOW)
+    assert found, "the consensus path must still flag the out book"
+    assert all(c["versus"].startswith("consensus") for c in found)
+    assert all(c["exchange_matched"] is None for c in found)
 
 
 async def test_consensus_mode_without_the_exchange(

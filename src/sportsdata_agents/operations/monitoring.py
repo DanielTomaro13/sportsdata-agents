@@ -580,6 +580,17 @@ async def _watch_scratching(
     return fired
 
 
+def _fmt_money(amount: float | None) -> str:
+    """Traded-volume display for alerts: $16, $12.3k, $1.2M."""
+    if amount is None:
+        return "?"
+    if amount >= 1_000_000:
+        return f"${amount / 1_000_000:.1f}M"
+    if amount >= 1_000:
+        return f"${amount / 1_000:.1f}k"
+    return f"${amount:.0f}"
+
+
 async def _watch_arb(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
 ) -> int:
@@ -590,7 +601,10 @@ async def _watch_arb(
     threshold = float(sub.params.get("threshold_pct", 1.0))
     hours = float(sub.params.get("hours", 1.0))
     cap = int(sub.params.get("max_alerts_per_cycle", 5))
-    arbs = await scan_arbs(session, hours=hours, threshold_pct=threshold, limit=cap * 3, now=now)
+    arbs = await scan_arbs(
+        session, hours=hours, threshold_pct=threshold,
+        min_matched=float(sub.params.get("min_matched", 1000.0)),
+        limit=cap * 3, now=now)
     fired = 0
     for arb in arbs:
         if fired >= cap:
@@ -599,6 +613,7 @@ async def _watch_arb(
         legs_text = "\n".join(
             f"• {leg['outcome']}: {leg['book']} {leg['odds']:.2f} — "
             f"stake {leg['stake_share'] * 100:.1f}%"
+            + (f" · {_fmt_money(leg['matched'])} matched" if "matched" in leg else "")
             for leg in arb["legs"]
         )
         message = (
@@ -630,7 +645,9 @@ async def _watch_exchange_value(
     cap = int(sub.params.get("max_alerts_per_cycle", 5))
     candidates = await scan_exchange_premium(
         session, exchange_book=exchange_book, hours=hours,
-        min_edge_pct=min_edge, limit=cap * 3, now=now)
+        min_edge_pct=min_edge,
+        min_matched=float(sub.params.get("min_matched", 1000.0)),
+        limit=cap * 3, now=now)
     fired = 0
     for candidate in candidates:
         if fired >= cap:
@@ -640,7 +657,8 @@ async def _watch_exchange_value(
             f"[{candidate['sport']}] {candidate['fixture']}\n"
             f"{candidate['book']} pays {candidate['odds']:.2f} on "
             f"{candidate['market']} · {candidate['outcome']} — "
-            f"{exchange_book} fair {candidate['exchange_fair_odds']:.2f}\n"
+            f"{exchange_book} fair {candidate['exchange_fair_odds']:.2f} "
+            f"({_fmt_money(candidate.get('exchange_matched'))} matched)\n"
             f"_vs de-vigged exchange back prices; verify the leg is live_"
         )
         bucket = int(candidate["edge_pct"] / 2.0)  # re-fire when the edge grows a band
@@ -678,6 +696,7 @@ async def _watch_racing_value(
         hours=hours, min_edge_pct=min_edge,
         max_fair_odds=float(sub.params.get("max_fair_odds", 12.0)),
         max_staleness_minutes=float(sub.params.get("max_staleness_minutes", 10.0)),
+        min_matched=float(sub.params.get("min_matched", 500.0)),
         exclude_books=tuple(sub.params.get("exclude_books", ["FanDuel"])),
         limit=cap * 3, now=now)
     fired = 0
@@ -688,12 +707,15 @@ async def _watch_racing_value(
         jump = ""
         if candidate.get("start_time"):
             jump = f" · jumps {candidate['start_time'][11:16]}"
+        traded = ""
+        if candidate.get("exchange_matched") is not None:
+            traded = f" ({_fmt_money(candidate['exchange_matched'])} matched)"
         message = (
             f":racehorse: racing value +{candidate['edge_pct']:.1f}% — "
             f"{candidate['race']}\n"
             f"{candidate['book']} pays {candidate['odds']:.2f} on "
             f"{candidate['runner']}{number} vs {candidate['versus']} "
-            f"fair {candidate['fair_odds']:.2f}{jump}"
+            f"fair {candidate['fair_odds']:.2f}{traded}{jump}"
         )
         bucket = int(candidate["edge_pct"] / 3.0)
         key = (f"racing_value:{candidate['race']}:{candidate['runner']}"
@@ -733,6 +755,8 @@ async def _watch_prediction_value(
             f"{candidate['question']}\n"
             f"{candidate['back']} pays {candidate['back_odds']:.2f} on "
             f"{candidate['outcome']} vs {other} fair {candidate['fair_odds']:.2f}"
+            f" (K vol {_fmt_money(candidate.get('kalshi_volume'))} · "
+            f"P vol {_fmt_money(candidate.get('polymarket_volume'))})"
             f" — confirm both platforms settle the question the same way"
         )
         bucket = int(candidate["edge_pct"] / 5.0)
