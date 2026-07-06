@@ -1199,6 +1199,91 @@ def migrate_warehouse_cmd(
 
 
 @app.command()
+def digest(
+    push: bool = typer.Option(False, "--push", help="Broadcast to the operator channels."),
+) -> None:
+    """The morning summary: yesterday's alert P&L, today's racing volume, the
+    freshest standing edges, and feed health — one push, then back to the
+    real-time alerts. Disable the daily cron with SPORTSDATA_AGENTS_DIGEST=off."""
+    import asyncio
+    import os
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    if os.environ.get("SPORTSDATA_AGENTS_DIGEST", "").lower() in ("off", "0", "false"):
+        typer.echo("digest disabled (SPORTSDATA_AGENTS_DIGEST=off)")
+        return
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.observability.notify import operator_broadcast, slack_to_plain
+    from sportsdata_agents.quant.scoreboard import alert_pnl
+
+    console = Console()
+
+    async def _run() -> None:
+        import datetime as dt
+
+        from sqlalchemy import func, select
+
+        from sportsdata_agents.data.models import Alert, OddsSnapshot
+
+        engine = make_engine(get_settings().database_url)
+        sf = make_sessionmaker(engine)
+        try:
+            now = dt.datetime.now(dt.UTC)
+            async with sf() as s:
+                report = await alert_pnl(s, since=now - dt.timedelta(hours=24))
+                alerts_24h = (await s.execute(
+                    select(Alert.kind, func.count()).where(
+                        Alert.created_at > now - dt.timedelta(hours=24)
+                    ).group_by(Alert.kind))).all()
+                races_today = (await s.execute(
+                    select(func.count(func.distinct(OddsSnapshot.event_external_id))).where(
+                        OddsSnapshot.market == "win",
+                        OddsSnapshot.start_time > now,
+                        OddsSnapshot.start_time < now + dt.timedelta(hours=18),
+                    ))).scalar() or 0
+                stale = (await s.execute(
+                    select(OddsSnapshot.provider,
+                           func.max(OddsSnapshot.captured_at).label("last"))
+                    .group_by(OddsSnapshot.provider))).all()
+            racing = report["racing"]
+            lines = [":newspaper: Morning digest"]
+            fired: dict[str, int] = {str(k): int(c) for (k, c) in alerts_24h}
+            total = sum(fired.values())
+            lines.append(f"Last 24h: {total} alerts"
+                         + (f" ({', '.join(f'{k} {c}' for k, c in sorted(fired.items()))})"
+                            if fired else ""))
+            if racing["settled"]:
+                lines.append(f"Racing P&L: {racing['wins']}/{racing['settled']} won, "
+                             f"${racing['pnl']:+.2f} on ${racing['staked']:.2f} staked")
+            value = report.get("value") or {}
+            if value.get("settled"):
+                lines.append(f"Value P&L: {value['wins']}/{value['settled']} won, "
+                             f"${value['pnl']:+.2f}")
+            lines.append(f"Today: {races_today} races captured and upcoming")
+            lagging = [prov for prov, last in stale
+                       if last and (now - (last if last.tzinfo else last.replace(tzinfo=dt.UTC))
+                                    ).total_seconds() > 1800]
+            lines.append("Feeds: all fresh" if not lagging
+                         else f"Feeds lagging >30m: {', '.join(sorted(lagging))}")
+            for tip in report.get("suggestions") or []:
+                lines.append(f":wrench: {tip}")
+            text = "\n".join(lines)
+            console.print(slack_to_plain(text))
+            if push:
+                await operator_broadcast(text)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+@app.command()
 def scoreboard(
     days: int = typer.Option(7, "--days", help="Window to grade (default: the last week)."),
     push: bool = typer.Option(False, "--push", help="Broadcast the report to the operator "
@@ -1468,6 +1553,7 @@ def results() -> None:
     from sportsdata_agents.mcp.manager import MCPManager
     from sportsdata_agents.operations.ingestion.results import (
         ingest_league_results,
+        ingest_prediction_resolutions,
         ingest_racing_results,
     )
     from sportsdata_agents.operations.ingestion.worker import INGEST_MAX_BYTES
@@ -1483,14 +1569,17 @@ def results() -> None:
         try:
             async with MCPManager(
                 groups=["pointsbet.racing", "nba.public.cdn", "afl.public.core",
-                        "nrl.public.core", "mlb.schedule", "espn.scores"],
+                        "nrl.public.core", "mlb.schedule", "espn.scores",
+                        "kalshi.markets", "polymarket.gamma"],
                 command=settings.mcp_command,
                 extra_env={"SPORTSDATA_MCP_MAX_BYTES": str(INGEST_MAX_BYTES)},
             ) as manager:
                 racing = await ingest_racing_results(manager, sf)
                 league = await ingest_league_results(manager, sf)
+                predictions = await ingest_prediction_resolutions(manager, sf)
             console.print(f"✓ racing: {racing} settled")
             console.print(f"✓ leagues: {league}")
+            console.print(f"✓ prediction markets: {predictions}")
         finally:
             await engine.dispose()
 

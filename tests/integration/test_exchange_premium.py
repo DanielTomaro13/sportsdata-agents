@@ -102,6 +102,35 @@ async def test_totals_devig_per_line_not_across_lines(
     assert found[0]["edge_pct"] == pytest.approx(2.30 * 0.5 * 100 - 100, abs=0.05)
 
 
+async def test_back_lay_finds_a_risk_free_margin(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Back at a book above the exchange's lay price = a locked margin net of
+    commission (one outcome, two sides)."""
+    from sportsdata_agents.quant.arbitrage import scan_back_lay
+
+    fixture_id = uuid.uuid4()
+    async with db_sessionmaker() as s:
+        s.add(Fixture(id=fixture_id, sport="tennis", external_id="FX-BL",
+                      name="Alpha v Beta", start_time=NOW + dt.timedelta(hours=3)))
+        await s.flush()
+        s.add(Event(fixture_id=fixture_id, provider="betfair", external_id="BF-BL"))
+        s.add(Event(fixture_id=fixture_id, provider="sportsbet", external_id="SB-BL"))
+        # book backs home at 2.20; Betfair lay is 2.05 with $20k matched -> margin
+        s.add(_snap("sportsbet", "sportsbet", "SB-BL", "home", 2.20, "Alpha v Beta"))
+        bf = _snap("betfair", "Betfair", "BF-BL", "home", 2.02, "Alpha v Beta")
+        bf.meta = {"lay": 2.05, "total_matched": 20000.0}
+        s.add(bf)
+        await s.commit()
+    async with db_sessionmaker() as s:
+        found = await scan_back_lay(s, min_margin_pct=0.5, now=NOW)
+    assert len(found) == 1, found
+    hit = found[0]
+    assert hit["book"] == "sportsbet" and hit["outcome"] == "home"
+    assert hit["back_odds"] == 2.20 and hit["lay_odds"] == 2.05
+    assert hit["profit_pct"] > 0
+
+
 async def test_thin_or_junk_exchange_markets_never_price_a_fair(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:

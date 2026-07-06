@@ -125,6 +125,10 @@ JOBS: tuple[Job, ...] = (
     # after the week's racing results have landed
     Job(name="scoreboard", args=("scoreboard", "--push"),
         log="cron.log", weekday=6, at=(9, 30), timeout_s=600),
+    # the morning digest: 22:00 UTC = 08:00 Melbourne; per-install off-switch
+    # via SPORTSDATA_AGENTS_DIGEST=off (the command itself no-ops)
+    Job(name="digest", args=("digest", "--push"),
+        log="cron.log", at=(22, 0), timeout_s=600),
     Job(name="steward", args=("steward",),
         log="steward.log", weekday=0, at=(9, 0), timeout_s=1800),
     Job(name="eval_benchmark",

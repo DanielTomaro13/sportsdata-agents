@@ -240,7 +240,8 @@ async def collect_fixture_boards(
     # written every capture (prices only on change), so a row inside the window
     # proves the book still lists the selection — change-points can be stale for
     # delisted markets and would manufacture monster "arbs"
-    latest: dict[tuple[str, str, str, str], tuple[str, float, float | None, dt.datetime]] = {}
+    latest: dict[tuple[str, str, str, str],
+                 tuple[str, float, float | None, dt.datetime, float | None]] = {}
     names: dict[tuple[str, str], str] = {}
     for chunk in _chunks(external_ids):
         snap_rows = (
@@ -266,6 +267,7 @@ async def collect_fixture_boards(
                 # prediction platform's market volume — both answer "has real
                 # money been through this market?" Bookmaker rows have neither.
                 matched = None
+                lay = None
                 if isinstance(meta, dict):
                     raw = meta.get("total_matched")
                     if raw is None:
@@ -275,17 +277,21 @@ async def collect_fixture_boards(
                             matched = float(raw)
                         except (TypeError, ValueError):
                             matched = None
+                    try:
+                        lay = float(meta["lay"]) if meta.get("lay") else None
+                    except (TypeError, ValueError):
+                        lay = None
                 seen_utc = seen if seen.tzinfo else seen.replace(tzinfo=dt.UTC)
                 latest[(provider, book, external_id, selection)] = (
-                    market, float(odds), matched, seen_utc)
+                    market, float(odds), matched, seen_utc, lay)
                 names[(provider, external_id)] = str(event_name or "")
 
     grouped: dict[tuple[uuid.UUID, str], list[dict[str, Any]]] = {}
-    for (provider, book, external_id, selection), (market, odds, matched, seen) in latest.items():
+    for (provider, book, external_id, selection), (market, odds, matched, seen, lay) in latest.items():
         fixture_id = pair_to_fixture[(provider, external_id)]
         grouped.setdefault((fixture_id, market), []).append({
             "provider": provider, "book": book, "selection": selection,
-            "odds": odds, "matched": matched, "seen": seen,
+            "odds": odds, "matched": matched, "seen": seen, "lay": lay,
             "event_name": names.get((provider, external_id), ""),
         })
     return fixtures, grouped
@@ -444,6 +450,86 @@ async def scan_exchange_premium(
                         "applies to exchange bets only, not this book bet",
             })
     found.sort(key=lambda c: -c["edge_pct"])
+    return found[:limit]
+
+
+async def scan_back_lay(
+    session: AsyncSession,
+    *,
+    exchange_book: str = "Betfair",
+    hours: float = 1.0,
+    min_margin_pct: float = 1.0,
+    min_matched: float = 1000.0,
+    commission_pct: float = 5.0,
+    markets: tuple[str, ...] = DEFAULT_MARKETS,
+    limit: int = 20,
+    max_fixtures: int = 400,
+    now: dt.datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Back at a book, LAY the same outcome on the exchange — a risk-free
+    margin whenever the book's back price clears the exchange's lay price
+    (a different surface than the cross-book arb: one outcome, two sides).
+
+    Math per $1 book stake at back odds B, exchange lay odds L, commission c
+    on exchange WINNINGS: lay stake = B/L equalises both outcomes;
+      outcome wins:  +(B-1) - (B/L)(L-1)      = B(1 - 1/L) - 1 + B/L ... net B/L·(L-... )
+    simplified guaranteed profit ≈ B/L - 1 minus commission drag on the lay-
+    win branch; we report the CONSERVATIVE branch (commission applied):
+      profit_pct = min(B - (B/L)(L-1) - 1, (B/L)(1-c) - 1) x 100
+    Only fires when even the worse branch is positive."""
+    now = now or dt.datetime.now(dt.UTC)
+    fixtures, grouped = await collect_fixture_boards(
+        session, hours=hours, markets=markets, max_fixtures=max_fixtures, now=now)
+    c = commission_pct / 100.0
+    found: list[dict[str, Any]] = []
+    for (fixture_id, market), rows in grouped.items():
+        fixture = fixtures.get(fixture_id)
+        if fixture is None or not _pre_game(fixture, now):
+            continue
+        lays: dict[str, tuple[float, float]] = {}  # outcome -> (lay odds, matched)
+        backs: list[dict[str, Any]] = []
+        for row in rows:
+            outcome = _canonical_outcome(str(row["selection"]), str(row["event_name"]),
+                                         fixture.name)
+            if outcome is None:
+                continue
+            if row["book"] == exchange_book:
+                if row.get("lay") and (row.get("matched") or 0.0) >= min_matched:
+                    lays[outcome] = (float(row["lay"]), float(row.get("matched") or 0.0))
+            else:
+                backs.append({**row, "outcome": outcome})
+        for row in backs:
+            hit = lays.get(row["outcome"])
+            if hit is None:
+                continue
+            lay_odds, matched = hit
+            back = float(row["odds"])
+            if lay_odds < 1.01 or back <= lay_odds:
+                continue  # no gap — the normal state of an efficient market
+            lay_stake = back / lay_odds
+            win_branch = (back - 1.0) - lay_stake * (lay_odds - 1.0)
+            lose_branch = lay_stake * (1.0 - c) - 1.0
+            profit_pct = min(win_branch, lose_branch) * 100.0
+            if profit_pct < min_margin_pct:
+                continue
+            found.append({
+                "fixture_id": str(fixture_id),
+                "fixture": fixture.name,
+                "sport": fixture.sport,
+                "market": market,
+                "outcome": row["outcome"],
+                "book": row["book"],
+                "back_odds": back,
+                "lay_odds": lay_odds,
+                "lay_stake_per_dollar": round(lay_stake, 3),
+                "exchange_matched": round(matched, 2),
+                "profit_pct": round(profit_pct, 2),
+                "seen": row["seen"].isoformat() if row.get("seen") is not None else None,
+                "start_time": fixture.start_time.isoformat() if fixture.start_time else None,
+                "note": f"guaranteed margin net of {commission_pct:.0f}% exchange "
+                        "commission — verify both prices are still live",
+            })
+    found.sort(key=lambda x: -x["profit_pct"])
     return found[:limit]
 
 

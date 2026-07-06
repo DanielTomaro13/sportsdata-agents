@@ -791,6 +791,48 @@ async def _watch_racing_value(
     return fired
 
 
+async def _watch_back_lay(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
+) -> int:
+    """Back at a book, lay the same outcome on the exchange — a risk-free
+    margin net of commission (one outcome, two sides; not the cross-book arb)."""
+    from sportsdata_agents.quant.arbitrage import scan_back_lay
+
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    bankroll = float(sub.params.get("bankroll", 100.0))
+    candidates = await scan_back_lay(
+        session,
+        exchange_book=str(sub.params.get("exchange_book", "Betfair")),
+        hours=float(sub.params.get("hours", 1.0)),
+        min_margin_pct=float(sub.params.get("min_margin_pct", 1.0)),
+        min_matched=float(sub.params.get("min_matched", 1000.0)),
+        commission_pct=float(sub.params.get("commission_pct", 5.0)),
+        limit=cap * 3, now=now)
+    fired = 0
+    for c in candidates:
+        if fired >= cap:
+            break
+        lay_stake = c["lay_stake_per_dollar"] * bankroll
+        profit = c["profit_pct"] / 100.0 * bankroll
+        message = (
+            f":lock: back-lay +{c['profit_pct']:.2f}% [{c['sport']}] {c['fixture']}\n"
+            f"back {c['outcome']} at {c['book']} {c['back_odds']:.2f}, lay at Betfair "
+            f"{c['lay_odds']:.2f} ({_fmt_money(c['exchange_matched'])} matched)\n"
+            f"on ${bankroll:.0f}: back ${bankroll:.2f} · lay ${lay_stake:.2f} — "
+            f"locked ${profit:.2f} either way"
+            f"{_age_label(c.get('seen'), now or dt.datetime.now(dt.UTC))}\n"
+            f"_{c['note']}_"
+        )
+        bucket = int(c["profit_pct"] / 0.5)
+        key = (f"back_lay:{c['fixture_id']}:{c['market']}:{c['outcome']}"
+               f":{c['book']}:{bucket}")
+        payload = {**c, "bankroll": bankroll}
+        if await _fire(session, sub, kind="back_lay", key=key, message=message,
+                       payload=payload, pusher=pusher):
+            fired += 1
+    return fired
+
+
 async def _watch_prediction_value(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
 ) -> int:
@@ -1099,6 +1141,8 @@ async def run_watches(
                     fired = await _watch_racing_value(session, sub, push, now=now)
                 elif sub.kind == "prediction_value":
                     fired = await _watch_prediction_value(session, sub, push, now=now)
+                elif sub.kind == "back_lay":
+                    fired = await _watch_back_lay(session, sub, push, now=now)
                 elif sub.kind == "stat_value":
                     fired = await _watch_stat_value(session, sub, push, now=now)
                 elif sub.kind == "exchange_value":

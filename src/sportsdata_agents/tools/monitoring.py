@@ -18,7 +18,8 @@ MONITOR_TOOL_NAMES = {"create_watch", "list_watches", "update_watch", "delete_wa
                       "list_alerts"}
 
 _KINDS = ("line_move", "steam", "value", "scratching", "arb", "model_value",
-          "exchange_value", "stat_value", "racing_value", "prediction_value")
+          "exchange_value", "stat_value", "racing_value", "prediction_value",
+          "back_lay")
 
 
 def monitoring_tools(
@@ -43,7 +44,8 @@ def monitoring_tools(
           max_staleness_minutes, exclude_books};
         stat_value {min_edge_pct, max_rmse_log, book};
         prediction_value {min_edge_pct, min_volume ($ volume floor on BOTH
-          platforms), q_threshold, min_prob, max_prob, max_staleness_minutes}.
+          platforms), q_threshold, min_prob, max_prob, max_staleness_minutes};
+        back_lay {min_margin_pct, min_matched, commission_pct, hours}.
         channel: a Slack channel id, "discord[:ENV]", "ntfy[:ENV]", or "log"."""
         kind = str(args["kind"])
         if kind not in _KINDS:

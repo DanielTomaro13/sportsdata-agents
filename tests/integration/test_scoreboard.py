@@ -117,6 +117,35 @@ async def test_league_winner_on_a_misjoined_fixture_stays_pending(
     assert report["racing"]["settled"] == 0 and report["racing"]["pending"] == 1
 
 
+async def test_prediction_and_thin_racing_tuning_suggestion(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """prediction_value settles against a Kalshi/Polymarket resolution, and a
+    losing thin-market racing streak produces a tuning suggestion."""
+    async with db_sessionmaker() as s:
+        sub = await _sub(s)
+        # a prediction alert: backed Kalshi 'goldman sachs', which resolved YES
+        s.add(_alert(sub, "prediction_value", "p1", {
+            "back": "kalshi", "kalshi_event": "KXIPO",
+            "outcome": "goldman sachs", "back_odds": 2.5, "kelly_stake": 4.0}))
+        s.add(EventResult(provider="kalshi", sport="prediction",
+                          event_external_id="KXIPO", winning_selection="goldman sachs"))
+        # 6 losing thin racing bets to trip the min_matched suggestion
+        for i in range(6):
+            s.add(_alert(sub, "racing_value", f"t{i}", {
+                "provider": "tab_racing", "event_external_id": f"TR-{i}",
+                "runner_number": 1, "odds": 3.0, "kelly_stake": 2.0,
+                "exchange_matched": 200}))
+            s.add(EventResult(provider="tab_racing", sport="horse_racing",
+                              event_external_id=f"TR-{i}", winning_selection="9"))
+        await s.commit()
+    async with db_sessionmaker() as s:
+        report = await alert_pnl(s, since=NOW - dt.timedelta(days=7), until=NOW)
+    assert report["value"]["settled"] == 1 and report["value"]["wins"] == 1
+    assert report["value"]["pnl"] == pytest.approx(4.0 * 1.5)  # 4 * (2.5 - 1)
+    assert any("min_matched" in tip for tip in report["suggestions"]), report["suggestions"]
+
+
 async def test_arbs_report_locked_profit_only_when_still_takeable(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:

@@ -60,7 +60,7 @@ def test_registry_covers_the_nine_retired_cron_lines(monkeypatch: Any) -> None:
     monkeypatch.setenv("SPORTSDATA_OPERATOR", "1")  # operator: the full job set runs
     names = {j.name for j in JOBS}
     assert names == {"ingest", "monitor", "slate", "custodian", "resolve", "results",
-                     "form", "scoreboard",
+                     "form", "scoreboard", "digest",
                      "steward", "eval_benchmark", "site_manager", "refresh_books",
                      "ops_health", "budget_watch"}
     custodian = next(j for j in JOBS if j.name == "custodian")
@@ -86,7 +86,7 @@ def test_operator_only_jobs_never_run_on_a_customer_install(monkeypatch: Any) ->
     for minute in range(7 * 24 * 60):
         fired |= {j.name for j in due_jobs(start + dt.timedelta(minutes=minute), 60)}
     assert fired == {"ingest", "monitor", "slate", "custodian", "resolve", "results",
-                     "form", "scoreboard", "steward"}
+                     "form", "scoreboard", "digest", "steward"}
     assert not (fired & operator_only)
 
 

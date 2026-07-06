@@ -34,6 +34,7 @@ QUANT_TOOL_NAMES = {
     "run_backtest",
     "record_result",
     "export_training_data",
+    "cashout_advice",
 }
 
 
@@ -550,6 +551,72 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         return {**saved, "events": len(events), "labeled": labeled,
                 "note": "read this path in run_python (same machine) to fit/calibrate"}
 
+    async def cashout_advice(args: dict[str, Any]) -> Any:
+        """{event_external_id, provider?, market, selection, stake, odds_taken,
+        cashout_offer} → hold-or-take advice: the bet's CURRENT expected value
+        from the freshest cross-book prices (de-vigged median) vs the book's
+        cash-out offer. 'Book offers $41, fair is $48 — decline.'"""
+        from sportsdata_agents.data.models import Event as _Event
+        from sportsdata_agents.data.models import OddsSnapshot as _Snap
+
+        event = str(args["event_external_id"])
+        market = str(args.get("market", "h2h"))
+        selection = str(args["selection"])
+        stake = float(args["stake"])
+        odds_taken = float(args["odds_taken"])
+        offer = float(args["cashout_offer"])
+        async with session_factory() as session:
+            # freshest quotes for this selection across every book mapped to
+            # the same fixture (or just this event when unresolved)
+            mapping = (await session.execute(select(_Event).where(
+                _Event.external_id == event))).scalars().first()
+            ext_ids = [event]
+            if mapping is not None and mapping.fixture_id is not None:
+                siblings = (await session.execute(select(_Event).where(
+                    _Event.fixture_id == mapping.fixture_id))).scalars().all()
+                ext_ids = [s.external_id for s in siblings]
+            cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30)
+            rows = (await session.execute(select(_Snap).where(
+                _Snap.event_external_id.in_(ext_ids),
+                _Snap.market == market,
+                _Snap.captured_at > cutoff,
+            ).order_by(_Snap.captured_at))).scalars().all()
+        # latest odds per (book, selection); de-vig needs the full frame per book
+        latest: dict[tuple[str, str], float] = {}
+        for row in rows:
+            latest[(row.book, str(row.selection).lower())] = float(row.odds)
+        by_book: dict[str, dict[str, float]] = {}
+        for (book, sel), odds in latest.items():
+            by_book.setdefault(book, {})[sel] = odds
+        sel_l = selection.lower()
+        probs = []
+        for _book, board in by_book.items():
+            if sel_l not in board or len(board) < 2:
+                continue
+            inv = sum(1.0 / o for o in board.values())
+            probs.append((1.0 / board[sel_l]) / inv)
+        if not probs:
+            raise ValueError("no fresh cross-book prices for that selection — "
+                             "cannot judge the offer")
+        import statistics as _stats
+
+        p_win = _stats.median(probs)
+        payout = stake * odds_taken
+        hold_ev = p_win * payout
+        edge_vs_offer = (hold_ev - offer) / offer * 100.0 if offer else 0.0
+        take = offer >= hold_ev
+        return {
+            "advice": "TAKE the cash-out" if take else "DECLINE — holding is worth more",
+            "hold_expected_value": round(hold_ev, 2),
+            "cashout_offer": offer,
+            "edge_vs_offer_pct": round(edge_vs_offer, 2),
+            "win_probability": round(p_win, 4),
+            "books_in_consensus": len(probs),
+            "note": "EV from the de-vigged cross-book median of the last 30 min; "
+                    "variance preference is yours — a thin bankroll can rationally "
+                    "take slightly-under-EV cash",
+        }
+
     def _tool(name: str, fn: Any, props: dict[str, Any], required: list[str]) -> ToolDef:
         return ToolDef(
             name=name,
@@ -559,6 +626,12 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
         )
 
     return [
+        _tool("cashout_advice", cashout_advice,
+              {"event_external_id": {"type": "string"},
+               "market": {"type": "string"}, "selection": {"type": "string"},
+               "stake": {"type": "number"}, "odds_taken": {"type": "number"},
+               "cashout_offer": {"type": "number"}},
+              ["event_external_id", "selection", "stake", "odds_taken", "cashout_offer"]),
         _tool("engine_health", engine_health, {}, []),
         _tool(
             "engine_fair_prices",

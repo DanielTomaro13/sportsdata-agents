@@ -347,3 +347,95 @@ async def ingest_league_results(
     report.update({"recorded": written, **{f"fixtures_{k}": v for k, v in mapping.items()}})
     logger.info("league results: %s", report)
     return report
+
+
+# ── prediction-market resolutions (Kalshi settled / Polymarket resolved) ────
+# The bridge's alerts settle against these: one EventResult per EVENT whose
+# winning_selection is the resolved outcome label in OUR selection namespace
+# (the same labels the kalshi_all/polymarket_all normalizers emit).
+
+
+async def ingest_prediction_resolutions(
+    manager: Any,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    pages: int = 3,
+) -> dict[str, int]:
+    rows: list[dict[str, Any]] = []
+
+    # Kalshi: settled markets carry result yes/no; the YES-resolved contract's
+    # subject is the event's winner (candidate events resolve exactly one YES)
+    cursor = None
+    for _ in range(pages):
+        args: dict[str, Any] = {"status": "settled", "limit": 200}
+        if cursor:
+            args["cursor"] = cursor
+        try:
+            page = await manager.call_tool("kalshi_markets", args)
+        except Exception as e:
+            logger.warning("kalshi settled fetch failed: %s", e)
+            break
+        for market in page.get("markets", []) or []:
+            if str(market.get("result", "")).lower() != "yes":
+                continue
+            subject = str(market.get("yes_sub_title") or market.get("title") or "").lower().strip()
+            event = str(market.get("event_ticker") or "")
+            if subject and event:
+                rows.append({"provider": "kalshi", "sport": "prediction",
+                             "event_external_id": event, "winning_selection": subject,
+                             "meta": {"ticker": market.get("ticker")}})
+        cursor = page.get("cursor")
+        if not cursor:
+            break
+
+    # Polymarket: closed events; the market whose outcomePrice hit 1 names the
+    # winner (grouped events: the groupItemTitle; plain binaries: the outcome)
+    try:
+        events = await manager.call_tool("polymarket_events", {
+            "closed": True, "limit": 100, "order": "endDate", "ascending": False})
+    except Exception as e:
+        logger.warning("polymarket closed fetch failed: %s", e)
+        events = []
+    if isinstance(events, dict):
+        events = events.get("result") or []
+    import json as _json
+
+    for event in events or []:
+        event_id = str(event.get("id") or "")
+        winner = None
+        for market in event.get("markets", []) or []:
+            outcomes = market.get("outcomes")
+            prices = market.get("outcomePrices")
+            if isinstance(outcomes, str):
+                try:
+                    outcomes = _json.loads(outcomes)
+                except ValueError:
+                    continue
+            if isinstance(prices, str):
+                try:
+                    prices = _json.loads(prices)
+                except ValueError:
+                    continue
+            subject = str(market.get("groupItemTitle") or "").strip()
+            for name, price in zip(outcomes or [], prices or [], strict=False):
+                try:
+                    hit = float(price) >= 0.999
+                except (TypeError, ValueError):
+                    continue
+                if not hit:
+                    continue
+                label = (subject if str(name).lower() == "yes"
+                         else f"{name} {subject}") if subject else str(name)
+                winner = label.lower().strip()
+                break
+            if winner and subject:
+                break  # grouped event: the YES contract names the winner
+        if event_id and winner:
+            rows.append({"provider": "polymarket", "sport": "prediction",
+                         "event_external_id": event_id, "winning_selection": winner,
+                         "meta": {"title": event.get("title")}})
+
+    recorded = await record_results(session_factory, rows)
+    return {"kalshi": sum(1 for r in rows if r["provider"] == "kalshi"),
+            "polymarket": sum(1 for r in rows if r["provider"] == "polymarket"),
+            "recorded": recorded}
