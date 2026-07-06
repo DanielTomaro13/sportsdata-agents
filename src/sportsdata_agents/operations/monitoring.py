@@ -651,6 +651,120 @@ async def _watch_exchange_value(
     return fired
 
 
+async def _watch_stat_value(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime
+) -> int:
+    """Player-prop ladder inconsistency: fit the entity-stat's model from the
+    book's OWN threshold ladder (via the engine seam), then flag rungs that
+    disagree with the ladder's fitted level — the consistency edge on props.
+
+    Reads the structured stat lines the Dabble feed captures (meta carries
+    player/stat/stat_line/line_type on each priced selection); O/U pairs at
+    the same line de-vig into anchors that pin the fit's level. Degrades
+    cleanly with no engine configured."""
+    import math
+
+    from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
+
+    try:
+        engine = resolve_engine()
+    except (EngineUnavailable, ValueError) as e:
+        logger.info("stat_value watch %s: engine unavailable (%s)", sub.name, e)
+        return 0
+    if engine is None:
+        logger.info("stat_value watch %s: no engine configured — skipping", sub.name)
+        return 0
+
+    book = str(sub.params.get("book", "Dabble"))
+    min_edge = float(sub.params.get("min_edge_pct", 5.0))
+    hours = float(sub.params.get("hours", 2.0))
+    min_rungs = int(sub.params.get("min_rungs", 3))
+    max_rmse = float(sub.params.get("max_rmse_log", 0.08))
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+
+    from sportsdata_agents.data.models import OddsSnapshot
+
+    rows = (await session.execute(
+        select(OddsSnapshot).where(
+            OddsSnapshot.book == book,
+            OddsSnapshot.captured_at > now - dt.timedelta(hours=hours),
+        ).order_by(OddsSnapshot.captured_at)
+    )).scalars().all()
+    # latest quote per (event, player, stat, line, side); meta marks prop rows
+    ladders: dict[tuple[str, str, str], dict[tuple[float, str], float]] = {}
+    names: dict[str, str] = {}
+    sports: dict[str, str] = {}
+    for row in rows:
+        meta = row.meta or {}
+        player, stat, line = meta.get("player"), meta.get("stat"), meta.get("stat_line")
+        side = str(meta.get("line_type", "")).lower()
+        if not player or not stat or line is None or side not in ("over", "under"):
+            continue
+        key = (row.event_external_id, str(player), str(stat))
+        ladders.setdefault(key, {})[(float(line), side)] = float(row.odds)
+        names[row.event_external_id] = row.event_name
+        sports[row.event_external_id] = row.sport
+
+    fired = 0
+    for (event_id, player, stat), quotes_by_rung in sorted(ladders.items()):
+        if fired >= cap:
+            break
+        lines = sorted({line for line, _ in quotes_by_rung})
+        thresholds = {math.ceil(line) for line in lines}
+        if len(thresholds) < min_rungs:
+            continue  # the ladder's shape is unidentified — nothing to compare
+        seam_quotes: list[dict[str, Any]] = []
+        for line in lines:
+            over = quotes_by_rung.get((line, "over"))
+            under = quotes_by_rung.get((line, "under"))
+            threshold = math.ceil(line)
+            if over and under:
+                p_over = (1.0 / over) / (1.0 / over + 1.0 / under)
+                seam_quotes.append({"threshold": threshold, "odds": 1.0 / p_over,
+                                    "devigged": True})
+            elif over:
+                seam_quotes.append({"threshold": threshold, "odds": over})
+        if len({q["threshold"] for q in seam_quotes}) < 2:
+            continue
+        try:
+            fit = engine.stat_prices(player, stat, seam_quotes, sorted(thresholds))
+        except (EngineUnavailable, ValueError) as e:
+            logger.info("stat_value: could not fit %s/%s %s: %s", event_id, player, stat, e)
+            continue
+        if float(fit.get("fit", {}).get("rmse_log", 9.9)) > max_rmse:
+            continue  # the ladder does not agree with ITSELF enough to trust a fit
+        fair = {int(p["line"]): float(p["fair_probability"]) for p in fit.get("prices", [])}
+        for (line, side), odds in sorted(quotes_by_rung.items()):
+            if fired >= cap:
+                break
+            survival = fair.get(math.ceil(line))
+            if survival is None:
+                continue
+            prob = survival if side == "over" else 1.0 - survival
+            edge_pct = (odds * prob - 1.0) * 100.0
+            if edge_pct < min_edge:
+                continue
+            fitted_fair = 1.0 / prob if prob > 0 else float("inf")
+            message = (
+                f":dart: stat value +{edge_pct:.1f}% [{sports.get(event_id, '?')}] "
+                f"{names.get(event_id, event_id)}\n"
+                f"{book} · {player} {stat} {side} {line} — "
+                f"book {odds:.2f} vs ladder-fitted fair {fitted_fair:.2f} "
+                f"(mu {fit['model']['mu']:.1f}, {len(seam_quotes)} rungs)"
+            )
+            bucket = int(edge_pct / 2.0)
+            alert_key = f"stat_value:{event_id}:{player}:{stat}:{line}:{side}:{bucket}"
+            if await _fire(session, sub, kind="stat_value", key=alert_key, message=message,
+                           payload={"event_external_id": event_id, "player": player,
+                                    "stat": stat, "line": line, "side": side,
+                                    "odds": odds, "edge_pct": round(edge_pct, 2),
+                                    "fitted_fair": round(fitted_fair, 3),
+                                    "mu": fit["model"]["mu"], "book": book},
+                           pusher=pusher):
+                fired += 1
+    return fired
+
+
 async def _push_digest(
     session: AsyncSession, sub: Subscription, pusher: Pusher, now: dt.datetime
 ) -> bool:
@@ -795,6 +909,8 @@ async def run_watches(
                     fired = await _watch_value(session, sub, push)
                 elif sub.kind == "scratching":
                     fired = await _watch_scratching(session, sub, push)
+                elif sub.kind == "stat_value":
+                    fired = await _watch_stat_value(session, sub, push, now=now)
                 elif sub.kind == "exchange_value":
                     fired = await _watch_exchange_value(session, sub, push, now=now)
                 elif sub.kind == "arb":
