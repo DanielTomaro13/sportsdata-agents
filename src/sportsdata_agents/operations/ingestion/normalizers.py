@@ -1227,14 +1227,22 @@ def normalize_betfair_all(payload: Any) -> list[PricePoint]:
     return sink.points
 
 
+# racing marketTypes -> the warehouse racing family keys, so exchange racing
+# quotes group with the books' win/place boards (a Betfair meeting is ONE
+# event whose markets are the races — the race identity rides meta)
+_BETFAIR_RACING_TYPES = {"WIN": "win", "PLACE": "place", "OTHER_PLACE": "place"}
+_RUNNER_PREFIX = re.compile(r"^(\d+)\.\s+")
+
+
 def _normalize_betfair_market(sink: _Sink, market: dict[str, Any], sport: str,
                               event_id: str, event_name: str) -> None:
     state = market.get("state") or {}
     if str(state.get("status", "OPEN")) != "OPEN":
         return
     description = market.get("description") or {}
-    market_key = canonical_market(str(description.get("marketName")
-                                      or description.get("marketType") or "?"))
+    market_name = str(description.get("marketName") or "?")
+    racing_family = _BETFAIR_RACING_TYPES.get(str(description.get("marketType", "")))
+    market_key = racing_family or canonical_market(market_name)
     for runner in market.get("runners", []) or []:
         if str((runner.get("state") or {}).get("status", "ACTIVE")) != "ACTIVE":
             continue
@@ -1246,14 +1254,24 @@ def _normalize_betfair_market(sink: _Sink, market: dict[str, Any], sport: str,
             continue  # empty ladder — nothing a backer can take
         name = str((runner.get("description") or {}).get("runnerName", "?"))
         side = _side_from_event_name(name, event_name)
+        meta: dict[str, Any] = {"lay": lays[0].get("price") if lays else None,
+                                "back_size": backs[0].get("size") if backs else None,
+                                "total_matched": state.get("totalMatched"),
+                                "market_id": market.get("marketId"),
+                                "start_time": description.get("marketTime"),
+                                "runner": name}
+        selection = side or name.lower()
+        if racing_family:
+            # a runner name like "4. Rusty Rancher" carries the saddle number;
+            # the race itself is the MARKET ("R5 1200m Hcap") on the meeting
+            prefix = _RUNNER_PREFIX.match(name)
+            if prefix:
+                meta["runner_number"] = int(prefix.group(1))
+                meta["runner"] = _RUNNER_PREFIX.sub("", name)
+                selection = meta["runner"].lower()
+            meta["race"] = market_name
         sink.add(PricePoint(
             provider="betfair", book="Betfair", sport=sport,
             event_external_id=event_id, event_name=event_name,
-            market=market_key, selection=side or name.lower(), odds=odds,
-            meta={"lay": lays[0].get("price") if lays else None,
-                  "back_size": backs[0].get("size") if backs else None,
-                  "total_matched": state.get("totalMatched"),
-                  "market_id": market.get("marketId"),
-                  "start_time": description.get("marketTime"),
-                  "runner": name},
+            market=market_key, selection=selection, odds=odds, meta=meta,
         ))

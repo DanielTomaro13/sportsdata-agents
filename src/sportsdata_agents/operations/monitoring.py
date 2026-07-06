@@ -513,8 +513,9 @@ async def _watch_model_value(
                 f":{candidate['selection']}:{candidate['line']}"
             )
             at_line = f" @ {candidate['line']}" if candidate["line"] is not None else ""
+            display = await _event_display_name(session, event_id) or event_id
             message = (
-                f":crystal_ball: model value [{sport}] {event_id}\n"
+                f":crystal_ball: model value [{sport}] {display}\n"
                 f"{row_book} · {candidate['market']} · {candidate['selection']}{at_line} — "
                 f"book {candidate['odds']:.2f} vs model fair {candidate['model_fair_odds']} "
                 f"(+{candidate['edge_pct']:.1f}% edge)"
@@ -646,6 +647,58 @@ async def _watch_exchange_value(
         key = (f"exchange_value:{candidate['fixture_id']}:{candidate['market']}"
                f":{candidate['outcome']}:{candidate['book']}:{bucket}")
         if await _fire(session, sub, kind="exchange_value", key=key, message=message,
+                       payload=candidate, pusher=pusher):
+            fired += 1
+    return fired
+
+
+async def _event_display_name(session: AsyncSession, event_id: str) -> str | None:
+    """The human event name for an alert — snapshots carry it, ids do not."""
+    from sportsdata_agents.data.models import OddsSnapshot
+
+    return (await session.execute(
+        select(OddsSnapshot.event_name)
+        .where(OddsSnapshot.event_external_id == event_id, OddsSnapshot.event_name != "")
+        .order_by(OddsSnapshot.captured_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
+
+async def _watch_racing_value(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
+) -> int:
+    """One book out from Betfair (or the pack) on a race, per runner — alerts
+    carry the venue/race label, the HORSE'S NAME and saddle number, never ids."""
+    from sportsdata_agents.quant.racing_value import scan_racing_value
+
+    min_edge = float(sub.params.get("min_edge_pct", 8.0))
+    hours = float(sub.params.get("hours", 0.75))
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    candidates = await scan_racing_value(
+        session, exchange_book=str(sub.params.get("exchange_book", "Betfair")),
+        hours=hours, min_edge_pct=min_edge,
+        max_fair_odds=float(sub.params.get("max_fair_odds", 12.0)),
+        max_staleness_minutes=float(sub.params.get("max_staleness_minutes", 10.0)),
+        exclude_books=tuple(sub.params.get("exclude_books", ["FanDuel"])),
+        limit=cap * 3, now=now)
+    fired = 0
+    for candidate in candidates:
+        if fired >= cap:
+            break
+        number = f" (#{candidate['runner_number']})" if candidate.get("runner_number") else ""
+        jump = ""
+        if candidate.get("start_time"):
+            jump = f" · jumps {candidate['start_time'][11:16]}"
+        message = (
+            f":racehorse: racing value +{candidate['edge_pct']:.1f}% — "
+            f"{candidate['race']}\n"
+            f"{candidate['book']} pays {candidate['odds']:.2f} on "
+            f"{candidate['runner']}{number} vs {candidate['versus']} "
+            f"fair {candidate['fair_odds']:.2f}{jump}"
+        )
+        bucket = int(candidate["edge_pct"] / 3.0)
+        key = (f"racing_value:{candidate['race']}:{candidate['runner']}"
+               f":{candidate['book']}:{bucket}")
+        if await _fire(session, sub, kind="racing_value", key=key, message=message,
                        payload=candidate, pusher=pusher):
             fired += 1
     return fired
@@ -909,6 +962,8 @@ async def run_watches(
                     fired = await _watch_value(session, sub, push)
                 elif sub.kind == "scratching":
                     fired = await _watch_scratching(session, sub, push)
+                elif sub.kind == "racing_value":
+                    fired = await _watch_racing_value(session, sub, push, now=now)
                 elif sub.kind == "stat_value":
                     fired = await _watch_stat_value(session, sub, push, now=now)
                 elif sub.kind == "exchange_value":
