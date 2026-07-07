@@ -1054,6 +1054,11 @@ async def _watch_value(
                             subject=f"{top['pred'].selection} · {market}")
         )
         band = int(max(top["edge"], 0.0) / 2.0)  # re-fire each +2% the edge grows
+        if (previously is not None and previously.kind == "value"
+                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
+                                    0.0) / 2.0)):
+            continue  # an edge drifting back DOWN a band is the same
+            # opportunity shrinking, not news (after a vanish it re-fires)
         payload = {
             # top-of-story fields keep the outcome re-measurement loop working
             "edge_pct": round(top["edge"], 2), "prob": float(top["pred"].prob),
@@ -1450,9 +1455,24 @@ async def _watch_model_value(
                             subject=f"{top['selection']}{top_line} · {market}")
             + near_note
         )
-        # dedupe per market story, banded so a materially bigger edge re-fires
+        # dedupe per market story, banded so a materially BIGGER edge re-fires
+        # — a smaller band than the last alert is the edge shrinking, not news
         band = int(top["edge_pct"] / 2.0)
-        key = f"model_value:{event_key}:{market}:{band}"
+        base_key = f"model_value:{event_key}:{market}"
+        previously = (
+            await session.execute(
+                select(Alert)
+                .where(Alert.subscription_id == sub.id,
+                       Alert.dedupe_key.startswith(f"{base_key}:", autoescape=True))
+                .order_by(Alert.created_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if (previously is not None
+                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
+                                    0.0) / 2.0)):
+            continue
+        key = f"{base_key}:{band}"
         payload = {"market": market, "sport": sport, "event_key": event_key,
                    "book": top["book"], "event_external_id": top["event_id"],
                    "edge_pct": top["edge_pct"],
