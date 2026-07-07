@@ -21,6 +21,8 @@ COMMON_PARAMS: Params = {
     "quiet_hours": ("", 'local hours to keep the phone silent, e.g. "23-08" — alerts are still recorded'),
     "tz": ("Australia/Melbourne", "IANA timezone for jump times and quiet hours (env SPORTSDATA_AGENTS_TZ overrides)"),
     "max_alerts_per_cycle": (5, "cap per monitoring pass — the firehose guard"),
+    "every_minutes": (0, "run this watch only when the pass minute aligns (0 = every "
+                         "pass) — the slow lane for expensive scans"),
 }
 
 # The row-filter params the change-point watches accept (line_move/steam/value).

@@ -105,7 +105,10 @@ JOBS: tuple[Job, ...] = (
     # lag, and a fast market (tennis, racing near the jump) moves through a
     # 5-minute window (lived: alerts quoting prices the market had left)
     Job(name="monitor", args=("monitor",),
-        log="monitor.log", interval_s=60, timeout_s=600),
+        # a full pass measures ~157s standalone but stretches past 600 under
+        # ingest contention — the old cap killed passes at 99% and every alert
+        # kind went silent (lived: 2026-07-07, 23 rc=-1 kills in a row)
+        log="monitor.log", interval_s=60, timeout_s=1500),
     # slate runs AFTER monitor in a tick: it persists the engine's fair prices
     # as predictions (the measurement trail backtest/CLV grade), while the
     # model_value watch handles the live alerts — recording is cheap and

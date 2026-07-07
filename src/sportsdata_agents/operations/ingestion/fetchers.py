@@ -326,7 +326,12 @@ async def fetch_betr_books(manager: Any) -> dict[str, Any]:
                 for event in category.get("MasterEvents", []) or []:
                     if event.get("MasterEventClassName") != "Match":
                         continue  # futures boards are one market deep already
-                    if not fixture_covered(sport, str(event.get("MasterEventName") or "")):
+                    name = str(event.get("MasterEventName") or "")
+                    if " v " not in name and " @ " not in name:
+                        continue  # prop/novelty pseudo-events ("Noah Schultz
+                        # (Earned Runs)") wear the Match class — they are rows
+                        # on a REAL fixture, not fixtures deserving 5 calls
+                    if not fixture_covered(sport, name):
                         continue
                     if event.get("IsLive") or event.get("MasterEventId") is None:
                         continue

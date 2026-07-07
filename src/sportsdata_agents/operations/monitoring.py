@@ -1324,6 +1324,12 @@ async def _watch_model_value(
             continue
         rows_by_quote = _quote_price_rows(event_rows, sport, int(places) if places else None)
         display = await _event_display_name(session, event_id) or event_id
+        if (sport != "racing" and display != event_id
+                and " v " not in display and " @ " not in display):
+            continue  # a pseudo-event (a book lists player props / odd-even
+            # novelties as their own "events") — its outcomes can pair up
+            # like anchors and calibrate the engine to nonsense (lived:
+            # "Chicago Cubs Runs Odd/Even" priced as a baseball fixture)
         if sport == "racing":
             event_key = _racing_board_key(display).lower()
         else:
@@ -2359,6 +2365,12 @@ async def run_watches(
         ).scalars().all()
         for sub in subscriptions:
             report["subscriptions"] += 1
+            # heavy watches opt into a slower lane: every_minutes=10 runs the
+            # scan only when the pass minute aligns — stat_value alone costs
+            # ~100s of ladder fitting, which every-minute passes cannot afford
+            cadence = int(sub.params.get("every_minutes") or 0)
+            if cadence > 1 and now.minute % cadence:
+                continue
             # a small safety-lag on the cursor: ingest commits change-points
             # SECONDS after stamping changed_at, and ingest now runs concurrently
             # with monitor every 60s — a strict "> cursor" scan would skip rows
