@@ -249,11 +249,12 @@ async def test_board_drops_na_books_and_verifies_runner_names(
         quotes, thin = await _racing_board(s, "Pakenham R5", "win", "2", "PointsBet")
     assert quotes.get("TAB") == 21.0
     assert "Ladbrokes" not in quotes  # runner name disagreed — never joined
+    quotes["PointsBet"] = 23.0  # the watch adds the flagged book's own price
     board = _format_board(quotes, ["Pinnacle", "Betfair"],
                           ("Sportsbet", "TAB", "Dabble"), thin=thin, engine_fair=20.0)
     assert "NA" not in board.replace("books NA", "")  # no NA cells
-    assert "3 books NA" in board or "4 books NA" in board  # folded into a count
-    assert "**TAB 21.00**" in board  # the industry's best price is bolded
+    assert "4 books NA" in board  # folded into a count
+    assert "**PointsBet 23.00**" in board  # the industry's best price is bolded
 
 
 async def test_scan_skips_races_hours_from_the_jump(

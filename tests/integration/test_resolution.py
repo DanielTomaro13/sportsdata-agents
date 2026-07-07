@@ -380,6 +380,7 @@ async def test_league_results_map_and_settle_cross_book(
             if name == "afl_matches_list":
                 return {"matches": [
                     {"providerId": "CD_M1", "status": "CONCLUDED",
+                     "compSeason": {"name": "2026 Toyota AFL Premiership"},
                      "utcStartTime": "2026-06-04T09:30:00.000+0000",
                      "home": {"team": {"name": "Adelaide Crows"}, "score": {"totalScore": 75}},
                      "away": {"team": {"name": "Geelong Cats"}, "score": {"totalScore": 74}}},
