@@ -61,6 +61,36 @@ A one-shot scheduled checkpoint (21 Jul 09:00):
   on the engine being right), iterate the models on replay data, re-run Phase 3
   in two-week cycles.
 
+## The work queue (updated 2026-07-07 evening)
+
+**Track 1 — measurement (the priority; everything downstream consumes it):**
+
+1. **Grade every alert kind** in the scoreboard against ``event_results`` —
+   h2h from winners, totals/lines from ``meta.score``, racing win/place from
+   result selections. Until this lands the verdict can only score racing and
+   arbs. (~half day)
+2. **Closing-line stamps + CLV** — a post-start pass writes each alert's
+   closing price; the scoreboard reports CLV per MODEL FAMILY (calibrated vs
+   stats vs sharp-fair). CLV separates the families in days, not weeks.
+   (~half day)
+3. **Cross-book prop value scan** — group prop-tagged rows by (player, stat,
+   line), de-vig each book's over/under pair, flag books above the industry
+   fair. Land before Thursday's AFL round. (~1 day)
+4. **Results coverage** for basketball/WNBA/NHL (widen the ESPN sweep) so
+   those alerts settle. (hours)
+5. **Replay-export CLI** (``agents replay-export`` → engines ReplayFixture
+   JSON) before the 21 Jul checkpoint. (~half day)
+
+**Track 2 — product/UI (after Track 1 items 1–2):** create-watch flow seeded
+from registry defaults; per-knob form controls replacing the JSON editor;
+Discord channel-split routing (webhooks → ``discord:ENV`` per family); alerts
+pane filters + settled-P&L column (Monitors becomes the paper-track
+dashboard); server-driven coverage catalogue; stale Settings header copy.
+
+**Track 3 — standing automation (running, nothing to do):** daily 08:30
+mapping audit (8 checks incl. stats-vs-market sanity), Monday 09:00
+scoreboard review, 21 Jul replay + verdict one-shot. Thresholds stay frozen.
+
 ## Standing follow-ups (not gated on the verdict)
 
 - Entain/Unibet persisted-hash auto-refresh hardening (MCP).
