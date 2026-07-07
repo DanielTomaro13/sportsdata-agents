@@ -229,6 +229,74 @@ async def _market_h2h_prob(
     return None
 
 
+async def _anchor_events(
+    session: AsyncSession, provider: str, event_id: str
+) -> list[tuple[str, str]]:
+    """(provider, event id) pairs to hunt a sanity anchor in: the event's own
+    feed FIRST, then every fixture sibling. Scoping the anchor to the own
+    feed alone STARVED the gates — BetR's AFL events carry only alt-line
+    'h2h [handicap]' rows and Dabble's only quarter derivatives, so the h2h
+    gate found no anchor and waved a 47%-edge fitting artifact through
+    (lived: Fremantle v Sydney, twice in one evening). The fixture's other
+    books ARE the market the gate holds the model against."""
+    from sportsdata_agents.data.models import Event
+
+    pairs = [(provider, event_id)]
+    mapping = (await session.execute(
+        select(Event).where(Event.provider == provider,
+                            Event.external_id == event_id)
+    )).scalars().first()
+    if mapping is not None and mapping.fixture_id is not None:
+        siblings = (await session.execute(
+            select(Event).where(Event.fixture_id == mapping.fixture_id,
+                                Event.id != mapping.id)
+        )).scalars().all()
+        pairs.extend((s.provider, s.external_id) for s in siblings)
+    return pairs
+
+
+async def _anchored_main_total(
+    session: AsyncSession, provider: str, event_id: str
+) -> float | None:
+    """_market_main_total across the fixture: first feed with a paired total
+    answers (totals are frame-free)."""
+    for prov, ev in await _anchor_events(session, provider, event_id):
+        total = await _market_main_total(session, ev, prov)
+        if total is not None:
+            return total
+    return None
+
+
+async def _anchored_h2h_prob(
+    session: AsyncSession, provider: str, event_id: str
+) -> float | None:
+    """_market_h2h_prob across the fixture, FRAME-TRANSLATED into the alerted
+    event's home/away (a sibling listing the teams the other way round would
+    hand the gate 1-p and invert the verdict). A sibling whose orientation
+    can't be established never anchors."""
+    from sportsdata_agents.quant.backtest import _event_name_for, _translate_side
+
+    cache: dict[tuple[str, str], str] = {}
+    own_name = await _event_name_for(session, cache, provider, event_id)
+    for prov, ev in await _anchor_events(session, provider, event_id):
+        home_prob = await _market_h2h_prob(session, ev, prov)
+        if home_prob is None:
+            continue
+        if prov == provider and ev == event_id:
+            return home_prob
+        sib_name = await _event_name_for(session, cache, prov, ev)
+        if not own_name or not sib_name:
+            continue
+        orientation = _translate_side("home", sib_name, own_name)
+        if orientation == "home":
+            return home_prob
+        if orientation == "away":
+            # the sibling's away is OUR home; with a draw in the market this
+            # is approximate, but the gate compares at 15-point granularity
+            return 1.0 - home_prob
+    return None
+
+
 async def _upcoming_events(
     session: AsyncSession, labels: tuple[str, ...], now: dt.datetime, horizon_hours: float
 ) -> list[tuple[str, str, str, str]]:
@@ -389,7 +457,7 @@ async def record_ratings_slate(
             # games of history and fit wild ratings (lived: QLD v NSW read a
             # 61.7 fair total against the market's 34.5). No fair beats a
             # garbage fair.
-            market_total = await _market_main_total(session, event_id, provider)
+            market_total = await _anchored_main_total(session, provider, event_id)
             if (market_total is not None
                     and abs(float(total) - market_total) > 0.2 * market_total):
                 skipped_sanity += 1
@@ -420,7 +488,7 @@ async def record_ratings_slate(
                  if _warehouse_key(p.market, p.selection, p.line) == ("h2h", "home")),
                 None)
             if board_home is not None:
-                market_home = await _market_h2h_prob(session, event_id, provider)
+                market_home = await _anchored_h2h_prob(session, provider, event_id)
                 if (market_home is not None
                         and abs(board_home - market_home) > 0.15):
                     skipped_sanity += 1
