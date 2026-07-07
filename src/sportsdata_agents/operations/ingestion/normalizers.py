@@ -532,7 +532,11 @@ def normalize_entain_events(
                 event_external_id=str(market.get("event_id")), event_name=event_name,
                 market=market_key, selection=side or str(entrant.get("name", "?")).lower(),
                 odds=round(odds, 3),
-                meta={"team": entrant.get("name")},
+                # start_time: without it the RESOLVER indexed Ladbrokes events
+                # under their first-seen day and they never met the other
+                # books' fixtures (lived: Origin, a fixture of one)
+                meta={"team": entrant.get("name"),
+                      "start_time": event.get("advertised_start")},
             ))
     return sink.points
 

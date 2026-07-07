@@ -91,6 +91,13 @@ def _side_ok(x: frozenset[str], y: frozenset[str]) -> bool:
     if _variant_markers(x) != _variant_markers(y):
         return False
     short, long_ = (x, y) if len(x) <= len(y) else (y, x)
+    if len(short) == 1 and len(long_) >= 2:
+        # a lone token can be the INITIALS of the multi-word name — "nsw" is
+        # "New South Wales", "gws" is "Greater Western Sydney" (TAB abbreviates
+        # rep sides; token subsequence can't see across word boundaries)
+        (token,) = short
+        if len(token) == len(long_) and "".join(sorted(u[0] for u in long_)) == "".join(sorted(token)):
+            return True
     return bool(short) and all(any(_token_match(t, u) for u in long_) for t in short)
 
 
@@ -206,9 +213,14 @@ async def resolve_events(
                 for fixture_id, theirs, fx_start in index.get((family, day_key), []):
                     # SAME-DAY DOUBLEHEADERS (MLB): identical teams, starts hours
                     # apart, are different games — when both advertise a real
-                    # start and they disagree by >3h, never merge. Far-future
-                    # placeholder dates are exempt (books disagree by days).
-                    if (near_term and start_time is not None and fx_start is not None):
+                    # start and they disagree by >3h, never merge. BASEBALL
+                    # ONLY: no other covered sport plays twice a day, and books
+                    # flip between kickoff and placeholder stamps hours apart —
+                    # the gate split State of Origin across four fixtures and
+                    # every cross-book board read one book (lived: 2026-07-07).
+                    # Far-future placeholder dates are exempt anyway.
+                    if (near_term and family == "baseball"
+                            and start_time is not None and fx_start is not None):
                         fx_aware = fx_start if fx_start.tzinfo else fx_start.replace(tzinfo=dt.UTC)
                         if abs((aware - fx_aware).total_seconds()) > 3 * 3600:
                             continue

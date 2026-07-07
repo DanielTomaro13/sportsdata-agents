@@ -518,3 +518,14 @@ def test_variant_teams_never_merge() -> None:
     # nicknames and abbreviations still merge (the rule this guard must not break)
     assert _side_ok(_tokens("Adelaide"), _tokens("Adelaide Crows"))
     assert _side_ok(_tokens("Wst Bulldogs"), _tokens("Western Bulldogs"))
+
+
+def test_initials_name_the_same_side() -> None:
+    """TAB abbreviates rep sides — "NSW" IS "New South Wales" (lived: State of
+    Origin lived on four fixtures and every cross-book board read one book)."""
+    from sportsdata_agents.operations.resolution.resolver import _side_ok, _tokens
+
+    assert _side_ok(_tokens("NSW"), _tokens("New South Wales"))
+    assert _side_ok(_tokens("QLD"), _tokens("Queensland Maroons"))
+    assert not _side_ok(_tokens("NSW"), _tokens("North Sydney"))  # 2 words ≠ 3 initials
+    assert not _side_ok(_tokens("GWS"), _tokens("Gold Coast Suns"))  # initials differ
