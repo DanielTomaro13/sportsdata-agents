@@ -1205,6 +1205,11 @@ async def _watch_value(
         ctx = await _context(session, top["row"])
         if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
             continue  # recorded fairs do not know the live score
+        from sportsdata_agents.operations.ingestion.coverage import sport_covered
+
+        if not sport_covered(str(ctx["sport"])):
+            continue  # slates record fairs for every sport with results;
+            # ALERTS follow the operator's coverage
         quotes = await _cross_book_quotes(session, top["row"])
         for e in live:
             quotes.setdefault(e["row"].book, float(e["row"].odds))

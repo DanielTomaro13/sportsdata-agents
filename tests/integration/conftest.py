@@ -50,3 +50,24 @@ async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 async def session(db_sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncSession]:
     async with db_sessionmaker() as s:
         yield s
+
+
+@pytest.fixture(autouse=True)
+def _broad_test_coverage(monkeypatch):
+    """Integration tests exercise many sports; the shipped DEFAULT_COVERAGE is
+    the operator's PERSONAL selection and must not decide what tests can see.
+    A broad env-var coverage keeps the gates on without coupling tests to it."""
+    import json
+
+    from sportsdata_agents.operations.ingestion import coverage as _cov
+
+    monkeypatch.setenv("SPORTSDATA_AGENTS_COVERAGE", json.dumps({
+        "australian_rules": [], "rugby_league": [], "baseball": [],
+        "basketball": [], "tennis": [], "ice_hockey": [], "cricket": [],
+        "rugby_union": [], "mma": [], "golf": [], "darts": [], "snooker": [],
+        "horse_racing": [], "thoroughbred_racing": [], "greyhound_racing": [],
+        "harness_racing": [], "american_football": [], "nfl": [],
+    }))
+    _cov._prefs.cache_clear()
+    yield
+    _cov._prefs.cache_clear()

@@ -25,21 +25,12 @@ from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-# The operator's selection (2026-07-07). Sports not listed get NO detail
-# budget; empty lists mean every competition of that sport.
+# The operator's selection (narrowed 2026-07-08): Australian racing, AFL/AFLW
+# and NRL/NRLW/Origin — nothing else. Sports not listed get NO detail budget;
+# empty lists mean every competition of that sport.
 DEFAULT_COVERAGE: dict[str, list[str]] = {
-    "baseball": ["mlb", "major league baseball"],
-    "basketball": ["nba", "wnba", "nbl"],
     "australian_rules": ["afl"],  # the AFL token also covers AFLW labels
     "rugby_league": ["nrl", "origin"],  # NRLW carries the NRL token
-    "ice_hockey": ["nhl"],
-    "tennis": [],  # every tour — doubles are filtered per fixture instead
-    "mma": ["ufc"],
-    "golf": [],
-    "darts": [],
-    "snooker": [],
-    "cricket": [],  # every format — T20/ODI/Test segmentation is a model concern
-    "rugby_union": [],
     # racing: every AU/NZ code (geography is RACING_COUNTRIES, not tokens)
     "horse_racing": [],
     "thoroughbred_racing": [],

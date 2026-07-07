@@ -393,8 +393,28 @@ async def fetch_entain_books(manager: Any) -> dict[str, Any]:
             candidates.append((str(event.get("advertised_start") or "9999"),
                                sport, str(event_id)))
     candidates.sort()
+    # FAIR SHARE per sport: a global soonest-first slice spent the whole
+    # card budget on today's baseball/tennis and Thursday's AFL boards were
+    # never carded — Ladbrokes had a player's 15+ disposals up for days and
+    # the warehouse never saw it (lived: 2026-07-08). Round-robin across the
+    # window's sports, soonest first WITHIN each sport.
+    by_sport: dict[str, list[tuple[str, str, str]]] = {}
+    for cand in candidates:
+        by_sport.setdefault(cand[1], []).append(cand)
+    picked: list[tuple[str, str, str]] = []
+    while len(picked) < BOOKS_PER_CYCLE and by_sport:
+        for sport in sorted(by_sport):
+            bucket = by_sport.get(sport)
+            if not bucket:
+                by_sport.pop(sport, None)
+                continue
+            picked.append(bucket.pop(0))
+            if not bucket:
+                by_sport.pop(sport, None)
+            if len(picked) >= BOOKS_PER_CYCLE:
+                break
     out: list[dict[str, Any]] = []
-    for _start, sport, event_id in candidates[:BOOKS_PER_CYCLE]:
+    for _start, sport, event_id in picked:
         try:
             card = await manager.call_tool("entain_sport_event_card", {"id": event_id})
             out.append({"sport": sport, "payload": card})

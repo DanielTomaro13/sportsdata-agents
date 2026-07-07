@@ -1496,24 +1496,17 @@ def test_coverage_preferences_gate_detail_spend() -> None:
         sport_covered,
     )
 
-    assert competition_covered("Baseball", "MLB")
-    assert not competition_covered("Baseball", "NPB")        # Japan: not selected
-    assert competition_covered("Basketball", "WNBA")
-    assert competition_covered("Basketball", "NBL Australia")
-    assert not competition_covered("Basketball", "EuroLeague")
+    # the narrowed selection (2026-07-08): AU racing, AFL/AFLW, NRL/NRLW/Origin
     assert competition_covered("Australian Rules", "AFL Women's")
     assert competition_covered("Rugby League", "State of Origin")
+    assert competition_covered("Rugby League", "NRLW Premiership")
     assert not competition_covered("Rugby League", "Super League")  # UK comp
-    assert competition_covered("Ice Hockey", "NHL")
-    assert competition_covered("MMA", "UFC 318")
-    assert competition_covered("Tennis", "Wimbledon")         # all tours
-    assert competition_covered("Golf", "Open Championship")   # all golf
-    assert competition_covered("Cricket", "Big Bash League")  # every format
-    assert competition_covered("Rugby Union", "Super Rugby Pacific")
-    assert not sport_covered("Soccer")                        # not selected
+    assert not competition_covered("Baseball", "MLB")         # dropped
+    assert not competition_covered("Basketball", "WNBA")      # dropped
+    assert not sport_covered("Tennis")                        # dropped
+    assert not sport_covered("Soccer")                        # never selected
     assert not sport_covered("Table Tennis")
-    # tennis is singles only — doubles pairings are named "A/B v C/D"
-    assert fixture_covered("Tennis", "Djokovic v Alcaraz")
+    # the doubles rule only bites sports that are covered at all
     assert not fixture_covered("Tennis", "Krejcikova/Siniakova v Gauff/Pegula")
     # racing is AU/NZ: Betfair's world cards carry the country in the venue
     assert racing_event_covered("Menangle (AUS) 7th Jul")

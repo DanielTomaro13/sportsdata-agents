@@ -58,6 +58,13 @@ _NPLUS_SELECTION = re.compile(
 _NPLUS_MARKET = re.compile(
     rf"^(?:to (?:kick|score|get|have) )?(?P<n>\d{{1,3}})\+\s+(?P<stat>{_STATS_ALT})$")
 
+# market "<stat> - N+" with the PLAYER as the selection — Ladbrokes' shape
+# ("Disposals - 15+" / "Koltyn Thorstrup"). Segment variants ("1st Half
+# Disposals - 10+") must NOT tag: a half line pooled with full-game groups
+# poisons every fair, and the leading words fail this anchor by design.
+_STAT_NPLUS_MARKET = re.compile(
+    rf"^(?P<stat>{_STATS_ALT})\s*[-\u2013]\s*(?P<n>\d{{1,3}})\+$")
+
 # a cheap pre-filter: no stat word anywhere → not a prop, skip the regexes
 _ANY_STAT = re.compile(rf"\b(?:{_STATS_ALT})\b")
 
@@ -88,6 +95,13 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
         return {**meta, "player": selection.strip().title(),
                 "stat": market_nplus.group("stat"),
                 "stat_line": float(market_nplus.group("n")) - 0.5,
+                "line_type": "over", "prop_tagged": True}
+
+    market_stat_nplus = _STAT_NPLUS_MARKET.match(market_l)
+    if market_stat_nplus and selection_l and not any(ch.isdigit() for ch in selection_l):
+        return {**meta, "player": selection.strip().title(),
+                "stat": market_stat_nplus.group("stat"),
+                "stat_line": float(market_stat_nplus.group("n")) - 0.5,
                 "line_type": "over", "prop_tagged": True}
 
     market_match = _MARKET_PROP.match(market_l)

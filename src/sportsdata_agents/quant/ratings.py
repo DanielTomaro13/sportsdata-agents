@@ -413,7 +413,12 @@ async def record_ratings_slate(
         await session.commit()
 
     # ── team sports: ratings from settled results ──────────────────────────
+    from sportsdata_agents.operations.ingestion.coverage import sport_covered
+
     for sport, labels in RATINGS_SPORTS:
+        if not any(sport_covered(label) for label in labels):
+            continue  # fitting an uncovered sport burns minutes and records
+            # fairs nothing is allowed to alert on
         try:
             pools = await _fit_footy(session, labels, now)
         except ImportError:

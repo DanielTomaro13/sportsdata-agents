@@ -215,7 +215,7 @@ async def test_coverage_endpoints_roundtrip(tmp_path, monkeypatch) -> None:
         r = await client.get("/coverage")
         assert r.status_code == 200
         assert r.json()["source"] == "default"
-        assert "baseball" in r.json()["coverage"]
+        assert "australian_rules" in r.json()["coverage"]
         r = await client.post("/coverage", json={"coverage": {
             "baseball": ["mlb"], "cricket": [], "Basketball": ["NBA", " wnba "]}})
         assert r.status_code == 200
