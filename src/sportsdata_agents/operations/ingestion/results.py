@@ -174,6 +174,12 @@ async def _afl_results(manager: Any, *, days_back: int = 8) -> list[dict[str, An
         for match in page.get("matches") or []:
             if match.get("status") != "CONCLUDED":
                 continue
+            comp = str((match.get("compSeason") or {}).get("name") or "").lower()
+            if not ("afl premiership" in comp or "aflw" in comp):
+                # the API window carries VFL/U18/state games too — fitting the
+                # AFL ratings on academy scores read a 110-point "fair total"
+                # for a 176-point competition (lived: 2026-07-07)
+                continue
             home, away = match.get("home") or {}, match.get("away") or {}
             row = _result_row(
                 provider="afl_api", sport="australian_rules",

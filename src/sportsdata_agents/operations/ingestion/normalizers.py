@@ -590,7 +590,11 @@ def normalize_pinnacle_league(payload: Any, *, sport: str) -> list[PricePoint]:
                     market=market_key, selection=f"{base_sel}{_line_suffix(price.get('points'))}",
                     odds=round(odds, 3),
                     meta={"start_time": matchup.get("startTime"),
-                          "team": names.get(designation) or participant or None},
+                          "team": names.get(designation) or participant or None,
+                          # the league name feeds competition-level coverage
+                          # gating (MLB yes, NPB no) — Pinnacle prices leagues
+                          # no AU book carries
+                          "competition": (matchup.get("league") or {}).get("name")},
                 ))
     return sink.points
 

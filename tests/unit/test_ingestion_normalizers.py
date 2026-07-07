@@ -1476,6 +1476,14 @@ def test_market_family_joins_suffixed_h2h_but_not_periods() -> None:
     assert _market_family("team total runs over/under") is None
     assert _market_family("exact winning margin") is None
     assert _market_family("run line - after 5 innings") is None
+    # TEAM totals wearing a name instead of the word "team" are still team
+    # totals (lived: "fremantle - total points o/u" nearly seeded the AFL
+    # engine with a 93.5 game total)
+    assert _market_family("fremantle - total points o/u") is None
+    assert _market_family("fremantle match total goals o/u") is None
+    assert _market_family("total points o/u") == "total"
+    assert _market_family("match total points over/under") == "total"
+    assert _market_family("mlb: most home runs (team)") is None
 
 
 def test_coverage_preferences_gate_detail_spend() -> None:

@@ -425,8 +425,13 @@ def _format_board(quotes: dict[str, float], sharps: list[str],
                 f"captured yet" if engine_fair else "")
     board = " · ".join(cell(b, o) for b, o in ordered[:12])
     unpriced = sum(1 for b in {*sharps, *include} if b not in quotes)
-    tail = (f" · {unpriced} {'book' if unpriced == 1 else 'books'} NA"
-            if unpriced else "")
+    if len(ordered) <= 1 and unpriced:
+        # alt lines are often one book's private rung — say so instead of
+        # counting NAs that could never be anything else
+        tail = " · no other book prices this"
+    else:
+        tail = (f" · {unpriced} {'book' if unpriced == 1 else 'books'} NA"
+                if unpriced else "")
     return f"\n{head} {engine_cell}{board}{tail}"
 
 
@@ -1002,10 +1007,31 @@ def _market_family(market: str) -> str | None:
         # the settle-qualifier suffix is each book's house style
         return "h2h"
     if m in _TOTAL_MARKETS or "total" in m or "over/under" in m or "u/o" in m:
-        return "total"
+        return "total" if _only_market_words(m) else None
     if m in _LINE_MARKETS or "spread" in m or "handicap" in m or "line" in m:
-        return "line"
+        return "line" if _only_market_words(m) else None
     return None
+
+
+# every word a FULL-GAME total/line label may carry — a token outside this
+# vocabulary is a name ("fremantle - total points o/u" is a TEAM total wearing
+# no "team" marker) and names make it a different market. Numeric tokens
+# ("run line -1.5") pass freely.
+_MARKET_WORDS = frozenset({
+    "total", "totals", "points", "point", "goals", "goal", "runs", "run",
+    "games", "game", "maps", "rounds", "match", "over", "under", "o/u", "u/o",
+    "ou", "over/under", "line", "lines", "spread", "spreads", "handicap",
+    "alternative", "alternate", "extra", "main", "-", "\u2013", "the",
+})
+
+
+def _only_market_words(market: str) -> bool:
+    for token in market.replace("(", " ").replace(")", " ").split():
+        if any(ch.isdigit() for ch in token):
+            continue
+        if token not in _MARKET_WORDS:
+            return False
+    return True
 
 
 def _footy_engine_inputs(rows: list[Price]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -1163,14 +1189,22 @@ async def _watch_model_value(
             for r in event_rows if r.market.lower() in anchor_markets
         ):
             continue
-        start_time = (await session.execute(
-            select(OddsSnapshot.start_time)
+        snap = (await session.execute(
+            select(OddsSnapshot)
             .where(OddsSnapshot.event_external_id == event_id,
                    OddsSnapshot.start_time.isnot(None))
             .order_by(OddsSnapshot.captured_at.desc()).limit(1)
-        )).scalar_one_or_none()
+        )).scalars().first()
+        start_time = snap.start_time if snap else None
         if bool(sub.params.get("pre_match_only", True)) and _started(start_time):
             continue  # a started game's laggy derivatives are game state, not edge
+        competition = str(((snap.meta if snap else None) or {}).get("competition") or "")
+        if competition:
+            from sportsdata_agents.operations.ingestion.coverage import competition_covered
+
+            if not competition_covered(price_sport, competition):
+                continue  # a league outside the operator's coverage (Pinnacle
+                # prices NPB/KBO; the preferences say MLB) — no alerts for it
         places = sub.params.get("places")
         if sport == "racing":
             seed, book_quotes = _racing_engine_inputs(event_rows, int(places) if places else None)
@@ -1236,9 +1270,18 @@ async def _watch_model_value(
         for (selection, line), sel_cands in list(by_sel.items())[:4]:
             best = sel_cands[0]
             at_line = f" {line:g}" if line is not None else ""
-            books_bit = " · ".join(
-                f"{c['book']} {c['odds']:.2f} (+{c['edge_pct']:.1f}%)"
-                for c in sel_cands[:3])
+            # one price per BOOK: a book quoting the same line through two
+            # products (Dabble's over/under + pick-your-own-line) printed twice
+            seen_books: set[str] = set()
+            book_bits: list[str] = []
+            for c in sel_cands:
+                if c["book"] in seen_books:
+                    continue
+                seen_books.add(c["book"])
+                book_bits.append(f"{c['book']} {c['odds']:.2f} (+{c['edge_pct']:.1f}%)")
+                if len(book_bits) == 3:
+                    break
+            books_bit = " · ".join(book_bits)
             fair = float(best["model_fair_odds"] or 0.0)
             kelly = _kelly_stake(1.0 / fair if fair > 1.0 else 0.0,
                                  float(best["odds"]), bankroll)
