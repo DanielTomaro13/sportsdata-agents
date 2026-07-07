@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -96,12 +97,16 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
     if not siblings:
         return {}
     side, line = _split_selection(row.selection.lower())
-    side_relative = side in ("home", "away", "draw")
     family = _market_family(row.market)
     name_cache: dict[tuple[str, str], str] = {}
-    own_name = ""
-    if side_relative:
-        own_name = await _event_name_for(session, name_cache, row.provider, row.event_external_id)
+    own_name = await _event_name_for(session, name_cache, row.provider, row.event_external_id)
+    side_relative = side in ("home", "away", "draw")
+    if not side_relative and side not in ("over", "under"):
+        mapped = _sel_team_side(side, own_name)  # "milwaukee +1.5" → away
+        if mapped is not None:
+            side, side_relative = mapped, True
+    if side_relative and line is None and family == "line":
+        line = _handicap_market_line(row.market.lower(), side)
     quotes: dict[str, float] = {}
     for sibling in siblings:
         want_side = side
@@ -139,8 +144,15 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
             if family is not None and _market_family(cand.market) != family:
                 continue  # a period/segment variant slipping the SQL prefilter
             cand_side, cand_line = _split_selection(cand.selection.lower())
+            if (side_relative and cand_side != want_side
+                    and cand_side not in ("home", "away", "draw", "over", "under")):
+                mapped = _sel_team_side(cand_side, sibling_name)
+                if mapped is not None:
+                    cand_side = mapped
             if cand_side != want_side:
                 continue
+            if cand_line is None and line is not None and cand_side in ("home", "away"):
+                cand_line = _handicap_market_line(cand.market.lower(), cand_side)
             if (line is None) != (cand_line is None):
                 continue
             if line is not None and cand_line is not None and abs(cand_line - line) > 1e-9:
@@ -203,6 +215,11 @@ async def _nearest_line_quotes(
             if cand.book == row.book or _market_family(cand.market) != family:
                 continue
             cand_side, cand_line = _split_selection(cand.selection.lower())
+            if (side_relative and cand_side != want_side
+                    and cand_side not in ("home", "away", "draw", "over", "under")):
+                mapped = _sel_team_side(cand_side, sibling_name)
+                if mapped is not None:
+                    cand_side = mapped
             if cand_side != want_side or cand_line is None:
                 continue
             if abs(cand_line - line) < 1e-9 or (cand.book, cand_line) in seen:
@@ -1075,16 +1092,83 @@ async def _watch_value(
     return fired
 
 
+_UNIT_WORDS = frozenset({"run", "runs", "point", "points", "goal", "goals",
+                         "game", "games", "set", "sets", "map", "maps"})
+
+
 def _split_selection(selection: str) -> tuple[str, float | None]:
     """Normalised selections embed lines as a trailing number: ``home -1.5``,
-    ``over 220.5`` → (side, line); plain sides/runners come back line-less."""
+    ``over 220.5`` → (side, line); plain sides/runners come back line-less.
+    A unit word after the number ("over 7.5 runs" — TAB) is part of the line,
+    not the side: it left TAB off every total board it priced."""
     head, _, tail = selection.rpartition(" ")
     if head:
         try:
             return head, float(tail)
         except ValueError:
-            pass
+            if tail in _UNIT_WORDS:
+                head2, _, tail2 = head.rpartition(" ")
+                if head2:
+                    try:
+                        return head2, float(tail2)
+                    except ValueError:
+                        pass
     return selection, None
+
+
+_MARKET_LINE_PAREN = re.compile(r"\(([+-]?\d+(?:\.\d+)?)\)")
+
+
+def _handicap_market_line(market: str, side: str) -> float | None:
+    """Books like Dabble put the handicap in the MARKET label with bare-side
+    selections: "handicap (-1.5)" / home. The parenthesised number is the
+    HOME team's line; away takes the negation (verified against Unibet's
+    lined selections on the same fixtures). Only the parenthesised form —
+    other books' conventions ("run line +1.5") are unverified and a wrong
+    sign shows a flipped price, which is worse than an absent one."""
+    m = _MARKET_LINE_PAREN.search(market)
+    if m is None:
+        return None
+    val = float(m.group(1))
+    return val if side == "home" else -val
+
+
+def _sel_team_side(sel_head: str, event_name: str) -> str | None:
+    """A TEAM-named selection ("milwaukee", "nsw blues", "maroons") → home/away
+    in its own book's frame. TAB and Dabble print names where the sink couldn't
+    normalise a side, and exact-string matching left them off every board.
+    Matches only when the name points at exactly ONE side of the event."""
+    from sportsdata_agents.operations.resolution.resolver import (
+        _side_ok, _token_match, _tokens, split_sides)
+
+    sides = split_sides(event_name or "")
+    if not sides:
+        return None
+    sel = _tokens(sel_head)
+    if not sel:
+        return None
+
+    def hits(side_name: str) -> bool:
+        side_toks = _tokens(side_name)
+        if not side_toks:
+            return False
+        if _side_ok(sel, side_toks):
+            return True
+        # nickname riders ("nsw blues"): any strong token or the side's
+        # initials counts — ambiguity is rejected below, not here
+        initials = "".join(sorted(u[0] for u in side_toks))
+        for t in sel:
+            if (len(side_toks) >= 2 and len(t) == len(side_toks)
+                    and "".join(sorted(t)) == initials):
+                return True
+            if len(t) >= 4 and any(_token_match(t, u) for u in side_toks):
+                return True
+        return False
+
+    home, away = hits(sides[0]), hits(sides[1])
+    if home == away:  # neither or both — never guess
+        return None
+    return "home" if home else "away"
 
 
 _H2H_MARKETS = {"2way", "h2h", "head_to_head", "match_winner", "money line", "moneyline"}

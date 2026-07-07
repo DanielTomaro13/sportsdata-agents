@@ -86,6 +86,13 @@ _VARIANT_CANON = {
 }
 _VARIANT_RE = re.compile(r"^u\d{1,2}$")  # U17 / U20 / U23 age grades
 
+# person sports: competition labels never feed variant markers (see
+# resolve_events — tournament-level gender tags would split, not separate)
+_PERSON_SPORTS = frozenset({
+    "tennis", "table_tennis", "mma", "boxing", "darts", "snooker", "golf",
+    "badminton", "squash", "chess", "cycling", "athletics",
+})
+
 
 def _variant_markers(tokens: frozenset[str]) -> frozenset[str]:
     out = set()
@@ -165,6 +172,7 @@ async def resolve_events(
                     func.min(OddsSnapshot.captured_at),
                     func.max(OddsSnapshot.start_time),
                     func.max(OddsSnapshot.end_time),
+                    func.max(OddsSnapshot.meta["competition"].as_string()),
                 ).group_by(OddsSnapshot.provider, OddsSnapshot.event_external_id)
             )
         ).all()
@@ -180,20 +188,29 @@ async def resolve_events(
         def add_to_index(
             fixture_id: uuid.UUID, sport: str, day: str, name: str,
             start: dt.datetime | None,
+            markers: frozenset[str] = frozenset(),
         ) -> None:
+            # COMPETITION-derived variant markers ride the token sets so the
+            # _side_ok equality gate can see them: Pinnacle names the U20
+            # World Championship game plain "New Zealand v Italy" — only its
+            # league says "U20" — and it merged with a senior-priced book and
+            # manufactured a 3.7% "arb" (lived: 2026-07-07)
             sides = split_sides(name)
             keyed = (
-                (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(name)
+                (_tokens(sides[0]) | markers, _tokens(sides[1]) | markers)
+                if sides else _tokens(name) | markers
             )
             index.setdefault((sport, day), []).append((fixture_id, keyed, start))
 
         for fixture in fixtures:
+            fx_markers = frozenset((fixture.meta or {}).get("variant_markers") or ())
             add_to_index(fixture.id, fixture.sport, _fixture_day(fixture),
-                         fixture.name, fixture.start_time)
+                         fixture.name, fixture.start_time, fx_markers)
 
         stats = {"examined": 0, "mapped": 0, "created": 0, "ambiguous": 0, "skipped_unnamed": 0}
         now = dt.datetime.now(dt.UTC)
-        for provider, external_id, event_name, sport, first_seen, start_time, end_time in seen:
+        for (provider, external_id, event_name, sport, first_seen,
+             start_time, end_time, competition) in seen:
             if (provider, external_id) in mapped_keys:
                 continue
             stats["examined"] += 1
@@ -202,6 +219,15 @@ async def resolve_events(
                 stats["skipped_unnamed"] += 1
                 continue
             family = canonical_sport(str(sport or "?"))
+            # variant evidence from the COMPETITION label — but only for TEAM
+            # sports, where grades collide on identical names ("New Zealand v
+            # Italy" is both the U20 and the senior test; "Essex v Somerset"
+            # is both Blasts). Person sports skip it: names are globally
+            # unique and books gender-tag whole TOURNAMENTS ("Wimbledon -
+            # Womens", "ITF Women Astana"), so the marker would fragment
+            # every WTA fixture across books instead of separating anything.
+            comp_markers = (frozenset() if family in _PERSON_SPORTS
+                            else _variant_markers(_tokens(str(competition or ""))))
             # window on the ADVERTISED start when the feed carried one — futures are
             # captured months before they run, so capture day would scatter the same
             # outright across fixtures-by-capture-date (B3). Exchanges carry no real start,
@@ -211,7 +237,8 @@ async def resolve_events(
             event_time = start_time or end_time or first_seen
             day = fixture_day(event_time)
             sides = split_sides(name)
-            mine: Any = (_tokens(sides[0]), _tokens(sides[1])) if sides else _tokens(name)
+            mine: Any = ((_tokens(sides[0]) | comp_markers, _tokens(sides[1]) | comp_markers)
+                         if sides else _tokens(name) | comp_markers)
 
             # near-term events disagree by at most a midnight; books PLACEHOLDER
             # far-future outright dates and disagree by days-to-weeks — widen the
@@ -276,13 +303,19 @@ async def resolve_events(
                     # No time at all (no advertised start, no expiry): persist the
                     # founding event's day so later passes index this fixture where
                     # it was seen, not wherever "now" happens to be (_fixture_day).
-                    meta={"day_proxy": day} if start_time is None and end_time is None else {},
+                    meta={
+                        **({"day_proxy": day}
+                           if start_time is None and end_time is None else {}),
+                        **({"variant_markers": sorted(comp_markers)}
+                           if comp_markers else {}),
+                    },
                 )
                 session.add(fixture)
                 await session.flush()
                 target = fixture.id
                 fixtures_by_id[target] = fixture
-                add_to_index(target, family, day, fixture.name, fixture.start_time)
+                add_to_index(target, family, day, fixture.name, fixture.start_time,
+                             comp_markers)
                 stats["created"] += 1
 
             # Backfill a real start onto a fixture founded without one (e.g. an exchange
@@ -448,7 +481,11 @@ async def merge_duplicate_fixtures(
             for f in group:
                 sides = split_sides(f.name)
                 if sides:
-                    sided.append((f, (_tokens(sides[0]), _tokens(sides[1]))))
+                    # competition-derived markers persist on the fixture — the
+                    # U20 game a book names identically to the senior match
+                    # must not re-merge here after resolution kept them apart
+                    fm = frozenset((f.meta or {}).get("variant_markers") or ())
+                    sided.append((f, (_tokens(sides[0]) | fm, _tokens(sides[1]) | fm)))
             # largest first: it wins the merge
             sided.sort(key=lambda pair: -counts.get(pair[0].id, 0))
             absorbed: set[uuid.UUID] = set()
