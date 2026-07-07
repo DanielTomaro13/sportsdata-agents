@@ -53,6 +53,18 @@ RATINGS_SPORTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 MIN_RESULTS = 40  # a ratings fit off a weekend of scores is noise, not opinion
+
+# LEAGUE POOLS: a women's competition scores differently (AFLW totals run ~60
+# to AFL's ~170) — one pooled fit corrupts both. Pool membership reads from
+# the result's competition meta and the team names; rep sides (Origin) are
+# blocked separately by the market-sanity gate, and cricket formats stay
+# unsegmented until results carry a format label.
+_WOMENS = re.compile(r"\b(aflw|nrlw|wnba|nblw|women|women's|womens|w-league)\b",
+                     re.IGNORECASE)
+
+
+def _pool_of(*labels: str) -> str:
+    return "women" if _WOMENS.search(" ".join(str(x) for x in labels)) else "open"
 _VS_SPLIT = re.compile(r"\s+(?:v|vs|vs\.|@)\s+", re.IGNORECASE)
 _SCORE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 
@@ -118,14 +130,17 @@ def parse_last_starts(text: str, days_since_run: Any) -> list[Any]:
     return runs
 
 
-async def _fit_footy(session: AsyncSession, labels: tuple[str, ...], now: dt.datetime) -> Any:
-    """A ratings object from this sport's settled results — None below MIN_RESULTS."""
+async def _fit_footy(
+    session: AsyncSession, labels: tuple[str, ...], now: dt.datetime
+) -> dict[str, Any]:
+    """Per-POOL ratings from this sport's settled results ({"open": …,
+    "women": …}) — a pool below MIN_RESULTS is absent rather than noisy."""
     from sportsdata_engines.ratings.footy import MatchResult, fit_footy_ratings
 
     rows = (await session.execute(
         select(EventResult).where(EventResult.sport.in_(labels))
     )).scalars().all()
-    results: list[Any] = []
+    pools: dict[str, list[Any]] = {}
     for row in rows:
         meta = row.meta or {}
         parsed = _parse_result(str(meta.get("event_name") or ""),
@@ -139,11 +154,39 @@ async def _fit_footy(session: AsyncSession, labels: tuple[str, ...], now: dt.dat
             continue
         stamp = stamp if stamp.tzinfo else stamp.replace(tzinfo=dt.UTC)
         age_days = max(0.0, (now - stamp).total_seconds() / 86_400.0)
-        results.append(MatchResult(home=home, away=away, home_score=home_score,
-                                   away_score=away_score, age_days=age_days))
-    if len(results) < MIN_RESULTS:
+        pool = _pool_of(str(meta.get("competition") or ""), home, away)
+        pools.setdefault(pool, []).append(
+            MatchResult(home=home, away=away, home_score=home_score,
+                        away_score=away_score, age_days=age_days))
+    return {pool: fit_footy_ratings(results)
+            for pool, results in pools.items() if len(results) >= MIN_RESULTS}
+
+
+async def _market_main_total(session: AsyncSession, event_id: str) -> float | None:
+    """The market's most balanced total line for an event — the sanity anchor
+    the ratings totals are held against. None when no paired total exists."""
+    from sportsdata_agents.data.models import Price
+    from sportsdata_agents.operations.monitoring import _market_family, _split_selection
+
+    rows = (await session.execute(
+        select(Price).where(Price.event_external_id == event_id)
+        .order_by(Price.changed_at.desc()).limit(400)
+    )).scalars().all()
+    totals: dict[float, dict[str, float]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        if (row.market, row.selection) in seen:
+            continue
+        seen.add((row.market, row.selection))
+        if _market_family(row.market) != "total":
+            continue
+        side, line = _split_selection(row.selection.lower())
+        if side in ("over", "under") and line is not None:
+            totals.setdefault(line, {})[side] = float(row.odds)
+    paired = {ln: p for ln, p in totals.items() if len(p) == 2}
+    if not paired:
         return None
-    return fit_footy_ratings(results)
+    return min(paired, key=lambda ln: abs(1.0 / paired[ln]["over"] - 1.0 / paired[ln]["under"]))
 
 
 async def _upcoming_events(
@@ -208,6 +251,7 @@ async def record_ratings_slate(
     events_priced = 0
     skipped_dedupe = 0
     skipped_unrated = 0
+    skipped_sanity = 0
 
     async def _record_board(artifact_name: str, sport: str, book: str, event_id: str,
                             board: list[Any]) -> int:
@@ -263,16 +307,13 @@ async def record_ratings_slate(
     # ── team sports: ratings from settled results ──────────────────────────
     for sport, labels in RATINGS_SPORTS:
         try:
-            ratings = await _fit_footy(session, labels, now)
+            pools = await _fit_footy(session, labels, now)
         except ImportError:
             return {"recorded": recorded, "events": events_priced,
                     "error": "ratings pricing needs the local engines package"}
-        if ratings is None:
+        if not pools:
             continue  # not enough scored results yet — accrues daily
         module = importlib.import_module(f"sportsdata_engines.{sport}")
-        name = f"engine-ratings:{sport}"
-        await _artifact(name, sport)
-        rated_teams = list(ratings.attack)
         for _provider, book, event_id, event_name in await _upcoming_events(
                 session, labels, now, horizon_hours):
             if events_priced >= max_events:
@@ -280,6 +321,16 @@ async def record_ratings_slate(
             parts = _VS_SPLIT.split(event_name.strip())
             if len(parts) != 2:
                 continue
+            # a women's fixture prices off the women's pool — one pooled fit
+            # corrupted both (AFLW totals ~60 vs AFL ~170)
+            pool = _pool_of(event_name)
+            ratings = pools.get(pool)
+            if ratings is None:
+                skipped_unrated += 1
+                continue
+            name = f"engine-ratings:{sport}" + ("w" if pool == "women" else "")
+            await _artifact(name, sport)
+            rated_teams = list(ratings.attack)
             # book names and scoreboard names differ ("Brisbane Broncos" vs
             # "Broncos") — the RESOLVER's token matching already solves this
             # for fixtures, so team identity rides the same machinery here
@@ -292,6 +343,19 @@ async def record_ratings_slate(
                 margin, total = ratings.expected_margin_total(home, away)
             except (KeyError, ValueError):
                 skipped_unrated += 1
+                continue
+            # MARKET SANITY: a stats total drastically off the market's is a
+            # fitting artifact, not an opinion — rep teams (Origin) carry 1-2
+            # games of history and fit wild ratings (lived: QLD v NSW read a
+            # 61.7 fair total against the market's 34.5). No fair beats a
+            # garbage fair.
+            market_total = await _market_main_total(session, event_id)
+            if (market_total is not None
+                    and abs(float(total) - market_total) > 0.2 * market_total):
+                skipped_sanity += 1
+                logger.info("ratings slate: %s %s total %.1f vs market %.1f — "
+                            "outside the sanity band, not recorded",
+                            sport, event_name, float(total), market_total)
                 continue
             if await _dedupe_hit(session, scope, artifacts[name], book, event_id,
                                  now, dedupe_hours):
@@ -316,6 +380,7 @@ async def record_ratings_slate(
     except ImportError:
         return {"recorded": recorded, "events": events_priced,
                 "skipped_dedupe": skipped_dedupe, "skipped_unrated": skipped_unrated,
+            "skipped_sanity": skipped_sanity,
                 "error": "ratings pricing needs the local engines package"}
     form_rows = (await session.execute(
         select(RaceForm).where(RaceForm.start_time > now,

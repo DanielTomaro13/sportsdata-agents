@@ -1508,8 +1508,9 @@ def test_coverage_preferences_gate_detail_spend() -> None:
     assert competition_covered("MMA", "UFC 318")
     assert competition_covered("Tennis", "Wimbledon")         # all tours
     assert competition_covered("Golf", "Open Championship")   # all golf
+    assert competition_covered("Cricket", "Big Bash League")  # every format
+    assert competition_covered("Rugby Union", "Super Rugby Pacific")
     assert not sport_covered("Soccer")                        # not selected
-    assert not sport_covered("Cricket")
     assert not sport_covered("Table Tennis")
     # tennis is singles only — doubles pairings are named "A/B v C/D"
     assert fixture_covered("Tennis", "Djokovic v Alcaraz")
@@ -1520,3 +1521,18 @@ def test_coverage_preferences_gate_detail_spend() -> None:
     assert racing_event_covered("Pakenham R5")                # local card, no tag
     assert not racing_event_covered("Ascot (GB) 7th Jul")
     assert not racing_event_covered("Belmont At The Big A (US) 7th Jul")
+
+
+def test_ratings_pools_segment_leagues() -> None:
+    """AFLW/NRLW/WNBA fixtures price off their OWN ratings pool — a women's
+    competition scores differently and one pooled fit corrupts both."""
+    from sportsdata_agents.quant.ratings import _pool_of
+
+    assert _pool_of("2026 Toyota AFL Premiership", "Carlton", "Essendon") == "open"
+    assert _pool_of("2026 NAB AFLW Season", "Carlton", "Essendon") == "women"
+    assert _pool_of("", "Sharks Women", "Broncos Women") == "women"
+    assert _pool_of("WNBA", "Wings", "Liberty") == "women"
+    assert _pool_of("NRL Telstra Premiership", "Sharks", "Broncos") == "open"
+    # event-name-only detection (books rarely carry the comp)
+    assert _pool_of("Cronulla Sharks Women v Brisbane Broncos Women") == "women"
+    assert _pool_of("Fremantle v Sydney Swans") == "open"

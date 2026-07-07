@@ -152,6 +152,69 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
     return quotes
 
 
+async def _nearest_line_quotes(
+    session: AsyncSession, row: Price, line: float
+) -> tuple[float, dict[str, float]] | None:
+    """When no other book quotes the EXACT line (alt-ladder rungs are often
+    one book's private product), the industry's nearest quoted line is the
+    context a human wants — returned as (nearest_line, {book: odds}) for the
+    same side, or None when the fixture is unresolved or nothing is close."""
+    from sqlalchemy import or_
+
+    from sportsdata_agents.quant.backtest import _event_name_for, _translate_side
+
+    mapping = (await session.execute(
+        select(Event).where(Event.provider == row.provider,
+                            Event.external_id == row.event_external_id)
+    )).scalars().first()
+    if mapping is None or mapping.fixture_id is None:
+        return None
+    siblings = (await session.execute(
+        select(Event).where(Event.fixture_id == mapping.fixture_id,
+                            Event.id != mapping.id)
+    )).scalars().all()
+    side, _ = _split_selection(row.selection.lower())
+    family = _market_family(row.market)
+    if not siblings or family not in ("total", "line"):
+        return None
+    side_relative = side in ("home", "away", "draw")
+    name_cache: dict[tuple[str, str], str] = {}
+    own_name = ""
+    if side_relative:
+        own_name = await _event_name_for(session, name_cache, row.provider, row.event_external_id)
+    by_line: dict[float, dict[str, float]] = {}
+    for sibling in siblings:
+        want_side = side
+        if side_relative:
+            sibling_name = await _event_name_for(session, name_cache, sibling.provider, sibling.external_id)
+            translated = _translate_side(side, sibling_name, own_name)
+            if translated is None:
+                continue
+            want_side = translated
+        tokens = (("%total%", "%over/under%", "%u/o%") if family == "total"
+                  else ("%spread%", "%line%", "%handicap%"))
+        stmt = (select(Price)
+                .where(Price.provider == sibling.provider,
+                       Price.event_external_id == sibling.external_id,
+                       or_(*[func.lower(Price.market).like(t) for t in tokens]))
+                .order_by(Price.changed_at.desc()).limit(120))
+        seen: set[tuple[str, float]] = set()
+        for cand in (await session.execute(stmt)).scalars():
+            if cand.book == row.book or _market_family(cand.market) != family:
+                continue
+            cand_side, cand_line = _split_selection(cand.selection.lower())
+            if cand_side != want_side or cand_line is None:
+                continue
+            if abs(cand_line - line) < 1e-9 or (cand.book, cand_line) in seen:
+                continue  # the exact line is the board's job; newest-first per key
+            seen.add((cand.book, cand_line))
+            by_line.setdefault(cand_line, {}).setdefault(cand.book, float(cand.odds))
+    if not by_line:
+        return None
+    nearest = min(by_line, key=lambda ln: abs(ln - line))
+    return nearest, by_line[nearest]
+
+
 async def _context(session: AsyncSession, row: Price) -> dict[str, Any]:
     """Human context for an alert — the change-point series carries only keys;
     the event NAME, sport and runner/team label live in the latest snapshot."""
@@ -1309,6 +1372,19 @@ async def _watch_model_value(
             jump = f" · Starts {_local_hhmm(start_time.isoformat(), _tz_for(sub))}"
         top_fair = float(top["model_fair_odds"]) if top["model_fair_odds"] else None
         top_line = f" {top['line']:g}" if top["line"] is not None else ""
+        # alt-line honesty with CONTEXT: when no other book quotes this exact
+        # line, show the industry's nearest quoted line instead of nothing
+        near_note = ""
+        flagged_books = {str(c["book"]) for c in cands}
+        if (top["line"] is not None and top.get("row") is not None
+                and not (set(quotes) - flagged_books)):
+            near = await _nearest_line_quotes(session, top["row"], float(top["line"]))
+            if near is not None:
+                nl, nq = near
+                cells = " · ".join(f"{b} {o:.2f}" for b, o in
+                                   sorted(nq.items(), key=lambda kv: -kv[1])[:6])
+                near_note = (f"\nnearest quoted line {nl:g} "
+                             f"(no book has {top['line']:g}): {cells}")
         message = (
             f":crystal_ball: Model Value — {_sport_label(sport)} — {story['display']}\n"
             f"Market: {market} · Edge +{top['edge_pct']:.1f} percent{jump}\n"
@@ -1316,6 +1392,7 @@ async def _watch_model_value(
             + f"\n{_fmt_money(bankroll)} bankroll"
             + _format_board(quotes, sharps, include, thin=thin, engine_fair=top_fair,
                             subject=f"{top['selection']}{top_line} · {market}")
+            + near_note
         )
         # dedupe per market story, banded so a materially bigger edge re-fires
         band = int(top["edge_pct"] / 2.0)
@@ -1412,7 +1489,10 @@ async def _engine_fair_for(
             # a fair from this morning is not a fair for this race
             Prediction.predicted_at > dt.datetime.now(dt.UTC) - dt.timedelta(hours=6),
         )
-        .order_by(ModelArtifact.name, Prediction.predicted_at.desc())
+        # NAME DESC puts the ANCHORED fair first — "engine:afl" > "engine-ratings:afl"
+        # (ascending silently preferred the ratings fair: a stats model's number
+        # wearing the "engine" label on every alert)
+        .order_by(ModelArtifact.name.desc(), Prediction.predicted_at.desc())
         .limit(1)
     )
     if event_id:
@@ -1990,9 +2070,11 @@ async def _watch_prediction_value(
             f"Suggested stake ${kelly:.2f} of {_fmt_money(bankroll)} bankroll — "
             f"confirm both platforms settle the question the same way"
         )
-        bucket = int(candidate["edge_pct"] / 5.0)
+        # ONCE per question+outcome: these gaps are structural (settlement
+        # rule differences between the venues) and persist for days — banded
+        # re-fires read as spam
         key = (f"prediction_value:{candidate['polymarket_event']}"
-               f":{candidate['outcome']}:{candidate['back']}:{bucket}")
+               f":{candidate['outcome']}:{candidate['back']}")
         payload = {**candidate, "kelly_stake": round(kelly, 2), "bankroll": bankroll}
         if await _fire(session, sub, kind="prediction_value", key=key, message=message,
                        payload=payload, pusher=pusher):

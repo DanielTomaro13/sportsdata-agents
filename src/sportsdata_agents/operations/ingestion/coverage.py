@@ -38,6 +38,8 @@ DEFAULT_COVERAGE: dict[str, list[str]] = {
     "golf": [],
     "darts": [],
     "snooker": [],
+    "cricket": [],  # every format — T20/ODI/Test segmentation is a model concern
+    "rugby_union": [],
     # racing: every AU/NZ code (geography is RACING_COUNTRIES, not tokens)
     "horse_racing": [],
     "thoroughbred_racing": [],

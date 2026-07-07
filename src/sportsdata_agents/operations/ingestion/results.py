@@ -118,21 +118,25 @@ def _winner(home_score: Any, away_score: Any) -> str | None:
 
 def _result_row(
     *, provider: str, sport: str, external_id: str, home: str, away: str,
-    home_score: Any, away_score: Any, start: Any,
+    home_score: Any, away_score: Any, start: Any, competition: str = "",
 ) -> dict[str, Any] | None:
     winner = _winner(home_score, away_score)
     if not winner or not external_id:
         return None
     from sportsdata_agents.operations.ingestion.store import _parse_start
 
+    meta = {"event_name": f"{home} v {away}",
+            "score": f"{home_score}-{away_score}"}
+    if competition:
+        # the ratings fit segments league POOLS on this (AFLW vs AFL scoring)
+        meta["competition"] = competition
     return {
         "provider": provider,
         "sport": sport,
         "event_external_id": external_id,
         "winning_selection": winner,
         "start_time": _parse_start(start),
-        "meta": {"event_name": f"{home} v {away}",
-                 "score": f"{home_score}-{away_score}"},
+        "meta": meta,
     }
 
 
@@ -183,6 +187,7 @@ async def _afl_results(manager: Any, *, days_back: int = 8) -> list[dict[str, An
             home, away = match.get("home") or {}, match.get("away") or {}
             row = _result_row(
                 provider="afl_api", sport="australian_rules",
+                competition=str((match.get("compSeason") or {}).get("name") or ""),
                 external_id=str(match.get("providerId") or match.get("id") or ""),
                 home=str((home.get("team") or {}).get("name") or ""),
                 away=str((away.get("team") or {}).get("name") or ""),
@@ -204,15 +209,15 @@ async def _nrl_results(manager: Any) -> list[dict[str, Any]]:
     matchStatus "complete" rows carry final squad scores."""
     catalogue = await manager.call_tool("nrl_competitions", {})
     season = str(dt.datetime.now(dt.UTC).year)
-    comp_ids = [
-        comp["id"]
+    comps = [
+        (comp["id"], str(comp.get("name") or ""))
         for comp in ((catalogue.get("competitionDetails") or {}).get("competition")) or []
         if comp.get("id") is not None
         and season in str(comp.get("season") or "")
         and ("NRL" in str(comp.get("name") or "") or "Origin" in str(comp.get("name") or ""))
     ]
     rows: list[dict[str, Any]] = []
-    for comp_id in comp_ids:
+    for comp_id, comp_name in comps:
         try:
             fixture = await manager.call_tool("nrl_fixture", {"competitionId": comp_id})
         except Exception as e:
@@ -223,6 +228,7 @@ async def _nrl_results(manager: Any) -> list[dict[str, Any]]:
                 continue
             row = _result_row(
                 provider="nrl_api", sport="rugby_league",
+                competition=comp_name,
                 external_id=str(match.get("matchId") or ""),
                 home=str(match.get("homeSquadName") or ""),
                 away=str(match.get("awaySquadName") or ""),
