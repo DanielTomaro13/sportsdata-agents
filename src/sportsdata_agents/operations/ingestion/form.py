@@ -242,12 +242,20 @@ async def ingest_tab_form(
         logger.warning("tab form: meetings fetch failed: %s", e)
         return {"ok": False, "error": str(e)[:200]}
 
-    # upcoming races, soonest first — the next race's form matters most
+    # upcoming races, soonest first — the next race's form matters most.
+    # AU/NZ ONLY: TAB's meetings carry UK/US/HK night racing too, and their
+    # form fed the bsp watch a +39% "edge" on a Pontefract handicap the
+    # operator's coverage excludes (lived: 2026-07-08). TAB stamps each
+    # meeting's location (AU state code or country); unknown fails open.
+    _au_nz = {"NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "NZ", "NZL"}
     wanted: list[tuple[str, str, str, str, int]] = []
     for meeting in meetings.get("meetings", []) or []:
         race_type = str(meeting.get("raceType") or "")[:1]
         venue = str(meeting.get("venueMnemonic") or "")
         if not race_type or not venue:
+            continue
+        location = str(meeting.get("location") or "").upper()
+        if location and location not in _au_nz:
             continue
         for race in meeting.get("races", []) or []:
             start = str(race.get("raceStartTime") or "")

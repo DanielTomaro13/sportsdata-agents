@@ -1972,6 +1972,8 @@ async def _watch_arb(
         session, hours=hours, threshold_pct=threshold,
         min_matched=float(sub.params.get("min_matched", 1000.0)),
         max_age_minutes=float(sub.params.get("max_age_minutes", 20.0)),
+        exclude_books=tuple(str(b) for b in sub.params.get(
+            "exclude_books", ["FanDuel", "Kalshi", "Polymarket", "Pinnacle"])),
         limit=cap * 3, now=now)
     fired = 0
     for arb in arbs:
@@ -2021,6 +2023,8 @@ async def _watch_exchange_value(
         min_edge_pct=min_edge,
         min_matched=float(sub.params.get("min_matched", 1000.0)),
         require_matched=bool(sub.params.get("require_matched", True)),
+        exclude_books=tuple(str(b) for b in sub.params.get(
+            "exclude_books", ["FanDuel", "Kalshi", "Polymarket", "Pinnacle"])),
         limit=cap * 3, now=now)
     fired = 0
     for candidate in candidates:
@@ -2382,6 +2386,8 @@ async def _watch_back_lay(
         min_margin_pct=float(sub.params.get("min_margin_pct", 1.0)),
         min_matched=float(sub.params.get("min_matched", 1000.0)),
         commission_pct=float(sub.params.get("commission_pct", 5.0)),
+        exclude_books=tuple(str(b) for b in sub.params.get(
+            "exclude_books", ["FanDuel", "Kalshi", "Polymarket", "Pinnacle"])),
         limit=cap * 3, now=now)
     fired = 0
     for c in candidates:

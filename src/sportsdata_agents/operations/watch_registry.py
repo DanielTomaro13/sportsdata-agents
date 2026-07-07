@@ -44,6 +44,8 @@ WATCH_PARAMS: dict[str, Params] = {
         "hours": (1.0, "how far back to look for board prices"),
         "min_matched": (1000.0, "exchange legs need at least this much money traded"),
         "max_age_minutes": (20.0, "ignore quotes older than this — stale legs fake arbs"),
+        "exclude_books": (["FanDuel", "Kalshi", "Polymarket", "Pinnacle"],
+                          "books never recommended as a leg (not bettable from AU)"),
         "bankroll": (100.0, "stake sizing base for the printed split"),
     },
     "line_move": {
@@ -141,6 +143,8 @@ WATCH_PARAMS: dict[str, Params] = {
         "min_matched": (1000.0, "exchange market must have this much traded"),
         "require_matched": (True, "set false when the fair source is a BOOK (Pinnacle) — "
                                   "books have no matched-money concept"),
+        "exclude_books": (["FanDuel", "Kalshi", "Polymarket", "Pinnacle"],
+                          "books never flagged (not bettable from AU)"),
         "bankroll": (100.0, "kelly stake sizing base"),
     },
     "racing_value": {
@@ -182,6 +186,8 @@ WATCH_PARAMS: dict[str, Params] = {
         "min_margin_pct": (1.0, "back-book vs lay-exchange margin after commission"),
         "min_matched": (1000.0, "lay market must have this much traded"),
         "commission_pct": (5.0, "exchange commission on lay winnings"),
+        "exclude_books": (["FanDuel", "Kalshi", "Polymarket", "Pinnacle"],
+                          "books never recommended as the back leg (not bettable from AU)"),
         "bankroll": (100.0, "stake sizing base"),
     },
     "prediction_value": {

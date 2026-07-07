@@ -45,6 +45,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MARKETS = ("h2h", "total")
 
+# books the operator cannot BET from AU — they may inform fairs/boards but a
+# recommendation to back/leg them is noise (racing_value's rule, generalised):
+# Kalshi is US-persons-only, Polymarket has no AU fixed-odds surface, FanDuel
+# and Pinnacle don't take AU customers
+UNBETTABLE_BOOKS = ("FanDuel", "Kalshi", "Polymarket", "Pinnacle")
+
 
 def _canonical_outcome(selection: str, book_event_name: str, fixture_name: str) -> str | None:
     """A book's selection → an outcome key in the FIXTURE's frame; None = drop
@@ -317,13 +323,16 @@ async def scan_arbs(
     min_matched: float = 1000.0,
     max_age_minutes: float = 20.0,
     min_lead_minutes: float = 15.0,
+    exclude_books: tuple[str, ...] = UNBETTABLE_BOOKS,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
     now: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Pre-game arbs across every fixture with ≥2 books re-captured within
-    ``hours`` (collection shared with the exchange premium scan)."""
+    ``hours`` (collection shared with the exchange premium scan). Books in
+    ``exclude_books`` never form a LEG — an arb the operator cannot take is
+    noise (lived: back-at-Kalshi recommendations)."""
     from sportsdata_agents.operations.ingestion.coverage import fixture_covered
 
     now = now or dt.datetime.now(dt.UTC)
@@ -349,6 +358,7 @@ async def scan_arbs(
         # open, deliberately: the API sends it in practice)
         rows = [r for r in rows
                 if r.get("matched") is None or float(r["matched"]) >= min_matched]
+        rows = [r for r in rows if r["book"] not in exclude_books]
         # FRESHNESS: an arb is only real if every leg's price was seen just
         # now — a leg captured half an hour ago on a fast market (tennis!) is
         # the market's PAST, and alerting it reads prices that no longer exist
@@ -375,6 +385,7 @@ async def scan_exchange_premium(
     max_age_minutes: float = 20.0,
     max_fair_odds: float = 10.0,
     min_lead_minutes: float = 15.0,
+    exclude_books: tuple[str, ...] = UNBETTABLE_BOOKS,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -442,6 +453,8 @@ async def scan_exchange_premium(
                     matched_by_line[line] = max(matched_by_line.get(line, 0.0),
                                                 float(row["matched"]))
             else:
+                if row["book"] in exclude_books:
+                    continue  # can't bet it from AU — never flag it
                 others.append({**row, "outcome": outcome, "line": line})
         age_bound = dt.timedelta(minutes=max_age_minutes)
         for row in others:
@@ -519,6 +532,7 @@ async def scan_back_lay(
     max_fixtures: int = 400,
     max_leg_gap_minutes: float = 10.0,
     min_lead_minutes: float = 20.0,
+    exclude_books: tuple[str, ...] = UNBETTABLE_BOOKS,
     now: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Back at a book, LAY the same outcome on the exchange — a risk-free
@@ -571,7 +585,7 @@ async def scan_back_lay(
                     lays[outcome] = (float(row["lay"]),
                                      float(row.get("matched") or 0.0),
                                      row.get("seen"))
-            else:
+            elif row["book"] not in exclude_books:
                 backs.append({**row, "outcome": outcome})
         for row in backs:
             hit = lays.get(row["outcome"])
