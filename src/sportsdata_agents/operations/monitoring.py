@@ -1608,7 +1608,12 @@ async def _watch_model_value(
         # alerted 4 hours after the line walked to 4.5). A candidate whose
         # exact selection wasn't captured recently is not an offer.
         live_cands = []
+        max_edge = float(sub.params.get("max_edge_pct", 30.0))
         for c in cands:
+            if c["edge_pct"] > max_edge:
+                continue  # an enormous "edge" is a data artifact — a flipped
+                # side or a ghost rung, never a bet (lived: four +70% MLB run
+                # lines pushed in one burst, all Sportsbet side inversions)
             c_row = c.get("row")
             if c_row is not None and not await _quote_still_listed(session, c_row, now):
                 continue

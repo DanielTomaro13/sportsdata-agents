@@ -124,6 +124,8 @@ WATCH_PARAMS: dict[str, Params] = {
         "price_sport": (None, "warehouse sport label when it differs from the engine's"),
         "book": (None, "only check this bookmaker's boards"),
         "min_edge_pct": (3.0, "engine-vs-book disagreement beyond the noise band"),
+        "max_edge_pct": (30.0, "edges above this are data artifacts (side flips, "
+                               "ghost rungs), not bets — never alerted"),
         "error_multiple": (3.0, "how many model-error widths beyond the anchor to trust"),
         "max_age_minutes": (30.0, "board quotes older than this are skipped"),
         "derivative_ttl_hours": (24.0, "re-price derivatives at most this often"),
