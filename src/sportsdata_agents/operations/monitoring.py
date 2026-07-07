@@ -205,17 +205,33 @@ async def _quote_still_listed(
 ) -> bool:
     """Change-points persist forever, so a matching row proves the price
     EXISTED, not that it exists: a book that renames or delists a selection
-    leaves its last change-point behind as a ghost. Live means the exact
-    selection was captured within a few hours of the ALERTED row's own last
-    sighting — relative, so the board is internally consistent whatever
-    moment it's built for. NO snapshot at all reads as live: the store
-    writes a snapshot beside every change-point, so a ghost always has an
-    OLD sighting, never a missing one."""
+    leaves its last change-point behind as a ghost. Live is judged against
+    the BOOK'S OWN freshest capture of the event: a detail pass captures the
+    whole board at once, so a selection lagging its event's newest sighting
+    by more than a grace window was dropped from the board (lived: Dabble
+    moved its total 10.5 -> 9.5 and 'under 10.5' alerted 40 minutes dead —
+    an absolute window can't fit both Dabble's 5-minute and BetR's hourly
+    capture cadences). A 3h absolute ceiling vs `ref` stays as the belt.
+    NO snapshot at all reads as live: the store writes a snapshot beside
+    every change-point, so a ghost always has an OLD sighting, never a
+    missing one."""
     seen = await _last_seen(session, cand)
     if seen is None:
         return True
     anchor = ref or dt.datetime.now(dt.UTC)
-    return (anchor - seen) <= dt.timedelta(hours=3)
+    if (anchor - seen) > dt.timedelta(hours=3):
+        return False
+    event_seen = (await session.execute(
+        select(func.max(OddsSnapshot.captured_at)).where(
+            OddsSnapshot.provider == cand.provider,
+            OddsSnapshot.event_external_id == cand.event_external_id,
+        )
+    )).scalar()
+    if event_seen is None:
+        return True
+    event_aware = (event_seen if event_seen.tzinfo
+                   else event_seen.replace(tzinfo=dt.UTC))
+    return seen >= event_aware - dt.timedelta(minutes=30)
 
 
 async def _nearest_line_quotes(
