@@ -54,3 +54,17 @@ def test_form_prose_parser_real_sentences() -> None:
     old = parse_comment_runs("4th of 9 at Sale on December 20 over 515m.", now)
     assert old and 190 < old[0]["age_days"] < 210
     assert parse_comment_runs("Trainer expects improvement.", now) == []
+
+
+def test_tab_market_side_ladders_tag() -> None:
+    """TAB inverts the ladder: market "25+ Disposals", selection = player."""
+    from sportsdata_agents.operations.ingestion.prop_tagger import tag_prop
+
+    meta = tag_prop("25+ Disposals", "Nick Daicos", {})
+    assert meta["prop_tagged"] and meta["player"] == "Nick Daicos"
+    assert meta["stat"] == "disposals" and meta["stat_line"] == 24.5
+    assert meta["line_type"] == "over"
+    meta = tag_prop("To Kick 2+ Goals", "Charlie Curnow", {})
+    assert meta["stat"] == "goals" and meta["stat_line"] == 1.5
+    # a numbered selection is not a player name — never tag it
+    assert "prop_tagged" not in tag_prop("25+ Disposals", "over 24.5", {})

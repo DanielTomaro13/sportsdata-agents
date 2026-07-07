@@ -53,6 +53,11 @@ _OU_SELECTION = re.compile(r"^(?P<side>over|under)\s+(?P<line>\d{1,3}(?:\.5)?)$"
 _NPLUS_SELECTION = re.compile(
     rf"^(?P<player>{_NAME})\s+(?P<n>\d{{1,3}})\+\s+(?P<stat>{_STATS_ALT})$")
 
+# market "N+ <stat>" / "to kick N+ goals" with the PLAYER as the selection —
+# TAB's ladder shape (market "25+ Disposals", selection "Nick Daicos")
+_NPLUS_MARKET = re.compile(
+    rf"^(?:to (?:kick|score|get|have) )?(?P<n>\d{{1,3}})\+\s+(?P<stat>{_STATS_ALT})$")
+
 # a cheap pre-filter: no stat word anywhere → not a prop, skip the regexes
 _ANY_STAT = re.compile(rf"\b(?:{_STATS_ALT})\b")
 
@@ -74,6 +79,15 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
         return {**meta, "player": matched.group("player").title(),
                 "stat": matched.group("stat"),
                 "stat_line": float(matched.group("n")) - 0.5,
+                "line_type": "over", "prop_tagged": True}
+
+    market_nplus = _NPLUS_MARKET.match(market_l)
+    if market_nplus and selection_l and not any(ch.isdigit() for ch in selection_l):
+        # TAB inverts the ladder: the threshold IS the market, the player the
+        # selection ("25+ Disposals" / "Nick Daicos")
+        return {**meta, "player": selection.strip().title(),
+                "stat": market_nplus.group("stat"),
+                "stat_line": float(market_nplus.group("n")) - 0.5,
                 "line_type": "over", "prop_tagged": True}
 
     market_match = _MARKET_PROP.match(market_l)
