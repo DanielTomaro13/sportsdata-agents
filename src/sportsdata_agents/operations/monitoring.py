@@ -363,17 +363,10 @@ def _format_board(quotes: dict[str, float], sharps: list[str],
         return f"{book} {odds:.2f}" + (" thin" if book in thin else "")
 
     engine_cell = f"Engine {engine_fair:.2f} · " if engine_fair else ""
-    priced = [(b, o) for b, o in ordered if o is not None]
-    if not priced:
+    if not any(o is not None for _b, o in ordered):
         return (f"\nacross books: Engine {engine_fair:.2f} — no book board "
                 f"captured yet" if engine_fair else "")
-    if len(priced) < 3:
-        # a wall of NA is useless — say the true thing in one line
-        few = " · ".join(cell(b, o) for b, o in priced)
-        note = ("no other book captured for this market yet" if len(priced) == 1
-                else "the only books captured so far")
-        return f"\nacross books: {engine_cell}{few} — {note}"
-    board = " · ".join(cell(b, o) for b, o in ordered[:10])
+    board = " · ".join(cell(b, o) for b, o in ordered[:12])
     return f"\nacross books: {engine_cell}{board}"
 
 
@@ -615,8 +608,9 @@ async def _watch_line_move(
                                                  key=lambda kv: -kv[1][2]))
             fair = (f" · fair {best['engine_fair']:.2f}"
                     if multi and best["engine_fair"] else "")
-            stake = _edge_stake_note(sub, float(best["row"].odds),
-                                     best["engine_fair"], compact=True)
+            stake = (_edge_stake_note(sub, float(best["row"].odds),
+                                      best["engine_fair"], compact=True)
+                     if multi else "")
             lines.append(f"**{best['ctx']['selection']}**: {movers} "
                          f"({best['move']:.1f} percent){fair}{stake}")
         if len(sel_groups) > 4:
@@ -731,8 +725,9 @@ async def _watch_steam(
                                                 key=lambda kv: -kv[1][2]))
             fair = (f" · fair {best['engine_fair']:.2f}"
                     if multi and best["engine_fair"] else "")
-            stake = _edge_stake_note(sub, float(best["row"].odds),
-                                     best["engine_fair"], compact=True)
+            stake = (_edge_stake_note(sub, float(best["row"].odds),
+                                      best["engine_fair"], compact=True)
+                     if multi else "")
             lines.append(f"**{best['ctx']['selection']}**: {streaks}{fair}{stake}")
         if len(sel_groups) > 4:
             lines.append(f"…and {len(sel_groups) - 4} more selections walking")
@@ -1416,58 +1411,71 @@ async def _watch_racing_value(
         exclude_books=tuple(sub.params.get("exclude_books", ["FanDuel"])),
         min_consensus_books=int(sub.params.get("min_consensus_books", 3)),
         limit=cap * 3, now=now)
-    fired = 0
+    bankroll = float(sub.params.get("bankroll", 100.0))
+    # one MESSAGE per race: three runners with value in one race is one story
+    by_race: dict[str, list[dict[str, Any]]] = {}
     for candidate in candidates:
+        by_race.setdefault(str(candidate["race"]), []).append(candidate)
+    fired = 0
+    for race, cands in by_race.items():
         if fired >= cap:
             break
-        number = f" (#{candidate['runner_number']})" if candidate.get("runner_number") else ""
+        keep: list[dict[str, Any]] = []
+        for candidate in sorted(cands, key=lambda c: -c["edge_pct"]):
+            engine_fair = await _engine_fair_for(
+                session, "win", candidate.get("runner_number"),
+                event_id=candidate.get("event_external_id"))
+            if (sub.params.get("engine_gate") and engine_fair is not None
+                    and engine_fair >= candidate["odds"]
+                    and candidate.get("versus") != str(sub.params.get("exchange_book", "Betfair"))):
+                continue  # engine says no value and no exchange corroboration
+            kelly = _kelly_stake(1.0 / candidate["fair_odds"], candidate["odds"], bankroll)
+            keep.append({**candidate, "engine_fair": engine_fair,
+                         "kelly_stake": round(kelly, 2)})
+        if not keep:
+            continue
+        top = keep[0]
+        lines = []
+        for c in keep[:4]:
+            number = f" (#{c['runner_number']})" if c.get("runner_number") else ""
+            fair_note = (f" · engine {c['engine_fair']:.2f}"
+                         if c["engine_fair"] is not None else "")
+            lines.append(
+                f"Runner{number} **{c['runner']}**: {c['book']} win at "
+                f"{c['odds']:.2f} · market fair {c['fair_odds']:.2f} "
+                f"(versus {c['versus']}){fair_note} · edge +{c['edge_pct']:.1f} "
+                f"percent · stake {_fmt_money(c['kelly_stake'])}")
+        if len(keep) > 4:
+            lines.append(f"…and {len(keep) - 4} more runners with value")
         jump = ""
-        if candidate.get("start_time"):
-            jump = f" · jumps {_local_hhmm(candidate['start_time'], _tz_for(sub))}"
+        if top.get("start_time"):
+            jump = f" · jumps {_local_hhmm(top['start_time'], _tz_for(sub))}"
         traded = ""
-        if candidate.get("exchange_matched") is not None:
-            traded = f" ({_fmt_money(candidate['exchange_matched'])} matched)"
-        engine_note = ""
-        engine_fair = await _engine_fair_for(
-            session, "win", candidate.get("runner_number"),
-            event_id=candidate.get("event_external_id"))
-        if (sub.params.get("engine_gate") and engine_fair is not None
-                and engine_fair >= candidate["odds"]
-                and candidate.get("versus") != str(sub.params.get("exchange_book", "Betfair"))):
-            continue  # engine says no value and no exchange corroboration
-        if engine_fair is not None:
-            engine_note = f" · Engine fair {engine_fair:.2f}"
-            candidate = {**candidate, "engine_fair_odds": round(engine_fair, 2)}
-        bankroll = float(sub.params.get("bankroll", 100.0))
-        kelly = _kelly_stake(1.0 / candidate["fair_odds"], candidate["odds"], bankroll)
-        message = (
-            f":racehorse: Racing Value — {candidate['race']} — "
-            f"edge +{candidate['edge_pct']:.1f} percent\n"
-            f"Runner{number} **{candidate['runner']}**\n"
-            f"Bet: {candidate['book']} win at {candidate['odds']:.2f}\n"
-            f"Market fair {candidate['fair_odds']:.2f} "
-            f"(versus {candidate['versus']}){engine_note}{traded}\n"
-            f"Suggested stake {_fmt_money(kelly)} of {_fmt_money(bankroll)} "
-            f"bankroll{jump}"
-            + await _runner_form_note(session, candidate.get("race_no"),
-                                      candidate.get("start_time"),
-                                      candidate.get("runner_number"))
-            + f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}\n"
-              f"_Check the live price before betting_"
-        )
-        # dedupe ONCE per race+runner+book for the window — the old edge/3
-        # bucket re-fired the same runner every few minutes as its edge drifted
-        # up (e.g. +24% then +50% as the price firmed), spamming repeats. A
-        # materially bigger opportunity (a whole 25-point band) still re-alerts.
-        bucket = int(candidate["edge_pct"] / 25.0)
-        key = (f"racing_value:{candidate['race']}:{candidate['runner']}"
-               f":{candidate['book']}:{bucket}")
+        if top.get("exchange_matched") is not None:
+            traded = f" · {_fmt_money(top['exchange_matched'])} matched"
+        # the board joins by saddle number when the scan knows it, else by
+        # the runner's NAME (the number bridge maps both ways)
         board, thin = await _racing_board(
-            session, str(candidate["race"]), "win",
-            str(candidate.get("runner_number") or ""), str(candidate["book"]))
+            session, race, "win",
+            str(top.get("runner_number") or top.get("runner") or ""),
+            str(top["book"]))
         sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
-        message += _format_board(board, sharps, thin=thin, engine_fair=engine_fair)
-        payload = {**candidate, "kelly_stake": round(kelly, 2), "bankroll": bankroll}
+        message = (
+            f":racehorse: Racing Value — {race}\n"
+            + "\n".join(lines)
+            + f"\n{_fmt_money(bankroll)} bankroll{traded}{jump}"
+            + await _runner_form_note(session, top.get("race_no"),
+                                      top.get("start_time"),
+                                      top.get("runner_number"))
+            + f"{_age_label(top.get('seen'), now or dt.datetime.now(dt.UTC))}"
+            + _format_board(board, sharps, thin=thin, engine_fair=top["engine_fair"])
+            + "\n_Check the live price before betting_"
+        )
+        # a materially bigger opportunity (a whole 25-point band) re-alerts;
+        # the same race otherwise fires once per window
+        bucket = int(top["edge_pct"] / 25.0)
+        key = f"racing_value:{race}:{bucket}"
+        payload = {"race": race, "runners": keep[:8], "bankroll": bankroll}
         if await _fire(session, sub, kind="racing_value", key=key, message=message,
                        payload=payload, pusher=pusher):
             fired += 1
