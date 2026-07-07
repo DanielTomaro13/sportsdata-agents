@@ -789,14 +789,24 @@ async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
     for sport in listing.get("sports", []) or []:
         if sport.get("disabled"):
             continue
+        sport_name = str(sport.get("name") or "?")
         for comp in sport.get("competitions", []) or []:
-            if comp.get("key") is not None:
-                comp_keys.append(int(comp["key"]))
+            if comp.get("key") is None:
+                continue
+            # the ~5MB detail budget follows the coverage preferences — it was
+            # rotating through EVERYTHING (Ballon d'Or futures took AFL's slot)
+            if not competition_covered(sport_name, str(comp.get("name") or "")):
+                continue
+            comp_keys.append(int(comp["key"]))
     event_keys: list[Any] = []
     for key in _take_rotating("pointsbet_books_comps", comp_keys, 18):
         try:
             page = await manager.call_tool("pointsbet_competition_events", {"competitionKey": key})
-            event_keys.extend(e["key"] for e in page.get("events", []) or [] if e.get("key") is not None)
+            event_keys.extend(
+                e["key"] for e in page.get("events", []) or []
+                if e.get("key") is not None
+                # tennis doubles etc. must not flood the soonest-first slots
+                and fixture_covered(str(e.get("sportName") or ""), str(e.get("name") or "")))
         except Exception as e:
             logger.warning("pointsbet books comp %s failed: %s", key, e)
     # soonest-first starves futures (their start dates sit months out) — reserve

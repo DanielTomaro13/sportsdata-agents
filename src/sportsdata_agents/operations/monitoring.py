@@ -948,18 +948,16 @@ async def _watch_value(
     newest: dict[tuple[str, str, str], Prediction] = {}
     for pred in predictions:
         newest.setdefault((pred.event_external_id, pred.market, pred.selection), pred)
-    # ONE batched lookup for the latest price per key — a query per key
-    # wedged the pass once a big model family was in scope
-    from sqlalchemy import tuple_
-
+    # batched lookup PER EVENT for the latest price per key — a query per
+    # KEY wedged the pass once a big model family was in scope, and a
+    # tuple-IN over thousands of keys sequential-scans the whole prices
+    # table (no composite index); per-event queries ride the event index
+    # and events number in the dozens
     latest_by_key: dict[tuple[str, str, str], Price] = {}
-    keys = list(newest)
-    for chunk_start in range(0, len(keys), 4000):
-        chunk = keys[chunk_start:chunk_start + 4000]
+    for event_id in {k[0] for k in newest}:
         rows = (await session.execute(
             select(Price).where(
-                tuple_(Price.event_external_id, Price.market,
-                       Price.selection).in_(chunk),
+                Price.event_external_id == event_id,
                 Price.changed_at > now - dt.timedelta(hours=48),
             ).order_by(Price.changed_at.desc())
         )).scalars().all()
