@@ -1195,7 +1195,10 @@ async def fetch_polymarket_all(manager: Any) -> dict[str, Any]:
     return {"pages": pages}
 
 
-DABBLE_COMPETITIONS_PER_CYCLE = 8
+DABBLE_COMPETITIONS_PER_CYCLE = 12
+DABBLE_DETAILS_PER_CYCLE = 24  # racing meetings (10+ fixtures each) ate the
+# shared 12-detail budget before any SPORTS fixture got its full board —
+# AFL match props never reached the warehouse despite Dabble pricing them
 
 
 async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
@@ -1210,8 +1213,13 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
     comps = ((listing or {}).get("data") or {}).get("activeCompetitions") or []
     comps = [c for c in comps if c.get("id")]
     out: list[dict[str, Any]] = []
-    details_budget = MAX_EVENTS_PER_CYCLE
-    for comp in _take_rotating("dabble_all", comps, DABBLE_COMPETITIONS_PER_CYCLE):
+    details_budget = DABBLE_DETAILS_PER_CYCLE
+    window = _take_rotating("dabble_all", comps, DABBLE_COMPETITIONS_PER_CYCLE)
+    # SPORTS comps first for the details budget: ~300 of ~318 active comps are
+    # race meetings with 10+ fixtures each — ordered as listed, the budget
+    # never survived to a ball-sports fixture's full board
+    window = sorted(window, key=lambda c: "acing" in str(c.get("sportName", "")))
+    for comp in window:
         try:
             fixtures = await manager.call_tool(
                 "dabble_competition_fixtures", {"competitionId": str(comp["id"])}

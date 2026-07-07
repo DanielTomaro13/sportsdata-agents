@@ -995,6 +995,12 @@ def _market_family(market: str) -> str | None:
         return "h2h"
     if any(w in m for w in _SEGMENT_MARKERS):
         return None
+    if (m.startswith("h2h") or "head to head" in m or "money line" in m
+            or "moneyline" in m or "match winner" in m):
+        # suffixed h2h labels ("h2h - win", "h2h - match (regular time)",
+        # "h2h - head to head - including overtime") are the SAME market —
+        # the settle-qualifier suffix is each book's house style
+        return "h2h"
     if m in _TOTAL_MARKETS or "total" in m or "over/under" in m or "u/o" in m:
         return "total"
     if m in _LINE_MARKETS or "spread" in m or "handicap" in m or "line" in m:

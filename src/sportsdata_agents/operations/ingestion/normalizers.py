@@ -273,8 +273,15 @@ def _sportsbet_market(
         odds = _odds_ok((sel.get("price") or {}).get("winPrice"))
         if odds is None:
             continue
+        name_l = str(sel.get("name", "?")).lower()
+        words = name_l.split()
         side = side_by_result.get(str(sel.get("resultType", "")))
-        selection = (side or str(sel.get("name", "?")).lower()) + _line_suffix(sel.get("unformattedHandicap"))
+        if words and (words[0] in ("over", "under") or words[-1] in ("over", "under")):
+            # Sportsbet reuses H/A resultTypes on over/under selections —
+            # "Nick Daicos Over" carried resultType H and became "home 32.5",
+            # mangling every player prop's over side (and its prop tag)
+            side = words[0] if words[0] in ("over", "under") else words[-1]
+        selection = (side or name_l) + _line_suffix(sel.get("unformattedHandicap"))
         sink.add(PricePoint(
             provider="sportsbet", book="Sportsbet", sport=sport,
             event_external_id=event_id, event_name=event_name,

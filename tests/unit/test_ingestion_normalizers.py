@@ -1436,3 +1436,44 @@ def test_dabble_racing_cards_join_the_warehouse_conventions() -> None:
     assert win.event_name == "Echuca · Rich River Golf Club Trot"
     assert win.selection == "1" and win.meta["runner"] == "Tunbridge"
     assert win.meta["start_time"] == "2026-07-07T06:57:00Z"
+
+
+def test_sportsbet_prop_over_sides_survive_result_types() -> None:
+    """Sportsbet reuses H/A resultTypes on over/under selections — the OVER
+    side of a player prop must read "over 32.5", never "home 32.5" (which
+    also broke the prop tagger's parse)."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_sportsbet_books
+
+    payload = {"events": [{
+        "sport": "australian_rules", "event_id": "E1",
+        "event_name": "Collingwood Magpies v Gold Coast Suns",
+        "start": "2026-07-11T10:10:00Z",
+        "markets": [{"name": "Nick Daicos - Disposals", "selections": [
+            {"name": "Nick Daicos Over", "resultType": "H",
+             "unformattedHandicap": 32.5, "price": {"winPrice": 1.87}},
+            {"name": "Nick Daicos Under", "resultType": "A",
+             "unformattedHandicap": 32.5, "price": {"winPrice": 1.87}},
+        ]}],
+    }]}
+    points = normalize_sportsbet_books(payload)
+    assert {p.selection for p in points} == {"over 32.5", "under 32.5"}
+    over = next(p for p in points if p.selection == "over 32.5")
+    assert over.meta.get("prop_tagged") is True  # the tagger can parse it now
+    assert over.meta.get("player") == "Nick Daicos"
+    assert over.meta.get("stat") == "disposals"
+
+
+def test_market_family_joins_suffixed_h2h_but_not_periods() -> None:
+    from sportsdata_agents.operations.monitoring import _market_family
+
+    assert _market_family("h2h - win") == "h2h"
+    assert _market_family("h2h - match (regular time)") == "h2h"
+    assert _market_family("h2h - head to head - including overtime") == "h2h"
+    assert _market_family("run line -1.5") == "line"
+    assert _market_family("extra line") == "line"
+    assert _market_family("total runs u/o 5.5") == "total"
+    assert _market_family("h2h p1") is None          # a period market
+    assert _market_family("spread p1 alt") is None
+    assert _market_family("team total runs over/under") is None
+    assert _market_family("exact winning margin") is None
+    assert _market_family("run line - after 5 innings") is None
