@@ -1344,6 +1344,7 @@ async def _watch_bsp_value(
 
     exchange_book = str(sub.params.get("exchange_book", "Betfair"))
     min_edge = float(sub.params.get("min_edge_pct", 10.0))
+    max_edge = float(sub.params.get("max_edge_pct", 50.0))
     lead = float(sub.params.get("lead_minutes", 45.0))
     min_matched = float(sub.params.get("min_matched", 2000.0))
     commission = float(sub.params.get("commission_pct", 5.0)) / 100.0
@@ -1399,6 +1400,9 @@ async def _watch_bsp_value(
             edge_pct = (effective * prob - 1.0) * 100.0
             if edge_pct < min_edge:
                 continue
+            if edge_pct > max_edge:
+                continue  # a form fair THIS far under the whole market is a
+                # model artifact (thin field, stale runs), not a 3x edge
             kelly = _kelly_stake(prob, effective, bankroll)
             # the exchange row carries the BOOKS' race naming — use it for the
             # title (TAB's 3-letter venue codes read as noise) and the board
@@ -1407,6 +1411,7 @@ async def _watch_bsp_value(
                           else f"{race.venue_mnemonic} Race {race.race_number}")
             quotes = await _racing_board(session, board_key, "win", str(number),
                                          exchange_book)
+            quotes.setdefault(exchange_book, back)  # the headline price is a price, not NA
             engine_fair = await _engine_fair_for(session, "win", str(number),
                                                  event_id=race.race_key)
             anchored = ""

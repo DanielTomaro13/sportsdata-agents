@@ -131,6 +131,8 @@ WATCH_PARAMS: dict[str, Params] = {
         "exchange_book": ("Betfair", "where the back price lives"),
         "min_edge_pct": (10.0, "form fair must beat the commission-adjusted exchange "
                                "price by this %"),
+        "max_edge_pct": (50.0, "refuse implausible form edges above this % — a fair "
+                               "3x under the whole market is a model artifact"),
         "lead_minutes": (45.0, "how close to the jump before form value is checked"),
         "min_matched": (2000.0, "exchange market must have this much traded"),
         "commission_pct": (5.0, "exchange commission on winnings"),
