@@ -98,8 +98,9 @@ JOBS: tuple[Job, ...] = (
         log="ingest.log", interval_s=60, timeout_s=3000, paced=True),
     # resolve runs on a SHORT interval (not nightly) and BEFORE monitor in a tick, so today's
     # captured events are mapped onto fixtures promptly — otherwise the flagship cross-book
-    # arb/value/CLV watches (every 5 min) ran a day behind the data. The resolver is already
-    # incremental (it skips already-mapped events), so a frequent run is cheap.
+    # arb/value/CLV watches (every 5 min) ran a day behind the data. The resolver is
+    # incremental (it skips already-mapped events) and the repair sweep it now carries is
+    # bounded to fixtures dated within resolution's own window, so a frequent run stays cheap.
     Job(name="resolve", args=("resolve",),
         log="cron.log", interval_s=600, timeout_s=1800),
     # 2 minutes, not 5: alert latency stacks capture lag on top of monitor

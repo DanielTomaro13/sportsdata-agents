@@ -113,6 +113,12 @@ scoreboard review, 21 Jul replay + verdict one-shot. Thresholds stay frozen.
 - Gateway: default the mutation token on; try/except the /watches DB session
   (503 contract). MCP: per-provider rate limits are per-process (N subprocesses
   multiply pressure); consider a shared budget if blocks recur.
+- model_value band suppression has no vanished-kind reset (an edge that dies
+  and re-emerges at the same band stays silent for the fixture's life) —
+  mirror the value watch's Edge-Gone if re-emergence should be news.
+- Repair sweep: consider a rapid-repeat time guard beyond baseball (esoccer /
+  table-tennis same-pairing rematches) once those sports' fixture start
+  stamps are trustworthy; today the ambiguity skip is the only shield.
 
 ## Standing follow-ups (not gated on the verdict)
 

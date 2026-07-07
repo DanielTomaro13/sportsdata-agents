@@ -37,8 +37,16 @@ MATCH_THRESHOLD = 0.3  # rank floor; the real gate is the per-side fuzzy-subset 
 NAME_THRESHOLD = 0.4
 
 
+_AGE_GRADE_RE = re.compile(r"\bu[-/ ]?(\d{1,2})\b")
+
+
 def _tokens(name: str) -> frozenset[str]:
-    return frozenset(t for t in _TOKEN_RE.findall(name.lower()) if t not in _STOPWORDS)
+    # fold "U-20"/"U/20"/"U 20" → "u20" BEFORE tokenising: split across two
+    # tokens the age grade is invisible to _variant_markers, and a book that
+    # hyphenates (FIFA's own branding) would merge its U-20 game straight
+    # onto the senior fixture — the exact incident the marker exists for
+    lowered = _AGE_GRADE_RE.sub(r"u\1", name.lower())
+    return frozenset(t for t in _TOKEN_RE.findall(lowered) if t not in _STOPWORDS)
 
 
 def split_sides(event_name: str) -> tuple[str, str] | None:
@@ -462,16 +470,30 @@ async def merge_duplicate_fixtures(
     under the CURRENT rules merge onto one (most-events wins). Resolution
     only maps NEW events, so matcher improvements never healed old splits —
     State of Origin lived on four fixtures until a manual merge; this is
-    that repair, generalised. Ambiguity skips, exactly like resolution."""
+    that repair, generalised.
+
+    Guard rails (this runs UNATTENDED on every resolve pass):
+    - a loser matching two winners without a clear margin skips, exactly
+      like resolution's ambiguity rule;
+    - ``meta.no_merge`` tombstones a fixture out of the sweep entirely, so
+      an operator's manual split sticks;
+    - only fixtures dated within a few days of now are considered — splits
+      can only newly appear inside resolution's own matching window, and a
+      full-table pass every 10 minutes grows without bound."""
     async with session_factory() as session:
         fixtures = (await session.execute(select(Fixture))).scalars().all()
         counts: dict[uuid.UUID, int] = {}
         for (fid, n) in (await session.execute(
                 select(Event.fixture_id, func.count()).group_by(Event.fixture_id))).all():
             counts[fid] = int(n)
+        now = dt.datetime.now(dt.UTC)
+        window = {(now + dt.timedelta(days=o)).strftime("%Y-%m-%d")
+                  for o in range(-3, 4)}
         by_key: dict[tuple[str, str], list[Fixture]] = {}
         for f in fixtures:
-            by_key.setdefault((f.sport, _fixture_day(f)), []).append(f)
+            day = _fixture_day(f)
+            if day in window and not (f.meta or {}).get("no_merge"):
+                by_key.setdefault((f.sport, day), []).append(f)
         merged = 0
         examined = 0
         for (family, _day), group in by_key.items():
@@ -496,7 +518,19 @@ async def merge_duplicate_fixtures(
                     if loser.id in absorbed:
                         continue
                     examined += 1
-                    if _sides_score(wsides, lsides) < MATCH_THRESHOLD:
+                    score = _sides_score(wsides, lsides)
+                    if score < MATCH_THRESHOLD:
+                        continue
+                    # ambiguity skip, exactly like resolution: a loser that
+                    # also matches ANOTHER surviving fixture without a clear
+                    # margin is nobody's to absorb (esoccer/table tennis play
+                    # the same two names several times a day)
+                    rival = max((_sides_score(lsides, osides)
+                                 for j, (other, osides) in enumerate(sided)
+                                 if j != i and other.id != loser.id
+                                 and other.id not in absorbed),
+                                default=0.0)
+                    if rival >= MATCH_THRESHOLD and score - rival < 0.15:
                         continue
                     # doubleheader caution stays for baseball
                     if (family == "baseball" and winner.start_time and loser.start_time

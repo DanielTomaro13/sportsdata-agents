@@ -106,7 +106,9 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
         if mapped is not None:
             side, side_relative = mapped, True
     if side_relative and line is None and family == "line":
-        line = _handicap_market_line(row.market.lower(), side)
+        line = _handicap_market_line(row.market.lower(), side, row.book)
+    if line is None and family == "total" and side in ("over", "under"):
+        line = _total_market_line(row.market.lower())
     quotes: dict[str, float] = {}
     for sibling in siblings:
         want_side = side
@@ -151,8 +153,11 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
                     cand_side = mapped
             if cand_side != want_side:
                 continue
-            if cand_line is None and line is not None and cand_side in ("home", "away"):
-                cand_line = _handicap_market_line(cand.market.lower(), cand_side)
+            if cand_line is None and cand_side in ("home", "away"):
+                cand_line = _handicap_market_line(cand.market.lower(), cand_side,
+                                                  cand.book)
+            if cand_line is None and cand_side in ("over", "under"):
+                cand_line = _total_market_line(cand.market.lower())
             if (line is None) != (cand_line is None):
                 continue
             if line is not None and cand_line is not None and abs(cand_line - line) > 1e-9:
@@ -189,11 +194,13 @@ async def _nearest_line_quotes(
     family = _market_family(row.market)
     if not siblings or family not in ("total", "line"):
         return None
-    side_relative = side in ("home", "away", "draw")
     name_cache: dict[tuple[str, str], str] = {}
-    own_name = ""
-    if side_relative:
-        own_name = await _event_name_for(session, name_cache, row.provider, row.event_external_id)
+    own_name = await _event_name_for(session, name_cache, row.provider, row.event_external_id)
+    side_relative = side in ("home", "away", "draw")
+    if not side_relative and side not in ("over", "under"):
+        mapped = _sel_team_side(side, own_name)  # TAB's "milwaukee +1.5"
+        if mapped is not None:
+            side, side_relative = mapped, True
     by_line: dict[float, dict[str, float]] = {}
     for sibling in siblings:
         want_side = side
@@ -1037,6 +1044,15 @@ async def _watch_value(
                     fired += 1
             continue
         top = live[0]
+        # band suppression FIRST — a persistent same-band edge is the steady
+        # state, and this loop is the hottest in the stack: skip before the
+        # context/board/coverage queries, not after assembling the message
+        band = int(max(top["edge"], 0.0) / 2.0)  # re-fire each +2% the edge grows
+        if (previously is not None and previously.kind == "value"
+                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
+                                    0.0) / 2.0)):
+            continue  # an edge drifting back DOWN a band is the same
+            # opportunity shrinking, not news (after a vanish it re-fires)
         ctx = await _context(session, top["row"])
         if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
             continue  # recorded fairs do not know the live score
@@ -1070,12 +1086,6 @@ async def _watch_value(
             + _format_board(quotes, ["Pinnacle", "Betfair"], include,
                             subject=f"{top['pred'].selection} · {market}")
         )
-        band = int(max(top["edge"], 0.0) / 2.0)  # re-fire each +2% the edge grows
-        if (previously is not None and previously.kind == "value"
-                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
-                                    0.0) / 2.0)):
-            continue  # an edge drifting back DOWN a band is the same
-            # opportunity shrinking, not news (after a vanish it re-fires)
         payload = {
             # top-of-story fields keep the outcome re-measurement loop working
             "edge_pct": round(top["edge"], 2), "prob": float(top["pred"].prob),
@@ -1118,19 +1128,35 @@ def _split_selection(selection: str) -> tuple[str, float | None]:
 
 _MARKET_LINE_PAREN = re.compile(r"\(([+-]?\d+(?:\.\d+)?)\)")
 
+# books whose parenthesised-handicap SIGN FRAME has been verified against a
+# lined book on shared fixtures. The frame is per-book editorial choice: an
+# unverified book's "handicap (2.5)" could be the away line, and a wrong
+# sign shows a flipped price — worse than an absent one. Verify, then add.
+_PAREN_HANDICAP_BOOKS = frozenset({"dabble"})
 
-def _handicap_market_line(market: str, side: str) -> float | None:
+
+def _handicap_market_line(market: str, side: str, book: str) -> float | None:
     """Books like Dabble put the handicap in the MARKET label with bare-side
     selections: "handicap (-1.5)" / home. The parenthesised number is the
     HOME team's line; away takes the negation (verified against Unibet's
-    lined selections on the same fixtures). Only the parenthesised form —
-    other books' conventions ("run line +1.5") are unverified and a wrong
-    sign shows a flipped price, which is worse than an absent one."""
+    lined selections on the same fixtures). Verified books only — other
+    conventions ("run line +1.5") stay unjoined."""
+    if book.lower() not in _PAREN_HANDICAP_BOOKS:
+        return None
     m = _MARKET_LINE_PAREN.search(market)
     if m is None:
         return None
     val = float(m.group(1))
     return val if side == "home" else -val
+
+
+def _total_market_line(market: str) -> float | None:
+    """A total whose line lives in the MARKET label with bare over/under
+    selections: "total points o/u (46.5)" / over. Unlike handicaps there is
+    no sign frame to get wrong — and WITHOUT extraction two such books at
+    DIFFERENT totals both read (over, None) and join as one market."""
+    m = _MARKET_LINE_PAREN.search(market)
+    return float(m.group(1)) if m else None
 
 
 def _sel_team_side(sel_head: str, event_name: str) -> str | None:
@@ -1469,6 +1495,23 @@ async def _watch_model_value(
             break
         cands = sorted(story["cands"], key=lambda c: -c["edge_pct"])
         # fold each selection's books into ONE line — the story reads
+        # band suppression FIRST — cheaper than the board/nearest-line work
+        # this loop otherwise does just to discard a same-band steady state
+        band = int(cands[0]["edge_pct"] / 2.0)
+        base_key = f"model_value:{event_key}:{market}"
+        previously = (
+            await session.execute(
+                select(Alert)
+                .where(Alert.subscription_id == sub.id,
+                       Alert.dedupe_key.startswith(f"{base_key}:", autoescape=True))
+                .order_by(Alert.created_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if (previously is not None
+                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
+                                    0.0) / 2.0)):
+            continue
         # selection by selection, every book with edge on each
         by_sel: dict[tuple[str, float | None], list[dict[str, Any]]] = {}
         for c in cands:
@@ -1538,23 +1581,8 @@ async def _watch_model_value(
                             subject=f"{top['selection']}{top_line} · {market}")
             + near_note
         )
-        # dedupe per market story, banded so a materially BIGGER edge re-fires
-        # — a smaller band than the last alert is the edge shrinking, not news
-        band = int(top["edge_pct"] / 2.0)
-        base_key = f"model_value:{event_key}:{market}"
-        previously = (
-            await session.execute(
-                select(Alert)
-                .where(Alert.subscription_id == sub.id,
-                       Alert.dedupe_key.startswith(f"{base_key}:", autoescape=True))
-                .order_by(Alert.created_at.desc())
-                .limit(1)
-            )
-        ).scalars().first()
-        if (previously is not None
-                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
-                                    0.0) / 2.0)):
-            continue
+        # dedupe per market story, banded so a materially BIGGER edge
+        # re-fires (the suppression check ran before the board work above)
         key = f"{base_key}:{band}"
         payload = {"market": market, "sport": sport, "event_key": event_key,
                    "book": top["book"], "event_external_id": top["event_id"],
