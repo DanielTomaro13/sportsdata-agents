@@ -1767,6 +1767,7 @@ def resolve(
     from sportsdata_agents.data.base import Base
     from sportsdata_agents.data.db import make_engine, make_sessionmaker
     from sportsdata_agents.operations.resolution import resolve_events
+    from sportsdata_agents.operations.resolution.resolver import merge_duplicate_fixtures
 
     console = Console()
 
@@ -1775,13 +1776,18 @@ def resolve(
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         try:
-            stats = await resolve_events(make_sessionmaker(engine), dry_run=dry_run)
+            sm = make_sessionmaker(engine)
+            stats = await resolve_events(sm, dry_run=dry_run)
+            # resolution only maps NEW events, so matcher improvements never
+            # healed old splits — the repair sweep rides every resolve pass
+            repair = await merge_duplicate_fixtures(sm, dry_run=dry_run)
         finally:
             await engine.dispose()
         mark = "[dim](dry run)[/dim] " if dry_run else ""
         console.print(f"{mark}examined={stats['examined']} mapped={stats['mapped']} "
                       f"created={stats['created']} ambiguous={stats['ambiguous']} "
-                      f"unnamed={stats['skipped_unnamed']}")
+                      f"unnamed={stats['skipped_unnamed']} "
+                      f"repair_merged={repair['merged']}")
 
     asyncio.run(_run())
 
