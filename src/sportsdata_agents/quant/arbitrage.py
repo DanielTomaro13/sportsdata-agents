@@ -333,7 +333,10 @@ async def scan_arbs(
     ``hours`` (collection shared with the exchange premium scan). Books in
     ``exclude_books`` never form a LEG — an arb the operator cannot take is
     noise (lived: back-at-Kalshi recommendations)."""
-    from sportsdata_agents.operations.ingestion.coverage import fixture_covered
+    from sportsdata_agents.operations.ingestion.coverage import (
+        fixture_covered,
+        sport_covered,
+    )
 
     now = now or dt.datetime.now(dt.UTC)
     fixtures, grouped = await collect_fixture_boards(
@@ -343,7 +346,8 @@ async def scan_arbs(
         fixture = fixtures.get(fixture_id)
         if fixture is None or not _pre_game(fixture, now):
             continue  # in play, done, or unconfirmable — not an offer anyone can take
-        if not fixture_covered(fixture.sport, fixture.name):
+        if not (sport_covered(fixture.sport)
+                and fixture_covered(fixture.sport, fixture.name)):
             continue  # tennis doubles etc. — the operator can't/won't bet these
         if fixture.start_time is not None:
             _fx_start = (fixture.start_time if fixture.start_time.tzinfo
@@ -411,13 +415,17 @@ async def scan_exchange_premium(
     fixtures, grouped = await collect_fixture_boards(
         session, hours=hours, markets=markets, max_fixtures=max_fixtures, now=now)
     found: list[dict[str, Any]] = []
-    from sportsdata_agents.operations.ingestion.coverage import fixture_covered
+    from sportsdata_agents.operations.ingestion.coverage import (
+        fixture_covered,
+        sport_covered,
+    )
 
     for (fixture_id, market), rows in grouped.items():
         fixture = fixtures.get(fixture_id)
         if fixture is None or not _pre_game(fixture, now):
             continue
-        if not fixture_covered(fixture.sport, fixture.name):
+        if not (sport_covered(fixture.sport)
+                and fixture_covered(fixture.sport, fixture.name)):
             continue  # tennis doubles etc. — outside the operator's coverage
         # BUCKET BY LINE: totals list several lines (over/under 165.5, 220.5, …)
         # under one (fixture, "total") group. De-vigging them together sums
@@ -553,7 +561,10 @@ async def scan_back_lay(
     pushed. Both legs must now be seen within ``max_leg_gap_minutes`` of
     each other, the listed start must be ``min_lead_minutes`` out, and
     fixtures outside the operator's coverage (tennis doubles) never alert."""
-    from sportsdata_agents.operations.ingestion.coverage import fixture_covered
+    from sportsdata_agents.operations.ingestion.coverage import (
+        fixture_covered,
+        sport_covered,
+    )
 
     now = now or dt.datetime.now(dt.UTC)
     fixtures, grouped = await collect_fixture_boards(
@@ -571,7 +582,8 @@ async def scan_back_lay(
                      else fixture.start_time.replace(tzinfo=dt.UTC))
             if start < now + lead:
                 continue  # listed starts are estimates; too close is as bad as live
-        if not fixture_covered(fixture.sport, fixture.name):
+        if not (sport_covered(fixture.sport)
+                and fixture_covered(fixture.sport, fixture.name)):
             continue  # tennis doubles etc. — the operator can't/won't bet these
         lays: dict[str, tuple[float, float, Any]] = {}  # outcome -> (lay, matched, seen)
         backs: list[dict[str, Any]] = []
