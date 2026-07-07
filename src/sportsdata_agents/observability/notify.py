@@ -122,9 +122,13 @@ def _emojify(text: str) -> str:
 
 
 def discord_embed(text: str) -> dict:
-    """A colour-striped embed from an alert message: first line is the title,
-    the rest the body; the leading emoji picks the colour. An "across books:"
-    line becomes a FIELD GRID — one inline field per book, an actual table."""
+    """A colour-striped embed with STRUCTURE, not a wall of text.
+
+    First line → the title (its emoji picks the colour). Selection lines
+    (``Runner …`` / ``**selection**: …``) → bullets in the description. The
+    ``across books`` line → ONE labelled field carrying the whole board (the
+    old one-field-per-book grid stacked vertically on mobile and read as
+    noise). Context (bankroll/matched/form/advisories) → the footer."""
     first_code = _EMOJI.match(text.strip())
     color = _DEFAULT_EMBED_COLOR
     if first_code:
@@ -132,13 +136,27 @@ def discord_embed(text: str) -> dict:
     title, _, body = text.strip().partition("\n")
     fields: list[dict] = []
     kept_lines: list[str] = []
+    footer_bits: list[str] = []
     for line in body.splitlines():
-        if line.startswith("across books:"):
-            for pair in line.removeprefix("across books:").split("·"):
-                parts = pair.strip().rsplit(" ", 1)
-                if len(parts) == 2:
-                    fields.append({"name": parts[0][:64], "value": f"**{parts[1]}**",
-                                   "inline": True})
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("across books"):
+            head, _, board = stripped.partition(":")
+            subject = head.removeprefix("across books").strip(" —-·")
+            name = f"Board — {subject}" if subject else "Across books"
+            fields.append({"name": _emojify(slack_to_discord(name)).strip()[:256],
+                           "value": slack_to_discord(board.strip())[:1024],
+                           "inline": False})
+            continue
+        if stripped.startswith("_") and stripped.endswith("_"):
+            footer_bits.append(stripped.strip("_"))
+            continue
+        if "bankroll" in stripped or stripped.startswith("Form:"):
+            footer_bits.append(stripped.lstrip("·• "))
+            continue
+        if stripped.startswith(("Runner", "**")):
+            kept_lines.append(f"• {stripped}")
             continue
         kept_lines.append(line)
     embed = {
@@ -148,6 +166,8 @@ def discord_embed(text: str) -> dict:
     }
     if fields:
         embed["fields"] = fields[:12]
+    if footer_bits:
+        embed["footer"] = {"text": slack_to_plain(" · ".join(footer_bits))[:2048]}
     return embed
 
 

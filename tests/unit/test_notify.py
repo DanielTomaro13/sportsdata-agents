@@ -167,3 +167,27 @@ async def test_alert_subscription_can_target_discord(monkeypatch: Any) -> None:
                        params={}, channel="discord")
     assert await slack_pusher(sub, ":money_with_wings: ARB 2.4%") is True
     assert hits == ["https://d/alerts"]
+
+
+def test_discord_embed_structures_the_alert() -> None:
+    """Title, bulleted selections, ONE labelled board field (whose board it
+    is), context in the footer — not a wall of per-book fields."""
+    from sportsdata_agents.observability.notify import discord_embed
+
+    msg = (":racehorse: Racing Value — Pakenham R5\n"
+           "Runner (#4) **Rusty Rancher**: PointsBet win at 8.00 · market fair "
+           "5.36 (versus Betfair) · edge +49.2 percent · stake $9\n"
+           "$100 bankroll · $25.0k matched · jumps 14:10\n"
+           "across books — Rusty Rancher · win: Engine 5.20 · Betfair 5.30 · "
+           "**PointsBet 8.00** · TAB 4.60 · 1 book NA\n"
+           "_Check the live price before betting_")
+    embed = discord_embed(msg)
+    assert embed["title"].endswith("Racing Value — Pakenham R5")
+    assert embed["description"].startswith("• Runner")  # selections are bullets
+    assert len(embed["fields"]) == 1  # the whole board is ONE field
+    field = embed["fields"][0]
+    assert field["name"] == "Board — Rusty Rancher · win"
+    assert "**PointsBet 8.00**" in field["value"] and "1 book NA" in field["value"]
+    footer = embed["footer"]["text"]
+    assert "bankroll" in footer and "Check the live price" in footer
+    assert "bankroll" not in embed["description"]  # context never mid-body

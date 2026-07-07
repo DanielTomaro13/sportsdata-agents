@@ -352,12 +352,15 @@ async def _coverage_pack(session: AsyncSession, sport: str) -> tuple[str, ...]:
 def _format_board(quotes: dict[str, float], sharps: list[str],
                   include: tuple[str, ...] = (), *,
                   thin: set[str] | frozenset[str] = frozenset(),
-                  engine_fair: float | None = None) -> str:
+                  engine_fair: float | None = None,
+                  subject: str = "") -> str:
     """The industry board: ENGINE FAIR first, then sharps, then every book
     that has actually PRICED it, highest price bolded. Books without a price
     are a single count at the end, never listed — walls of "NA" drowned the
     one real price (lived: a US harness board read eight NAs and one quote).
-    Exchange rows with little matched money read "thin" instead of hiding."""
+    Exchange rows with little matched money read "thin" instead of hiding.
+    ``subject`` names WHOSE board it is ("Tunbridge · win") — a multi-runner
+    alert's board otherwise reads as anyone's."""
     ordered: list[tuple[str, float]] = []
     seen: set[str] = set()
     for book in sharps:
@@ -375,14 +378,15 @@ def _format_board(quotes: dict[str, float], sharps: list[str],
         return f"**{text}**" if odds == best else text
 
     engine_cell = f"Engine {engine_fair:.2f} · " if engine_fair else ""
+    head = f"across books — {subject}:" if subject else "across books:"
     if not ordered:
-        return (f"\nacross books: Engine {engine_fair:.2f} — no book board "
+        return (f"\n{head} Engine {engine_fair:.2f} — no book board "
                 f"captured yet" if engine_fair else "")
     board = " · ".join(cell(b, o) for b, o in ordered[:12])
     unpriced = sum(1 for b in {*sharps, *include} if b not in quotes)
     tail = (f" · {unpriced} {'book' if unpriced == 1 else 'books'} NA"
             if unpriced else "")
-    return f"\nacross books: {engine_cell}{board}{tail}"
+    return f"\n{head} {engine_cell}{board}{tail}"
 
 
 def _thin_exchange(sub: Subscription, ctx: dict[str, Any]) -> bool:
@@ -649,7 +653,8 @@ async def _watch_line_move(
             + "\n".join(lines)
             + stake_note + form_note
             + _format_board(quotes, sharps, include, thin=top.get("thin") or set(),
-                            engine_fair=top["engine_fair"])
+                            engine_fair=top["engine_fair"],
+                            subject=f"{top['ctx']['selection']} · {market}")
         )
         key = f"line_move:{event_key}:{market}:{direction}"
         payload = {"move_pct": round(top["move"], 2),
@@ -765,7 +770,8 @@ async def _watch_steam(
             + "\n".join(lines)
             + stake_note + form_note
             + _format_board(quotes, sharps, include, thin=top.get("thin") or set(),
-                            engine_fair=top["engine_fair"])
+                            engine_fair=top["engine_fair"],
+                            subject=f"{top['ctx']['selection']} · {market}")
         )
         # band the dedupe by streak length: fires at min_moves, again each
         # time the longest streak doubles — a runaway steam keeps reporting
@@ -888,10 +894,11 @@ async def _watch_value(
             jump = f" · Starts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
         message = (
             f":moneybag: Model Edge — {_sport_label(ctx['sport'])} — {ctx['event']}\n"
-            f"Market: {market} · Edge +{top['edge']:.1f} percent · "
-            f"{_fmt_money(bankroll)} bankroll{jump}\n"
+            f"Market: {market} · Edge +{top['edge']:.1f} percent{jump}\n"
             + "\n".join(lines)
-            + _format_board(quotes, ["Pinnacle", "Betfair"], include)
+            + f"\n{_fmt_money(bankroll)} bankroll"
+            + _format_board(quotes, ["Pinnacle", "Betfair"], include,
+                            subject=f"{top['pred'].selection} · {market}")
         )
         band = int(max(top["edge"], 0.0) / 2.0)  # re-fire each +2% the edge grows
         payload = {
@@ -1178,12 +1185,14 @@ async def _watch_model_value(
         if start_time is not None and not _started(start_time):
             jump = f" · Starts {_local_hhmm(start_time.isoformat(), _tz_for(sub))}"
         top_fair = float(top["model_fair_odds"]) if top["model_fair_odds"] else None
+        top_line = f" {top['line']:g}" if top["line"] is not None else ""
         message = (
             f":crystal_ball: Model Value — {_sport_label(sport)} — {story['display']}\n"
-            f"Market: {market} · Edge +{top['edge_pct']:.1f} percent · "
-            f"{_fmt_money(bankroll)} bankroll{jump}\n"
+            f"Market: {market} · Edge +{top['edge_pct']:.1f} percent{jump}\n"
             + "\n".join(lines)
-            + _format_board(quotes, sharps, include, thin=thin, engine_fair=top_fair)
+            + f"\n{_fmt_money(bankroll)} bankroll"
+            + _format_board(quotes, sharps, include, thin=thin, engine_fair=top_fair,
+                            subject=f"{top['selection']}{top_line} · {market}")
         )
         # dedupe per market story, banded so a materially bigger edge re-fires
         band = int(top["edge_pct"] / 2.0)
@@ -1628,7 +1637,8 @@ async def _watch_racing_value(
                                       top.get("start_time"),
                                       top.get("runner_number"))
             + f"{_age_label(top.get('seen'), now or dt.datetime.now(dt.UTC))}"
-            + _format_board(board, sharps, thin=thin, engine_fair=top["engine_fair"])
+            + _format_board(board, sharps, thin=thin, engine_fair=top["engine_fair"],
+                            subject=f"{top['runner']} · win")
             + "\n_Check the live price before betting_"
         )
         # a materially bigger opportunity (a whole 25-point band) re-alerts;
@@ -1756,7 +1766,8 @@ async def _watch_bsp_value(
             + form_note
             + _format_board(quotes, sharps,
                             await _coverage_pack(session, str(top["snap"].sport)),
-                            thin=thin, engine_fair=engine_fair)
+                            thin=thin, engine_fair=engine_fair,
+                            subject=f"{top['name'].title()} · win")
             + "\n_Consider Betfair Starting Price if the current price slips_"
         )
         key = f"bsp_value:{race.race_key}:{int(top['edge_pct'] / 5)}"
