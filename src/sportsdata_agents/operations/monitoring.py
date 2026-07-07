@@ -602,20 +602,26 @@ async def _fire(
     ).scalars().first()
     if recent is not None:
         return False
-    if float(subscription.params.get("digest_hours", 0) or 0) > 0 or _in_quiet_hours(subscription):
-        pushed = False  # digest watches batch pushes; quiet hours keep the
-        # phone silent overnight — either way the alert ROW is still the record
-    else:
-        try:
-            pushed = await pusher(subscription, message)
-        except Exception as e:  # a push failure must not sink the watch — the row is the record
-            logger.warning("push failed for %s: %s", subscription.name, e)
-            pushed = False
-    session.add(Alert(
+    alert = Alert(
         tenant_id=subscription.tenant_id, workspace_id=subscription.workspace_id,
         subscription_id=subscription.id, kind=kind, message=message,
-        payload=payload, dedupe_key=key, pushed=pushed,
-    ))
+        payload=payload, dedupe_key=key, pushed=False,
+    )
+    # RECORD BEFORE PUSH, committed: a pass killed mid-flight used to roll the
+    # rows back AFTER the webhooks had fired — dedupe never learned the alert
+    # existed and every retry pass re-pushed the same story (lived: duplicate
+    # Discord messages with no matching alert rows, 2026-07-07)
+    session.add(alert)
+    await session.commit()
+    if float(subscription.params.get("digest_hours", 0) or 0) > 0 or _in_quiet_hours(subscription):
+        return True  # digest watches batch pushes; quiet hours keep the
+        # phone silent overnight — either way the alert ROW is the record
+    try:
+        alert.pushed = await pusher(subscription, message)
+    except Exception as e:  # a push failure must not sink the watch — the row is the record
+        logger.warning("push failed for %s: %s", subscription.name, e)
+        alert.pushed = False
+    await session.commit()
     return True
 
 
