@@ -547,6 +547,10 @@ async function loadSettings() {
   const acc = s.account || {};
   const kv = (k, v) => `<div class="kv"><span>${esc(k)}</span><b>${v}</b></div>`;
   body.innerHTML =
+    `<div class="section-lbl">Collection coverage</div>` +
+    `<div id="coverage-list"><div class="muted">Loading coverage…</div></div>` +
+    `<div class="section-lbl">Alert watches</div>` +
+    `<div id="watches-list"><div class="muted">Loading watches…</div></div>` +
     `<div class="section-lbl">Model</div>` +
     kv("Provider", s.provider ? esc(s.provider) : `<span style="color:var(--warn)">not configured</span>`) +
     kv("API key", s.model_key_configured ? `<span style="color:var(--ok)">configured ✓</span>` : `<span style="color:var(--bad)">missing</span>`) +
@@ -558,6 +562,143 @@ async function loadSettings() {
     `<div class="section-lbl">Data providers (MCP)</div>` +
     `<div id="mcp-list"><div class="muted">Probing the data plane…</div></div>`;
   loadMcpGroups();
+  loadCoverage();
+  loadWatches();
+}
+
+/* ─── coverage: where the collection budget goes ───────────── */
+const COVERAGE_SPORTS = [
+  "australian_rules","rugby_league","rugby_union","baseball","basketball",
+  "ice_hockey","tennis","mma","cricket","golf","darts","snooker","soccer",
+  "american_football","horse_racing","thoroughbred_racing","greyhound_racing",
+  "harness_racing",
+];
+
+async function loadCoverage() {
+  const el = $("#coverage-list"); if (!el) return;
+  let data;
+  try {
+    const r = await fetch(`${API}/coverage`, { cache: "no-store" });
+    data = await r.json();
+  } catch { el.innerHTML = `<div class="muted">Coverage unavailable.</div>`; return; }
+  const cov = data.coverage || {};
+  const env = data.source === "env";
+  const sports = [...new Set([...COVERAGE_SPORTS, ...Object.keys(cov)])];
+  el.innerHTML =
+    `<div class="muted" style="margin-bottom:10px">The expensive full-board budgets only chase ticked sports.
+     Tokens narrow to competitions (e.g. <code>mlb</code>, <code>nba, wnba, nbl</code>); empty = every competition.
+     The cheap primary-market net still watches everything.${env ? " <b>Read-only: the SPORTSDATA_AGENTS_COVERAGE env var is set and wins.</b>" : ""}</div>` +
+    sports.map((sport) => {
+      const on = Object.prototype.hasOwnProperty.call(cov, sport);
+      const tokens = on ? (cov[sport] || []).join(", ") : "";
+      return `<div class="prov" style="${on ? "" : "opacity:.55"}">
+        <div class="ph">
+          <span class="pn">${esc(sport.replace(/_/g, " "))}</span>
+          <input class="covtokens" data-sport="${esc(sport)}" value="${esc(tokens)}"
+            placeholder="${on ? "all competitions" : ""}" ${env || !on ? "disabled" : ""}
+            style="margin-left:14px;flex:1;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--ink);padding:3px 9px;font-size:12px">
+          <button class="ptog covtog" data-sport="${esc(sport)}" data-on="${on ? 1 : 0}" ${env ? "disabled" : ""}
+            style="margin-left:10px;cursor:pointer;border:1px solid var(--border);border-radius:12px;padding:2px 12px;font-size:11px;background:${on ? "var(--acc,#1f6feb)" : "transparent"};color:${on ? "#fff" : "var(--faint)"}">${on ? "On" : "Off"}</button>
+        </div>
+      </div>`;
+    }).join("");
+  if (env) return;
+  const save = async () => {
+    const prefs = {};
+    el.querySelectorAll(".covtog[data-on='1']").forEach((b) => {
+      const sport = b.dataset.sport;
+      const input = el.querySelector(`.covtokens[data-sport="${CSS.escape(sport)}"]`);
+      prefs[sport] = (input && input.value ? input.value.split(",") : [])
+        .map((t) => t.trim()).filter(Boolean);
+    });
+    try {
+      await fetch(`${API}/coverage`, { method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ coverage: prefs }) });
+    } catch { /* the reload reflects the persisted truth */ }
+    loadCoverage();
+  };
+  el.querySelectorAll(".covtog").forEach((b) => b.addEventListener("click", () => {
+    b.dataset.on = b.dataset.on === "1" ? "0" : "1";
+    save();
+  }));
+  el.querySelectorAll(".covtokens").forEach((i) => i.addEventListener("change", save));
+}
+
+/* ─── watches: the notification customization surface ──────── */
+async function loadWatches() {
+  const el = $("#watches-list"); if (!el) return;
+  let data;
+  try {
+    const r = await fetch(`${API}/watches`, { cache: "no-store" });
+    data = await r.json();
+  } catch { el.innerHTML = `<div class="muted">Watches unavailable.</div>`; return; }
+  const watches = data.watches || [];
+  const kinds = data.kinds || {};
+  if (!watches.length) { el.innerHTML = `<div class="muted">No alert watches configured yet.</div>`; return; }
+  el.innerHTML =
+    `<div class="muted" style="margin-bottom:10px">Every alert you receive comes from one of these.
+     Toggle a watch off to silence it, point its channel at a webhook
+     (<code>discord</code> or <code>discord:MY_ENV</code>), or expand it to tune the knobs.</div>` +
+    watches.map((w, ix) => {
+      const knobs = Object.entries(w.params || {}).map(([k, v]) =>
+        `<span class="tag">${esc(k)}=${esc(JSON.stringify(v))}</span>`).join("");
+      return `<div class="prov" style="${w.active ? "" : "opacity:.5"}">
+        <div class="ph" style="cursor:pointer" data-wix="${ix}">
+          <span class="pn">${esc(w.name)}</span>
+          <span class="pstat ready">${esc(w.kind)}</span>
+          <input class="wchan" data-name="${esc(w.name)}" value="${esc(w.channel)}"
+            title="notification channel"
+            style="margin-left:12px;width:170px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--ink);padding:3px 9px;font-size:12px">
+          <button class="ptog wtog" data-name="${esc(w.name)}" data-on="${w.active ? 1 : 0}"
+            style="margin-left:auto;cursor:pointer;border:1px solid var(--border);border-radius:12px;padding:2px 12px;font-size:11px;background:${w.active ? "var(--acc,#1f6feb)" : "transparent"};color:${w.active ? "#fff" : "var(--faint)"}">${w.active ? "On" : "Off"}</button>
+        </div>
+        <div class="pg">${knobs || `<span class="muted">registry defaults</span>`}</div>
+        <div class="wedit" data-name="${esc(w.name)}" hidden style="margin-top:8px">
+          <textarea class="wparams" data-name="${esc(w.name)}" rows="4" spellcheck="false"
+            style="width:100%;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--ink);padding:7px 9px;font-size:12px;font-family:ui-monospace,monospace">${esc(JSON.stringify(w.params || {}, null, 1))}</textarea>
+          <div class="muted" style="margin:6px 0 4px;font-size:11px">Knobs for <b>${esc(w.kind)}</b>: ${Object.entries(kinds[w.kind] || {}).map(([k, d]) => `<code title="${esc(d.help)}">${esc(k)}</code>`).join(" ")}</div>
+          <button class="ptog wsave" data-name="${esc(w.name)}"
+            style="cursor:pointer;border:1px solid var(--border);border-radius:12px;padding:3px 14px;font-size:11px;background:var(--acc,#1f6feb);color:#fff">Save knobs</button>
+          <span class="werr muted" data-name="${esc(w.name)}" style="margin-left:10px;font-size:11px"></span>
+        </div>
+      </div>`;
+    }).join("");
+  const patch = async (name, body, errEl) => {
+    try {
+      const r = await fetch(`${API}/watches/${encodeURIComponent(name)}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body) });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        if (errEl) errEl.textContent = Array.isArray(d.detail) ? d.detail.join("; ") : (d.detail || `HTTP ${r.status}`);
+        return false;
+      }
+    } catch (e) { if (errEl) errEl.textContent = e.message; return false; }
+    return true;
+  };
+  el.querySelectorAll(".wtog").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await patch(b.dataset.name, { active: b.dataset.on !== "1" });
+    loadWatches();
+  }));
+  el.querySelectorAll(".wchan").forEach((i) => {
+    i.addEventListener("click", (e) => e.stopPropagation());
+    i.addEventListener("change", async () => { await patch(i.dataset.name, { channel: i.value.trim() }); loadWatches(); });
+  });
+  el.querySelectorAll(".ph[data-wix]").forEach((h) => h.addEventListener("click", () => {
+    const box = h.parentElement.querySelector(".wedit");
+    if (box) box.hidden = !box.hidden;
+  }));
+  el.querySelectorAll(".wsave").forEach((b) => b.addEventListener("click", async () => {
+    const name = b.dataset.name;
+    const ta = el.querySelector(`.wparams[data-name="${CSS.escape(name)}"]`);
+    const err = el.querySelector(`.werr[data-name="${CSS.escape(name)}"]`);
+    let params;
+    try { params = JSON.parse(ta.value); }
+    catch (e) { if (err) err.textContent = `invalid JSON: ${e.message}`; return; }
+    if (await patch(name, { params }, err)) loadWatches();
+  }));
 }
 
 async function loadMcpGroups() {

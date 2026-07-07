@@ -74,18 +74,63 @@ _FAMILY_ALIASES = {
 _DOUBLES = re.compile(r"\w\s*/\s*\w")  # "Krejcikova/Siniakova v …"
 
 
+def _coverage_path():
+    from sportsdata_agents.paths import data_dir
+
+    return data_dir() / "coverage.json"
+
+
+def _parse(raw: str, source: str) -> dict[str, list[str]] | None:
+    try:
+        parsed = json.loads(raw)
+        return {str(k).lower(): [str(t).lower() for t in (v or [])]
+                for k, v in parsed.items()}
+    except (ValueError, AttributeError, TypeError) as e:
+        logger.warning("coverage from %s unparseable (%s) — ignored", source, e)
+        return None
+
+
 @lru_cache(maxsize=1)
 def _prefs() -> dict[str, list[str]]:
+    """env var > the app's coverage.json (UI-editable) > the shipped default."""
     raw = os.environ.get("SPORTSDATA_AGENTS_COVERAGE", "").strip()
     if raw:
-        try:
-            parsed = json.loads(raw)
-            return {str(k).lower(): [str(t).lower() for t in (v or [])]
-                    for k, v in parsed.items()}
-        except (ValueError, AttributeError, TypeError) as e:
-            logger.warning("SPORTSDATA_AGENTS_COVERAGE unparseable (%s) — "
-                           "using the shipped default", e)
+        parsed = _parse(raw, "env")
+        if parsed is not None:
+            return parsed
+    path = _coverage_path()
+    if path.is_file():
+        parsed = _parse(path.read_text(encoding="utf-8"), str(path))
+        if parsed is not None:
+            return parsed
     return DEFAULT_COVERAGE
+
+
+def coverage_source() -> str:
+    """Where the active preferences come from: env / file / default."""
+    if os.environ.get("SPORTSDATA_AGENTS_COVERAGE", "").strip():
+        return "env"
+    return "file" if _coverage_path().is_file() else "default"
+
+
+def current_coverage() -> dict[str, list[str]]:
+    return dict(_prefs())
+
+
+def save_coverage(prefs: dict[str, list[str]]) -> None:
+    """Persist UI-edited preferences (atomic write; the env var still wins).
+    The in-process cache resets; the ingest subprocess re-reads every spawn."""
+    import tempfile
+
+    cleaned = {str(k).strip().lower(): sorted({str(t).strip().lower()
+                                               for t in (v or []) if str(t).strip()})
+               for k, v in prefs.items() if str(k).strip()}
+    path = _coverage_path()
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(cleaned, indent=1, sort_keys=True) + "\n")
+    os.replace(tmp, path)
+    _prefs.cache_clear()
 
 
 def _family(sport_label: str) -> str:

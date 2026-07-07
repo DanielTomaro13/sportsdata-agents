@@ -844,6 +844,109 @@ def create_app(
             },
         })
 
+    @app.get("/watches")
+    async def watches_list() -> dict[str, Any]:
+        """Every alert subscription with its knobs, plus the registry docs the
+        Settings pane renders — the notification customization surface."""
+        from sqlalchemy import select
+
+        from sportsdata_agents.data.models import Subscription
+        from sportsdata_agents.operations.watch_registry import WATCH_PARAMS, params_for
+
+        sf = _audit_sessionmaker()
+        rows: list[Any] = []
+        if sf is not None:
+            s = get_settings()
+            try:
+                async with sf() as session:
+                    rows = (await session.execute(
+                        select(Subscription).where(
+                            Subscription.tenant_id == s.default_tenant,
+                            Subscription.workspace_id == s.default_workspace,
+                        ).order_by(Subscription.kind, Subscription.name)
+                    )).scalars().all()
+            except Exception as e:  # warehouse hiccup → empty, not a 500
+                logger.warning("watches unavailable (%s: %s)", type(e).__name__, e)
+        return {
+            "watches": [
+                {"name": w.name, "kind": w.kind, "channel": w.channel,
+                 "active": bool(w.active), "params": w.params or {}}
+                for w in rows
+            ],
+            "kinds": {kind: {param: {"default": default, "help": text}
+                             for param, (default, text) in params_for(kind).items()}
+                      for kind in sorted(WATCH_PARAMS)},
+        }
+
+    @app.post("/watches/{name}")
+    async def watches_update(name: str, body: dict[str, Any]) -> JSONResponse:
+        """Update a subscription from the panel: {active?, channel?, params?}.
+        Params merge over the existing ones and are registry-validated — a
+        typo'd knob is a 422 naming the valid ones, never a silent no-op."""
+        from sqlalchemy import select
+
+        from sportsdata_agents.data.models import Subscription
+        from sportsdata_agents.operations.watch_registry import validate_params
+
+        sf = _audit_sessionmaker()
+        if sf is None:
+            return JSONResponse({"detail": "warehouse unavailable"}, status_code=503)
+        s = get_settings()
+        async with sf() as session:
+            sub = (await session.execute(
+                select(Subscription).where(
+                    Subscription.tenant_id == s.default_tenant,
+                    Subscription.workspace_id == s.default_workspace,
+                    Subscription.name == name,
+                ).limit(1)
+            )).scalars().first()
+            if sub is None:
+                return JSONResponse({"detail": f"no watch named {name!r}"}, status_code=404)
+            if "params" in body:
+                updates = dict(body.get("params") or {})
+                errors = validate_params(sub.kind, updates)
+                if errors:
+                    return JSONResponse({"detail": errors}, status_code=422)
+                merged = {**(sub.params or {}), **updates}
+                # a knob set to null clears back to the registry default
+                sub.params = {k: v for k, v in merged.items() if v is not None}
+            if "active" in body:
+                sub.active = bool(body["active"])
+            if "channel" in body:
+                sub.channel = str(body["channel"] or "log")
+            await session.commit()
+            return JSONResponse({"ok": True, "watch": {
+                "name": sub.name, "kind": sub.kind, "channel": sub.channel,
+                "active": bool(sub.active), "params": sub.params or {}}})
+
+    @app.get("/coverage")
+    async def coverage_get() -> dict[str, Any]:
+        """The collection-budget preferences: which sports/competitions the
+        expensive per-event detail budgets chase (ingestion/coverage.py)."""
+        from sportsdata_agents.operations.ingestion.coverage import DEFAULT_COVERAGE, coverage_source, current_coverage
+
+        return {"coverage": current_coverage(), "source": coverage_source(),
+                "default": DEFAULT_COVERAGE}
+
+    @app.post("/coverage")
+    async def coverage_set(body: dict[str, Any]) -> JSONResponse:
+        """Persist coverage preferences from the panel. Shape: {sport: [tokens]}.
+        A sport present with [] means every competition; absent means no detail
+        budget. The env var, when set, still wins (returned as source=env)."""
+        from sportsdata_agents.operations.ingestion.coverage import coverage_source, current_coverage, save_coverage
+
+        prefs = body.get("coverage")
+        if not isinstance(prefs, dict) or not all(
+                isinstance(v, list) for v in prefs.values()):
+            return JSONResponse({"detail": "coverage must be {sport: [tokens]}"},
+                                status_code=422)
+        try:
+            save_coverage(prefs)
+        except OSError as e:
+            return JSONResponse({"detail": f"could not persist: {e}"}, status_code=503)
+        return JSONResponse({"ok": True, "coverage": current_coverage(),
+                             "source": coverage_source()})
+
     @app.post("/operator/budget")
     async def operator_budget(body: dict[str, Any]) -> JSONResponse:
         """Set the spend budget from the panel (same as `agents costs --set-budget`)."""

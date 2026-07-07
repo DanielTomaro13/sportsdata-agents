@@ -196,3 +196,37 @@ def test_provider_status_classification(monkeypatch) -> None:
     # optional (kalshi) → ready even without a key
     monkeypatch.delenv("ZZ_OPT", raising=False)
     assert _provider_status("kalshi", {"auth_env": ["ZZ_OPT"], "auth_optional": True})["status"] == "ready"
+
+
+async def test_coverage_endpoints_roundtrip(tmp_path, monkeypatch) -> None:
+    """The Settings pane's coverage editor: read prefs, persist an edit, and
+    the ingestion module sees the change immediately."""
+    import httpx
+
+    monkeypatch.setenv("SPORTSDATA_AGENTS_DATA_DIR", str(tmp_path / "app"))
+    monkeypatch.delenv("SPORTSDATA_AGENTS_COVERAGE", raising=False)
+    from sportsdata_agents.gateway.app import create_app
+    from sportsdata_agents.operations.ingestion import coverage as cov
+
+    cov._prefs.cache_clear()
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        r = await client.get("/coverage")
+        assert r.status_code == 200
+        assert r.json()["source"] == "default"
+        assert "baseball" in r.json()["coverage"]
+        r = await client.post("/coverage", json={"coverage": {
+            "baseball": ["mlb"], "cricket": [], "Basketball": ["NBA", " wnba "]}})
+        assert r.status_code == 200
+        assert r.json()["source"] == "file"
+        r = await client.get("/coverage")
+        assert r.json()["coverage"] == {
+            "baseball": ["mlb"], "basketball": ["nba", "wnba"], "cricket": []}
+        # the ingestion gate reads the persisted prefs
+        assert cov.competition_covered("Basketball", "WNBA")
+        assert not cov.sport_covered("Golf")  # dropped by the edit
+        # malformed shape → 422, nothing persisted
+        r = await client.post("/coverage", json={"coverage": {"golf": "yes"}})
+        assert r.status_code == 422
+    cov._prefs.cache_clear()
