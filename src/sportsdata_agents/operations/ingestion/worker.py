@@ -79,8 +79,10 @@ logger = logging.getLogger(__name__)
 
 # AU book payloads are MB-scale firehoses; the MCP's 150KB default guards MODEL
 # context windows, which ingestion doesn't have — the ingest subprocess runs with
-# this cap instead (the CLI passes it as SPORTSDATA_MCP_MAX_BYTES).
-INGEST_MAX_BYTES = 8_000_000
+# this cap instead (the CLI passes it as SPORTSDATA_MCP_MAX_BYTES). 16MB because
+# TAB's World Cup competition pages measure 9-12MB — at 8MB the tournament's
+# main markets silently vanished from capture.
+INGEST_MAX_BYTES = 16_000_000
 
 
 @dataclass(frozen=True)

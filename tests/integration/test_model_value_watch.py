@@ -93,7 +93,7 @@ async def test_model_value_watch_fires_noise_gates_and_degrades(
     monkeypatch.setattr(engines_module, "resolve_engine", lambda: StubEngine())
     report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW)
     assert report["alerts"] == 1, report
-    assert "model value" in pushed[0] and "+17.8%" in pushed[0]
+    assert "Model Value" in pushed[0] and "+17.8 percent" in pushed[0]
 
     async with db_sessionmaker() as s:
         alerts = (await s.execute(Alert.__table__.select())).all()

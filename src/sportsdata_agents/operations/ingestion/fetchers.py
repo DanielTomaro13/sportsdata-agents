@@ -285,26 +285,68 @@ async def fetch_entain_all(manager: Any) -> dict[str, Any]:
     return {"categories": out}
 
 
-async def fetch_pinnacle_all(manager: Any) -> dict[str, Any]:
-    """Pinnacle: sports → every active sport's matchups → straight markets for the
-    SOONEST ``ROTATE_CAP`` matchups board-wide (prices live per-matchup; capping by
-    start time keeps the actionable board fresh and the call count bounded)."""
+async def _pinnacle_pool(manager: Any, *, pre_match_only: bool) -> list[dict[str, Any]]:
+    """Every active sport's open matchups, one pool. Two live lessons: a
+    handful of matchups keep PAST start times without ever flipping isLive,
+    and sorted soonest-first those zombies monopolised the hot window forever
+    (tennis — 200+ live matchups — captured zero for a week); and the soccer
+    full list can blow the response cap, where the highlighted subset is the
+    honest fallback, not silence."""
+    import datetime as _dt
+
     sports = await manager.call_tool("pinnacle_sports", {})
-    matchups: list[dict[str, Any]] = []
+    now_iso = _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    pool: list[dict[str, Any]] = []
     for sport in sports or []:
         if not sport.get("matchupCount"):
             continue
         try:
             rows = await manager.call_tool("pinnacle_sport_matchups_all", {"sportId": sport["id"]})
         except Exception as e:
-            logger.warning("pinnacle sport %s matchups failed: %s", sport.get("name"), e)
-            continue
+            logger.warning("pinnacle sport %s full list failed (%s) — using highlighted list",
+                           sport.get("name"), e)
+            try:
+                rows = await manager.call_tool("pinnacle_sport_matchups", {"sportId": sport["id"]})
+            except Exception as e2:
+                logger.warning("pinnacle sport %s highlighted list failed too: %s",
+                               sport.get("name"), e2)
+                continue
         for matchup in rows or []:
-            if isinstance(matchup, dict) and matchup.get("hasMarkets") and not matchup.get("isLive"):
-                matchup["_sport"] = _slug(sport.get("name", "?"))
-                matchups.append(matchup)
-    matchups.sort(key=lambda m: str(m.get("startTime", "")))
-    chosen = matchups[:ROTATE_CAP]
+            if not (isinstance(matchup, dict) and matchup.get("hasMarkets")):
+                continue
+            if pre_match_only and matchup.get("isLive"):
+                continue
+            if pre_match_only and str(matchup.get("startTime", "")) <= now_iso:
+                continue  # past-start zombie — can't be bet pre-match
+            matchup["_sport"] = _slug(sport.get("name", "?"))
+            pool.append(matchup)
+    return pool
+
+
+def _spread_by_sport(pool: list[dict[str, Any]], cap: int) -> list[dict[str, Any]]:
+    """The soonest matchups round-robined ACROSS sports — a global soonest-N
+    window let one sport's fixture pile-up starve every other sport."""
+    by_sport: dict[str, list[dict[str, Any]]] = {}
+    for matchup in sorted(pool, key=lambda m: str(m.get("startTime", ""))):
+        by_sport.setdefault(str(matchup.get("_sport")), []).append(matchup)
+    chosen: list[dict[str, Any]] = []
+    queues = [q for _s, q in sorted(by_sport.items())]
+    while queues and len(chosen) < cap:
+        for queue in list(queues):
+            if len(chosen) >= cap:
+                break
+            chosen.append(queue.pop(0))
+            if not queue:
+                queues.remove(queue)
+    return chosen
+
+
+async def fetch_pinnacle_all(manager: Any) -> dict[str, Any]:
+    """Pinnacle: sports → every active sport's matchups → straight markets for
+    the soonest ``ROTATE_CAP`` matchups, spread across sports (prices live
+    per-matchup; the spread keeps every sport's actionable board fresh)."""
+    pool = await _pinnacle_pool(manager, pre_match_only=True)
+    chosen = _spread_by_sport(pool, ROTATE_CAP)
     markets: dict[str, Any] = {}
     for matchup in chosen:
         try:
@@ -376,6 +418,26 @@ async def fetch_tab_all(manager: Any, *, comps_per_cycle: int = 20) -> dict[str,
             out.append({"sport": _slug(sport_name), "payload": payload})
         except Exception as e:
             logger.warning("tab %s/%s failed: %s", sport_name, comp_name, e)
+            continue
+        # tournament-structured sports (tennis, golf): the competition page
+        # shows matches:[] and nests the real events one level down — without
+        # this hop TAB captured zero tennis while pricing all of Wimbledon
+        if payload.get("matches") or not payload.get("tournaments"):
+            continue
+        for tournament in (payload.get("tournaments") or [])[:8]:
+            tour_name = str(tournament.get("name") or "")
+            if not tour_name:
+                continue
+            try:
+                page = await manager.call_tool(
+                    "tab_tournament",
+                    {"sport": sport_name, "competition": comp_name,
+                     "tournament": tour_name, "numTopMarkets": 1},
+                )
+                out.append({"sport": _slug(sport_name), "payload": page})
+            except Exception as e:
+                logger.warning("tab %s/%s/%s failed: %s",
+                               sport_name, comp_name, tour_name, e)
     return {"competitions": out}
 
 
@@ -583,20 +645,7 @@ async def fetch_unibet_books(manager: Any) -> dict[str, Any]:
 async def fetch_pinnacle_books(manager: Any) -> dict[str, Any]:
     """Pinnacle full board: rotation over ALL active matchups (not just the soonest —
     the hot tier covers those) so every fixture's straight markets refresh hourly."""
-    sports = await manager.call_tool("pinnacle_sports", {})
-    matchups: list[dict[str, Any]] = []
-    for sport in sports or []:
-        if not sport.get("matchupCount"):
-            continue
-        try:
-            rows = await manager.call_tool("pinnacle_sport_matchups_all", {"sportId": sport["id"]})
-        except Exception as e:
-            logger.warning("pinnacle books sport %s failed: %s", sport.get("name"), e)
-            continue
-        for matchup in rows or []:
-            if isinstance(matchup, dict) and matchup.get("hasMarkets"):
-                matchup["_sport"] = _slug(sport.get("name", "?"))
-                matchups.append(matchup)
+    matchups = await _pinnacle_pool(manager, pre_match_only=False)
     chosen = _take_rotating("pinnacle_books", matchups, 120)
     markets: dict[str, Any] = {}
     for matchup in chosen:

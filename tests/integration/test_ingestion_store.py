@@ -380,7 +380,7 @@ async def test_steam_and_value_watches(
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
     kinds = {m.split(" — ")[0] for m in pushed}
     assert report["alerts"] == 2  # one steam + one value (0.70*1.70 = +19% edge)
-    assert any("steam" in k.lower() for k in kinds) and any("value" in k.lower() for k in kinds)
+    assert any("steam" in k.lower() for k in kinds) and any("model edge" in k.lower() for k in kinds)
 
 
 async def test_alert_shows_other_books_for_the_same_market(
@@ -585,7 +585,7 @@ async def test_arb_watch_fires_on_cross_book_board(
     report = await run_watches(db_sessionmaker, pusher=pusher, now=T2)
     # best home 2.10 (Sportsbet) + best away 2.05 (TAB flipped) → 1/2.10+1/2.05 ≈ 0.964
     assert report["alerts"] == 1 and len(pushed) == 1
-    assert "ARB" in pushed[0] and "Western Bulldogs v Adelaide Crows" in pushed[0]
+    assert "Arbitrage" in pushed[0] and "Western Bulldogs v Adelaide Crows" in pushed[0]
     assert "Sportsbet 2.10" in pushed[0] and "TAB 2.05" in pushed[0]
     assert "verify every leg" in pushed[0]
     async with db_sessionmaker() as s:

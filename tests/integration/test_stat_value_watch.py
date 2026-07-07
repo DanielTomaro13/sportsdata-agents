@@ -82,7 +82,7 @@ async def test_stat_value_fires_on_the_inconsistent_rung(
     monkeypatch.setattr(engines_module, "resolve_engine", lambda: StubEngine())
     report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW)
     assert report["alerts"] == 1, pushed
-    assert "stat value" in pushed[0] and "Ace Pitcher" in pushed[0] and "12.00" in pushed[0]
+    assert "Player Prop Value" in pushed[0] and "Ace Pitcher" in pushed[0] and "12.00" in pushed[0]
 
     # unchanged ladder -> deduped
     report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW + dt.timedelta(minutes=5))

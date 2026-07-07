@@ -27,6 +27,9 @@ COMMON_PARAMS: Params = {
 _ROW_FILTERS: Params = {
     "sport": (None, "only this sport (warehouse label, e.g. tennis)"),
     "exclude_sports": (None, "sports to ignore, e.g. table_tennis,esports"),
+    "exclude_markets": (None, "markets to ignore, e.g. place"),
+    "markets": (None, "allowlist — ONLY these markets, prefix-matched so h2h covers "
+                      '"h2h - match", e.g. win,h2h,total (unset = all markets)'),
     "market": (None, "only this market (e.g. h2h)"),
     "selection": (None, "only this selection"),
     "book": (None, "only this bookmaker"),
