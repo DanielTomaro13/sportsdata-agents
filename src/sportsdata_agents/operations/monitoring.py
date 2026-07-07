@@ -97,9 +97,7 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
         return {}
     side, line = _split_selection(row.selection.lower())
     side_relative = side in ("home", "away", "draw")
-    market_l = row.market.lower()
-    family = next((f for f in (_H2H_MARKETS, _TOTAL_MARKETS, _LINE_MARKETS)
-                   if market_l in f), None)
+    family = _market_family(row.market)
     name_cache: dict[tuple[str, str], str] = {}
     own_name = ""
     if side_relative:
@@ -113,6 +111,8 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
             if translated is None:
                 continue  # orientation unknown — never show a possibly-flipped price
             want_side = translated
+        from sqlalchemy import or_
+
         stmt = (
             select(Price)
             .where(
@@ -121,13 +121,23 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
             )
             .order_by(Price.changed_at.desc())
         )
-        if family is None:
-            stmt = stmt.where(Price.market == row.market).limit(30)
+        if family == "h2h":
+            stmt = stmt.where(func.lower(Price.market).in_(_H2H_MARKETS)).limit(40)
+        elif family == "total":
+            stmt = stmt.where(or_(func.lower(Price.market).like("%total%"),
+                                  func.lower(Price.market).like("%over/under%"),
+                                  func.lower(Price.market).like("%u/o%"))).limit(120)
+        elif family == "line":
+            stmt = stmt.where(or_(func.lower(Price.market).like("%spread%"),
+                                  func.lower(Price.market).like("%line%"),
+                                  func.lower(Price.market).like("%handicap%"))).limit(120)
         else:
-            stmt = stmt.where(func.lower(Price.market).in_(family)).limit(60)
+            stmt = stmt.where(Price.market == row.market).limit(30)
         for cand in (await session.execute(stmt)).scalars():
             if cand.book == row.book:
                 continue
+            if family is not None and _market_family(cand.market) != family:
+                continue  # a period/segment variant slipping the SQL prefilter
             cand_side, cand_line = _split_selection(cand.selection.lower())
             if cand_side != want_side:
                 continue
@@ -962,9 +972,34 @@ def _split_selection(selection: str) -> tuple[str, float | None]:
     return selection, None
 
 
-_H2H_MARKETS = {"2way", "h2h", "head_to_head", "match_winner"}
+_H2H_MARKETS = {"2way", "h2h", "head_to_head", "match_winner", "money line", "moneyline"}
 _TOTAL_MARKETS = {"total", "totals"}
 _LINE_MARKETS = {"spread", "line", "handicap"}
+
+# period/segment/derived variants are DIFFERENT markets — a "spread p1" or
+# "run line - after 5 innings" must never join a full-game board
+_SEGMENT_MARKERS = ("p1", "p2", "p3", "1st", "2nd", "3rd", "4th", "after",
+                    "inning", "half", "quarter", "period", "q1", "q2", "q3",
+                    "q4", "set", "frame", "double", "odd", "team", "first",
+                    "second", "race to", "margin", "alt.")
+
+
+def _market_family(market: str) -> str | None:
+    """h2h/total/line for a FULL-GAME market label, tolerant of the industry's
+    naming zoo ("run line -1.5", "extra line", "spread - line", "handicap
+    +1.5", "total runs u/o 5.5"). Segment/derived variants return None —
+    exact-set membership left every differently-suffixed book off the board
+    (lived: an NPB run-line board read 8 books NA while five books priced it)."""
+    m = market.lower()
+    if m in _H2H_MARKETS:
+        return "h2h"
+    if any(w in m for w in _SEGMENT_MARKERS):
+        return None
+    if m in _TOTAL_MARKETS or "total" in m or "over/under" in m or "u/o" in m:
+        return "total"
+    if m in _LINE_MARKETS or "spread" in m or "handicap" in m or "line" in m:
+        return "line"
+    return None
 
 
 def _footy_engine_inputs(rows: list[Price]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:

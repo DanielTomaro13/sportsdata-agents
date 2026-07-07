@@ -789,8 +789,9 @@ async def test_cross_book_board_joins_lined_markets_across_market_names(
             s.add(Event(provider=provider, external_id=event_id, fixture_id=fixture.id))
         rows = [
             ("fanduel", "FanDuel", "MLB-1", "spread", "home 1.5", 1.91),
-            ("tab", "TAB", "MLB-2", "line", "home 1.5", 1.85),   # same bet, other name
-            ("tab", "TAB", "MLB-2", "line", "home 2.5", 1.45),   # decoy line
+            ("tab", "TAB", "MLB-2", "extra line", "home 1.5", 1.85),  # suffixed name
+            ("tab", "TAB", "MLB-2", "extra line", "home 2.5", 1.45),  # decoy line
+            ("tab", "TAB", "MLB-2", "run line - after 5 innings", "home 1.5", 1.99),  # SEGMENT decoy
         ]
         for provider, book, event_id, market, selection, odds in rows:
             s.add(Price(changed_at=T2 - dt.timedelta(minutes=5), provider=provider,
