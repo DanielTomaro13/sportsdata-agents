@@ -63,7 +63,7 @@ async def test_stat_value_fires_on_the_inconsistent_rung(
             s.add(row)
         s.add(Subscription(tenant_id="t", workspace_id="w", name="props",
                            kind="stat_value", channel="log",
-                           params={"min_edge_pct": 5.0, "min_rungs": 3}))
+                           params={"mode": "ladder", "min_edge_pct": 5.0, "min_rungs": 3}))
         await s.commit()
 
     pushed: list[str] = []

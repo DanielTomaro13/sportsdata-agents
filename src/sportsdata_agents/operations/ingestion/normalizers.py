@@ -1384,6 +1384,14 @@ def _normalize_dabble_fixture(sink: _Sink, fixture: dict[str, Any], sport: str,
         if selection.get("isScratched") or market.get("isDisplayed") is False \
                 or selection.get("isDisplayed") is False:
             continue
+        # the MCP spec's engine-derived product tag: pick'em rows are Dabble's
+        # multiplier product, NOT fixed odds — ingesting them poisoned every
+        # prop scan (one playerProps entry's line stamped across a player's
+        # every market at multipliers 1.32-41.0; lived 2026-07-08). SGM legs
+        # are combination prices, equally not comparable.
+        product = str(market.get("product") or "").lower()
+        if product in ("pickem", "sgm", "srm"):
+            continue
         market_key = canonical_market(str(market.get("name", "?")))
         if racing:
             mapped = _DABBLE_RACING_MARKETS.get(market_key)

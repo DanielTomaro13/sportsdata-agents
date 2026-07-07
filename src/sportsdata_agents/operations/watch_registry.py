@@ -201,11 +201,17 @@ WATCH_PARAMS: dict[str, Params] = {
         "bankroll": (100.0, "stake sizing base"),
     },
     "stat_value": {
+        "mode": ("cross_book", "cross_book: one book above the industry's "
+                               "de-vigged prop fair (the default); ladder: "
+                               "engine-fitted intra-book consistency"),
         "book": (None, "one book's ladders only; unset = every prop-tagged book"),
-        "min_edge_pct": (5.0, "quoted rung pays above the fitted fair by this %"),
-        "hours": (2.0, "how far back to look for ladder quotes"),
-        "min_rungs": (3, "distinct thresholds needed before a fit is trusted"),
-        "max_rmse_log": (0.08, "reject fits where the ladder disagrees with itself"),
+        "min_edge_pct": (5.0, "quoted rung pays above the fair by this %"),
+        "max_edge_pct": (30.0, "edges above this are data artifacts, never bets"),
+        "min_fair_books": (1, "books with a de-viggable O/U pair needed for a fair"),
+        "hours": (2.0, "how far back to look for prop quotes"),
+        "min_rungs": (3, "ladder mode: distinct thresholds needed for a fit"),
+        "max_rmse_log": (0.08, "ladder mode: reject self-disagreeing ladders"),
+        "bankroll": (100.0, "kelly stake sizing base"),
     },
 }
 

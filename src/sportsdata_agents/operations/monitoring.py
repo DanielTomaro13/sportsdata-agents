@@ -1744,19 +1744,22 @@ async def _watch_model_value(
             jump = f" · Starts {_local_hhmm(start_time.isoformat(), _tz_for(sub))}"
         top_fair = float(top["model_fair_odds"]) if top["model_fair_odds"] else None
         top_line = f" {top['line']:g}" if top["line"] is not None else ""
-        # alt-line honesty with CONTEXT: when no other book quotes this exact
-        # line, show the industry's nearest quoted line instead of nothing
+        # alt-line honesty with CONTEXT, ALWAYS: books absent from this exact
+        # line usually price a neighbouring one (their main total/spread) —
+        # show it so "N books NA" never reads as "nobody else is up"
         near_note = ""
         flagged_books = {str(c["book"]) for c in cands}
-        if (top["line"] is not None and top.get("row") is not None
-                and not (set(quotes) - flagged_books)):
+        if top["line"] is not None and top.get("row") is not None:
             near = await _nearest_line_quotes(session, top["row"], float(top["line"]))
             if near is not None:
                 nl, nq = near
                 cells = " · ".join(f"{b} {o:.2f}" for b, o in
                                    sorted(nq.items(), key=lambda kv: -kv[1])[:6])
-                near_note = (f"\nnearest quoted line {nl:g} "
-                             f"(no book has {top['line']:g}): {cells}")
+                lonely = not (set(quotes) - flagged_books)
+                label = (f"nearest quoted line {nl:g} (no book has "
+                         f"{top['line']:g})" if lonely
+                         else f"other books' nearest line {nl:g}")
+                near_note = f"\n{label}: {cells}"
         message = (
             f":crystal_ball: Model Value — {_sport_label(sport)} — {story['display']}\n"
             f"Market: {market} · Edge +{top['edge_pct']:.1f} percent{jump}\n"
@@ -2475,6 +2478,147 @@ async def _watch_prediction_value(
     return fired
 
 
+_PLAYER_PAREN = re.compile(r"\s*\([^)]*\)")
+
+
+def _player_key(name: Any) -> str:
+    """Cross-book player identity: lowercase, team tags stripped — TAB prints
+    'Brennan Cox (Fre)' where Dabble prints 'Brennan Cox'."""
+    return _PLAYER_PAREN.sub("", str(name or "")).strip().lower()
+
+
+async def _stat_value_cross_book(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime
+) -> int:
+    """CROSS-BOOK player-prop value: group prop-tagged rows by (fixture,
+    player, stat, line), de-vig each book's over/under PAIR into a fair,
+    take the median fair across books, and flag any book paying above it —
+    one book long on Daicos 25+ disposals is the props edge that exists
+    (a book's own ladder is self-consistent by construction; the intra-book
+    ladder scan measured a best edge of +1% in 900 ladders)."""
+    import statistics
+
+    from sqlalchemy import String, cast
+
+    from sportsdata_agents.operations.ingestion.coverage import sport_covered
+
+    min_edge = float(sub.params.get("min_edge_pct", 6.0))
+    max_edge = float(sub.params.get("max_edge_pct", 30.0))
+    hours = float(sub.params.get("hours", 2.0))
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    bankroll = float(sub.params.get("bankroll", 100.0))
+    min_fair_books = int(sub.params.get("min_fair_books", 1))
+
+    rows = (await session.execute(
+        select(OddsSnapshot).where(
+            OddsSnapshot.captured_at > now - dt.timedelta(hours=hours),
+            cast(OddsSnapshot.meta, String).like('%"player"%'),
+        ).order_by(OddsSnapshot.captured_at)
+    )).scalars().all()
+
+    # fixture identity so the same game's props pool across books
+    pairs = {(r.provider, r.event_external_id) for r in rows}
+    fixture_of: dict[tuple[str, str], str] = {}
+    if pairs:
+        for ev in (await session.execute(
+                select(Event).where(
+                    Event.external_id.in_({e for _p, e in pairs}))
+        )).scalars():
+            if ev.fixture_id is not None and (ev.provider, ev.external_id) in pairs:
+                fixture_of[(ev.provider, ev.external_id)] = str(ev.fixture_id)
+
+    # latest quote per (group, book, side); books' capture cadences differ,
+    # so keep the freshest sighting per key (rows arrive oldest-first)
+    groups: dict[tuple[str, str, str, float],
+                 dict[str, dict[str, tuple[float, Any]]]] = {}
+    for r in rows:
+        meta = r.meta or {}
+        player = _player_key(meta.get("player"))
+        stat = str(meta.get("stat") or "")
+        side = str(meta.get("line_type", "")).lower()
+        try:
+            line = float(str(meta.get("stat_line")))
+        except (TypeError, ValueError):
+            continue
+        if not player or not stat or side not in ("over", "under"):
+            continue
+        if not sport_covered(r.sport):
+            continue
+        if r.start_time is not None:
+            start = (r.start_time if r.start_time.tzinfo
+                     else r.start_time.replace(tzinfo=dt.UTC))
+            if start <= now:
+                continue  # a started game's props are game state
+        fixture = fixture_of.get((r.provider, r.event_external_id),
+                                 f"{r.provider}:{r.event_external_id}")
+        key = (fixture, player, stat, line)
+        groups.setdefault(key, {}).setdefault(r.book, {})[side] = (float(r.odds), r)
+
+    fired = 0
+    scored: list[tuple[float, tuple, dict]] = []
+    for key, by_book in groups.items():
+        fair_probs = []
+        fair_books = []
+        for book, sides in by_book.items():
+            if "over" in sides and "under" in sides:
+                over, under = sides["over"][0], sides["under"][0]
+                if over > 1.0 and under > 1.0:
+                    fair_probs.append((1.0 / over) / (1.0 / over + 1.0 / under))
+                    fair_books.append(book)
+        if len(fair_probs) < min_fair_books:
+            continue
+        fair_over = statistics.median(fair_probs)
+        if not 0.03 < fair_over < 0.97:
+            continue  # extreme rungs: de-vig noise dominates out here
+        best = None
+        for book, sides in by_book.items():
+            for side, (odds, r) in sides.items():
+                if len(fair_books) == 1 and book == fair_books[0]:
+                    continue  # the sole fair source can't be its own outlier
+                prob = fair_over if side == "over" else 1.0 - fair_over
+                edge = (odds * prob - 1.0) * 100.0
+                if min_edge <= edge <= max_edge and (best is None or edge > best[0]):
+                    best = (edge, book, side, odds, prob, r)
+        if best is not None:
+            scored.append((best[0], key, {"best": best, "by_book": by_book,
+                                          "n_fair": len(fair_probs),
+                                          "fair_over": fair_over}))
+    scored.sort(key=lambda x: -x[0])
+
+    for edge, (fixture, player, stat, line), info in scored:
+        if fired >= cap:
+            break
+        best = info["best"]
+        _, book, side, odds, prob, r = best
+        kelly = _kelly_stake(prob, odds, bankroll)
+        board_bits = []
+        for b, sides in sorted(info["by_book"].items()):
+            if side in sides:
+                board_bits.append(f"{b} {sides[side][0]:.2f}")
+        message = (
+            f":dart: Player Prop Value — {_sport_label(r.sport)} — {r.event_name}\n"
+            f"**{str((r.meta or {}).get('player') or player).title()} · {stat} "
+            f"{side} {line:g}**\n"
+            f"{book} {odds:.2f} · industry fair {1.0 / prob:.2f} "
+            f"(de-vigged from {info['n_fair']} book{'s' if info['n_fair'] != 1 else ''}) "
+            f"· edge +{edge:.1f} percent · stake {_fmt_money(kelly)}\n"
+            f"across books — {side} {line:g}: " + " · ".join(board_bits)
+        )
+        band = int(edge / 2.0)
+        alert_key = f"stat_value:x:{fixture}:{player}:{stat}:{line:g}:{side}:{band}"
+        if await _fire(session, sub, kind="stat_value", key=alert_key,
+                       message=message,
+                       payload={"fixture": fixture, "player": player, "stat": stat,
+                                "line": line, "side": side, "odds": odds,
+                                "edge_pct": round(edge, 2), "book": book,
+                                "event_external_id": r.event_external_id,
+                                "fair_prob": round(prob, 4),
+                                "n_fair_books": info["n_fair"]},
+                       pusher=pusher):
+            fired += 1
+    return fired
+
+
 async def _watch_stat_value(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime
 ) -> int:
@@ -2486,7 +2630,13 @@ async def _watch_stat_value(
     player/stat/stat_line/line_type meta (Dabble natively; other books via the
     ingest prop tagger); O/U pairs at the same line de-vig into anchors that
     pin the fit's level. params.book narrows to one book; unset scans all.
-    Ladders never mix books. Degrades cleanly with no engine configured."""
+    Ladders never mix books. Degrades cleanly with no engine configured.
+
+    params.mode="cross_book" (the default) routes to the CROSS-BOOK scan
+    instead — one book above the industry's de-vigged fair, the props edge
+    that actually occurs; "ladder" keeps this engine-fitted scan."""
+    if str(sub.params.get("mode", "cross_book")) == "cross_book":
+        return await _stat_value_cross_book(session, sub, pusher, now=now)
     import math
 
     from sportsdata_agents.quant.engines import EngineUnavailable, resolve_engine
