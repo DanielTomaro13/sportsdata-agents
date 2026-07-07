@@ -1047,17 +1047,17 @@ async def _watch_value(
     feed_of: dict[str, str] = {}  # event id -> its own feed, per price rows
     scopes = {(k[0], k[1]) for k in newest}
     for book_label, event_id in scopes:
-        stmt = select(Price).where(
+        price_stmt = select(Price).where(
             Price.event_external_id == event_id,
             Price.changed_at > now - dt.timedelta(hours=48),
         )
         if book_label:
             # prediction writers stamp either the BOOK label ("Pinnacle",
             # the slates) or the FEED ("nba_cdn", calibrations) — accept both
-            stmt = stmt.where(or_(Price.book == book_label,
-                                  Price.provider == book_label))
+            price_stmt = price_stmt.where(or_(Price.book == book_label,
+                                              Price.provider == book_label))
         rows = (await session.execute(
-            stmt.order_by(Price.changed_at.desc()))).scalars().all()
+            price_stmt.order_by(Price.changed_at.desc()))).scalars().all()
         for row in rows:
             feed_of.setdefault(row.event_external_id, row.provider)
             latest_by_key.setdefault(
