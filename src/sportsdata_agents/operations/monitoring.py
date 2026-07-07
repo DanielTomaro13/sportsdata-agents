@@ -780,24 +780,42 @@ async def _watch_steam(
 
 
 async def _watch_value(
-    session: AsyncSession, sub: Subscription, pusher: Pusher
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *,
+    now: dt.datetime | None = None,
 ) -> int:
-    """Model edge at the LATEST price crossing min_edge_pct — appear and vanish."""
+    """Recorded model edge at the LATEST price — one message per MARKET story.
+
+    Every selection whose edge crosses ``min_edge_pct`` on the same
+    event+market lands in ONE message (model fair, book price, stake, the
+    industry board), mirroring model_value's grouping. Predictions must be
+    FRESH (the slate re-records every pass; a stale fair is not a fair — an
+    un-timestamped row is accepted) and the event pre-match — the recorded
+    probabilities do not know the score."""
+    from sqlalchemy import or_
+
+    now = now or dt.datetime.now(dt.UTC)
     min_edge = float(sub.params.get("min_edge_pct", 3.0))
-    fired = 0
+    cap = int(sub.params.get("max_alerts_per_cycle", 10))
+    bankroll = float(sub.params.get("bankroll", 100.0))
+    max_pred_age = dt.timedelta(hours=float(sub.params.get("max_prediction_age_hours", 6.0)))
     predictions = (
         await session.execute(
             select(Prediction).where(
                 Prediction.tenant_id == sub.tenant_id,
                 Prediction.workspace_id == sub.workspace_id,
-            )
+                or_(Prediction.predicted_at.is_(None),
+                    Prediction.predicted_at > now - max_pred_age),
+            ).order_by(Prediction.predicted_at.desc().nulls_last())
         )
     ).scalars().all()
-    cap = int(sub.params.get("max_alerts_per_cycle", 10))
+    # newest prediction per (event, market, selection) — the slate re-records
+    # every pass, and yesterday's probability is not an opinion on today's price
+    newest: dict[tuple[str, str, str], Prediction] = {}
     for pred in predictions:
-        if fired >= cap:
-            break
-        stmt = (
+        newest.setdefault((pred.event_external_id, pred.market, pred.selection), pred)
+    stories: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for (event_id, market, _sel), pred in newest.items():
+        latest = (await session.execute(
             select(Price)
             .where(
                 Price.event_external_id == pred.event_external_id,
@@ -806,18 +824,22 @@ async def _watch_value(
             )
             .order_by(Price.changed_at.desc())
             .limit(1)
-        )
-        latest = (await session.execute(stmt)).scalars().first()
+        )).scalars().first()
         if latest is None or not _match(latest, sub.params):
             continue
         edge = (float(pred.prob) * float(latest.odds) - 1.0) * 100.0
-        # Band the dedupe key by edge magnitude (like the arb watch) so a materially BIGGER
-        # edge re-fires instead of being swallowed by the stable-key dedupe window. The
-        # `previously` lookup matches ANY band of this selection (startswith, autoescaped so
-        # ids containing `_`/`%` don't act as LIKE wildcards) so "value gone" still works.
-        base_key = f"value:{pred.event_external_id}:{pred.market}:{pred.selection}"
-        band = int(max(edge, 0.0) / 2.0)  # re-fire each +2% the edge grows
-        key = f"{base_key}:{band}"
+        stories.setdefault((event_id, market), []).append(
+            {"pred": pred, "row": latest, "edge": edge})
+    fired = 0
+    ordered = sorted(stories.items(), key=lambda kv: -max(e["edge"] for e in kv[1]))
+    for (event_id, market), entries in ordered:
+        if fired >= cap:
+            break
+        live = sorted((e for e in entries if e["edge"] >= min_edge),
+                      key=lambda e: -e["edge"])
+        # the previously-alerted lookup matches ANY band of this market
+        # (startswith, autoescaped so ids with `_`/`%` don't act as wildcards)
+        base_key = f"value:{event_id}:{market}"
         previously = (
             await session.execute(
                 select(Alert)
@@ -828,42 +850,62 @@ async def _watch_value(
                 .limit(1)
             )
         ).scalars().first()
-        if edge >= min_edge:
-            ctx = await _context(session, latest)
-            quotes = await _cross_book_quotes(session, latest)
-            quotes.setdefault(latest.book, float(latest.odds))
-            include = await _coverage_pack(session, str(ctx["sport"]))
-            bankroll = float(sub.params.get("bankroll", 100.0))
-            kelly = _kelly_stake(float(pred.prob), float(latest.odds), bankroll)
-            message = (
-                f":moneybag: Model Edge — {_sport_label(ctx['sport'])} — {ctx['event']}\n"
-                f"{latest.book} · Selection: **{ctx['selection']}** · Market: {pred.market}\n"
-                f"Model probability {float(pred.prob):.0%} at odds {float(latest.odds):.2f} "
-                f"· Edge +{edge:.1f} percent\n"
-                f"Suggested stake {_fmt_money(kelly)} of {_fmt_money(bankroll)} bankroll"
-                + _format_board(quotes, ["Pinnacle", "Betfair"], include)
-            )
-            payload = {
-                "edge_pct": round(edge, 2), "prob": float(pred.prob),
-                "min_edge_pct": min_edge, "provider": latest.provider,
-                "book": latest.book, "event_external_id": pred.event_external_id,
-                "market": pred.market, "selection": pred.selection,
-            }
-            if await _fire(session, sub, kind="value", key=key, message=message,
-                           payload=payload, pusher=pusher):
-                fired += 1
-        elif previously is not None and previously.payload.get("edge_pct", 0) > 0:
-            display = (await _event_display_name(session, pred.event_external_id)
-                       or pred.event_external_id)
-            message = (
-                f":hourglass: Edge Gone — {display}\n"
-                f"Market: {pred.market} · Selection: {pred.selection} — the edge "
-                f"is now +{edge:.1f} percent, under the {min_edge:g} percent floor"
-            )
-            if await _fire(session, sub, kind="value_vanished", key=f"vanished:{base_key}",
-                           message=message, payload={"edge_pct": round(edge, 2)},
-                           pusher=pusher):
-                fired += 1
+        if not live:
+            if previously is not None and previously.payload.get("edge_pct", 0) > 0:
+                display = (await _event_display_name(session, event_id) or event_id)
+                best = max(e["edge"] for e in entries)
+                message = (
+                    f":hourglass: Edge Gone — {display}\n"
+                    f"Market: {market} — the best edge is now +{best:.1f} percent, "
+                    f"under the {min_edge:g} percent floor"
+                )
+                if await _fire(session, sub, kind="value_vanished",
+                               key=f"vanished:{base_key}", message=message,
+                               payload={"edge_pct": round(best, 2)}, pusher=pusher):
+                    fired += 1
+            continue
+        top = live[0]
+        ctx = await _context(session, top["row"])
+        if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
+            continue  # recorded fairs do not know the live score
+        quotes = await _cross_book_quotes(session, top["row"])
+        for e in live:
+            quotes.setdefault(e["row"].book, float(e["row"].odds))
+        include = await _coverage_pack(session, str(ctx["sport"]))
+        lines = []
+        for e in live[:4]:
+            prob = float(e["pred"].prob)
+            kelly = _kelly_stake(prob, float(e["row"].odds), bankroll)
+            lines.append(
+                f"**{e['pred'].selection}**: {e['row'].book} {float(e['row'].odds):.2f} "
+                f"· model {prob:.0%} (fair {1.0 / prob:.2f}) · edge +{e['edge']:.1f} "
+                f"percent · stake {_fmt_money(kelly)}")
+        if len(live) > 4:
+            lines.append(f"…and {len(live) - 4} more selections with edge")
+        jump = ""
+        if ctx.get("start_time") and not _started(ctx["start_time"]):
+            jump = f" · Starts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
+        message = (
+            f":moneybag: Model Edge — {_sport_label(ctx['sport'])} — {ctx['event']}\n"
+            f"Market: {market} · Edge +{top['edge']:.1f} percent · "
+            f"{_fmt_money(bankroll)} bankroll{jump}\n"
+            + "\n".join(lines)
+            + _format_board(quotes, ["Pinnacle", "Betfair"], include)
+        )
+        band = int(max(top["edge"], 0.0) / 2.0)  # re-fire each +2% the edge grows
+        payload = {
+            # top-of-story fields keep the outcome re-measurement loop working
+            "edge_pct": round(top["edge"], 2), "prob": float(top["pred"].prob),
+            "min_edge_pct": min_edge, "provider": top["row"].provider,
+            "book": top["row"].book, "event_external_id": event_id,
+            "market": market, "selection": top["pred"].selection,
+            "selections": [{"selection": e["pred"].selection, "book": e["row"].book,
+                            "odds": float(e["row"].odds),
+                            "edge_pct": round(e["edge"], 2)} for e in live[:12]],
+        }
+        if await _fire(session, sub, kind="value", key=f"{base_key}:{band}",
+                       message=message, payload=payload, pusher=pusher):
+            fired += 1
     return fired
 
 
@@ -2093,7 +2135,7 @@ async def run_watches(
                     else:
                         fired = await _watch_steam(session, sub, rows, push)
                 elif sub.kind == "value":
-                    fired = await _watch_value(session, sub, push)
+                    fired = await _watch_value(session, sub, push, now=now)
                 elif sub.kind == "scratching":
                     fired = await _watch_scratching(session, sub, push)
                 elif sub.kind == "racing_value":

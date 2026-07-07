@@ -212,7 +212,8 @@ def test_feed_registry_is_discovery_driven() -> None:
     hot = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
            "pointsbet_all", "betr_all", "dabble_all", "betfair_all", "fanduel_us",
            "fanduel_racing_win"}
-    books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books", "pointsbet_books"}
+    books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books",
+             "pointsbet_books", "entain_books", "betr_books"}
     racing = {"tab_racing", "sportsbet_racing", "betr_racing", "entain_racing", "pointsbet_racing", "unibet_racing"}
     futures = {"tab_racing_futures", "sportsbet_racing_futures",
                "pointsbet_racing_futures", "unibet_racing_futures"}
@@ -1306,3 +1307,72 @@ def test_entain_races_drop_novelty_pseudo_runners() -> None:
     }]}
     points = normalize_entain_races(payload)
     assert [p.meta["runner"] for p in points] == ["Boat Race"]
+
+
+def test_normalize_entain_books_cards_carry_full_boards() -> None:
+    """The event-card route returns the same table shapes as the bulk call —
+    one card per event, EVERY market on it (the bulk call inlines only the
+    featured market; the books feed exists to capture the rest)."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_entain_books
+
+    card = {
+        "events": {"ev1": {"id": "ev1", "name": "New York Liberty vs Dallas Wings",
+                           "match_status": "BettingOpen"}},
+        "markets": {
+            "m1": {"event_id": "ev1", "name": "Head To Head"},
+            "m2": {"event_id": "ev1", "name": "Total"},
+        },
+        "entrants": {
+            "e1": {"market_id": "m1", "name": "New York Liberty"},
+            "e2": {"market_id": "m1", "name": "Dallas Wings"},
+            "e3": {"market_id": "m2", "name": "Over 158.5"},
+            "e4": {"market_id": "m2", "name": "Under 158.5"},
+        },
+        "prices": {
+            "e1:fixed:": {"odds": {"numerator": 3, "denominator": 4}},
+            "e2:fixed:": {"odds": {"numerator": 6, "denominator": 5}},
+            "e3:fixed:": {"odds": {"numerator": 9, "denominator": 10}},
+            "e4:fixed:": {"odds": {"numerator": 9, "denominator": 10}},
+        },
+    }
+    points = normalize_entain_books({"cards": [{"sport": "basketball", "payload": card}]})
+    assert len(points) == 4
+    markets = {p.market for p in points}
+    assert len(markets) == 2  # both boards captured, not just the featured one
+    h2h = next(p for p in points if p.selection == "home")
+    assert h2h.book == "Ladbrokes" and h2h.odds == 1.75
+
+
+def test_normalize_betr_books_reads_master_event_groups() -> None:
+    """BetR /MasterEvent cards (one market group per call): Events[].Outcomes[]
+    rows become PricePoints with the row's own market name and Points line."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_betr_books
+
+    def card(events):
+        return {"MasterEvent": {"MasterEventId": 2118864,
+                                "MasterEventName": "Milwaukee Brewers @ St. Louis Cardinals",
+                                "MinAdvertisedStartTime": "2026-07-08T00:15:00Z"},
+                "Events": events,
+                "GroupLinks": [{"GroupTypeCode": "G26", "GroupName": "Total Markets"}]}
+
+    popular = card([{"EventId": 1, "EventName": "Money Line (Milwaukee Brewers @ St. Louis Cardinals)",
+                     "Outcomes": [
+                         {"EventName": "Money Line", "OutcomeName": "St. Louis Cardinals",
+                          "Price": 2.55, "MarketDesc": "Win", "Points": 0.0, "IsOpenForBetting": True},
+                         {"EventName": "Money Line", "OutcomeName": "Milwaukee Brewers",
+                          "Price": 1.51, "MarketDesc": "Win", "Points": 0.0, "IsOpenForBetting": True},
+                     ]}])
+    totals = card([{"EventId": 2, "EventName": "Total Runs Over/Under +6.5 (Milwaukee Brewers @ St. Louis Cardinals)",
+                    "Outcomes": [
+                        {"EventName": "Total Runs Over/Under", "OutcomeName": "Over",
+                         "Price": 1.36, "MarketDesc": "Over", "Points": 6.5, "IsOpenForBetting": True},
+                        {"EventName": "Total Runs Over/Under", "OutcomeName": "Under",
+                         "Price": 3.10, "MarketDesc": "Under", "Points": 6.5, "IsOpenForBetting": True},
+                    ]}])
+    points = normalize_betr_books({"events": [{"sport": "baseball", "cards": [popular, totals]}]})
+    assert len(points) == 4
+    assert all(p.book == "BetR" and p.event_external_id == "2118864" for p in points)
+    h2h = [p for p in points if p.market == "h2h"]  # canonical_market folds Money Line
+    assert {p.selection for p in h2h} == {"home", "away"}  # sides from the fixture name
+    over = next(p for p in points if p.selection.startswith("over"))
+    assert over.selection == "over 6.5" and over.odds == 1.36

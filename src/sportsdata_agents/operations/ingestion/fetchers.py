@@ -8,6 +8,7 @@ and are isolated per-feed.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from typing import Any
@@ -283,6 +284,105 @@ async def fetch_entain_all(manager: Any) -> dict[str, Any]:
         except Exception as e:
             logger.warning("entain category %s failed: %s", sport, e)
     return {"categories": out}
+
+
+# BetR's board is one market GROUP per /MasterEvent call (plus GroupLinks
+# naming the rest) — ~5 calls per event, so its own smaller event cap
+BETR_BOOKS_EVENTS = 20
+
+
+async def fetch_betr_books(manager: Any) -> dict[str, Any]:
+    """BetR full boards: the master-category listing carries only headline
+    outcomes (the warehouse read 1.1 markets/event); /MasterEvent returns a
+    market GROUP per call with GroupLinks naming the others (totals, lines,
+    race-to, periods). Soonest upcoming matches first, every linked group."""
+    listing = await manager.call_tool("betr_event_types", {})
+    types: list[tuple[int, str]] = []
+    for entry in (listing.get("Items") or []) if isinstance(listing, dict) else []:
+        if entry.get("EventTypeId") is None or not entry.get("IsEventExist"):
+            continue
+        if entry.get("MasterEventTypeId") != 2:
+            continue  # racing rides the dedicated racing feeds
+        types.append((int(entry["EventTypeId"]), _slug(str(entry.get("EventTypeDesc") or "?"))))
+    candidates: list[tuple[str, str, int]] = []  # (start, sport, master_event_id)
+    for type_id, sport in _take_rotating("betr_books_types", types, 6):
+        try:
+            payload = await manager.call_tool("betr_master_category", {"EventTypeId": type_id})
+        except Exception as e:
+            logger.warning("betr books type %s failed: %s", type_id, e)
+            continue
+        for master_cat in (payload.get("MasterCategories") or []) if isinstance(payload, dict) else []:
+            for category in master_cat.get("Categories", []) or []:
+                for event in category.get("MasterEvents", []) or []:
+                    if event.get("MasterEventClassName") != "Match":
+                        continue  # futures boards are one market deep already
+                    if event.get("IsLive") or event.get("MasterEventId") is None:
+                        continue
+                    candidates.append((str(event.get("MinAdvertisedStartTime") or "9999"),
+                                       sport, int(event["MasterEventId"])))
+    candidates.sort()
+    out: list[dict[str, Any]] = []
+    for _start, sport, event_id in candidates[:BETR_BOOKS_EVENTS]:
+        try:
+            card = await manager.call_tool("betr_master_event", {"MasterEventId": event_id})
+        except Exception as e:
+            logger.warning("betr book %s failed: %s", event_id, e)
+            continue
+        cards = [card]
+        groups = [str(g.get("GroupTypeCode")) for g in (card.get("GroupLinks") or [])
+                  if g.get("GroupTypeCode")]
+        for code in groups[:5]:
+            try:
+                cards.append(await manager.call_tool(
+                    "betr_master_event",
+                    {"MasterEventId": event_id, "GroupTypeCode": code}))
+            except Exception as e:
+                logger.warning("betr book %s group %s failed: %s", event_id, code, e)
+        out.append({"sport": sport, "cards": cards})
+    return {"events": out}
+
+
+async def fetch_entain_books(manager: Any) -> dict[str, Any]:
+    """Entain full boards: the bulk event-request inlines only each event's
+    FEATURED market (the warehouse read 1.1 markets/event), while the
+    event-card route returns the COMPLETE board in the same table shapes.
+    Rotating categories → soonest open events whose market_count says there
+    is more than the bulk call showed → one card per event."""
+    try:
+        categories = await discover_entain_categories(manager)
+    except Exception as e:
+        logger.warning("entain category discovery failed (using fallback map): %s", e)
+        categories = {}
+    if not categories:
+        categories = dict(ENTAIN_SPORT_CATEGORIES)
+    window = _take_rotating("entain_books_cats", sorted(categories.items()), 8)
+    candidates: list[tuple[str, str, str]] = []  # (start, sport, event_id)
+    for sport, category_id in window:
+        try:
+            payload = await manager.call_tool(
+                "entain_sport_event_request", {"category_ids": [category_id]})
+        except Exception as e:
+            logger.warning("entain books category %s failed: %s", sport, e)
+            continue
+        for event_id, event in (payload.get("events") or {}).items():
+            if not isinstance(event, dict):
+                continue
+            if event.get("match_status") not in (None, "BettingOpen", "Open"):
+                continue
+            with contextlib.suppress(TypeError, ValueError):
+                if int(event.get("market_count") or 0) < 2:
+                    continue  # the bulk call already carries this board whole
+            candidates.append((str(event.get("advertised_start") or "9999"),
+                               sport, str(event_id)))
+    candidates.sort()
+    out: list[dict[str, Any]] = []
+    for _start, sport, event_id in candidates[:BOOKS_PER_CYCLE]:
+        try:
+            card = await manager.call_tool("entain_sport_event_card", {"id": event_id})
+            out.append({"sport": sport, "payload": card})
+        except Exception as e:
+            logger.warning("entain book %s failed: %s", event_id, e)
+    return {"cards": out}
 
 
 async def _pinnacle_pool(manager: Any, *, pre_match_only: bool) -> list[dict[str, Any]]:

@@ -133,11 +133,14 @@ def _odds_ok(value: Any) -> float | None:
 
 def _side_from_event_name(outcome_name: str, event_name: str) -> str | None:
     """home/away by matching the outcome against an "X v Y" / "X vs Y" event name
-    (BetR uses " v ", Entain " vs ")."""
-    sep = " vs " if " vs " in event_name else " v " if " v " in event_name else None
-    if sep is None:
-        return None
-    home, away = (part.strip() for part in event_name.split(sep, 1))
+    (BetR uses " v ", Entain " vs "); US fixtures read "AWAY @ HOME"."""
+    if " @ " in event_name:
+        away, home = (part.strip() for part in event_name.split(" @ ", 1))
+    else:
+        sep = " vs " if " vs " in event_name else " v " if " v " in event_name else None
+        if sep is None:
+            return None
+        home, away = (part.strip() for part in event_name.split(sep, 1))
     o = outcome_name.strip().lower()
     if o and (o == home.lower() or o in home.lower() or home.lower() in o):
         return "home"
@@ -186,6 +189,13 @@ _CANON_SPORT = {
     "fifa-world-cup": "soccer",
     "epl": "soccer",
     "mls": "soccer",
+    # Sportsbet nav slugs split one sport across region variants — fold them
+    # so packs, engine filters and subscriptions see ONE label per sport
+    "basketball_-_us": "basketball",
+    "basketball_-_aus/other": "basketball",
+    "ice_hockey_-_us": "ice_hockey",
+    "ufc_-_mma": "mma",
+    "e-sports": "esports",
 }
 # "football" is TWO sports: Kambi/Unibet mean soccer, the US books mean gridiron
 _CANON_FOOTBALL = {"unibet": "soccer", "pinnacle": "american_football"}
@@ -778,8 +788,58 @@ def normalize_unibet_all(payload: Any) -> list[PricePoint]:
 
 
 def normalize_entain_all(payload: Any) -> list[PricePoint]:
-    """Every Entain sport category (via fetch_entain_all) — full books per call."""
+    """Every Entain sport category (via fetch_entain_all) — the bulk call
+    inlines each event's FEATURED market; entain_books carries the rest."""
     return _normalize_grouped(payload, "categories", normalize_entain_events)
+
+
+def normalize_entain_books(payload: Any) -> list[PricePoint]:
+    """Entain event cards (via fetch_entain_books): the same table shapes as
+    the bulk event-request, one card per event — the full board."""
+    return _normalize_grouped(payload, "cards", normalize_entain_events)
+
+
+def normalize_betr_books(payload: Any) -> list[PricePoint]:
+    """BetR /MasterEvent cards (via fetch_betr_books): Events[].Outcomes[]
+    rows shaped like the category listing's Markets rows — one outcome per
+    row, market key from the row's EventName, Points as the line."""
+    if not isinstance(payload, dict):
+        return []
+    sink = _Sink()
+    for entry in payload.get("events", []) or []:
+        sport = str(entry.get("sport") or "?")
+        for card in entry.get("cards", []) or []:
+            if not isinstance(card, dict):
+                continue
+            master = card.get("MasterEvent") or {}
+            event_id = str(master.get("MasterEventId", ""))
+            event_name = str(master.get("MasterEventName") or "")
+            if not event_id:
+                continue
+            for event in card.get("Events", []) or []:
+                for row in event.get("Outcomes", []) or []:
+                    odds = _odds_ok(row.get("Price"))
+                    if odds is None or row.get("IsOpenForBetting") is False:
+                        continue
+                    raw_market = str(row.get("EventName") or event.get("EventName") or "?")
+                    if "(" in raw_market:
+                        raw_market = raw_market.split("(", 1)[0].strip()
+                    market_key = canonical_market(raw_market)
+                    desc = str(row.get("MarketDesc", "")).lower()
+                    if desc not in ("", "win"):
+                        market_key = f"{market_key} {desc}"
+                    side = _side_from_event_name(str(row.get("OutcomeName", "")), event_name)
+                    selection = (side or str(row.get("OutcomeName", "?")).lower()) + _line_suffix(
+                        row.get("Points")
+                    )
+                    sink.add(PricePoint(
+                        provider="betr", book="BetR", sport=sport,
+                        event_external_id=event_id, event_name=event_name,
+                        market=market_key, selection=selection, odds=odds,
+                        meta={"start_time": master.get("MinAdvertisedStartTime"),
+                              "team": row.get("OutcomeName")},
+                    ))
+    return sink.points
 
 
 def normalize_sportsbet_all(payload: Any) -> list[PricePoint]:
