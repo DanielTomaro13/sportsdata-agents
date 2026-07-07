@@ -362,6 +362,7 @@ async def scan_exchange_premium(
     min_matched: float = 1000.0,
     require_matched: bool = True,
     max_age_minutes: float = 20.0,
+    max_fair_odds: float = 10.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -387,10 +388,14 @@ async def scan_exchange_premium(
     fixtures, grouped = await collect_fixture_boards(
         session, hours=hours, markets=markets, max_fixtures=max_fixtures, now=now)
     found: list[dict[str, Any]] = []
+    from sportsdata_agents.operations.ingestion.coverage import fixture_covered
+
     for (fixture_id, market), rows in grouped.items():
         fixture = fixtures.get(fixture_id)
         if fixture is None or not _pre_game(fixture, now):
             continue
+        if not fixture_covered(fixture.sport, fixture.name):
+            continue  # tennis doubles etc. — outside the operator's coverage
         # BUCKET BY LINE: totals list several lines (over/under 165.5, 220.5, …)
         # under one (fixture, "total") group. De-vigging them together sums
         # inverses across lines (inv≈2.0 for two lines) and mangles every edge —
@@ -443,6 +448,9 @@ async def scan_exchange_premium(
             if back is None:
                 continue
             prob = (1.0 / back) / inv
+            if prob > 0 and 1.0 / prob > max_fair_odds:
+                continue  # longshot territory: proportional de-vig lies out
+                # here and a 15.0-vs-"fair"-12.9 gap is spread noise, not edge
             edge_pct = (float(row["odds"]) * prob - 1.0) * 100.0
             if edge_pct < min_edge_pct:
                 continue
@@ -478,6 +486,8 @@ async def scan_back_lay(
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
+    max_leg_gap_minutes: float = 10.0,
+    min_lead_minutes: float = 20.0,
     now: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Back at a book, LAY the same outcome on the exchange — a risk-free
@@ -490,17 +500,35 @@ async def scan_back_lay(
     simplified guaranteed profit ≈ B/L - 1 minus commission drag on the lay-
     win branch; we report the CONSERVATIVE branch (commission applied):
       profit_pct = min(B - (B/L)(L-1) - 1, (B/L)(1-c) - 1) x 100
-    Only fires when even the worse branch is positive."""
+    Only fires when even the worse branch is positive.
+
+    Guard rails (lived 2026-07-07): a tennis doubles match started EARLY
+    (listed starts are estimates), the exchange went in-play while the
+    books' backs sat 45 minutes stale, and four 20-26% "locked profits"
+    pushed. Both legs must now be seen within ``max_leg_gap_minutes`` of
+    each other, the listed start must be ``min_lead_minutes`` out, and
+    fixtures outside the operator's coverage (tennis doubles) never alert."""
+    from sportsdata_agents.operations.ingestion.coverage import fixture_covered
+
     now = now or dt.datetime.now(dt.UTC)
     fixtures, grouped = await collect_fixture_boards(
         session, hours=hours, markets=markets, max_fixtures=max_fixtures, now=now)
     c = commission_pct / 100.0
+    lead = dt.timedelta(minutes=min_lead_minutes)
+    leg_gap = dt.timedelta(minutes=max_leg_gap_minutes)
     found: list[dict[str, Any]] = []
     for (fixture_id, market), rows in grouped.items():
         fixture = fixtures.get(fixture_id)
         if fixture is None or not _pre_game(fixture, now):
             continue
-        lays: dict[str, tuple[float, float]] = {}  # outcome -> (lay odds, matched)
+        if fixture.start_time is not None:
+            start = (fixture.start_time if fixture.start_time.tzinfo
+                     else fixture.start_time.replace(tzinfo=dt.UTC))
+            if start < now + lead:
+                continue  # listed starts are estimates; too close is as bad as live
+        if not fixture_covered(fixture.sport, fixture.name):
+            continue  # tennis doubles etc. — the operator can't/won't bet these
+        lays: dict[str, tuple[float, float, Any]] = {}  # outcome -> (lay, matched, seen)
         backs: list[dict[str, Any]] = []
         for row in rows:
             outcome = _canonical_outcome(str(row["selection"]), str(row["event_name"]),
@@ -509,17 +537,26 @@ async def scan_back_lay(
                 continue
             if row["book"] == exchange_book:
                 if row.get("lay") and (row.get("matched") or 0.0) >= min_matched:
-                    lays[outcome] = (float(row["lay"]), float(row.get("matched") or 0.0))
+                    lays[outcome] = (float(row["lay"]),
+                                     float(row.get("matched") or 0.0),
+                                     row.get("seen"))
             else:
                 backs.append({**row, "outcome": outcome})
         for row in backs:
             hit = lays.get(row["outcome"])
             if hit is None:
                 continue
-            lay_odds, matched = hit
+            lay_odds, matched, lay_seen = hit
             back = float(row["odds"])
             if lay_odds < 1.01 or back <= lay_odds:
                 continue  # no gap — the normal state of an efficient market
+            back_seen = row.get("seen")
+            if back_seen is None or lay_seen is None:
+                continue  # unverifiable freshness is stale by assumption
+            back_aware = back_seen if back_seen.tzinfo else back_seen.replace(tzinfo=dt.UTC)
+            lay_aware = lay_seen if lay_seen.tzinfo else lay_seen.replace(tzinfo=dt.UTC)
+            if abs(back_aware - lay_aware) > leg_gap:
+                continue  # one stale leg manufactures the whole "margin"
             lay_stake = back / lay_odds
             win_branch = (back - 1.0) - lay_stake * (lay_odds - 1.0)
             lose_branch = lay_stake * (1.0 - c) - 1.0
