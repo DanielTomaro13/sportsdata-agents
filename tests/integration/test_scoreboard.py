@@ -162,7 +162,63 @@ async def test_arbs_report_locked_profit_only_when_still_takeable(
         report = await alert_pnl(s, since=NOW - dt.timedelta(days=7), until=NOW)
     arbs = report["arbs"]
     assert arbs["fired"] == 2 and arbs["still_takeable"] == 1
-    assert arbs["locked_profit"] == pytest.approx(100 * (1 / 0.9524 - 1), abs=0.01)
+    # credited at the RE-MEASURED margin (4.0%), not the fire-time 5.0%
+    assert arbs["locked_profit"] == pytest.approx(4.0, abs=0.01)
     # the vanished arb contributes NOTHING — not a loss, just untakeable
     text = format_scoreboard(report)
     assert "1 still takeable" in text
+
+
+async def test_model_value_settles_totals_and_lines_against_scores(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """model_value/value grade h2h, totals and lines from the result SCORE at
+    a flat $1, frame-translated onto the fixture, with closing-line value."""
+    from sportsdata_agents.data.models import Price
+
+    async with db_sessionmaker() as s:
+        sub = await _sub(s)
+        fx = Fixture(sport="baseball", external_id="fx-1",
+                     name="Miami Marlins v Seattle Mariners",
+                     start_time=NOW - dt.timedelta(days=1, hours=-2))
+        s.add(fx)
+        await s.flush()
+        s.add(Event(fixture_id=fx.id, provider="unibet", external_id="U-9"))
+        # result lists the teams the OTHER way round: score must swap frames
+        s.add(Event(fixture_id=fx.id, provider="mlb_api", external_id="M-9"))
+        s.add(EventResult(provider="mlb_api", sport="baseball",
+                          event_external_id="M-9", winning_selection="home",
+                          meta={"event_name": "Seattle Mariners v Miami Marlins",
+                                "score": "5-3"}))
+        # fixture frame: Marlins 3, Mariners 5 -> total 8, home margin -2
+        # over 7.5 at 1.86: WIN (+0.86 flat)
+        s.add(_alert(sub, "model_value", "mv1", {
+            "market": "total", "sport": "baseball", "event_key": str(fx.id),
+            "book": "Unibet", "event_external_id": "U-9", "edge_pct": 7.0,
+            "candidates": [{"market": "total", "selection": "over", "line": 7.5,
+                            "odds": 1.86, "model_prob": 0.58, "book": "Unibet",
+                            "event_id": "U-9"}]}))
+        # home -1.5 at 1.90: LOSS (-1.00) — home lost by 2
+        s.add(_alert(sub, "value", "v1", {
+            "prob": 0.6, "provider": "Unibet", "book": "Unibet",
+            "event_external_id": "U-9", "market": "line",
+            "selection": "home -1.5", "odds": 1.90, "edge_pct": 14.0}))
+        # closing price for the total: shortened to 1.80 after the alert
+        s.add(Price(changed_at=fx.start_time - dt.timedelta(minutes=5),
+                    provider="unibet", book="Unibet", sport="baseball",
+                    event_external_id="U-9", market="total",
+                    selection="over 7.5", odds=1.80))
+        await s.commit()
+    async with db_sessionmaker() as s:
+        report = await alert_pnl(s, since=NOW - dt.timedelta(days=7), until=NOW)
+    mv = report["flat"]["model_value"]
+    assert mv["fired"] == 1 and mv["settled"] == 1 and mv["wins"] == 1
+    assert mv["pnl"] == pytest.approx(0.86)
+    # CLV: alerted 1.86 vs closing 1.80 -> +3.33%
+    assert mv["clv_n"] == 1
+    assert mv["clv_mean_pct"] == pytest.approx(3.33, abs=0.01)
+    v = report["flat"]["value"]
+    assert v["fired"] == 1 and v["settled"] == 1 and v["wins"] == 0
+    assert v["pnl"] == pytest.approx(-1.0)
+    text = format_scoreboard(report)
+    assert "Model value (calibrated)" in text and "CLV" in text

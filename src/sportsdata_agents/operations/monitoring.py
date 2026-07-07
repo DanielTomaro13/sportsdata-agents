@@ -1030,40 +1030,55 @@ async def _watch_value(
     predictions = (await session.execute(stmt)).scalars().all()
     # newest prediction per (event, market, selection) — the slate re-records
     # every pass, and yesterday's probability is not an opinion on today's price
-    newest: dict[tuple[str, str, str], Prediction] = {}
+    newest: dict[tuple[str, str, str, str], Prediction] = {}
     for pred in predictions:
-        newest.setdefault((pred.event_external_id, pred.market, pred.selection), pred)
+        newest.setdefault((pred.provider, pred.event_external_id,
+                           pred.market, pred.selection), pred)
     # batched lookup PER EVENT for the latest price per key — a query per
     # KEY wedged the pass once a big model family was in scope, and a
     # tuple-IN over thousands of keys sequential-scans the whole prices
     # table (no composite index); per-event queries ride the event index
     # and events number in the dozens
-    latest_by_key: dict[tuple[str, str, str], Price] = {}
-    for event_id in {k[0] for k in newest}:
+    # PROVIDER-SCOPED: numeric event ids collide across feeds (Sportsbet,
+    # Unibet and BetR all mint 7-8 digit ints) — an unscoped lookup can pair
+    # a prediction with another feed's game. Predictions carry the BOOK
+    # label; price rows carry both the label and the feed.
+    latest_by_key: dict[tuple[str, str, str, str], Price] = {}
+    feed_of: dict[str, str] = {}  # event id -> its own feed, per price rows
+    scopes = {(k[0], k[1]) for k in newest}
+    for book_label, event_id in scopes:
+        stmt = select(Price).where(
+            Price.event_external_id == event_id,
+            Price.changed_at > now - dt.timedelta(hours=48),
+        )
+        if book_label:
+            # prediction writers stamp either the BOOK label ("Pinnacle",
+            # the slates) or the FEED ("nba_cdn", calibrations) — accept both
+            stmt = stmt.where(or_(Price.book == book_label,
+                                  Price.provider == book_label))
         rows = (await session.execute(
-            select(Price).where(
-                Price.event_external_id == event_id,
-                Price.changed_at > now - dt.timedelta(hours=48),
-            ).order_by(Price.changed_at.desc())
-        )).scalars().all()
+            stmt.order_by(Price.changed_at.desc()))).scalars().all()
         for row in rows:
+            feed_of.setdefault(row.event_external_id, row.provider)
             latest_by_key.setdefault(
-                (row.event_external_id, row.market, row.selection), row)
+                (book_label, row.event_external_id, row.market, row.selection),
+                row)
     # fold sibling events onto their FIXTURE so one game is ONE story — the
     # slates record predictions against several books' event ids, and
     # event-keyed stories alerted the same match once per book (lived:
     # Fremantle v Sydney pushed twice, TAB-keyed and Pinnacle-keyed)
     fixture_of: dict[str, str] = {}
-    pred_event_ids = {k[0] for k in newest}
+    pred_event_ids = {k[1] for k in newest}
     if pred_event_ids:
         for ev in (await session.execute(
                 select(Event).where(Event.external_id.in_(pred_event_ids))
         )).scalars():
-            if ev.fixture_id is not None:
+            feed = feed_of.get(ev.external_id)
+            if ev.fixture_id is not None and feed in (None, ev.provider):
                 fixture_of.setdefault(ev.external_id, str(ev.fixture_id))
     stories: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for (event_id, market, _sel), pred in newest.items():
-        latest = latest_by_key.get((event_id, market, _sel))
+    for (book_label, event_id, market, _sel), pred in newest.items():
+        latest = latest_by_key.get((book_label, event_id, market, _sel))
         if latest is None or not _match(latest, sub.params):
             continue
         edge = (float(pred.prob) * float(latest.odds) - 1.0) * 100.0

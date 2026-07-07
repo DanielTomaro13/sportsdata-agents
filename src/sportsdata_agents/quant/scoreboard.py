@@ -16,13 +16,24 @@ kelly_stake/bankroll), and racing alerts carry their settlement keys
 - ``prediction_value`` — settled against Kalshi/Polymarket resolutions
   (the nightly results run records the resolved outcome label per event):
   win when the backed outcome is the resolved winner.
-- ``exchange_value`` / ``model_value`` — h2h outcomes settle against the
-  fixture's recorded winner, translated between the result book's listing
-  order and the fixture's (the backtester's rule); totals and derivative
-  markets stay pending until Phase B's score-based settlement.
+- ``exchange_value`` — h2h outcomes settle against the fixture's recorded
+  winner, translated between the result book's listing order and the
+  fixture's (the backtester's rule).
+- ``model_value`` / ``value`` — h2h, totals and lines settle against the
+  result's SCORE ("H-A" in the result meta, frame-translated onto the
+  fixture): a total is the sum, a line is the margin, a landed line is a
+  push. Graded at a FLAT $1 stake — the proving verdict reads hit-rate and
+  flat-stake ROI, not compounding Kelly fictions.
+- ``bsp_value`` — racing form edges settle exactly like racing_value
+  (winner = saddle number through the fixture join).
 - ``stat_value`` — needs player-stat actuals (no results source yet);
   counted, and the report SAYS so — a scoreboard that quietly skips
   losses is a lie.
+
+Settled sports alerts also get CLOSING-LINE VALUE: the last recorded price
+change before the fixture's start for the same (book, market, selection),
+CLV% = alert price / closing price - 1. CLV converges to truth in dozens
+of samples where P&L needs hundreds.
 """
 
 from __future__ import annotations
@@ -35,9 +46,101 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sportsdata_agents.data.models import Alert, Event, EventResult, Fixture
+from sportsdata_agents.data.models import Alert, Event, EventResult, Fixture, Price
 
 __all__ = ["alert_pnl", "format_scoreboard"]
+
+
+def _grade(market: str, selection: str, line: float | None,
+           home: int, away: int) -> str | None:
+    """win/loss/push for a normalised sports selection against a final score;
+    None when the market shape isn't gradable from a score."""
+    if market == "h2h":
+        winner = ("home" if home > away else "away" if away > home else "draw")
+        if selection == winner:
+            return "win"
+        return "push" if winner == "draw" and selection in ("home", "away") else "loss"
+    if line is None:
+        return None
+    if market == "total":
+        total = float(home + away)
+        if total == line:
+            return "push"
+        over = total > line
+        return "win" if (selection == "over") == over else "loss"
+    if market == "line" and selection in ("home", "away"):
+        side_margin = float(home - away) if selection == "home" else float(away - home)
+        landed = side_margin + line
+        if landed == 0:
+            return "push"
+        return "win" if landed > 0 else "loss"
+    return None
+
+
+async def _fixture_scores(
+    session: AsyncSession, fixture_ids: set[Any]
+) -> dict[Any, tuple[int, int]]:
+    """Final scores per fixture, translated into the FIXTURE's home/away frame
+    (a result book listing the teams the other way round swaps the score)."""
+    import re as _re
+
+    from sportsdata_agents.quant.backtest import _translate_side
+
+    if not fixture_ids:
+        return {}
+    fixtures = {f.id: f for f in (await session.execute(
+        select(Fixture).where(Fixture.id.in_(fixture_ids)))).scalars().all()}
+    siblings = (await session.execute(
+        select(Event).where(Event.fixture_id.in_(fixture_ids)))).scalars().all()
+    by_ext: dict[str, list[Any]] = {}
+    for s in siblings:
+        by_ext.setdefault(s.external_id, []).append(s)
+    scores: dict[Any, tuple[int, int]] = {}
+    if not by_ext:
+        return scores
+    score_re = _re.compile(r"^(\d+)\s*-\s*(\d+)$")
+    rows = (await session.execute(
+        select(EventResult).where(
+            EventResult.event_external_id.in_(set(by_ext))))).scalars().all()
+    for r in rows:
+        meta = r.meta or {}
+        match = score_re.match(str(meta.get("score") or "").strip())
+        result_name = str(meta.get("event_name") or "")
+        if not match or not result_name:
+            continue
+        h, a = int(match.group(1)), int(match.group(2))
+        for s in by_ext.get(r.event_external_id, []):
+            if s.provider != r.provider or s.fixture_id in scores:
+                continue
+            fx = fixtures.get(s.fixture_id)
+            if fx is None:
+                continue
+            translated = _translate_side("home", fx.name, result_name)
+            if translated == "home":
+                scores[s.fixture_id] = (h, a)
+            elif translated == "away":
+                scores[s.fixture_id] = (a, h)
+    return scores
+
+
+async def _closing_odds(
+    session: AsyncSession, *, book: str, event_id: str, market: str,
+    selection: str, start: dt.datetime | None,
+) -> float | None:
+    """The last recorded price CHANGE before the start — the closing line.
+    None when the start is unknown or nothing was recorded pre-start."""
+    if start is None:
+        return None
+    row = (await session.execute(
+        select(Price.odds).where(
+            Price.event_external_id == event_id,
+            Price.book == book,
+            Price.market == market,
+            Price.selection == selection,
+            Price.changed_at <= start,
+        ).order_by(Price.changed_at.desc()).limit(1)
+    )).scalar()
+    return float(row) if row is not None else None
 
 
 async def alert_pnl(
@@ -55,10 +158,20 @@ async def alert_pnl(
               "staked": 0.0, "pnl": 0.0}
     arbs = {"fired": 0, "measured": 0, "still_takeable": 0, "locked_profit": 0.0}
     value = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
-             "staked": 0.0, "pnl": 0.0}  # prediction + exchange/model h2h
+             "staked": 0.0, "pnl": 0.0}  # prediction + exchange h2h
+    # flat-$1 graded sections: hit-rate + flat-stake ROI + CLV per kind
+    def _flat() -> dict[str, Any]:
+        return {"fired": 0, "settled": 0, "wins": 0, "pushes": 0, "pending": 0,
+                "staked": 0.0, "pnl": 0.0, "clv_n": 0, "clv_sum": 0.0}
+    flat: dict[str, dict[str, Any]] = {"model_value": _flat(), "value": _flat()}
+    bsp = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
+           "staked": 0.0, "pnl": 0.0}
     other: dict[str, dict[str, int]] = {}
     racing_buckets = {"thin": {"settled": 0, "staked": 0.0, "pnl": 0.0},
-                      "liquid": {"settled": 0, "staked": 0.0, "pnl": 0.0}}
+                      "liquid": {"settled": 0, "staked": 0.0, "pnl": 0.0},
+                      # no Betfair depth stamped at all (consensus alerts) —
+                      # binning them "thin" skewed the tuning advice
+                      "no_exchange": {"settled": 0, "staked": 0.0, "pnl": 0.0}}
 
     # Results are recorded under ONE provider's race ids while alerts carry
     # the FLAGGED book's — a direct (provider, event) lookup would leave most
@@ -67,7 +180,7 @@ async def alert_pnl(
     # pattern the backtester settles predictions with).
     keys = {(str((a.payload or {}).get("provider", "")),
              str((a.payload or {}).get("event_external_id", "")))
-            for a in alerts if a.kind == "racing_value"}
+            for a in alerts if a.kind in ("racing_value", "bsp_value")}
     keys.discard(("", ""))
     results: dict[tuple[str, str], str] = {}
     fixture_by_key: dict[tuple[str, str], Any] = {}
@@ -124,6 +237,35 @@ async def alert_pnl(
         if a.kind == "exchange_value" and (a.payload or {}).get("fixture_id"):
             with contextlib.suppress(ValueError):
                 fixture_ids.add(uuid.UUID(str(a.payload["fixture_id"])))
+
+    # score-settled kinds: model_value carries its fixture in event_key;
+    # `value` alerts map through the events table
+    score_fixture_of: dict[str, Any] = {}  # alert id -> fixture uuid
+    value_event_ids = set()
+    for a in alerts:
+        pl = a.payload or {}
+        if a.kind == "model_value":
+            with contextlib.suppress(ValueError):
+                score_fixture_of[str(a.id)] = uuid.UUID(str(pl.get("event_key", "")))
+        elif a.kind == "value" and pl.get("event_external_id"):
+            value_event_ids.add(str(pl["event_external_id"]))
+    if value_event_ids:
+        for ev in (await session.execute(
+                select(Event).where(Event.external_id.in_(value_event_ids),
+                                    Event.fixture_id.is_not(None)))).scalars():
+            for a in alerts:
+                if (a.kind == "value" and str(a.id) not in score_fixture_of
+                        and str((a.payload or {}).get("event_external_id", ""))
+                        == ev.external_id):
+                    score_fixture_of[str(a.id)] = ev.fixture_id
+    score_fixtures = set(score_fixture_of.values())
+    scores = await _fixture_scores(session, score_fixtures)
+    fixture_start: dict[Any, dt.datetime | None] = {}
+    if score_fixtures:
+        for fid, start in (await session.execute(
+                select(Fixture.id, Fixture.start_time)
+                .where(Fixture.id.in_(score_fixtures)))).all():
+            fixture_start[fid] = start
     h2h_winner: dict[Any, str] = {}
     if fixture_ids:
         from sportsdata_agents.quant.backtest import _translate_side
@@ -165,25 +307,52 @@ async def alert_pnl(
             if winner is None:
                 winner = result_by_fixture.get(fixture_by_key.get(key))
             # a mis-merged fixture carrying a league-style winner ("home") must
-            # leave the alert pending, never grade it a loss
-            if not stake or number is None or winner is None or not winner.isdigit():
+            # leave the alert pending, never grade it a loss — and odds ≤ 1.0
+            # are a recording bug, not a price: pending, not a loss-sized win
+            odds = float(payload.get("odds", 0.0))
+            if (not stake or number is None or winner is None
+                    or not winner.isdigit() or odds <= 1.0):
                 racing["pending"] += 1
                 continue
             racing["settled"] += 1
             racing["staked"] += stake
-            thin = (payload.get("exchange_matched") or 0) < 1500
-            bucket_key = "thin" if thin else "liquid"
+            matched = payload.get("exchange_matched")
+            bucket_key = ("no_exchange" if matched is None
+                          else "thin" if float(matched) < 1500 else "liquid")
             b = racing_buckets[bucket_key]
             b["staked"] += stake
             if str(number) == winner:
                 racing["wins"] += 1
-                won = stake * (float(payload.get("odds", 0.0)) - 1.0)
+                won = stake * (odds - 1.0)
                 racing["pnl"] += won
                 b["pnl"] += won
             else:
                 racing["pnl"] -= stake
                 b["pnl"] -= stake
             b["settled"] += 1
+        elif alert.kind == "bsp_value":
+            bsp["fired"] += 1
+            runners = payload.get("runners") or []
+            top_runner = runners[0] if runners else {}
+            stake = float(top_runner.get("kelly_stake") or 0.0)
+            number = top_runner.get("number")
+            odds = float(top_runner.get("back") or 0.0)
+            key = (str(payload.get("provider", "")),
+                   str(payload.get("event_external_id", "")))
+            winner = results.get(key)
+            if winner is None:
+                winner = result_by_fixture.get(fixture_by_key.get(key))
+            if (not stake or number is None or winner is None
+                    or not str(winner).isdigit() or odds <= 1.0):
+                bsp["pending"] += 1
+                continue
+            bsp["settled"] += 1
+            bsp["staked"] += stake
+            if str(number) == str(winner):
+                bsp["wins"] += 1
+                bsp["pnl"] += stake * (odds - 1.0)
+            else:
+                bsp["pnl"] -= stake
         elif alert.kind == "arb":
             arbs["fired"] += 1
             # legacy alerts stored outcome as a plain string — dicts only here
@@ -193,10 +362,16 @@ async def alert_pnl(
                 arbs["measured"] += 1
                 if outcome.get("still_arb"):
                     arbs["still_takeable"] += 1
-                    inv = float(payload.get("sum_inverse") or 0.0)
                     bankroll = float(payload.get("bankroll") or 100.0)
-                    if inv > 0:
-                        arbs["locked_profit"] += bankroll * (1.0 / inv - 1.0)
+                    # credit the RE-MEASURED margin (what was still takeable
+                    # five minutes on), not the fire-time one
+                    margin_after = outcome.get("margin_pct_after")
+                    if margin_after is not None:
+                        arbs["locked_profit"] += bankroll * float(margin_after) / 100.0
+                    else:  # legacy alerts without a re-measured margin
+                        inv = float(payload.get("sum_inverse") or 0.0)
+                        if inv > 0:
+                            arbs["locked_profit"] += bankroll * (1.0 / inv - 1.0)
         elif alert.kind == "prediction_value":
             value["fired"] += 1
             stake = float(payload.get("kelly_stake") or 0.0)
@@ -233,7 +408,58 @@ async def alert_pnl(
                 value["pnl"] += stake * (float(payload.get("odds", 0.0)) - 1.0)
             else:
                 value["pnl"] -= stake
-        elif alert.kind in ("model_value", "stat_value", "value", "back_lay"):
+        elif alert.kind in ("model_value", "value"):
+            section = flat[alert.kind]
+            section["fired"] += 1
+            # normalise the alert's top selection to (market family, side, line)
+            if alert.kind == "model_value":
+                cands = payload.get("candidates") or []
+                top = cands[0] if cands else {}
+                market = str(payload.get("market", ""))
+                sel, ln = str(top.get("selection", "")), top.get("line")
+                odds = float(top.get("odds") or 0.0)
+                book = str(top.get("book", ""))
+                event_id = str(top.get("event_id", ""))
+                raw_market, raw_sel = market, sel  # normalised at record time
+                if ln is not None:
+                    raw_sel = f"{sel} {float(ln):g}"
+            else:
+                from sportsdata_agents.operations.monitoring import _market_family, _split_selection
+
+                raw_market = str(payload.get("market", ""))
+                raw_sel = str(payload.get("selection", ""))
+                market = _market_family(raw_market) or raw_market
+                sel, ln = _split_selection(raw_sel.lower())
+                odds = float(payload.get("odds") or 0.0)
+                book = str(payload.get("book", ""))
+                event_id = str(payload.get("event_external_id", ""))
+            fixture_id = score_fixture_of.get(str(alert.id))
+            score = scores.get(fixture_id)
+            if score is None or odds <= 1.0:
+                section["pending"] += 1
+                continue
+            line_val = float(ln) if ln is not None else None
+            graded = _grade(market, sel, line_val, score[0], score[1])
+            if graded is None:
+                section["pending"] += 1
+                continue
+            section["settled"] += 1
+            section["staked"] += 1.0  # flat $1: hit-rate + flat ROI, no Kelly
+            if graded == "win":
+                section["wins"] += 1
+                section["pnl"] += odds - 1.0
+            elif graded == "push":
+                section["pushes"] += 1
+                section["staked"] -= 1.0  # returned stake
+            else:
+                section["pnl"] -= 1.0
+            closing = await _closing_odds(
+                session, book=book, event_id=event_id, market=raw_market,
+                selection=raw_sel, start=fixture_start.get(fixture_id))
+            if closing is not None and closing > 1.0:
+                section["clv_n"] += 1
+                section["clv_sum"] += (odds / closing - 1.0) * 100.0
+        elif alert.kind in ("stat_value", "back_lay"):
             bucket = other.setdefault(alert.kind, {"fired": 0, "still_value": 0})
             bucket["fired"] += 1
             outcome = payload.get("outcome")
@@ -244,10 +470,17 @@ async def alert_pnl(
     racing["pnl"] = round(racing["pnl"], 2)
     value["staked"] = round(value["staked"], 2)
     value["pnl"] = round(value["pnl"], 2)
+    bsp["staked"] = round(bsp["staked"], 2)
+    bsp["pnl"] = round(bsp["pnl"], 2)
     arbs["locked_profit"] = round(arbs["locked_profit"], 2)
+    for section in flat.values():
+        section["staked"] = round(section["staked"], 2)
+        section["pnl"] = round(section["pnl"], 2)
+        section["clv_mean_pct"] = (round(section.pop("clv_sum") / section["clv_n"], 2)
+                                   if section["clv_n"] else None)
     report = {"since": since.isoformat(), "until": until.isoformat(),
-              "racing": racing, "arbs": arbs, "value": value, "other": other,
-              "racing_buckets": racing_buckets}
+              "racing": racing, "arbs": arbs, "value": value, "bsp": bsp,
+              "flat": flat, "other": other, "racing_buckets": racing_buckets}
     report["suggestions"] = tuning_suggestions(report)
     return report
 
@@ -283,6 +516,12 @@ def tuning_suggestions(report: dict[str, Any]) -> list[str]:
             out.append(f"prediction/exchange value ROI {roi:+.0f}% over "
                        f"{value['settled']} settled — consider raising "
                        "min_edge_pct or min_volume on those watches")
+    for kind, section in (report.get("flat") or {}).items():
+        clv = section.get("clv_mean_pct")
+        if (section.get("clv_n", 0) >= 20 and clv is not None and clv < 0.0):
+            out.append(f"{kind} mean CLV {clv:+.1f}% over {section['clv_n']} "
+                       "settled — the alerts are getting worse-than-closing "
+                       "prices; consider raising that watch's min_edge_pct")
     return out
 
 
@@ -312,6 +551,33 @@ def format_scoreboard(report: dict[str, Any]) -> str:
         )
     elif value.get("fired"):
         lines.append(f"Value (prediction/exchange): {value['fired']} fired, awaiting results")
+    bsp = report.get("bsp") or {}
+    if bsp.get("settled"):
+        roi = (bsp["pnl"] / bsp["staked"] * 100.0) if bsp["staked"] else 0.0
+        lines.append(
+            f"BSP/form value: {bsp['settled']} settled of {bsp['fired']} fired — "
+            f"{bsp['wins']} won · staked ${bsp['staked']:.2f} · "
+            f"P&L ${bsp['pnl']:+.2f} ({roi:+.1f}% ROI)"
+            + (f" · {bsp['pending']} pending" if bsp.get("pending") else ""))
+    elif bsp.get("fired"):
+        lines.append(f"BSP/form value: {bsp['fired']} fired, awaiting results")
+    labels = {"model_value": "Model value (calibrated)",
+              "value": "Model edges (stats/anchored)"}
+    for kind, section in (report.get("flat") or {}).items():
+        if section.get("settled"):
+            roi = (section["pnl"] / section["staked"] * 100.0
+                   if section["staked"] else 0.0)
+            clv = section.get("clv_mean_pct")
+            lines.append(
+                f"{labels.get(kind, kind)}: {section['settled']} settled of "
+                f"{section['fired']} fired — {section['wins']} won"
+                + (f", {section['pushes']} pushed" if section.get("pushes") else "")
+                + f" · flat-$1 P&L ${section['pnl']:+.2f} ({roi:+.1f}% ROI)"
+                + (f" · mean CLV {clv:+.1f}% over {section['clv_n']}"
+                   if clv is not None else ""))
+        elif section.get("fired"):
+            lines.append(f"{labels.get(kind, kind)}: {section['fired']} fired, "
+                         "awaiting results")
     if arbs["fired"]:
         lines.append(
             f"Arbs: {arbs['fired']} fired · {arbs['still_takeable']} still takeable "
@@ -324,7 +590,8 @@ def format_scoreboard(report: dict[str, Any]) -> str:
         lines.append("No alerts fired this period.")
     for tip in report.get("suggestions") or []:
         lines.append(f":wrench: {tip}")
-    lines.append("_Kelly stakes as printed; racing, prediction and exchange h2h "
-                 "settle against recorded results; stat/model derivatives join "
-                 "with Phase B's score-based settlement._")
+    lines.append("_Racing/BSP and prediction settle at printed Kelly; model "
+                 "value and stats edges settle at flat $1 against final "
+                 "scores (h2h, totals, lines; pushes returned) with mean "
+                 "closing-line value; stat_value awaits player actuals._")
     return "\n".join(lines)

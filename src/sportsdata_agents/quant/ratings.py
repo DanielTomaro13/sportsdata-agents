@@ -162,15 +162,20 @@ async def _fit_footy(
             for pool, results in pools.items() if len(results) >= MIN_RESULTS}
 
 
-async def _market_main_total(session: AsyncSession, event_id: str) -> float | None:
+async def _market_main_total(
+    session: AsyncSession, event_id: str, provider: str | None = None
+) -> float | None:
     """The market's most balanced total line for an event — the sanity anchor
-    the ratings totals are held against. None when no paired total exists."""
+    the ratings totals are held against. None when no paired total exists.
+    Provider-scoped: numeric event ids collide across feeds."""
     from sportsdata_agents.data.models import Price
     from sportsdata_agents.operations.monitoring import _market_family, _split_selection
 
+    stmt = select(Price).where(Price.event_external_id == event_id)
+    if provider:
+        stmt = stmt.where(Price.provider == provider)
     rows = (await session.execute(
-        select(Price).where(Price.event_external_id == event_id)
-        .order_by(Price.changed_at.desc()).limit(400)
+        stmt.order_by(Price.changed_at.desc()).limit(400)
     )).scalars().all()
     totals: dict[float, dict[str, float]] = {}
     seen: set[tuple[str, str]] = set()
@@ -189,16 +194,21 @@ async def _market_main_total(session: AsyncSession, event_id: str) -> float | No
     return min(paired, key=lambda ln: abs(1.0 / paired[ln]["over"] - 1.0 / paired[ln]["under"]))
 
 
-async def _market_h2h_prob(session: AsyncSession, event_id: str) -> float | None:
+async def _market_h2h_prob(
+    session: AsyncSession, event_id: str, provider: str | None = None
+) -> float | None:
     """The market's de-vigged HOME win probability from the freshest full
     h2h — the sanity anchor the ratings h2h fairs are held against. None
-    when no complete h2h market exists."""
+    when no complete h2h market exists. Provider-scoped: numeric event ids
+    collide across feeds."""
     from sportsdata_agents.data.models import Price
     from sportsdata_agents.operations.monitoring import _market_family, _split_selection
 
+    stmt = select(Price).where(Price.event_external_id == event_id)
+    if provider:
+        stmt = stmt.where(Price.provider == provider)
     rows = (await session.execute(
-        select(Price).where(Price.event_external_id == event_id)
-        .order_by(Price.changed_at.desc()).limit(400)
+        stmt.order_by(Price.changed_at.desc()).limit(400)
     )).scalars().all()
     by_market: dict[str, dict[str, float]] = {}
     seen: set[tuple[str, str]] = set()
@@ -344,7 +354,7 @@ async def record_ratings_slate(
         if not pools:
             continue  # not enough scored results yet — accrues daily
         module = importlib.import_module(f"sportsdata_engines.{sport}")
-        for _provider, book, event_id, event_name in await _upcoming_events(
+        for provider, book, event_id, event_name in await _upcoming_events(
                 session, labels, now, horizon_hours):
             if events_priced >= max_events:
                 break
@@ -379,7 +389,7 @@ async def record_ratings_slate(
             # games of history and fit wild ratings (lived: QLD v NSW read a
             # 61.7 fair total against the market's 34.5). No fair beats a
             # garbage fair.
-            market_total = await _market_main_total(session, event_id)
+            market_total = await _market_main_total(session, event_id, provider)
             if (market_total is not None
                     and abs(float(total) - market_total) > 0.2 * market_total):
                 skipped_sanity += 1
@@ -410,7 +420,7 @@ async def record_ratings_slate(
                  if _warehouse_key(p.market, p.selection, p.line) == ("h2h", "home")),
                 None)
             if board_home is not None:
-                market_home = await _market_h2h_prob(session, event_id)
+                market_home = await _market_h2h_prob(session, event_id, provider)
                 if (market_home is not None
                         and abs(board_home - market_home) > 0.15):
                     skipped_sanity += 1
