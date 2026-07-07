@@ -251,17 +251,29 @@ async def _quote_still_listed(
     anchor = ref or dt.datetime.now(dt.UTC)
     if (anchor - seen) > dt.timedelta(hours=3):
         return False
-    event_seen = (await session.execute(
-        select(func.max(OddsSnapshot.captured_at)).where(
-            OddsSnapshot.provider == cand.provider,
-            OddsSnapshot.event_external_id == cand.event_external_id,
-        )
-    )).scalar()
-    if event_seen is None:
+    # compare against the freshest capture of the same MARKET FAMILY, not the
+    # whole event: hot tiers refresh h2h every few minutes while the totals
+    # detail cycles hourly, and an event-wide anchor read BetR's perfectly
+    # live 'over 7.5' as dead (lagging its own h2h). Family-scoped, Dabble's
+    # replaced-line ghost still dies — the replacement market IS totals-family
+    # and fresher than the delisted rung.
+    fam = _market_family(cand.market)
+    rows = (await session.execute(
+        select(OddsSnapshot.market, func.max(OddsSnapshot.captured_at))
+        .where(OddsSnapshot.provider == cand.provider,
+               OddsSnapshot.event_external_id == cand.event_external_id)
+        .group_by(OddsSnapshot.market)
+    )).all()
+    family_seen = None
+    for market, captured in rows:
+        if fam is not None and _market_family(market) != fam:
+            continue
+        aware = captured if captured.tzinfo else captured.replace(tzinfo=dt.UTC)
+        if family_seen is None or aware > family_seen:
+            family_seen = aware
+    if family_seen is None:
         return True
-    event_aware = (event_seen if event_seen.tzinfo
-                   else event_seen.replace(tzinfo=dt.UTC))
-    return seen >= event_aware - dt.timedelta(minutes=30)
+    return seen >= family_seen - dt.timedelta(minutes=30)
 
 
 async def _nearest_line_quotes(

@@ -466,6 +466,13 @@ async def scan_exchange_premium(
                 others.append({**row, "outcome": outcome, "line": line})
         age_bound = dt.timedelta(minutes=max_age_minutes)
         for row in others:
+            flagged_matched = row.get("matched")
+            if (flagged_matched is not None
+                    and float(flagged_matched) < min_matched):
+                continue  # a THIN exchange market's back is a junk offer
+                # nobody took, not value (lived: Belgium v Gibraltar cricket
+                # flagged +9.7% vs the Pinnacle fair on a near-empty Betfair
+                # book). Bookmaker rows carry no matched figure and pass.
             seen = row.get("seen")
             if seen is not None:
                 seen_dt = seen if seen.tzinfo else seen.replace(tzinfo=dt.UTC)
