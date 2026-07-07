@@ -286,6 +286,13 @@ _ESPN_LEAGUES: tuple[tuple[str, str, str], ...] = (
     ("soccer", "uefa.champions", "soccer"),
     ("soccer", "fifa.world", "soccer"),
     ("soccer", "aus.1", "soccer"),
+    # rugby union rides ESPN's numeric league codes (same competitors shape,
+    # verified 2026-07-07) — the operator's coverage includes every union comp
+    ("rugby", "289234", "rugby_union"),   # International Test Match
+    ("rugby", "242041", "rugby_union"),   # Super Rugby Pacific
+    ("rugby", "244293", "rugby_union"),   # The Rugby Championship
+    ("rugby", "267979", "rugby_union"),   # English Premiership
+    ("rugby", "270557", "rugby_union"),   # United Rugby Championship
 )
 
 
