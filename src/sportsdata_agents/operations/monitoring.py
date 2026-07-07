@@ -916,16 +916,24 @@ async def _watch_value(
     cap = int(sub.params.get("max_alerts_per_cycle", 10))
     bankroll = float(sub.params.get("bankroll", 100.0))
     max_pred_age = dt.timedelta(hours=float(sub.params.get("max_prediction_age_hours", 6.0)))
-    predictions = (
-        await session.execute(
-            select(Prediction).where(
-                Prediction.tenant_id == sub.tenant_id,
-                Prediction.workspace_id == sub.workspace_id,
-                or_(Prediction.predicted_at.is_(None),
-                    Prediction.predicted_at > now - max_pred_age),
-            ).order_by(Prediction.predicted_at.desc().nulls_last())
-        )
-    ).scalars().all()
+    stmt = (
+        select(Prediction).where(
+            Prediction.tenant_id == sub.tenant_id,
+            Prediction.workspace_id == sub.workspace_id,
+            or_(Prediction.predicted_at.is_(None),
+                Prediction.predicted_at > now - max_pred_age),
+        ).order_by(Prediction.predicted_at.desc().nulls_last())
+    )
+    model_prefix = sub.params.get("model")
+    if model_prefix:
+        # one fair-price FAMILY per watch: the anchored slate and the ratings
+        # slate record the same (event, market, selection) keys, and without
+        # this filter whichever recorded most recently silently wins
+        from sportsdata_agents.data.models import ModelArtifact
+
+        stmt = stmt.join(ModelArtifact, ModelArtifact.id == Prediction.model_id).where(
+            ModelArtifact.name.startswith(str(model_prefix), autoescape=True))
+    predictions = (await session.execute(stmt)).scalars().all()
     # newest prediction per (event, market, selection) — the slate re-records
     # every pass, and yesterday's probability is not an opinion on today's price
     newest: dict[tuple[str, str, str], Prediction] = {}
@@ -1003,9 +1011,14 @@ async def _watch_value(
         jump = ""
         if ctx.get("start_time") and not _started(ctx["start_time"]):
             jump = f" · Starts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
+        family = ""
+        if model_prefix:
+            family = (" · stats model (no market input)"
+                      if "ratings" in str(model_prefix) or "form" in str(model_prefix)
+                      else " · calibrated model")
         message = (
             f":moneybag: Model Edge — {_sport_label(ctx['sport'])} — {ctx['event']}\n"
-            f"Market: {market} · Edge +{top['edge']:.1f} percent{jump}\n"
+            f"Market: {market} · Edge +{top['edge']:.1f} percent{family}{jump}\n"
             + "\n".join(lines)
             + f"\n{_fmt_money(bankroll)} bankroll"
             + _format_board(quotes, ["Pinnacle", "Betfair"], include,
