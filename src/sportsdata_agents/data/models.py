@@ -259,6 +259,13 @@ class Fixture(Base):
 
 class Event(Base):
     __tablename__ = "events"
+    # an event belongs to ONE fixture — the unique key makes a resolve-pass
+    # race an IntegrityError the next pass heals, not a silent duplicate
+    # (migration 0016; lived: 86 dup rows from a manual resolve beside a tick)
+    __table_args__ = (
+        Index("uq_events_provider_external", "provider", "external_id",
+              unique=True),
+    )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     fixture_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("fixtures.id"), nullable=True)
     provider: Mapped[str] = mapped_column(String(64), index=True)

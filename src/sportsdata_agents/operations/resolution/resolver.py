@@ -288,6 +288,17 @@ async def resolve_events(
                         fx_aware = fx_start if fx_start.tzinfo else fx_start.replace(tzinfo=dt.UTC)
                         if abs((aware - fx_aware).total_seconds()) > 3 * 3600:
                             continue
+                    # DAILY SERIES (MLB): the same two teams play three-four
+                    # days straight. When EITHER side is start-less the 3h
+                    # gate can't apply, and the ±1 window matched adjacent
+                    # days' games — Kalshi's Jul 7, 8 and 9 fixtures landed
+                    # on ONE fixture, and start-less Kalshi-FOUNDED fixtures
+                    # then turned every real event's mapping ambiguous
+                    # (lived: 2026-07-07). Expiry proxies track their own
+                    # game's start, so exact-UTC-day is safe for baseball.
+                    if (near_term and family == "baseball" and offset != 0
+                            and (start_time is None or fx_start is None)):
+                        continue
                     if isinstance(mine, tuple) and isinstance(theirs, tuple):
                         score = _sides_score(mine, theirs)
                         threshold = MATCH_THRESHOLD
@@ -527,39 +538,49 @@ async def merge_duplicate_fixtures(
             # largest first: it wins the merge
             sided.sort(key=lambda entry: -counts.get(entry[0].id, 0))
             absorbed: set[uuid.UUID] = set()
+            def _mergeable(a: Fixture, a_day: str, b: Fixture, b_day: str,
+                           family: str = family) -> bool:
+                """The day/start guards, shared by the pair test AND the rival
+                scan — a 'rival' the guards would refuse anyway must not veto
+                a legitimate merge (lived: tomorrow's identically-named MLB
+                series game made today's split-fixture pair 'ambiguous').
+
+                Different days merge ONLY when one side is start-less: a
+                day_proxy fixture (exchange/futures founding) is the one
+                that can be mis-dayed; two REAL starts on different days
+                are different games — and baseball never crosses days at
+                all (daily series). The 3h doubleheader gate stays too."""
+                if a_day != b_day and (family == "baseball"
+                                       or (a.start_time is not None
+                                           and b.start_time is not None)):
+                    return False
+                return not (family == "baseball" and a.start_time and b.start_time
+                            and abs((a.start_time - b.start_time).total_seconds())
+                            > 3 * 3600)
+
             for i, (winner, wsides, wday) in enumerate(sided):
                 if winner.id in absorbed:
                     continue
                 for loser, lsides, lday in sided[i + 1:]:
                     if loser.id in absorbed:
                         continue
-                    # different days merge ONLY when one side is start-less:
-                    # a day_proxy fixture (exchange/futures founding) is the
-                    # one that can be mis-dayed (lived: Entain's proxy-dated
-                    # Fremantle v Sydney twin sat 3 days from the real
-                    # fixture and exact-day grouping never compared them);
-                    # two REAL starts on different days are different games
-                    if wday != lday and (winner.start_time is not None
-                                         and loser.start_time is not None):
+                    if not _mergeable(winner, wday, loser, lday):
                         continue
                     examined += 1
                     score = _sides_score(wsides, lsides)
                     if score < MATCH_THRESHOLD:
                         continue
                     # ambiguity skip, exactly like resolution: a loser that
-                    # also matches ANOTHER surviving fixture without a clear
-                    # margin is nobody's to absorb (esoccer/table tennis play
-                    # the same two names several times a day)
+                    # also matches ANOTHER surviving-and-MERGEABLE fixture
+                    # without a clear margin is nobody's to absorb (esoccer /
+                    # table tennis play the same two names several times a day)
                     rival = max((_sides_score(lsides, osides)
-                                 for j, (other, osides, _oday) in enumerate(sided)
+                                 for j, (other, osides, oday) in enumerate(sided)
                                  if j != i and other.id != loser.id
-                                 and other.id not in absorbed),
+                                 and other.id not in absorbed
+                                 and _mergeable(other, oday, loser, lday)),
                                 default=0.0)
                     if rival >= MATCH_THRESHOLD and score - rival < 0.15:
-                        continue
-                    # doubleheader caution stays for baseball
-                    if (family == "baseball" and winner.start_time and loser.start_time
-                            and abs((winner.start_time - loser.start_time).total_seconds()) > 3 * 3600):
                         continue
                     from sqlalchemy import update as _update
 
