@@ -118,6 +118,7 @@ WATCH_PARAMS: dict[str, Params] = {
         "max_age_minutes": (30.0, "board quotes older than this are skipped"),
         "derivative_ttl_hours": (24.0, "re-price derivatives at most this often"),
         "places": (None, "top-N places for finishing-position markets"),
+        "sharp_books": (["Pinnacle", "Betfair"], "books listed first on the cross-book board"),
         "bankroll": (100.0, "kelly stake sizing base"),
     },
     "exchange_value": {
