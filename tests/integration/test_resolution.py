@@ -529,3 +529,8 @@ def test_initials_name_the_same_side() -> None:
     assert _side_ok(_tokens("QLD"), _tokens("Queensland Maroons"))
     assert not _side_ok(_tokens("NSW"), _tokens("North Sydney"))  # 2 words ≠ 3 initials
     assert not _side_ok(_tokens("GWS"), _tokens("Gold Coast Suns"))  # initials differ
+    # Unibet marks women's sides "(W)"; TAB abbreviates tennis given names
+    assert _side_ok(_tokens("Cronulla Sharks (W)"), _tokens("Cronulla Sharks Women"))
+    assert not _side_ok(_tokens("Cronulla Sharks (W)"), _tokens("Cronulla Sharks"))
+    assert _side_ok(_tokens("Arango E"), _tokens("Emiliana Arango"))
+    assert not _side_ok(_tokens("Arango E"), _tokens("Bianca Arango"))

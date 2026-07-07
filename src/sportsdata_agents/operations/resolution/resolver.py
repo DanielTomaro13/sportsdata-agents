@@ -59,6 +59,10 @@ def _token_match(a: str, b: str) -> bool:
     if a == b:
         return True
     short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) == 1:
+        # a single letter is a NAME INITIAL (TAB tennis: "Arango E" for
+        # Emiliana Arango) — prefix-match it; a wrong initial still fails
+        return long_.startswith(short)
     if len(short) < 3:
         return False
     if long_.startswith(short):
@@ -73,13 +77,24 @@ def _token_match(a: str, b: str) -> bool:
 # markers are checked explicitly on BOTH names before the subset test. Found
 # live: a Super Rugby Women's match fixture-merged with the men's game and
 # manufactured a 74% "arb".
-_VARIANT_WORDS = frozenset({"women", "womens", "woman", "ladies", "female", "girls",
-                            "reserves", "academy", "youth", "amateur", "b"})
+# variant tokens canonicalise to ONE marker per class so "(W)" meets "Women"
+_VARIANT_CANON = {
+    "women": "women", "womens": "women", "woman": "women", "ladies": "women",
+    "female": "women", "girls": "women", "w": "women",
+    "reserves": "reserves", "academy": "academy", "youth": "youth",
+    "amateur": "amateur", "b": "b",
+}
 _VARIANT_RE = re.compile(r"^u\d{1,2}$")  # U17 / U20 / U23 age grades
 
 
 def _variant_markers(tokens: frozenset[str]) -> frozenset[str]:
-    return frozenset(t for t in tokens if t in _VARIANT_WORDS or _VARIANT_RE.match(t))
+    out = set()
+    for t in tokens:
+        if t in _VARIANT_CANON:
+            out.add(_VARIANT_CANON[t])
+        elif _VARIANT_RE.match(t):
+            out.add(t)
+    return frozenset(out)
 
 
 def _side_ok(x: frozenset[str], y: frozenset[str]) -> bool:
@@ -406,3 +421,61 @@ async def cross_book_prices(
         "books": len({m.provider for m in mappings}),
         "selections": by_selection,
     }
+
+async def merge_duplicate_fixtures(
+    session_factory: async_sessionmaker[AsyncSession], *, dry_run: bool = False
+) -> dict[str, Any]:
+    """Repair pass: same-family fixtures on the same day whose sides match
+    under the CURRENT rules merge onto one (most-events wins). Resolution
+    only maps NEW events, so matcher improvements never healed old splits —
+    State of Origin lived on four fixtures until a manual merge; this is
+    that repair, generalised. Ambiguity skips, exactly like resolution."""
+    async with session_factory() as session:
+        fixtures = (await session.execute(select(Fixture))).scalars().all()
+        counts: dict[uuid.UUID, int] = {}
+        for (fid, n) in (await session.execute(
+                select(Event.fixture_id, func.count()).group_by(Event.fixture_id))).all():
+            counts[fid] = int(n)
+        by_key: dict[tuple[str, str], list[Fixture]] = {}
+        for f in fixtures:
+            by_key.setdefault((f.sport, _fixture_day(f)), []).append(f)
+        merged = 0
+        examined = 0
+        for (family, _day), group in by_key.items():
+            if len(group) < 2:
+                continue
+            sided = []
+            for f in group:
+                sides = split_sides(f.name)
+                if sides:
+                    sided.append((f, (_tokens(sides[0]), _tokens(sides[1]))))
+            # largest first: it wins the merge
+            sided.sort(key=lambda pair: -counts.get(pair[0].id, 0))
+            absorbed: set[uuid.UUID] = set()
+            for i, (winner, wsides) in enumerate(sided):
+                if winner.id in absorbed:
+                    continue
+                for loser, lsides in sided[i + 1:]:
+                    if loser.id in absorbed:
+                        continue
+                    examined += 1
+                    if _sides_score(wsides, lsides) < MATCH_THRESHOLD:
+                        continue
+                    # doubleheader caution stays for baseball
+                    if (family == "baseball" and winner.start_time and loser.start_time
+                            and abs((winner.start_time - loser.start_time).total_seconds()) > 3 * 3600):
+                        continue
+                    from sqlalchemy import update as _update
+
+                    await session.execute(
+                        _update(Event)
+                        .where(Event.fixture_id == loser.id)
+                        .values(fixture_id=winner.id))
+                    await session.delete(loser)
+                    absorbed.add(loser.id)
+                    merged += 1
+        if dry_run:
+            await session.rollback()
+        else:
+            await session.commit()
+    return {"merged": merged, "examined": examined}
