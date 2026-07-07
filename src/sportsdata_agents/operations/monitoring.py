@@ -1138,8 +1138,7 @@ def _sel_team_side(sel_head: str, event_name: str) -> str | None:
     in its own book's frame. TAB and Dabble print names where the sink couldn't
     normalise a side, and exact-string matching left them off every board.
     Matches only when the name points at exactly ONE side of the event."""
-    from sportsdata_agents.operations.resolution.resolver import (
-        _side_ok, _token_match, _tokens, split_sides)
+    from sportsdata_agents.operations.resolution.resolver import _side_ok, _token_match, _tokens, split_sides
 
     sides = split_sides(event_name or "")
     if not sides:
