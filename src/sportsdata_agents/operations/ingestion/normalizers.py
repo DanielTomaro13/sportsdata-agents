@@ -267,13 +267,12 @@ def normalize_nba_odds(payload: Any) -> list[PricePoint]:
 def _sportsbet_market(
     sink: _Sink, *, sport: str, event_id: str, event_name: str, start: Any, market: dict[str, Any]
 ) -> None:
-    # Sportsbet's resultType H/A designates the FIRST-listed participant, not
-    # the actual home side — on US away-first names ("Yankees At Rays") H is
-    # the AWAY team, and taking it literally flipped every side on the event
-    # (lived 2026-07-08: four +70% run-line 'edges' pushed, all inversions)
-    away_first = " At " in event_name or " @ " in event_name or " at " in event_name
-    side_by_result = ({"H": "away", "A": "home", "D": "draw"} if away_first
-                      else {"H": "home", "A": "away", "D": "draw"})
+    # resultType H/A IS the actual home/away side, on every naming shape —
+    # verified against live boards ("Dallas Wings At New York Liberty": H is
+    # the Liberty, the true home). A one-night flip for away-first names
+    # (v0.77.20) mis-read a run-line SIGN artifact as a side inversion and
+    # inverted every At-named US event for real; reverted 2026-07-08.
+    side_by_result = {"H": "home", "A": "away", "D": "draw"}
     market_key = "h2h" if market.get("marketSort") == "HH" else canonical_market(market.get("name", "?"))
     for sel in market.get("selections", []) or []:
         odds = _odds_ok((sel.get("price") or {}).get("winPrice"))
