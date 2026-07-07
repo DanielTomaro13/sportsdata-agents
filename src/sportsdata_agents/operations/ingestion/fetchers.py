@@ -1196,9 +1196,12 @@ async def fetch_polymarket_all(manager: Any) -> dict[str, Any]:
 
 
 DABBLE_COMPETITIONS_PER_CYCLE = 12
-DABBLE_DETAILS_PER_CYCLE = 24  # racing meetings (10+ fixtures each) ate the
-# shared 12-detail budget before any SPORTS fixture got its full board —
-# AFL match props never reached the warehouse despite Dabble pricing them
+# SEPARATE detail budgets: one shared budget let racing meetings (10+ fixtures
+# each) starve every ball-sports board — AFL match props never reached the
+# warehouse despite Dabble pricing them. Sports comps are pinned every cycle;
+# racing keeps its own lane so neither starves the other.
+DABBLE_SPORT_DETAILS_PER_CYCLE = 16
+DABBLE_RACING_DETAILS_PER_CYCLE = 16
 
 
 async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
@@ -1213,12 +1216,14 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
     comps = ((listing or {}).get("data") or {}).get("activeCompetitions") or []
     comps = [c for c in comps if c.get("id")]
     out: list[dict[str, Any]] = []
-    details_budget = DABBLE_DETAILS_PER_CYCLE
-    window = _take_rotating("dabble_all", comps, DABBLE_COMPETITIONS_PER_CYCLE)
-    # SPORTS comps first for the details budget: ~300 of ~318 active comps are
-    # race meetings with 10+ fixtures each — ordered as listed, the budget
-    # never survived to a ball-sports fixture's full board
-    window = sorted(window, key=lambda c: "acing" in str(c.get("sportName", "")))
+    # ball-sports comps are ~18 of ~318 actives (the rest are race meetings) —
+    # PIN them into every cycle and rotate only the racing window, else an AFL
+    # board waited ~4 hours for its rotation turn while racing rode every cycle
+    sports = [c for c in comps if "acing" not in str(c.get("sportName", ""))]
+    racing = [c for c in comps if "acing" in str(c.get("sportName", ""))]
+    window = sports + _take_rotating("dabble_all", racing, DABBLE_COMPETITIONS_PER_CYCLE)
+    budgets = {"sport": DABBLE_SPORT_DETAILS_PER_CYCLE,
+               "racing": DABBLE_RACING_DETAILS_PER_CYCLE}
     for comp in window:
         try:
             fixtures = await manager.call_tool(
@@ -1228,9 +1233,10 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
             logger.warning("dabble competition %s failed: %s", comp.get("name"), e)
             continue
         rows = [f for f in ((fixtures or {}).get("data") or []) if isinstance(f, dict)]
+        lane = "racing" if "acing" in str(comp.get("sportName", "")) else "sport"
         details: list[Any] = []
         for fixture in rows:
-            if details_budget <= 0:
+            if budgets[lane] <= 0:
                 break
             fixture_id = fixture.get("id")
             if not fixture_id or str(fixture.get("status", "Open")) not in ("Open", ""):
@@ -1242,7 +1248,7 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
                 body = (detail or {}).get("sportFixtureDetail") or detail
                 if isinstance(body, dict):
                     details.append(body)
-                    details_budget -= 1
+                    budgets[lane] -= 1
             except Exception as e:
                 logger.warning("dabble fixture %s detail failed: %s", fixture_id, e)
         out.append({
