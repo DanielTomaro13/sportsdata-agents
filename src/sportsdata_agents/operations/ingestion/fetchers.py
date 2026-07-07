@@ -775,8 +775,25 @@ async def fetch_unibet_books(manager: Any) -> dict[str, Any]:
         except Exception as e:
             logger.warning("unibet books sport %s failed: %s", term, e)
     candidates.sort(key=lambda c: c[0])
+    # per-sport fair share (the entain lesson): soonest-first across sports
+    # starves whichever family plays later in the week
+    by_sport: dict[str, list[tuple[str, str, dict[str, Any]]]] = {}
+    for cand in candidates:
+        by_sport.setdefault(cand[1], []).append(cand)
+    picked: list[tuple[str, str, dict[str, Any]]] = []
+    while len(picked) < BOOKS_PER_CYCLE and by_sport:
+        for sport_key in sorted(by_sport):
+            bucket = by_sport.get(sport_key)
+            if not bucket:
+                by_sport.pop(sport_key, None)
+                continue
+            picked.append(bucket.pop(0))
+            if not bucket:
+                by_sport.pop(sport_key, None)
+            if len(picked) >= BOOKS_PER_CYCLE:
+                break
     out: list[dict[str, Any]] = []
-    for _start, sport, event in candidates[:BOOKS_PER_CYCLE]:
+    for _start, sport, event in picked:
         try:
             book = await manager.call_tool(
                 "unibet_kambi_call",
