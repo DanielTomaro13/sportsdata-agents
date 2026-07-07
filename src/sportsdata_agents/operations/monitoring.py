@@ -208,10 +208,12 @@ async def _quote_still_listed(
     leaves its last change-point behind as a ghost. Live means the exact
     selection was captured within a few hours of the ALERTED row's own last
     sighting — relative, so the board is internally consistent whatever
-    moment it's built for."""
+    moment it's built for. NO snapshot at all reads as live: the store
+    writes a snapshot beside every change-point, so a ghost always has an
+    OLD sighting, never a missing one."""
     seen = await _last_seen(session, cand)
     if seen is None:
-        return False
+        return True
     anchor = ref or dt.datetime.now(dt.UTC)
     return (anchor - seen) <= dt.timedelta(hours=3)
 
@@ -1091,6 +1093,14 @@ async def _watch_value(
             break
         live = sorted((e for e in entries if e["edge"] >= min_edge),
                       key=lambda e: -e["edge"])
+        # LIVENESS: drop entries whose exact selection wasn't captured in a
+        # recent snapshot — a delisted alt-line rung keeps its change-point
+        # forever and reads as a phantom edge (same class as the boards fix)
+        checked = []
+        for e in live:
+            if await _quote_still_listed(session, e["row"], now):
+                checked.append(e)
+        live = checked
         # the previously-alerted lookup matches ANY band of this market
         # (startswith, autoescaped so ids with `_`/`%` don't act as wildcards)
         base_key = f"value:{event_id}:{market}"
@@ -1576,6 +1586,20 @@ async def _watch_model_value(
         if fired >= cap:
             break
         cands = sorted(story["cands"], key=lambda c: -c["edge_pct"])
+        # LIVENESS: "unchanged change-point = current quote" is false for
+        # alt-line ladders — a rung the book delisted when its line moved
+        # keeps its last change-point forever (lived: Unibet 'away 1.5'
+        # alerted 4 hours after the line walked to 4.5). A candidate whose
+        # exact selection wasn't captured recently is not an offer.
+        live_cands = []
+        for c in cands:
+            c_row = c.get("row")
+            if c_row is not None and not await _quote_still_listed(session, c_row, now):
+                continue
+            live_cands.append(c)
+        cands = live_cands
+        if not cands:
+            continue
         # fold each selection's books into ONE line — the story reads
         # band suppression FIRST — cheaper than the board/nearest-line work
         # this loop otherwise does just to discard a same-band steady state
