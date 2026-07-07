@@ -218,3 +218,39 @@ async def test_watch_message_carries_names_not_ids(
     # unchanged race -> deduped
     report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW + dt.timedelta(minutes=5))
     assert report["alerts"] == 0
+
+
+async def test_board_drops_na_books_and_verifies_runner_names(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The cross-book board lists PRICED books only (NA books fold into a
+    count) and a row that names a different runner never joins, even when its
+    saddle number matches (lived: a novelty product's 'Evens' at 2.60 rode a
+    21.00 horse's board as runner 2)."""
+    from sportsdata_agents.operations.monitoring import _format_board, _racing_board
+
+    live_now = dt.datetime.now(dt.UTC)  # the board window is wall-clock, not NOW
+
+    def _fresh_row(book: str, runner: str, odds: float) -> OddsSnapshot:
+        return OddsSnapshot(
+            captured_at=live_now - dt.timedelta(minutes=2), provider=book.lower(),
+            book=book, sport="horse_racing", event_external_id=f"{book}-R5",
+            event_name="Pakenham R5", market="win", selection="2", odds=odds,
+            start_time=live_now + dt.timedelta(minutes=25), meta={"runner": runner})
+
+    async with db_sessionmaker() as s:
+        for book, runner, odds in (("PointsBet", "Last Clansman", 23.0),
+                                   ("TAB", "Last Clansman", 21.0)):
+            s.add(_fresh_row(book, runner, odds))
+        # Ladbrokes lists selection "2" too — but names a DIFFERENT runner
+        s.add(_fresh_row("Ladbrokes", "Evens", 2.60))
+        await s.commit()
+    async with db_sessionmaker() as s:
+        quotes, thin = await _racing_board(s, "Pakenham R5", "win", "2", "PointsBet")
+    assert quotes.get("TAB") == 21.0
+    assert "Ladbrokes" not in quotes  # runner name disagreed — never joined
+    board = _format_board(quotes, ["Pinnacle", "Betfair"],
+                          ("Sportsbet", "TAB", "Dabble"), thin=thin, engine_fair=20.0)
+    assert "NA" not in board.replace("books NA", "")  # no NA cells
+    assert "3 books NA" in board or "4 books NA" in board  # folded into a count
+    assert "**TAB 21.00**" in board  # the industry's best price is bolded

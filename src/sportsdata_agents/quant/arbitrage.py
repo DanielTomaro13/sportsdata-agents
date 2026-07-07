@@ -360,16 +360,22 @@ async def scan_exchange_premium(
     hours: float = 6.0,
     min_edge_pct: float = 3.0,
     min_matched: float = 1000.0,
+    require_matched: bool = True,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
     now: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Book price vs the DE-VIGGED exchange fair on the same fixture — the
+    """Book price vs the DE-VIGGED sharp fair on the same fixture — the
     model-free value signal. The exchange's back prices carry only the
     back/lay spread as overround; a proportional de-vig across the market's
     outcomes yields the fair probabilities, and any book paying more than
     fair is a premium: ``edge_pct = book_odds * fair_prob - 1``.
+
+    ``exchange_book`` names the fair source. A SHARP BOOKMAKER (Pinnacle)
+    works too — its boards carry a small margin the proportional de-vig
+    removes; set ``require_matched=false`` since books have no matched-money
+    concept (the liquidity gate is an exchange-only idea).
 
     Honest caveats ride every candidate: the exchange charges commission on
     winnings (2-8 pct of PROFIT, not turnover — an edge inside commission is
@@ -415,7 +421,7 @@ async def scan_exchange_premium(
             # an obscure basketball game read as a +298% "premium"). Fair prices
             # only come from markets with real money through them.
             matched = matched_by_line.get(row["line"], 0.0)
-            if matched < min_matched:
+            if require_matched and matched < min_matched:
                 continue
             inv = sum(1.0 / o for o in board.values())
             # exchange BACKS sit above fair by the spread, so their implied sum

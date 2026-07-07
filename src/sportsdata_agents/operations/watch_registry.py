@@ -122,10 +122,13 @@ WATCH_PARAMS: dict[str, Params] = {
         "bankroll": (100.0, "kelly stake sizing base"),
     },
     "exchange_value": {
-        "exchange_book": ("Betfair", "which exchange is the fair-price source"),
-        "min_edge_pct": (3.0, "book pays above the de-vigged exchange by this %"),
+        "exchange_book": ("Betfair", "the sharp fair source — an exchange (Betfair) or a "
+                                     "sharp bookmaker (Pinnacle)"),
+        "min_edge_pct": (3.0, "book pays above the de-vigged sharp fair by this %"),
         "hours": (1.0, "how far back to look"),
         "min_matched": (1000.0, "exchange market must have this much traded"),
+        "require_matched": (True, "set false when the fair source is a BOOK (Pinnacle) — "
+                                  "books have no matched-money concept"),
         "bankroll": (100.0, "kelly stake sizing base"),
     },
     "racing_value": {

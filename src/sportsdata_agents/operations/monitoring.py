@@ -222,6 +222,11 @@ def _started(start_time: Any) -> bool:
 _RACING_LABELS = ("horse_racing", "greyhound_racing", "harness_racing",
                   "thoroughbred_racing")
 
+# novelty-product "runners" that ride a race's own event key (Entain quotes
+# Odds vs Evens, Favourite vs Field as win-market rows) — never real horses
+_NON_RUNNERS = frozenset({"odds", "evens", "favourite", "favourites", "favorite",
+                          "field", "the field", "any other", "any other runner"})
+
 
 def _racing_board_key(ctx_event: str) -> str:
     """The books' race identity from an alert context event label. Book rows
@@ -276,6 +281,9 @@ async def _racing_board(session: AsyncSession, event_name: str, market: str,
         tags = {w.lower() for w in _re.findall(r"\bR\d+\b", name or "", _re.IGNORECASE)}
         if race_tag not in tags or (other_book, str(sel)) in seen:
             continue
+        if str((meta or {}).get("runner") or "").strip().lower() in _NON_RUNNERS:
+            continue  # novelty products (Odds vs Evens) ride the same race key —
+            # they must not reach the board OR the number↔name bridge below
         seen.add((other_book, str(sel)))
         race_rows.append((other_book, float(odds), str(sel), meta or {}))
     number_to_name: dict[str, str] = {}
@@ -296,8 +304,11 @@ async def _racing_board(session: AsyncSession, event_name: str, market: str,
             continue
         sel_l = sel.lower()
         runner = str(meta.get("runner") or "").strip().lower()
-        is_ours = ((number and sel_l == number) or (name and sel_l == name)
-                   or (name and runner == name))
+        # when the row NAMES its runner and we know ours, the names must agree —
+        # saddle-number equality alone joined a novelty product's "runner 2"
+        # (Evens at 2.60) onto a 21.00 horse's board (lived: Menangle R1)
+        is_ours = (runner == name if runner and name
+                   else bool((number and sel_l == number) or (name and sel_l == name)))
         if is_ours and other_book not in quotes:
             quotes[other_book] = odds
             matched = meta.get("total_matched")
@@ -342,35 +353,35 @@ def _format_board(quotes: dict[str, float], sharps: list[str],
                   include: tuple[str, ...] = (), *,
                   thin: set[str] | frozenset[str] = frozenset(),
                   engine_fair: float | None = None) -> str:
-    """The industry board, ENGINE FAIR first, then sharps, then best price.
-    Books in ``include`` always appear — NA when they have not priced it — so
-    a missing quote is visible information, never silence. Exchange rows with
-    little matched money read "thin" instead of being hidden. The industry's
-    HIGHEST price is bolded — who is top of the market at a glance."""
-    ordered: list[tuple[str, float | None]] = []
+    """The industry board: ENGINE FAIR first, then sharps, then every book
+    that has actually PRICED it, highest price bolded. Books without a price
+    are a single count at the end, never listed — walls of "NA" drowned the
+    one real price (lived: a US harness board read eight NAs and one quote).
+    Exchange rows with little matched money read "thin" instead of hiding."""
+    ordered: list[tuple[str, float]] = []
     seen: set[str] = set()
-    for book in [*sharps, *include]:
-        if book not in seen:
-            ordered.append((book, quotes.get(book)))
+    for book in sharps:
+        if book in quotes and book not in seen:
+            ordered.append((book, quotes[book]))
             seen.add(book)
     for book, odds in sorted(quotes.items(), key=lambda kv: -kv[1]):
         if book not in seen:
             ordered.append((book, odds))
             seen.add(book)
-    best = max((o for _b, o in ordered[:12] if o is not None), default=None)
+    best = max((o for _b, o in ordered[:12]), default=None)
 
-    def cell(book: str, odds: float | None) -> str:
-        if odds is None:
-            return f"{book} NA"
+    def cell(book: str, odds: float) -> str:
         text = f"{book} {odds:.2f}" + (" thin" if book in thin else "")
         return f"**{text}**" if odds == best else text
 
     engine_cell = f"Engine {engine_fair:.2f} · " if engine_fair else ""
-    if not any(o is not None for _b, o in ordered):
+    if not ordered:
         return (f"\nacross books: Engine {engine_fair:.2f} — no book board "
                 f"captured yet" if engine_fair else "")
     board = " · ".join(cell(b, o) for b, o in ordered[:12])
-    return f"\nacross books: {engine_cell}{board}"
+    unpriced = sum(1 for b in {*sharps, *include} if b not in quotes)
+    tail = f" · {unpriced} books NA" if unpriced else ""
+    return f"\nacross books: {engine_cell}{board}{tail}"
 
 
 def _thin_exchange(sub: Subscription, ctx: dict[str, Any]) -> bool:
@@ -1392,6 +1403,7 @@ async def _watch_exchange_value(
         session, exchange_book=exchange_book, hours=hours,
         min_edge_pct=min_edge,
         min_matched=float(sub.params.get("min_matched", 1000.0)),
+        require_matched=bool(sub.params.get("require_matched", True)),
         limit=cap * 3, now=now)
     fired = 0
     for candidate in candidates:
@@ -1404,18 +1416,21 @@ async def _watch_exchange_value(
             session, candidate["market"], candidate["outcome"],
             fixture_id=candidate.get("fixture_id"))
         engine_note = f" · Engine fair {engine_fair:.2f}" if engine_fair else ""
+        matched_note = ""
+        if candidate.get("exchange_matched"):
+            matched_note = f" · Money matched {_fmt_money(candidate['exchange_matched'])}"
+        title = "Exchange Value" if bool(sub.params.get("require_matched", True)) else "Sharp Value"
         message = (
-            f":scales: Exchange Value — {_sport_label(candidate['sport'])} — "
+            f":scales: {title} — {_sport_label(candidate['sport'])} — "
             f"{candidate['fixture']}\n"
             f"{candidate['book']} · Selection: **{candidate['outcome']}** · "
             f"Market: {candidate['market']}\n"
             f"Book price {candidate['odds']:.2f} against the {exchange_book} fair "
             f"{candidate['exchange_fair_odds']:.2f}{engine_note} · "
-            f"Edge +{candidate['edge_pct']:.1f} percent · "
-            f"Money matched {_fmt_money(candidate.get('exchange_matched'))}\n"
+            f"Edge +{candidate['edge_pct']:.1f} percent{matched_note}\n"
             f"Suggested stake ${kelly:.2f} of {_fmt_money(bankroll)} bankroll"
             f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}\n"
-            f"_Fair is the de-vigged exchange back price; verify the leg is live_"
+            f"_Fair is {exchange_book} de-vigged; verify the leg is live_"
         )
         bucket = int(candidate["edge_pct"] / 2.0)  # re-fire when the edge grows a band
         key = (f"exchange_value:{candidate['fixture_id']}:{candidate['market']}"

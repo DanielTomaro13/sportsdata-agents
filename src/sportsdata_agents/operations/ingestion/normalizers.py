@@ -893,6 +893,15 @@ def normalize_sportsbet_races(payload: Any) -> list[PricePoint]:
     return sink.points
 
 
+# novelty-product pseudo-entrants (Odds vs Evens, Favourite vs Field): Entain
+# lists these products as their own race cards sharing the real race's
+# venue+number, so their "runners" ride the same board identity and poison
+# every cross-book join and de-vig (lived: Ladbrokes "Evens" at 2.60 appeared
+# on a 21.00 horse's board as runner 2)
+_PSEUDO_RUNNERS = frozenset({"odds", "evens", "favourite", "favourites", "favorite",
+                             "field", "the field", "any other", "any other runner"})
+
+
 def normalize_entain_races(payload: Any) -> list[PricePoint]:
     """Ladbrokes racecards: entrants keyed by uuid; the LIVE fixed win price is
     the tail of price_fluctuations[entrant_id] (the prices{} table mixes ~50
@@ -913,6 +922,8 @@ def normalize_entain_races(payload: Any) -> list[PricePoint]:
         for ent_id, entrant in (card.get("entrants") or {}).items():
             if not isinstance(entrant, dict) or entrant.get("visible") is False:
                 continue
+            if str(entrant.get("name", "")).strip().lower() in _PSEUDO_RUNNERS:
+                continue  # a novelty product's side, not a runner
             series = flucs.get(ent_id) or []
             odds = _odds_ok(series[-1] if series else None)
             if odds is None:

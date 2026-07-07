@@ -531,8 +531,11 @@ async def fetch_fanduel_pages(manager: Any, *, page_ids: list[str] | None = None
 # The hot tier keeps primary markets fresh; these walk the same discovery routes
 # and pull each fixture's COMPLETE market book — soonest fixtures first, capped per
 # cycle so the call economics stay bounded (books fill out near start time anyway).
+# 25 covered ~2.5% of Sportsbet's ~1000 live events per hour (a 40h sweep) and the
+# warehouse read 1.2 markets/event against Dabble's 9.9 — 60 at the same cadence
+# still keeps every books pass under ~150MB while tripling depth coverage.
 
-BOOKS_PER_CYCLE = 25
+BOOKS_PER_CYCLE = 60
 
 
 async def fetch_sportsbet_books(manager: Any) -> dict[str, Any]:
@@ -542,7 +545,7 @@ async def fetch_sportsbet_books(manager: Any) -> dict[str, Any]:
     comps: list[tuple[int, str, str]] = []
     _walk_sportsbet_nav(nav, None, comps)
     events: list[dict[str, Any]] = []
-    for comp_id, _comp_name, sport in _take_rotating("sportsbet_books_comps", comps, 15):
+    for comp_id, _comp_name, sport in _take_rotating("sportsbet_books_comps", comps, 25):
         try:
             payload = await manager.call_tool("sportsbet_competition_matches", {"competitionId": comp_id})
             for group in payload if isinstance(payload, list) else []:
@@ -672,7 +675,7 @@ async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
             if comp.get("key") is not None:
                 comp_keys.append(int(comp["key"]))
     event_keys: list[Any] = []
-    for key in _take_rotating("pointsbet_books_comps", comp_keys, 12):
+    for key in _take_rotating("pointsbet_books_comps", comp_keys, 18):
         try:
             page = await manager.call_tool("pointsbet_competition_events", {"competitionKey": key})
             event_keys.extend(e["key"] for e in page.get("events", []) or [] if e.get("key") is not None)
@@ -680,7 +683,7 @@ async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
             logger.warning("pointsbet books comp %s failed: %s", key, e)
     # soonest-first starves futures (their start dates sit months out) — reserve
     # slots for the FURTHEST-out events so outright books refresh too (B12)
-    chosen = event_keys[:16] + event_keys[-4:] if len(event_keys) > 20 else event_keys
+    chosen = event_keys[:28] + event_keys[-6:] if len(event_keys) > 34 else event_keys
     details: list[Any] = []
     seen_keys: set[Any] = set()
     for event_key in chosen:

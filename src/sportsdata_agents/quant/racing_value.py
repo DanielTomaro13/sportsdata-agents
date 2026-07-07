@@ -41,6 +41,12 @@ __all__ = ["scan_racing_value"]
 _RACING_SPORTS = ("horse_racing", "greyhound_racing", "harness_racing")
 _RACE_NO = re.compile(r"\bR(\d+)\b", re.IGNORECASE)
 
+# novelty-product "runners" (Odds vs Evens, Favourite vs Field) that some books
+# quote as win-market rows on the race's own key — mixing them into the field
+# poisons the de-vig sum and every fair derived from it
+_NON_RUNNERS = frozenset({"odds", "evens", "favourite", "favourites", "favorite",
+                          "field", "the field", "any other", "any other runner"})
+
 
 @dataclass
 class _RaceUnit:
@@ -148,6 +154,8 @@ async def scan_racing_value(
         name = str(meta.get("runner") or row.selection).lower().strip()
         if not name or name.isdigit():
             continue  # a bare saddle number cannot match across books
+        if name in _NON_RUNNERS:
+            continue  # novelty products ride the race key but are not runners
         unit = units.get(key)
         if unit is None:
             unit = units[key] = _RaceUnit(

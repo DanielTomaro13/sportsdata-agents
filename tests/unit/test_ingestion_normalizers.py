@@ -1284,3 +1284,25 @@ def test_normalize_betfair_racing_keys_each_race_separately() -> None:
     assert "R3 1200m Hcap" in by_race["R3 1200m Hcap"].event_name
     assert by_race["R3 1200m Hcap"].meta["runner_number"] == 4
     assert by_race["R3 1200m Hcap"].selection == "bold venture"
+
+
+def test_entain_races_drop_novelty_pseudo_runners() -> None:
+    """Odds-vs-Evens novelty cards share the real race's venue+number — their
+    pseudo-entrants must never become win-market rows (they poisoned boards
+    and de-vig sums as phantom runners)."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_entain_races
+
+    payload = {"races": [{
+        "race_id": "r-1", "venue": "Manawatu", "race_no": 6,
+        "sport": "horse_racing", "start": "2026-07-07T03:00:00Z",
+        "card": {
+            "entrants": {
+                "e1": {"name": "Boat Race", "number": 1},
+                "e2": {"name": "Evens", "number": 2},
+                "e3": {"name": "Odds", "number": 1},
+            },
+            "price_fluctuations": {"e1": [2.4, 2.5], "e2": [2.0], "e3": [1.8]},
+        },
+    }]}
+    points = normalize_entain_races(payload)
+    assert [p.meta["runner"] for p in points] == ["Boat Race"]
