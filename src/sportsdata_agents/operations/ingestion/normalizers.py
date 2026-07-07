@@ -170,6 +170,22 @@ _CANON_SPORT = {
     "ufc": "mma",
     "ufc_mma": "mma",
     "martial_arts": "mma",
+    # FanDuel US labels events by page slug — competition names, not sports
+    "mlb": "baseball",
+    "nba": "basketball",
+    "wnba": "basketball",
+    "ncaab": "basketball",
+    "nfl": "american_football",
+    "ncaaf": "american_football",
+    "nhl": "ice_hockey",
+    "pga": "golf",
+    "wimbledon": "tennis",
+    "us-open": "tennis",
+    "french-open": "tennis",
+    "australian-open": "tennis",
+    "fifa-world-cup": "soccer",
+    "epl": "soccer",
+    "mls": "soccer",
 }
 # "football" is TWO sports: Kambi/Unibet mean soccer, the US books mean gridiron
 _CANON_FOOTBALL = {"unibet": "soccer", "pinnacle": "american_football"}

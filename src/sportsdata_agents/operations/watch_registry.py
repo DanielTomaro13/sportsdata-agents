@@ -63,6 +63,12 @@ WATCH_PARAMS: dict[str, Params] = {
                                              "is still SP-only — nothing is takeable until "
                                              "fixed odds post (the value scan catches the open)"),
         "bankroll": (100.0, "stake sizing base — printed when the price beats the engine fair"),
+        "exchange_corroborators": (["Betfair", "FanDuel"],
+                                   "exchanges whose shorter quote also counts as demonstrated "
+                                   "value for min_engine_edge_pct (FanDuel = tote pool)"),
+        "racing_max_lead_minutes": (None, "racing rows: ignore moves more than this many "
+                                          "minutes before the jump — books have not opened "
+                                          "or been captured yet, so there is no board to compare"),
         **_ROW_FILTERS,
     },
     "steam": {
@@ -84,6 +90,12 @@ WATCH_PARAMS: dict[str, Params] = {
                                              "is still SP-only — nothing is takeable until "
                                              "fixed odds post (the value scan catches the open)"),
         "bankroll": (100.0, "stake sizing base — printed when the price beats the engine fair"),
+        "exchange_corroborators": (["Betfair", "FanDuel"],
+                                   "exchanges whose shorter quote also counts as demonstrated "
+                                   "value for min_engine_edge_pct (FanDuel = tote pool)"),
+        "racing_max_lead_minutes": (None, "racing rows: ignore moves more than this many "
+                                          "minutes before the jump — books have not opened "
+                                          "or been captured yet, so there is no board to compare"),
         **_ROW_FILTERS,
     },
     "value": {

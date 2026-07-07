@@ -48,6 +48,11 @@ def _trim_runner(raw: dict[str, Any]) -> dict[str, Any]:
                      + [str(c.get("comment") or "") for c in raw.get("formComments") or []]),
             dt.datetime.now(dt.UTC)),
         "rating": raw.get("techFormRating") or raw.get("rating"),
+        # the guide's words about the runner — shown on alerts, kept short
+        "comment": (str(raw.get("formComment")
+                        or next((c.get("comment") for c in raw.get("formComments") or []
+                                 if c.get("comment")), "")
+                        or "").strip()[:220] or None),
         "days_since_run": raw.get("daysSinceLastRun"),
         "runs_since_spell": raw.get("runsSinceSpell"),
         "best_time": raw.get("bestTime"),
