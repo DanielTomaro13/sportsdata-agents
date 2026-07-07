@@ -213,17 +213,33 @@ async def _racing_board(session: AsyncSession, event_name: str, market: str,
     the join."""
     if not event_name:
         return {}
+    import re as _re
+
+    from sqlalchemy import func
+
+    race_match = _re.search(r"\bR(\d+)\b", event_name, _re.IGNORECASE)
+    venue_token = event_name.split()[0].lower() if event_name.split() else ""
+    if not race_match or len(venue_token) < 3:
+        return {}
+    # venue-variant tolerant: "MANAWATU R1" (TAB), "Manawatu R1" (Sportsbet)
+    # and "Mountaineer Park R3" vs "Mountaineer R3" all share the venue's
+    # first token and the R<n> tag — exact-name equality returned NA boards
+    race_tag = f"r{race_match.group(1)}"
     rows = (await session.execute(
-        select(OddsSnapshot.book, OddsSnapshot.odds, OddsSnapshot.captured_at)
-        .where(OddsSnapshot.event_name == event_name,
+        select(OddsSnapshot.book, OddsSnapshot.odds, OddsSnapshot.captured_at,
+               OddsSnapshot.event_name)
+        .where(func.lower(OddsSnapshot.event_name).like(f"{venue_token}%"),
                OddsSnapshot.market == market,
                OddsSnapshot.selection == selection,
-               OddsSnapshot.book != book)
-        .order_by(OddsSnapshot.captured_at.desc()).limit(40)
+               OddsSnapshot.book != book,
+               OddsSnapshot.captured_at > dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30))
+        .order_by(OddsSnapshot.captured_at.desc()).limit(60)
     )).all()
     quotes: dict[str, float] = {}
-    for other_book, odds, _at in rows:
-        quotes.setdefault(other_book, float(odds))  # newest first
+    for other_book, odds, _at, name in rows:
+        tags = {w.lower() for w in _re.findall(r"\bR\d+\b", name or "", _re.IGNORECASE)}
+        if race_tag in tags:
+            quotes.setdefault(other_book, float(odds))  # newest first
     return quotes
 
 
@@ -411,7 +427,8 @@ async def _watch_line_move(
         if ctx.get("start_time") and not _started(ctx["start_time"]):
             jump = f"\nStarts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
         sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
-        include = _RACING_PACK if ctx["sport"] in _RACING_LABELS else ()
+        include = _RACING_PACK
+        quotes.setdefault(row.book, float(row.odds))  # the alerting book is a price, not NA
         sport_label = str(ctx["sport"]).replace("_", " ").title()
         direction_word = "shortened" if direction == "shortened" else "drifted out"
         message = (
@@ -446,14 +463,20 @@ async def _watch_steam(
         if fired >= cap:
             break
         series.sort(key=lambda r: r.changed_at)
-        directions = {1 if float(r.odds) > float(r.prev_odds or 0) else -1 for r in series}
-        if len(series) >= min_moves and len(directions) == 1:
+        # NET direction with tolerance: strict same-direction meant one tiny
+        # counter-tick reset the streak and the alert arrived late or never.
+        # A walk is a walk if moves against the trend stay <= 1 per 4 with it.
+        signs = [1 if float(r.odds) > float(r.prev_odds or 0) else -1 for r in series]
+        net = 1 if float(series[-1].odds) >= float(series[0].prev_odds or 0) else -1
+        with_trend = sum(1 for s in signs if s == net)
+        against = len(signs) - with_trend
+        if with_trend >= min_moves and against <= max(1, with_trend // 4):
             ctx = await _context(session, series[-1])
             if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
                 continue  # in-play prices move for game reasons, not market ones
             if _thin_exchange(sub, ctx):
                 continue
-            arrow = "drifting" if directions == {1} else "steaming in"
+            arrow = "drifting" if net == 1 else "steaming in"
             engine_fair = await _engine_fair_for(session, market, selection, event_id=event)
             quotes = await _cross_book_quotes(session, series[-1])
             if not quotes and ctx["sport"] in _RACING_LABELS:
@@ -476,7 +499,8 @@ async def _watch_steam(
             if ctx.get("start_time") and not _started(ctx["start_time"]):
                 jump = f"\nStarts {_local_hhmm(ctx['start_time'].isoformat(), _tz_for(sub))}"
             sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
-            include = _RACING_PACK if ctx["sport"] in _RACING_LABELS else ()
+            include = _RACING_PACK
+            quotes.setdefault(book, current)  # the alerting book is a price, not NA
             sport_label = str(ctx["sport"]).replace("_", " ").title()
             direction_word = "drifting out" if arrow == "drifting" else "steaming in"
             message = (
@@ -1233,18 +1257,41 @@ async def _watch_bsp_value(
             if edge_pct < min_edge:
                 continue
             kelly = _kelly_stake(prob, effective, bankroll)
+            # the exchange row carries the BOOKS' race naming — use it for the
+            # title (TAB's 3-letter venue codes read as noise) and the board
+            board_key = _racing_board_key(snap.event_name or "")
+            title_race = (board_key if len(str(race.venue_mnemonic)) <= 4
+                          else f"{race.venue_mnemonic} Race {race.race_number}")
+            quotes = await _racing_board(session, board_key, "win", str(number),
+                                         exchange_book)
+            engine_fair = await _engine_fair_for(session, "win", str(number),
+                                                 event_id=race.race_key)
+            anchored = ""
+            if engine_fair is not None and abs(engine_fair - 1.0 / prob) > 0.01:
+                anchored = f" · Market-model fair {engine_fair:.2f}"
+            runner_runs = next((r.get("runs") or [] for r in race.runners or []
+                                if str(r.get("number")) == str(number)), [])
+            form_line = ""
+            if runner_runs:
+                recent = " then ".join(f"{r['position']} of {r['field_size']}"
+                                       for r in runner_runs[:3])
+                form_line = (f"\nForm: {recent} · latest run "
+                             f"{runner_runs[0]['age_days']:.0f} days ago")
+            sharps = [str(b) for b in sub.params.get("sharp_books",
+                                                     ["Pinnacle", "Betfair"])]
             jump = _local_hhmm(race.start_time.isoformat(), _tz_for(sub))                 if race.start_time else "?"
             message = (
-                f":crystal_ball: Exchange value from form — "
-                f"{race.venue_mnemonic} Race {race.race_number}\n"
+                f":crystal_ball: Exchange value from form — {title_race}\n"
                 f"Runner {number} — {name.title()}\n"
                 f"Back on {exchange_book} at {back:.2f} "
                 f"(worth {effective:.2f} after {commission:.0%} commission)\n"
-                f"Form fair price {1.0 / prob:.2f} · Edge +{edge_pct:.1f}% · "
+                f"Form fair price {1.0 / prob:.2f}{anchored} · Edge +{edge_pct:.1f}% · "
                 f"Money matched {_fmt_money(float(matched))}\n"
                 f"Suggested stake {_fmt_money(kelly)} of "
-                f"{_fmt_money(bankroll)} bankroll · Race starts {jump}\n"
-                f"_Consider Betfair Starting Price if the current price slips_"
+                f"{_fmt_money(bankroll)} bankroll · Race starts {jump}"
+                f"{form_line}"
+                + _format_board(quotes, sharps, _RACING_PACK)
+                + "\n_Consider Betfair Starting Price if the current price slips_"
             )
             key = f"bsp_value:{race.race_key}:{number}:{int(edge_pct / 5)}"
             payload = {"race_key": race.race_key, "runner": name, "number": number,
