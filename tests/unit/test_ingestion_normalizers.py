@@ -1406,3 +1406,33 @@ def test_unibet_races_tote_estimates_never_masquerade_as_fixed_odds() -> None:
     points = normalize_unibet_races(payload)
     by_market = {p.market: p.odds for p in points}
     assert by_market == {"win": 8.0, "place": 2.6}  # fixed odds only, tote gone
+
+
+def test_dabble_racing_cards_join_the_warehouse_conventions() -> None:
+    """Dabble names races by sponsor with no number and calls the markets
+    "Fixed Win"/"Fixed Place" — the venue must lead the label and the markets
+    must land as win/place or every scan and board is blind to them; SRM rows
+    are multi products, never runner prices."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_dabble_all
+
+    fixture = {
+        "id": "fx-1", "name": "Rich River Golf Club Trot",
+        "advertisedStart": "2026-07-07T06:57:00Z",
+        "markets": [{"id": "m1", "name": "Fixed Win"},
+                    {"id": "m2", "name": "Fixed Place"},
+                    {"id": "m3", "name": "SRM Win"}],
+        "selections": [{"id": "s1", "name": "Tunbridge", "saddleNumber": 1},
+                       {"id": "s2", "name": "Tunbridge", "saddleNumber": 1},
+                       {"id": "s3", "name": "Tunbridge", "saddleNumber": 1}],
+        "prices": [{"marketId": "m1", "selectionId": "s1", "price": 4.5},
+                   {"marketId": "m2", "selectionId": "s2", "price": 1.8},
+                   {"marketId": "m3", "selectionId": "s3", "price": 2.9}],
+    }
+    payload = {"competitions": [{"sport": "Harness Racing", "competition": "Echuca",
+                                 "details": [fixture], "fixtures": []}]}
+    points = normalize_dabble_all(payload)
+    assert {p.market for p in points} == {"win", "place"}  # SRM never lands
+    win = next(p for p in points if p.market == "win")
+    assert win.event_name == "Echuca · Rich River Golf Club Trot"
+    assert win.selection == "1" and win.meta["runner"] == "Tunbridge"
+    assert win.meta["start_time"] == "2026-07-07T06:57:00Z"

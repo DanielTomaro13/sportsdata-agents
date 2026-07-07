@@ -1331,12 +1331,24 @@ def normalize_dabble_all(payload: Any) -> list[PricePoint]:
     return sink.points
 
 
+# Dabble's racing product names — the warehouse racing convention is win/place
+# (every scan and board filters on those); SRM rows are multi products, not prices
+_DABBLE_RACING_MARKETS = {"fixed win": "win", "fixed place": "place"}
+
+
 def _normalize_dabble_fixture(sink: _Sink, fixture: dict[str, Any], sport: str,
                               competition: str) -> None:
     fixture_id = str(fixture.get("id") or "")
     if not fixture_id:
         return
     event_name = str(fixture.get("name") or fixture.get("displayName") or "?")
+    racing = sport.endswith("_racing")
+    if racing and competition and competition != "?":
+        # Dabble names races by SPONSOR ("Rich River Golf Club Trot") with no
+        # race number anywhere in the feed — the venue leads the label so the
+        # cross-book venue-token join can see the row; identity across books
+        # is the start time + shared runners
+        event_name = f"{competition} · {event_name}"
     markets = {m.get("id"): m for m in fixture.get("markets", []) or [] if isinstance(m, dict)}
     selections = {s.get("id"): s for s in fixture.get("selections", []) or [] if isinstance(s, dict)}
     props = {p.get("selectionId"): p for p in fixture.get("playerProps", []) or []
@@ -1353,6 +1365,11 @@ def _normalize_dabble_fixture(sink: _Sink, fixture: dict[str, Any], sport: str,
                 or selection.get("isDisplayed") is False:
             continue
         market_key = canonical_market(str(market.get("name", "?")))
+        if racing:
+            mapped = _DABBLE_RACING_MARKETS.get(market_key)
+            if mapped is None and market_key.startswith("srm"):
+                continue  # Same-Race-Multi products, not runner prices
+            market_key = mapped or market_key
         side = _side_from_event_name(str(selection.get("name", "")), event_name)
         # racing runners follow the warehouse racing convention: the saddle
         # number is the selection (cross-book comparable), the name rides meta

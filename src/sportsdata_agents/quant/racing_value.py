@@ -38,7 +38,8 @@ from sportsdata_agents.data.models import OddsSnapshot
 
 __all__ = ["scan_racing_value"]
 
-_RACING_SPORTS = ("horse_racing", "greyhound_racing", "harness_racing")
+_RACING_SPORTS = ("horse_racing", "thoroughbred_racing",
+                  "greyhound_racing", "harness_racing")
 _RACE_NO = re.compile(r"\bR(\d+)\b", re.IGNORECASE)
 
 # novelty-product "runners" (Odds vs Evens, Favourite vs Field) that some books
@@ -55,7 +56,7 @@ class _RaceUnit:
     event_id: str
     event_name: str
     sport: str
-    race_no: int
+    race_no: int | None  # None: a sponsor-named card with no number (Dabble)
     start: dt.datetime | None
     last_seen: dt.datetime | None = None
     matched: float = 0.0  # exchange only: money traded on the market
@@ -146,13 +147,15 @@ async def scan_racing_value(
             if not match:
                 continue  # a futures/named market, not a numbered race
             key = (row.book, str(meta.get("market_id", row.event_external_id)))
-            race_no = int(match.group(1))
+            race_no: int | None = int(match.group(1))
         else:
             match = _RACE_NO.search(row.event_name)
-            if not match:
-                continue
+            if not match and row.start_time is None:
+                continue  # no race number AND no start time — unplaceable
             key = (row.book, row.event_external_id)
-            race_no = int(match.group(1))
+            # Dabble names races by sponsor with no number anywhere — a None
+            # race_no clusters by start time + shared runners below
+            race_no = int(match.group(1)) if match else None
         name = str(meta.get("runner") or row.selection).lower().strip()
         if not name or name.isdigit():
             continue  # a bare saddle number cannot match across books
@@ -177,14 +180,22 @@ async def scan_racing_value(
         if number is not None:
             unit.numbers[name] = number
 
-    # cluster: same race number, starts within 4 minutes, runners overlap
+    # cluster: same race number, starts within 4 minutes, runners overlap.
+    # Units WITHOUT a race number (Dabble's sponsor-named cards) join purely
+    # by start time + shared runners — 3+ same names at the same minute is
+    # conclusive. Numbered units sort first so they seed the clusters.
     clusters: list[list[_RaceUnit]] = []
-    for unit in sorted(units.values(), key=lambda u: (u.race_no, u.book)):
+    for unit in sorted(units.values(),
+                       key=lambda u: (u.race_no is None, u.race_no or 0, u.book)):
         placed = False
         for cluster in clusters:
             seed = cluster[0]
-            if unit.race_no != seed.race_no:
+            if (unit.race_no is not None and seed.race_no is not None
+                    and unit.race_no != seed.race_no):
                 continue
+            if ((unit.race_no is None or seed.race_no is None)
+                    and not (unit.start and seed.start)):
+                continue  # numberless identity NEEDS the start time
             if unit.start and seed.start and abs((unit.start - seed.start).total_seconds()) > 240:
                 continue
             if len(set(unit.runners) & set(seed.runners)) < min_field_overlap:

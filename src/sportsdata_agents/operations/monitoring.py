@@ -262,10 +262,13 @@ def _racing_board_key(ctx_event: str) -> str:
 
 
 async def _racing_board(session: AsyncSession, event_name: str, market: str,
-                        selection: str, book: str) -> tuple[dict[str, float], set[str]]:
+                        selection: str, book: str,
+                        start: dt.datetime | None = None) -> tuple[dict[str, float], set[str]]:
     """Other books' latest price for the same runner — racing events don't map
     through the fixture resolver; the join is the venue token + R<n> tag
-    ("MANAWATU R1" / "Manawatu R1" / "Mountaineer Park R3" all match).
+    ("MANAWATU R1" / "Manawatu R1" / "Mountaineer Park R3" all match). Rows
+    WITHOUT a race tag (Dabble's sponsor-named cards) join when their start
+    time sits within 5 minutes of ``start``.
 
     Returns (quotes, thin) — thin names exchange rows with under $500 matched.
 
@@ -287,7 +290,7 @@ async def _racing_board(session: AsyncSession, event_name: str, market: str,
     race_tag = f"r{race_match.group(1)}"
     rows = (await session.execute(
         select(OddsSnapshot.book, OddsSnapshot.odds, OddsSnapshot.selection,
-               OddsSnapshot.event_name, OddsSnapshot.meta)
+               OddsSnapshot.event_name, OddsSnapshot.meta, OddsSnapshot.start_time)
         .where(func.lower(OddsSnapshot.event_name).like(f"{venue_token}%"),
                OddsSnapshot.market == market,
                OddsSnapshot.captured_at > dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30))
@@ -296,9 +299,18 @@ async def _racing_board(session: AsyncSession, event_name: str, market: str,
     # race-scoped rows, newest first per (book, selection)
     race_rows: list[tuple[str, float, str, dict[str, Any]]] = []
     seen: set[tuple[str, str]] = set()
-    for other_book, odds, sel, name, meta in rows:
+    for other_book, odds, sel, name, meta, row_start in rows:
         tags = {w.lower() for w in _re.findall(r"\bR\d+\b", name or "", _re.IGNORECASE)}
-        if race_tag not in tags or (other_book, str(sel)) in seen:
+        if race_tag not in tags:
+            # sponsor-named cards carry no race tag — the start time is the
+            # race identity (5 min covers books' post-time disagreements)
+            if start is None or row_start is None:
+                continue
+            when = row_start if row_start.tzinfo else row_start.replace(tzinfo=dt.UTC)
+            anchor = start if start.tzinfo else start.replace(tzinfo=dt.UTC)
+            if abs((when - anchor).total_seconds()) > 300:
+                continue
+        if (other_book, str(sel)) in seen:
             continue
         if str((meta or {}).get("runner") or "").strip().lower() in _NON_RUNNERS:
             continue  # novelty products (Odds vs Evens) ride the same race key —
@@ -603,7 +615,8 @@ async def _watch_line_move(
         thin: set[str] = set()
         if not quotes and ctx["sport"] in _RACING_LABELS:
             quotes, thin = await _racing_board(session, _racing_board_key(str(ctx["event"])),
-                                               row.market, row.selection, row.book)
+                                               row.market, row.selection, row.book,
+                                               start=ctx.get("start_time"))
         if _exchange_alone(sub, ctx, quotes):
             continue
         if _engine_veto(sub, float(row.odds), engine_fair, quotes):
@@ -722,7 +735,8 @@ async def _watch_steam(
         thin: set[str] = set()
         if not quotes and ctx["sport"] in _RACING_LABELS:
             quotes, thin = await _racing_board(session, _racing_board_key(str(ctx["event"])),
-                                               market, selection, book)
+                                               market, selection, book,
+                                               start=ctx.get("start_time"))
         current = float(series[-1].odds)
         if _exchange_alone(sub, ctx, quotes):
             continue
@@ -1195,7 +1209,8 @@ async def _watch_model_value(
             if not quotes and sport == "racing":
                 quotes, thin = await _racing_board(
                     session, _racing_board_key(story["display"]),
-                    top["row"].market, top["row"].selection, str(top["book"]))
+                    top["row"].market, top["row"].selection, str(top["book"]),
+                    start=story.get("start_time"))
         for c in cands:
             quotes.setdefault(str(c["book"]), float(c["odds"]))  # flagged books are prices, not NA
         include = await _coverage_pack(session, price_sport)
@@ -1641,10 +1656,12 @@ async def _watch_racing_value(
             traded = f" · {_fmt_money(top['exchange_matched'])} matched"
         # the board joins by saddle number when the scan knows it, else by
         # the runner's NAME (the number bridge maps both ways)
+        top_start = (dt.datetime.fromisoformat(top["start_time"])
+                     if top.get("start_time") else None)
         board, thin = await _racing_board(
             session, race, "win",
             str(top.get("runner_number") or top.get("runner") or ""),
-            str(top["book"]))
+            str(top["book"]), start=top_start)
         board.setdefault(str(top["book"]), float(top["odds"]))  # the flagged
         # book belongs ON its own board — its price anchors the comparison
         sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
@@ -1756,7 +1773,8 @@ async def _watch_bsp_value(
         title_race = (board_key if len(str(race.venue_mnemonic)) <= 4
                       else f"{race.venue_mnemonic} Race {race.race_number}")
         quotes, thin = await _racing_board(session, board_key, "win",
-                                           str(top["number"]), exchange_book)
+                                           str(top["number"]), exchange_book,
+                                           start=race.start_time)
         quotes.setdefault(exchange_book, top["back"])  # the headline price is a price
         engine_fair = await _engine_fair_for(session, "win", str(top["number"]),
                                              event_id=race.race_key)
