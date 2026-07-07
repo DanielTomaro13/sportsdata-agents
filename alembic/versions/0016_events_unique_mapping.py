@@ -24,14 +24,13 @@ _INDEX = "uq_events_provider_external"
 
 
 def upgrade() -> None:
+    # portable dedup (sqlite has no aliased DELETE): keep the smallest id
+    # per key — duplicate rows agree on fixture by construction
     op.execute(
         """
-        DELETE FROM events a
-        WHERE EXISTS (
-            SELECT 1 FROM events b
-            WHERE b.provider = a.provider
-              AND b.external_id = a.external_id
-              AND b.id < a.id
+        DELETE FROM events
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM events GROUP BY provider, external_id
         )
         """
     )
