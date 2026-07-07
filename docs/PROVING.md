@@ -20,17 +20,20 @@ EDGE-VERDICT); this plan just sequences them.
 
 Paper-tracking makes the settlement loop the whole experiment, and it has gaps:
 
-1. **Grade every value kind.** The scoreboard P&L-settles `racing_value` and
-   `arb`/`value`; `model_value`, `exchange_value`, `bsp_value` and `stat_value`
-   are only *counted* (fired / still_value). Extend settlement so every alert
-   kind grades win/loss against results where the market is gradable
-   (h2h, totals, racing win/place).
-2. **Record closing-line value.** Stamp each alert with the last pre-jump /
-   pre-start price for its selection; report CLV alongside P&L. CLV converges
-   to truth in dozens of samples, P&L needs hundreds.
+1. ~~**Grade every value kind.**~~ DONE 2026-07-07: `model_value`/`value`
+   settle against result scores (h2h/totals/lines, pushes returned) at a
+   flat $1; `bsp_value` settles like racing; `stat_value` still awaits
+   player actuals and the report says so.
+2. ~~**Record closing-line value.**~~ DONE 2026-07-07: computed at settlement
+   from the prices table (last change before the start, same book/market/
+   selection) — mean CLV per kind in the scoreboard, with a tuning warning
+   when 20+ samples run negative.
 3. **Place-market alerts.** Racing `model_value` with explicit `places` terms
    (TAB first) — the scan already finds corroborated place edges that never
    reach Discord.
+
+`agents replay-export` (2026-07-07) ships settled fixtures as ReplayFixture
+JSONL for Phase 3 (verified round-tripping through the engines harness).
 
 ## Phase 2 — accumulate (7–21 Jul)
 
@@ -93,20 +96,18 @@ scoreboard review, 21 Jul replay + verdict one-shot. Thresholds stay frozen.
 
 ## Reviewed backlog (triple-review 2026-07-07 — verified findings, not yet applied)
 
-- Ratings sanity gate should also bound the MARGIN vs the market's main line
-  (a two-blowout team passes the total band with a +78 margin); per-team
-  effective-appearance floor in the footy fit.
-- Racing exchange fair: cross-check each runner's exchange fair against the
-  pack median (a mildly poisoned single back inside the 0.90–1.15 band still
-  fakes +35% on one runner).
+- ~~Ratings margin-band gate~~ covered 2026-07-07 by the h2h sanity gate (a
+  +78 margin implies an h2h prob far outside the 15-point band); the per-team
+  effective-appearance floor in the footy fit remains open.
+- ~~Racing exchange-vs-pack cross-check~~ DONE 2026-07-07: a runner whose
+  exchange fair reads 1.5x the pack's median probability prices against the
+  pack instead ("exchange back distrusted").
 - Form-slate dedupe key needs the venue (same race number + same minute at
   two tracks currently drops one race).
-- Provider-scope the event lookups in _watch_value / model_value /
-  _market_main_total (numeric event ids collide across providers).
-- Scoreboard: consensus racing alerts land in the "thin Betfair" bucket
-  (matched=None < 1500) and skew tuning advice; settle-time odds ≤ 1.0 should
-  read pending, not a loss-sized win; arb credit should use the re-measured
-  margin. Fold into the grading work.
+- ~~Provider-scope the event lookups~~ DONE 2026-07-07 (value watch keys by
+  book label; ratings anchors by feed).
+- ~~Scoreboard bucket/odds/arb-credit fixes~~ DONE 2026-07-07 with the
+  grading work (no_exchange bucket, odds ≤ 1.0 pending, re-measured margin).
 - Scheduler calendar jobs may dispatch in LOCAL time against a UTC-authored
   table (digest/scoreboard hours) — verify and normalise; missed calendar
   slots have no catch-up; `_line_suffix` collapses a genuine 0.0 line.

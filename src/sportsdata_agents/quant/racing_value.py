@@ -254,6 +254,22 @@ async def scan_racing_value(
                     fair = exchange_fair.get(name)
                     versus = exchange_book
                     matched = exchange.matched if exchange else None
+                    # PER-RUNNER pack cross-check: the board-level sum band
+                    # passes a MILDLY poisoned single back (one stray $2 offer
+                    # inside 0.90-1.15 still fakes +35% on that runner). When
+                    # the exchange reads a runner at 1.5x the pack's median
+                    # probability, distrust the back and price against the
+                    # pack instead — a real edge survives; a phantom dies.
+                    if fair is not None:
+                        pack_probs = [f[name] for b, f in fairs.items()
+                                      if b != unit.book and name in f]
+                        if len(pack_probs) >= min_consensus_books:
+                            pack = statistics.median(pack_probs)
+                            if pack > 0.0 and fair > pack * 1.5:
+                                fair = pack
+                                versus = (f"consensus of {len(pack_probs)} books"
+                                          " (exchange back distrusted)")
+                                matched = None
                 else:
                     others = [f[name] for b, f in fairs.items() if b != unit.book and name in f]
                     if len(others) < min_consensus_books:

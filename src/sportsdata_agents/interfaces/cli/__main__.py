@@ -1746,6 +1746,54 @@ def price_slate(
     asyncio.run(_run())
 
 
+@app.command(name="replay-export")
+def replay_export(
+    out: str = typer.Option("replay-fixtures.jsonl", "--out", help="JSONL output path."),
+    days: float = typer.Option(14.0, "--days", help="How far back to export."),
+    sports: str = typer.Option("", "--sports", help="Comma-separated fixture sports (default: every replayable one)."),
+    minutes_before: float = typer.Option(60.0, "--minutes-before", help="Anchor quotes this long before the start."),
+) -> None:
+    """Export settled fixtures as engines-replay input (one ReplayFixture
+    kwargs object per JSONL line): anchor h2h + main total at T, the same
+    keys at the close, and the recorded score. Feeds the Phase 3 replay
+    checkpoint (re-fit dispersion/pace, re-issue EDGE-VERDICT)."""
+    import asyncio
+    import json as _json
+    import pathlib
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.quant.replay_export import export_replay_fixtures
+
+    console = Console()
+    chosen = tuple(s.strip() for s in sports.split(",") if s.strip()) or None
+
+    async def _run() -> None:
+        engine = make_engine(get_settings().database_url)
+        try:
+            report = await export_replay_fixtures(
+                make_sessionmaker(engine), days=days, sports=chosen,
+                minutes_before=minutes_before)
+        finally:
+            await engine.dispose()
+        path = pathlib.Path(out)
+        with path.open("w", encoding="utf-8") as fh:
+            for row in report["fixtures"]:
+                fh.write(_json.dumps(row) + "\n")
+        skipped = ", ".join(f"{k}={v}" for k, v in
+                            sorted(report["skipped"].items())) or "none"
+        console.print(f"exported {len(report['fixtures'])} fixtures to {path} "
+                      f"· skipped: {skipped}")
+
+    asyncio.run(_run())
+
+
 @app.command()
 def resolve(
     dry_run: bool = typer.Option(False, "--dry-run", help="Report what would map without writing."),
