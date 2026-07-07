@@ -38,6 +38,20 @@ NAME_THRESHOLD = 0.4
 
 
 _AGE_GRADE_RE = re.compile(r"\bu[-/ ]?(\d{1,2})\b")
+_PAREN_CHUNK = re.compile(r"\s*\(([^)]*)\)")
+
+
+def _clean_side(side: str) -> str:
+    """Drop parenthetical annotations that are NOT variant markers when a
+    side names a FIXTURE — FanDuel decorates MLB sides with probable
+    pitchers ("Miami Marlins (M Meyer)"), and a fixture founded under that
+    name scored 0.25 against BetR's plain "Houston v Washington", under
+    the 0.3 threshold: the noise tokens diluted every later book's match
+    (lived: one game on four fixtures). "(W)"-style variant tags stay."""
+    def _keep(m: re.Match[str]) -> str:
+        return m.group(0) if _variant_markers(_tokens(m.group(1))) else ""
+
+    return _PAREN_CHUNK.sub(_keep, side).strip()
 
 
 def _tokens(name: str) -> frozenset[str]:
@@ -302,7 +316,8 @@ async def resolve_events(
                 fixture = Fixture(
                     sport=family,
                     external_id=f"{provider}:{external_id}",  # founding book's key
-                    name=f"{sides[0]} v {sides[1]}" if sides else name,
+                    name=(f"{_clean_side(sides[0])} v {_clean_side(sides[1])}"
+                          if sides else name),
                     # the REAL start only (None for an exchange-founded fixture), so the arb
                     # in-play gate can't be fooled by an end-as-start; `end_time` keeps the
                     # day-window proxy for matching.

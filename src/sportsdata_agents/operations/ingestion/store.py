@@ -216,8 +216,18 @@ async def record_points(
                 # same price as the standing row: refresh its freshness stamp and
                 # meta (traded volume etc. move even when the odds don't) — every
                 # staleness gate reads captured_at as "last confirmed live"
-                refresh_rows.append({"b_id": target[0], "captured_at": captured_at,
-                                     "meta": p.meta})
+                refresh_rows.append({
+                    "b_id": target[0], "captured_at": captured_at, "meta": p.meta,
+                    # feeds that GAINED a start stamp after a row was first
+                    # inserted (Entain sports carried none until v0.77.x)
+                    # backfill through refreshes — a stable price never
+                    # re-inserts, so the column stayed NULL forever and the
+                    # resolver mis-dayed the fixture (lived: Nationals v
+                    # Astros split across four fixtures)
+                    "b_start": _parse_start(p.meta.get("start_time")
+                                            or p.meta.get("post_time")),
+                    "b_end": _parse_start(p.meta.get("end_time")),
+                })
             else:
                 session.add(
                     OddsSnapshot(
@@ -265,7 +275,12 @@ async def record_points(
             await session.execute(
                 update(table)
                 .where(table.c.id == bindparam("b_id"))
-                .values(captured_at=bindparam("captured_at"), meta=bindparam("meta")),
+                .values(captured_at=bindparam("captured_at"), meta=bindparam("meta"),
+                        # never NULL-out a good stamp with an absent one
+                        start_time=func.coalesce(bindparam("b_start"),
+                                                 table.c.start_time),
+                        end_time=func.coalesce(bindparam("b_end"),
+                                               table.c.end_time)),
                 refresh_rows,
             )
         # ON CONFLICT DO NOTHING on the change-point unique index: a re-run or a
