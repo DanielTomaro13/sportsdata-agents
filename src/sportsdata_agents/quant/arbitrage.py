@@ -316,6 +316,7 @@ async def scan_arbs(
     threshold_pct: float = 1.0,
     min_matched: float = 1000.0,
     max_age_minutes: float = 20.0,
+    min_lead_minutes: float = 15.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -323,6 +324,8 @@ async def scan_arbs(
 ) -> list[dict[str, Any]]:
     """Pre-game arbs across every fixture with ≥2 books re-captured within
     ``hours`` (collection shared with the exchange premium scan)."""
+    from sportsdata_agents.operations.ingestion.coverage import fixture_covered
+
     now = now or dt.datetime.now(dt.UTC)
     fixtures, grouped = await collect_fixture_boards(
         session, hours=hours, markets=markets, max_fixtures=max_fixtures, now=now)
@@ -331,6 +334,14 @@ async def scan_arbs(
         fixture = fixtures.get(fixture_id)
         if fixture is None or not _pre_game(fixture, now):
             continue  # in play, done, or unconfirmable — not an offer anyone can take
+        if not fixture_covered(fixture.sport, fixture.name):
+            continue  # tennis doubles etc. — the operator can't/won't bet these
+        if fixture.start_time is not None:
+            _fx_start = (fixture.start_time if fixture.start_time.tzinfo
+                         else fixture.start_time.replace(tzinfo=dt.UTC))
+            if _fx_start < now + dt.timedelta(minutes=min_lead_minutes):
+                continue  # listed starts are estimates (tennis begins early);
+                # a leg going in-play mid-scan fakes the margin
         # a quote from a near-untraded exchange/prediction market is not a
         # takeable leg — it is one stray unmatched offer. Bookmaker rows carry
         # no liquidity figure (their quotes ARE firm offers) and pass through;
