@@ -363,6 +363,7 @@ async def scan_exchange_premium(
     require_matched: bool = True,
     max_age_minutes: float = 20.0,
     max_fair_odds: float = 10.0,
+    min_lead_minutes: float = 15.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -400,7 +401,15 @@ async def scan_exchange_premium(
         # under one (fixture, "total") group. De-vigging them together sums
         # inverses across lines (inv≈2.0 for two lines) and mangles every edge —
         # each line is its own two-way market and must be de-vigged alone.
+        if fixture.start_time is not None:
+            _fx_start = (fixture.start_time if fixture.start_time.tzinfo
+                         else fixture.start_time.replace(tzinfo=dt.UTC))
+            if _fx_start < now + dt.timedelta(minutes=min_lead_minutes):
+                continue  # listed starts are estimates (tennis begins early);
+                # near/inside the start the fair source freezes while
+                # exchanges go live, and live-vs-stale reads as huge edge
         exchange: dict[str, dict[str, float]] = {}  # line -> {outcome: back odds}
+        fair_seen: dict[str, Any] = {}  # line -> newest sighting of the fair board
         matched_by_line: dict[str, float] = {}  # line -> money matched on the market
         others: list[dict[str, Any]] = []
         for row in rows:
@@ -413,6 +422,11 @@ async def scan_exchange_premium(
                 bucket = exchange.setdefault(line, {})
                 # latest listed wins (rows arrive newest-last per collect order)
                 bucket[outcome] = float(row["odds"])
+                seen = row.get("seen")
+                if seen is not None:
+                    aware = seen if seen.tzinfo else seen.replace(tzinfo=dt.UTC)
+                    prev = fair_seen.get(line)
+                    fair_seen[line] = aware if prev is None or aware > prev else prev
                 if row.get("matched") is not None:
                     matched_by_line[line] = max(matched_by_line.get(line, 0.0),
                                                 float(row["matched"]))
@@ -429,6 +443,12 @@ async def scan_exchange_premium(
             board = exchange.get(row["line"])
             if not board or len(board) < 2:
                 continue  # no de-viggable exchange market at this line
+            # the FAIR SOURCE must be fresh too: Pinnacle freezes when a match
+            # goes in-play while exchanges keep trading, and a live 5.80
+            # against a stale 4.13 'fair' pushed as +40% (lived: 2026-07-07)
+            f_seen = fair_seen.get(row["line"])
+            if f_seen is None or now - f_seen > age_bound:
+                continue
             # LIQUIDITY: an exchange market nobody has traded is not a market —
             # its "backs" are junk offers nobody took (live case: $16 matched on
             # an obscure basketball game read as a +298% "premium"). Fair prices
