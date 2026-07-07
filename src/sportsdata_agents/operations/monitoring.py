@@ -345,7 +345,8 @@ def _format_board(quotes: dict[str, float], sharps: list[str],
     """The industry board, ENGINE FAIR first, then sharps, then best price.
     Books in ``include`` always appear — NA when they have not priced it — so
     a missing quote is visible information, never silence. Exchange rows with
-    little matched money read "thin" instead of being hidden."""
+    little matched money read "thin" instead of being hidden. The industry's
+    HIGHEST price is bolded — who is top of the market at a glance."""
     ordered: list[tuple[str, float | None]] = []
     seen: set[str] = set()
     for book in [*sharps, *include]:
@@ -356,11 +357,13 @@ def _format_board(quotes: dict[str, float], sharps: list[str],
         if book not in seen:
             ordered.append((book, odds))
             seen.add(book)
+    best = max((o for _b, o in ordered[:12] if o is not None), default=None)
 
     def cell(book: str, odds: float | None) -> str:
         if odds is None:
             return f"{book} NA"
-        return f"{book} {odds:.2f}" + (" thin" if book in thin else "")
+        text = f"{book} {odds:.2f}" + (" thin" if book in thin else "")
+        return f"**{text}**" if odds == best else text
 
     engine_cell = f"Engine {engine_fair:.2f} · " if engine_fair else ""
     if not any(o is not None for _b, o in ordered):
@@ -927,10 +930,38 @@ def _racing_engine_inputs(
     return {"win_odds": win_odds}, book_quotes
 
 
+def _quote_price_rows(
+    rows: list[Price], sport: str, places: int | None
+) -> dict[tuple[str, str, float | None], Price]:
+    """The warehouse Price row behind each normalized derivative quote — the
+    cross-book board and fixture lookups need the row a candidate came from.
+    Keys mirror the input builders: (engine market, selection, line)."""
+    lookup: dict[tuple[str, str, float | None], Price] = {}
+    for row in rows:
+        market = row.market.lower()
+        if sport == "racing":
+            if market == "place" and places is not None:
+                lookup[("place", row.selection.lower(), float(places))] = row
+            continue
+        side, line = _split_selection(row.selection.lower())
+        if market in _H2H_MARKETS and side in ("home", "away"):
+            lookup[("h2h", side, None)] = row
+        elif market in _TOTAL_MARKETS and side in ("over", "under") and line is not None:
+            lookup[("total", side, line)] = row
+        elif market in _LINE_MARKETS and side in ("home", "away") and line is not None:
+            lookup[("line", side, line)] = row
+    return lookup
+
+
 async def _watch_model_value(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime
 ) -> int:
-    """Engine fair prices vs a book's own derivative quotes (consistency edge).
+    """Engine fair prices vs the books' derivative quotes (consistency edge).
+
+    One MESSAGE per market story: every book's candidates on the same
+    fixture+market pool into a single alert carrying the engine fair, each
+    flagged book's price, and the industry board with the highest price
+    bolded — the market moved, here is the whole industry on it.
 
     Noise-aware: candidates must clear ``min_edge_pct`` AND ``error_multiple``
     Monte Carlo standard errors (quant.engine_value does the math). Freshness
@@ -978,10 +1009,11 @@ async def _watch_model_value(
         by_event.setdefault((row_book, event_id), []).append(row)
     anchor_markets = {"win"} if sport == "racing" else (_H2H_MARKETS | _TOTAL_MARKETS)
 
-    fired = 0
+    # PASS 1: scan each (book, event) board — the engine calibrates to each
+    # book's OWN anchors — and pool the candidates by the fixture-shared
+    # (event, market) identity: one market story across the whole industry
+    stories: dict[tuple[str, str], dict[str, Any]] = {}
     for (row_book, event_id), event_rows in sorted(by_event.items()):
-        if fired >= cap:
-            break
         # anchor gate: scan only where the calibration inputs moved recently —
         # the derivatives themselves may be arbitrarily old change-points
         # (unchanged quote = current quote), which is exactly what we compare
@@ -999,8 +1031,8 @@ async def _watch_model_value(
         )).scalar_one_or_none()
         if bool(sub.params.get("pre_match_only", True)) and _started(start_time):
             continue  # a started game's laggy derivatives are game state, not edge
+        places = sub.params.get("places")
         if sport == "racing":
-            places = sub.params.get("places")
             seed, book_quotes = _racing_engine_inputs(event_rows, int(places) if places else None)
             if seed is None and len(event_rows) >= 2 and places is None:
                 logger.info("model_value %s: racing needs params.places (the book's paid "
@@ -1022,36 +1054,94 @@ async def _watch_model_value(
             # the rest of the subscription's cycle
             logger.info("model_value: could not evaluate %s: %s", event_id, e)
             continue
+        if not scan["candidates"]:
+            continue
+        rows_by_quote = _quote_price_rows(event_rows, sport, int(places) if places else None)
+        display = await _event_display_name(session, event_id) or event_id
+        if sport == "racing":
+            event_key = _racing_board_key(display).lower()
+        else:
+            fixture = (await session.execute(
+                select(Event.fixture_id).where(
+                    Event.provider == event_rows[0].provider,
+                    Event.external_id == event_id)
+            )).scalar_one_or_none()
+            event_key = str(fixture) if fixture else f"{event_rows[0].provider}:{event_id}"
         for candidate in scan["candidates"]:
-            if fired >= cap:
-                break
-            band = int(candidate["edge_pct"] / 2.0)
-            base = (
-                f"model_value:{row_book}:{event_id}:{candidate['market']}"
-                f":{candidate['selection']}:{candidate['line']}"
-            )
-            at_line = f" {candidate['line']}" if candidate["line"] is not None else ""
-            display = await _event_display_name(session, event_id) or event_id
-            fair = float(candidate["model_fair_odds"])
-            bankroll = float(sub.params.get("bankroll", 100.0))
+            story = stories.setdefault((event_key, candidate["market"]), {
+                "display": display, "start_time": start_time, "cands": []})
+            story["cands"].append({
+                **candidate, "book": row_book, "event_id": event_id,
+                "row": rows_by_quote.get((candidate["market"],
+                                          str(candidate["selection"]).lower(),
+                                          candidate["line"]))})
+
+    # PASS 2: one MESSAGE per market story — every flagged selection, every
+    # book with edge, and the industry board with the highest price bolded
+    fired = 0
+    bankroll = float(sub.params.get("bankroll", 100.0))
+    sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
+    ordered = sorted(stories.items(),
+                     key=lambda kv: -max(c["edge_pct"] for c in kv[1]["cands"]))
+    for (event_key, market), story in ordered:
+        if fired >= cap:
+            break
+        cands = sorted(story["cands"], key=lambda c: -c["edge_pct"])
+        # fold each selection's books into ONE line — the story reads
+        # selection by selection, every book with edge on each
+        by_sel: dict[tuple[str, float | None], list[dict[str, Any]]] = {}
+        for c in cands:
+            by_sel.setdefault((str(c["selection"]), c["line"]), []).append(c)
+        lines = []
+        for (selection, line), sel_cands in list(by_sel.items())[:4]:
+            best = sel_cands[0]
+            at_line = f" {line:g}" if line is not None else ""
+            books_bit = " · ".join(
+                f"{c['book']} {c['odds']:.2f} (+{c['edge_pct']:.1f}%)"
+                for c in sel_cands[:3])
+            fair = float(best["model_fair_odds"] or 0.0)
             kelly = _kelly_stake(1.0 / fair if fair > 1.0 else 0.0,
-                                 float(candidate["odds"]), bankroll)
-            jump = ""
-            if start_time is not None and not _started(start_time):
-                jump = f" · Starts {_local_hhmm(start_time.isoformat(), _tz_for(sub))}"
-            message = (
-                f":crystal_ball: Model Value — {_sport_label(sport)} — {display}\n"
-                f"{row_book} · Selection: **{candidate['selection']}{at_line}** · "
-                f"Market: {candidate['market']}\n"
-                f"Book price {candidate['odds']:.2f} against the model fair "
-                f"{candidate['model_fair_odds']} · Edge +{candidate['edge_pct']:.1f} percent\n"
-                f"Suggested stake {_fmt_money(kelly)} of {_fmt_money(bankroll)} bankroll{jump}"
-            )
-            payload = {**candidate, "book": row_book, "event_external_id": event_id,
-                       "sport": sport, "noise_gated": scan["skipped_noise"]}
-            if await _fire(session, sub, kind="model_value", key=f"{base}:{band}",
-                           message=message, payload=payload, pusher=pusher):
-                fired += 1
+                                 float(best["odds"]), bankroll)
+            lines.append(
+                f"**{selection}{at_line}**: {books_bit} · engine fair "
+                f"{best['model_fair_odds']} · stake {_fmt_money(kelly)}")
+        if len(by_sel) > 4:
+            lines.append(f"…and {len(by_sel) - 4} more selections with edge")
+        top = cands[0]
+        quotes: dict[str, float] = {}
+        thin: set[str] = set()
+        if top.get("row") is not None:
+            quotes = await _cross_book_quotes(session, top["row"])
+            if not quotes and sport == "racing":
+                quotes, thin = await _racing_board(
+                    session, _racing_board_key(story["display"]),
+                    top["row"].market, top["row"].selection, str(top["book"]))
+        for c in cands:
+            quotes.setdefault(str(c["book"]), float(c["odds"]))  # flagged books are prices, not NA
+        include = await _coverage_pack(session, price_sport)
+        jump = ""
+        start_time = story["start_time"]
+        if start_time is not None and not _started(start_time):
+            jump = f" · Starts {_local_hhmm(start_time.isoformat(), _tz_for(sub))}"
+        top_fair = float(top["model_fair_odds"]) if top["model_fair_odds"] else None
+        message = (
+            f":crystal_ball: Model Value — {_sport_label(sport)} — {story['display']}\n"
+            f"Market: {market} · Edge +{top['edge_pct']:.1f} percent · "
+            f"{_fmt_money(bankroll)} bankroll{jump}\n"
+            + "\n".join(lines)
+            + _format_board(quotes, sharps, include, thin=thin, engine_fair=top_fair)
+        )
+        # dedupe per market story, banded so a materially bigger edge re-fires
+        band = int(top["edge_pct"] / 2.0)
+        key = f"model_value:{event_key}:{market}:{band}"
+        payload = {"market": market, "sport": sport, "event_key": event_key,
+                   "book": top["book"], "event_external_id": top["event_id"],
+                   "edge_pct": top["edge_pct"],
+                   "candidates": [{k: v for k, v in c.items() if k != "row"}
+                                  for c in cands[:12]]}
+        if await _fire(session, sub, kind="model_value", key=key,
+                       message=message, payload=payload, pusher=pusher):
+            fired += 1
     return fired
 
 
@@ -1425,9 +1515,18 @@ async def _watch_racing_value(
             engine_fair = await _engine_fair_for(
                 session, "win", candidate.get("runner_number"),
                 event_id=candidate.get("event_external_id"))
+            exchange_backed = (candidate.get("versus")
+                               == str(sub.params.get("exchange_book", "Betfair")))
+            engine_backed = engine_fair is not None and engine_fair < candidate["odds"]
+            # the racing signal is a SHARP opinion under the book's price —
+            # Betfair's de-vigged fair or the engine's own. A consensus-only
+            # edge (the pack median, nobody sharp shorter) stays silent;
+            # require_sharp_fair=false restores the old behaviour
+            if (bool(sub.params.get("require_sharp_fair", True))
+                    and not exchange_backed and not engine_backed):
+                continue
             if (sub.params.get("engine_gate") and engine_fair is not None
-                    and engine_fair >= candidate["odds"]
-                    and candidate.get("versus") != str(sub.params.get("exchange_book", "Betfair"))):
+                    and engine_fair >= candidate["odds"] and not exchange_backed):
                 continue  # engine says no value and no exchange corroboration
             kelly = _kelly_stake(1.0 / candidate["fair_odds"], candidate["odds"], bankroll)
             keep.append({**candidate, "engine_fair": engine_fair,

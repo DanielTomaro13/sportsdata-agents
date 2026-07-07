@@ -147,6 +147,54 @@ async def test_consensus_mode_without_the_exchange(
     assert "consensus" in hit["versus"]
 
 
+async def test_watch_requires_betfair_or_engine_shorter(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The operator's racing rule: a consensus-only edge (thin Betfair, no
+    engine fair under the book's price) stays SILENT by default — the signal
+    is Betfair or the engine shorter than the bookmaker, not the pack median.
+    require_sharp_fair=false restores the consensus alerts."""
+    async with db_sessionmaker() as s:
+        # Betfair nearly untraded: demoted, so the scan falls back to consensus
+        for runner, number, odds in (("Boat Race", 1, 2.2), ("Silver Comet", 2, 3.4),
+                                     ("Rusty Rancher", 4, 4.8), ("Night Parade", 7, 9.0)):
+            s.add(_betfair_row(runner, number, odds, matched=40.0))
+        for book, event_id, prices in (
+            ("PointsBet", "PB-R5", ((1, "Boat Race", 2.10), (2, "Silver Comet", 3.20),
+                                    (4, "Rusty Rancher", 8.00), (7, "Night Parade", 8.00))),
+            ("TAB", "TAB-R5", ((1, "Boat Race", 2.15), (2, "Silver Comet", 3.30),
+                               (4, "Rusty Rancher", 4.60), (7, "Night Parade", 8.50))),
+            ("Sportsbet", "SB-R5", ((1, "Boat Race", 2.10), (2, "Silver Comet", 3.25),
+                                    (4, "Rusty Rancher", 4.50), (7, "Night Parade", 8.20))),
+            ("Ladbrokes", "LB-R5", ((1, "Boat Race", 2.12), (2, "Silver Comet", 3.28),
+                                    (4, "Rusty Rancher", 4.55), (7, "Night Parade", 8.30))),
+        ):
+            for number, runner, odds in prices:
+                s.add(_book_row(book, event_id, number, runner, odds))
+        s.add(Subscription(tenant_id="t", workspace_id="w", name="racing",
+                           kind="racing_value", channel="log",
+                           params={"min_edge_pct": 8.0}))
+        await s.commit()
+    pushed: list[str] = []
+
+    async def pusher(sub: Subscription, message: str) -> bool:
+        pushed.append(message)
+        return True
+
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW)
+    assert report["alerts"] == 0 and pushed == []
+
+    # the operator opts back into consensus-only alerts explicitly
+    async with db_sessionmaker() as s:
+        sub = (await s.execute(Subscription.__table__.select())).first()
+        await s.execute(Subscription.__table__.update()
+                        .where(Subscription.id == sub.id)
+                        .values(params={"min_edge_pct": 8.0, "require_sharp_fair": False}))
+        await s.commit()
+    report = await run_watches(db_sessionmaker, pusher=pusher, now=NOW)
+    assert report["alerts"] == 1 and "Rusty Rancher" in pushed[0]
+
+
 async def test_watch_message_carries_names_not_ids(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
