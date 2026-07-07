@@ -214,10 +214,31 @@ def validate_params(kind: str, updates: dict[str, Any]) -> list[str]:
         return [f"unknown watch kind {kind!r} — kinds: {', '.join(sorted(WATCH_PARAMS))}"]
     valid = params_for(kind)
     errors = []
-    for key in updates:
+    for key, value in updates.items():
         if key not in valid:
             errors.append(
                 f"{kind} has no param {key!r} — valid: {', '.join(sorted(valid))}")
+            continue
+        # TYPE-check against the registry default: a value the watch cannot
+        # coerce crash-loops the monitor every 60s and escalates to paid
+        # triage — a settings-pane typo must be a 422, never an outage
+        default = valid[key][0]
+        if value is None or default is None:
+            continue
+        if isinstance(default, bool):
+            if not isinstance(value, bool):
+                errors.append(f"{key!r} wants true/false, got {value!r}")
+        elif isinstance(default, (int, float)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                try:
+                    float(value)
+                except (TypeError, ValueError):
+                    errors.append(f"{key!r} wants a number, got {value!r}")
+        elif isinstance(default, list):
+            if isinstance(value, str):
+                continue  # a lone string is accepted as a one-item list downstream
+            if not isinstance(value, list):
+                errors.append(f"{key!r} wants a list, got {value!r}")
     return errors
 
 

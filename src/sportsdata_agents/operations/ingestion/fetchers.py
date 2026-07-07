@@ -1254,6 +1254,12 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
     # board waited ~4 hours for its rotation turn while racing rode every cycle
     sports = [c for c in comps if "acing" not in str(c.get("sportName", ""))
               and competition_covered(str(c.get("sportName", "")), str(c.get("name", "")))]
+    # rotate the DETAIL start point so tail comps aren't starved forever by
+    # listing order (the budget runs out before the last comps every cycle)
+    if sports:
+        offset = _take_rotating("dabble_sport_start", list(range(len(sports))), 1)
+        start_at = offset[0] if offset else 0
+        sports = sports[start_at:] + sports[:start_at]
     racing = [c for c in comps if "acing" in str(c.get("sportName", ""))]
     window = sports + _take_rotating("dabble_all", racing, DABBLE_COMPETITIONS_PER_CYCLE)
     budgets = {"sport": DABBLE_SPORT_DETAILS_PER_CYCLE,

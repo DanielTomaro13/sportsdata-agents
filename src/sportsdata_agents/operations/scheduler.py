@@ -27,6 +27,7 @@ the old cron lines used.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import logging
@@ -336,6 +337,13 @@ def acquire_lock(job_name: str) -> Path | None:
 
 Runner = Callable[[Job, list[str]], subprocess.CompletedProcess]
 
+# the lock file each running job holds, by job name — the default runner stamps
+# the JOB CHILD's pid into it (a lock carrying the conductor's pid reads stale
+# the moment the conductor restarts, while its orphan child lives on: the next
+# tick then reclaims the lock and runs a DUPLICATE beside the orphan; lived
+# 2026-07-07, old-code monitors holding new code out for 90 minutes)
+_ACTIVE_LOCKS: dict[str, Any] = {}
+
 
 def _resolve_log(job: Job) -> str:
     """A bare job log name resolves under the OS logs dir; an absolute path
@@ -352,9 +360,19 @@ def _default_runner(job: Job, argv: list[str]) -> subprocess.CompletedProcess:
         log.write(f"\n--- scheduler: {job.name} @ {dt.datetime.now(dt.UTC).isoformat()} ---\n")
         log.flush()
         # argv comes from the static registry, never user input
-        return subprocess.run(
-            argv, stdout=log, stderr=subprocess.STDOUT, timeout=job.timeout_s, check=False
-        )
+        proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
+        lock = _ACTIVE_LOCKS.get(job.name)
+        if lock is not None:
+            with contextlib.suppress(OSError):
+                # on failure, ownership stays with the conductor pid — degraded
+                lock.write_text(str(proc.pid))
+        try:
+            returncode = proc.wait(timeout=job.timeout_s)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise
+        return subprocess.CompletedProcess(argv, returncode)
 
 
 @dataclass
@@ -410,6 +428,7 @@ def _run_one_job(
     if lock is None:
         report.skipped_locked.append(job.name)
         return
+    _ACTIVE_LOCKS[job.name] = lock
     try:
         argv = [binary, *job.args]
         if job.paced and pace is not None:
@@ -447,6 +466,7 @@ def _run_one_job(
             run(triage, [binary, *triage.args])
             report.triage_triggered.append(job.name)
     finally:
+        _ACTIVE_LOCKS.pop(job.name, None)
         lock.unlink(missing_ok=True)
 
 

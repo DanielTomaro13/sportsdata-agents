@@ -331,6 +331,11 @@ def _racing_board_key(ctx_event: str) -> str:
     venue = base.split(" (")[0].strip()
     if race and match:
         return f"{venue} R{match.group(1)}"
+    if race:
+        # sponsor-named cards (Dabble) carry no R<n>: the FULL label is the
+        # race identity — a bare venue merged every race at the meeting into
+        # one dedupe key and one garbage story
+        return f"{venue} · {race.strip()}"
     return base.strip()
 
 
@@ -992,14 +997,16 @@ async def _watch_value(
             await session.execute(
                 select(Alert)
                 .where(Alert.subscription_id == sub.id,
-                       Alert.dedupe_key.startswith(f"{base_key}:", autoescape=True),
-                       Alert.kind == "value")
+                       or_(Alert.dedupe_key.startswith(f"{base_key}:", autoescape=True),
+                           Alert.dedupe_key == f"vanished:{base_key}"),
+                       Alert.kind.in_(("value", "value_vanished")))
                 .order_by(Alert.created_at.desc())
                 .limit(1)
             )
         ).scalars().first()
         if not live:
-            if previously is not None and previously.payload.get("edge_pct", 0) > 0:
+            if (previously is not None and previously.kind == "value"
+                    and previously.payload.get("edge_pct", 0) > 0):
                 display = (await _event_display_name(session, event_id) or event_id)
                 best = max(e["edge"] for e in entries)
                 message = (
@@ -1208,11 +1215,12 @@ def _quote_price_rows(
                 lookup[("place", row.selection.lower(), float(places))] = row
             continue
         side, line = _split_selection(row.selection.lower())
-        if market in _H2H_MARKETS and side in ("home", "away"):
+        family = _market_family(row.market)
+        if family == "h2h" and side in ("home", "away"):
             lookup[("h2h", side, None)] = row
-        elif market in _TOTAL_MARKETS and side in ("over", "under") and line is not None:
+        elif family == "total" and side in ("over", "under") and line is not None:
             lookup[("total", side, line)] = row
-        elif market in _LINE_MARKETS and side in ("home", "away") and line is not None:
+        elif family == "line" and side in ("home", "away") and line is not None:
             lookup[("line", side, line)] = row
     return lookup
 
@@ -1271,7 +1279,7 @@ async def _watch_model_value(
     by_event: dict[tuple[str, str], list[Price]] = {}
     for (row_book, event_id, _, _), row in latest.items():
         by_event.setdefault((row_book, event_id), []).append(row)
-    anchor_markets = {"win"} if sport == "racing" else (_H2H_MARKETS | _TOTAL_MARKETS)
+    anchor_families = ("h2h", "total")  # via _market_family — suffixed labels count
 
     # PASS 1: scan each (book, event) board — the engine calibrates to each
     # book's OWN anchors — and pool the candidates by the fixture-shared
@@ -1282,10 +1290,15 @@ async def _watch_model_value(
         # the derivatives themselves may be arbitrarily old change-points
         # (unchanged quote = current quote), which is exactly what we compare
         cutoff = now - max_age
-        if not any(
-            (r.changed_at if r.changed_at.tzinfo else r.changed_at.replace(tzinfo=dt.UTC)) > cutoff
-            for r in event_rows if r.market.lower() in anchor_markets
-        ):
+        if sport == "racing":
+            fresh_anchor = any(
+                (r.changed_at if r.changed_at.tzinfo else r.changed_at.replace(tzinfo=dt.UTC)) > cutoff
+                for r in event_rows if r.market.lower() == "win")
+        else:
+            fresh_anchor = any(
+                (r.changed_at if r.changed_at.tzinfo else r.changed_at.replace(tzinfo=dt.UTC)) > cutoff
+                for r in event_rows if _market_family(r.market) in anchor_families)
+        if not fresh_anchor:
             continue
         snap = (await session.execute(
             select(OddsSnapshot)
@@ -1330,8 +1343,10 @@ async def _watch_model_value(
             continue
         rows_by_quote = _quote_price_rows(event_rows, sport, int(places) if places else None)
         display = await _event_display_name(session, event_id) or event_id
+        from sportsdata_agents.operations.resolution.resolver import split_sides
+
         if (sport != "racing" and display != event_id
-                and " v " not in display and " @ " not in display):
+                and split_sides(display) is None):
             continue  # a pseudo-event (a book lists player props / odd-even
             # novelties as their own "events") — its outcomes can pair up
             # like anchors and calibrate the engine to nonsense (lived:
@@ -1487,6 +1502,8 @@ async def _watch_scratching(
             continue
         freshest = max(when for _sel, when in entries)
         for selection, when in entries:
+            if fired >= cap:
+                break
             if freshest - when >= gap:
                 event_name, sport = names.get((provider, event), (event, sport_like))
                 message = (
@@ -1817,7 +1834,9 @@ async def _watch_racing_value(
     # one MESSAGE per race: three runners with value in one race is one story
     by_race: dict[str, list[dict[str, Any]]] = {}
     for candidate in candidates:
-        by_race.setdefault(str(candidate["race"]), []).append(candidate)
+        # canonical race identity — the flagged book's own label ("MANAWATU
+        # R1" vs "Manawatu R1") split one race into two alerts
+        by_race.setdefault(_racing_board_key(str(candidate["race"])).lower(), []).append(candidate)
     fired = 0
     for race, cands in by_race.items():
         if fired >= cap:
@@ -1876,7 +1895,7 @@ async def _watch_racing_value(
         # book belongs ON its own board — its price anchors the comparison
         sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
         message = (
-            f":racehorse: Racing Value — {race}\n"
+            f":racehorse: Racing Value — {top['race']}\n"
             + "\n".join(lines)
             + f"\n{_fmt_money(bankroll)} bankroll{traded}{jump}"
             + await _runner_form_note(session, top.get("race_no"),

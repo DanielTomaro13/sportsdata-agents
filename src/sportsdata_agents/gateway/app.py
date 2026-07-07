@@ -937,9 +937,14 @@ def create_app(
 
         prefs = body.get("coverage")
         if not isinstance(prefs, dict) or not all(
-                isinstance(v, list) for v in prefs.values()):
-            return JSONResponse({"detail": "coverage must be {sport: [tokens]}"},
+                isinstance(v, list) and all(isinstance(t, str) for t in v)
+                for v in prefs.values()):
+            return JSONResponse({"detail": "coverage must be {sport: [str tokens]}"},
                                 status_code=422)
+        if not prefs and not body.get("confirm_empty"):
+            return JSONResponse({"detail": "empty coverage turns OFF every sport's "
+                                           "detail collection — send confirm_empty: "
+                                           "true if that is intended"}, status_code=422)
         try:
             save_coverage(prefs)
         except OSError as e:

@@ -65,6 +65,8 @@ _FAMILY_ALIASES = {
     "nba": "basketball",
     "wnba": "basketball",
     "nbl": "basketball",
+    "nrl": "rugby_league",
+    "afl_football": "australian_rules",
     "mlb": "baseball",
     "nhl": "ice_hockey",
     "pga": "golf",
@@ -135,6 +137,13 @@ def save_coverage(prefs: dict[str, list[str]]) -> None:
 
 def _family(sport_label: str) -> str:
     label = str(sport_label or "").strip().lower().replace(" ", "_")
+    # fold through the SINK's canonicalisation first: fetchers pass each
+    # book's RAW label ("AFL Football", "basketball_-_us", "ufc_-_mma") and
+    # an unrecognised label silently defunds the operator's own sports
+    # (lived: TAB's AFL books and Sportsbet's NBA/NHL/UFC details dropped)
+    from sportsdata_agents.operations.ingestion.normalizers import _CANON_SPORT
+
+    label = _CANON_SPORT.get(label, label)
     return _FAMILY_ALIASES.get(label, label)
 
 

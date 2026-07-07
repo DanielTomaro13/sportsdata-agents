@@ -361,6 +361,7 @@ async def scan_exchange_premium(
     min_edge_pct: float = 3.0,
     min_matched: float = 1000.0,
     require_matched: bool = True,
+    max_age_minutes: float = 20.0,
     markets: tuple[str, ...] = DEFAULT_MARKETS,
     limit: int = 20,
     max_fixtures: int = 400,
@@ -412,7 +413,14 @@ async def scan_exchange_premium(
                                                 float(row["matched"]))
             else:
                 others.append({**row, "outcome": outcome, "line": line})
+        age_bound = dt.timedelta(minutes=max_age_minutes)
         for row in others:
+            seen = row.get("seen")
+            if seen is not None:
+                seen_dt = seen if seen.tzinfo else seen.replace(tzinfo=dt.UTC)
+                if now - seen_dt > age_bound:
+                    continue  # an hours-old book quote against the CURRENT
+                    # exchange fair is a lagging line masquerading as edge
             board = exchange.get(row["line"])
             if not board or len(board) < 2:
                 continue  # no de-viggable exchange market at this line
