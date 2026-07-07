@@ -270,9 +270,12 @@ async def record_points(
             )
         # ON CONFLICT DO NOTHING on the change-point unique index: a re-run or a
         # same-timestamp concurrent writer can't double-insert the same change-point.
-        if price_rows:
+        # CHUNKED: asyncpg caps one statement at 32,767 bind params (10 per row) —
+        # a full-book feed's first pass ships enough change-points to blow it.
+        for start in range(0, len(price_rows), 3000):
+            chunk = price_rows[start:start + 3000]
             await session.execute(
-                _price_insert(session).values(price_rows).on_conflict_do_nothing(index_elements=_PRICE_UQ)
+                _price_insert(session).values(chunk).on_conflict_do_nothing(index_elements=_PRICE_UQ)
             )
         await session.commit()
     return {"snapshots": len(points), "price_changes": changes, "refreshed": len(refresh_rows)}
