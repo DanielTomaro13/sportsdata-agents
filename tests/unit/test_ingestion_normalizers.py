@@ -72,7 +72,7 @@ def test_normalize_nba_dedupes_books_and_keys_spreads() -> None:
     novibet_home = next(p for p in points if p.book == "Novibet" and p.selection == "home")
     assert novibet_home.odds == 1.82
     assert novibet_home.event_external_id == "0042500403"
-    assert novibet_home.sport == "nba" and novibet_home.provider == "nba_cdn"
+    assert novibet_home.sport == "basketball" and novibet_home.provider == "nba_cdn"
     assert novibet_home.meta["trend"] == "up"
     # the spread line is part of the selection identity
     spread_selections = {p.selection for p in points if p.market == "spread"}
