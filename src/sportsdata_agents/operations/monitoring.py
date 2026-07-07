@@ -66,8 +66,12 @@ def _pct_move(prev: float, new: float) -> float:
 
 async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, float]:
     """The same market at every OTHER book mapped to this event's fixture —
-    {book: best odds}. Side-relative selections (home/away) translate between
-    books' listing orders with the settlement-grade name matching; when the
+    {book: best odds}. Matching is by MARKET FAMILY and numeric (side, line),
+    not exact strings: books name the same market "spread"/"line"/"handicap"
+    and stringify lines differently, so exact equality left every lined board
+    reading NA while the whole industry priced the game. Side-relative
+    selections (home/away, with or without a line) translate between books'
+    listing orders; the handicap rides the team through the flip. When the
     event isn't resolved onto a fixture yet, the map is simply empty."""
     from sportsdata_agents.quant.backtest import _event_name_for, _translate_side
 
@@ -91,35 +95,50 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
     ).scalars().all()
     if not siblings:
         return {}
-    side_relative = row.selection in ("home", "away", "draw")
+    side, line = _split_selection(row.selection.lower())
+    side_relative = side in ("home", "away", "draw")
+    market_l = row.market.lower()
+    family = next((f for f in (_H2H_MARKETS, _TOTAL_MARKETS, _LINE_MARKETS)
+                   if market_l in f), None)
     name_cache: dict[tuple[str, str], str] = {}
     own_name = ""
     if side_relative:
         own_name = await _event_name_for(session, name_cache, row.provider, row.event_external_id)
     quotes: dict[str, float] = {}
     for sibling in siblings:
-        selection = row.selection
+        want_side = side
         if side_relative:
             sibling_name = await _event_name_for(session, name_cache, sibling.provider, sibling.external_id)
-            translated = _translate_side(row.selection, sibling_name, own_name)
+            translated = _translate_side(side, sibling_name, own_name)
             if translated is None:
                 continue  # orientation unknown — never show a possibly-flipped price
-            selection = translated
-        latest = (
-            await session.execute(
-                select(Price)
-                .where(
-                    Price.provider == sibling.provider,
-                    Price.event_external_id == sibling.external_id,
-                    Price.market == row.market,
-                    Price.selection == selection,
-                )
-                .order_by(Price.changed_at.desc())
-                .limit(1)
+            want_side = translated
+        stmt = (
+            select(Price)
+            .where(
+                Price.provider == sibling.provider,
+                Price.event_external_id == sibling.external_id,
             )
-        ).scalars().first()
-        if latest is not None and latest.book != row.book:
-            quotes[latest.book] = max(quotes.get(latest.book, 0.0), float(latest.odds))
+            .order_by(Price.changed_at.desc())
+        )
+        if family is None:
+            stmt = stmt.where(Price.market == row.market).limit(30)
+        else:
+            stmt = stmt.where(func.lower(Price.market).in_(family)).limit(60)
+        for cand in (await session.execute(stmt)).scalars():
+            if cand.book == row.book:
+                continue
+            cand_side, cand_line = _split_selection(cand.selection.lower())
+            if cand_side != want_side:
+                continue
+            if (line is None) != (cand_line is None):
+                continue
+            if line is not None and cand_line is not None and abs(cand_line - line) > 1e-9:
+                continue
+            # rows arrive newest-first: the first match per book IS the current
+            # price — never let an older, higher change-point overwrite it
+            quotes.setdefault(cand.book, float(cand.odds))
+            break
     return quotes
 
 

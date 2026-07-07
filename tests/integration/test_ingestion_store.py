@@ -767,3 +767,44 @@ async def test_same_day_doubleheaders_never_merge(
     async with db_sessionmaker() as s:
         fixtures = (await s.execute(select(Fixture))).scalars().all()
     assert len(fixtures) == 2
+
+
+async def test_cross_book_board_joins_lined_markets_across_market_names(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """A spread quote finds the other book's price even when that book calls
+    the market "line" — the join is by market FAMILY and numeric (side, line),
+    never exact strings (lived: an MLB run-line board read 8 books NA while
+    the whole industry priced the game)."""
+    from sportsdata_agents.data.models import Event, Fixture, Price
+    from sportsdata_agents.operations.monitoring import _cross_book_quotes
+
+    async with db_sessionmaker() as s:
+        fixture = Fixture(sport="baseball", external_id="fx-mlb-1",
+                          name="Milwaukee Brewers @ St. Louis Cardinals",
+                          start_time=T2 + dt.timedelta(hours=4))
+        s.add(fixture)
+        await s.flush()
+        for provider, event_id in (("fanduel", "MLB-1"), ("tab", "MLB-2")):
+            s.add(Event(provider=provider, external_id=event_id, fixture_id=fixture.id))
+        rows = [
+            ("fanduel", "FanDuel", "MLB-1", "spread", "home 1.5", 1.91),
+            ("tab", "TAB", "MLB-2", "line", "home 1.5", 1.85),   # same bet, other name
+            ("tab", "TAB", "MLB-2", "line", "home 2.5", 1.45),   # decoy line
+        ]
+        for provider, book, event_id, market, selection, odds in rows:
+            s.add(Price(changed_at=T2 - dt.timedelta(minutes=5), provider=provider,
+                        book=book, sport="baseball", event_external_id=event_id,
+                        market=market, selection=selection, odds=odds))
+            # side translation reads each book's own event NAME from snapshots
+            s.add(OddsSnapshot(captured_at=T2 - dt.timedelta(minutes=5),
+                               provider=provider, book=book, sport="baseball",
+                               event_external_id=event_id,
+                               event_name="Milwaukee Brewers @ St. Louis Cardinals",
+                               market=market, selection=selection, odds=odds))
+        await s.commit()
+    async with db_sessionmaker() as s:
+        row = (await s.execute(
+            select(Price).where(Price.book == "FanDuel"))).scalars().first()
+        quotes = await _cross_book_quotes(s, row)
+    assert quotes == {"TAB": 1.85}  # family-matched, decoy line excluded

@@ -1094,8 +1094,15 @@ def normalize_unibet_races(payload: Any) -> list[PricePoint]:
             number = competitor.get("number") or competitor.get("startNumber")
             selection = str(number) if number is not None else str(competitor.get("name", "?")).lower()
             for price_row in competitor.get("prices", []) or []:
-                market_key = bet_market.get(str(price_row.get("betType", "")),
-                                            str(price_row.get("betType", "?")).lower())
+                market_key = bet_market.get(str(price_row.get("betType", "")))
+                if market_key is None:
+                    # "Win"/"Place" (no Fixed prefix) are TOTE dividend estimates
+                    # and SameRaceMulti is a product — lowercasing them collided
+                    # with the FIXED odds markets and the tote row arrived first,
+                    # so the sink kept the pool estimate and dropped the real
+                    # fixed price (lived: Gemtiki "Unibet 14.40" while their
+                    # fixed odds sat at 8.00 — every Unibet-is-out alert today)
+                    continue
                 current = next((f for f in price_row.get("flucs", []) or []
                                 if f.get("productType") == "Current"), None)
                 # ante-post (futures) cards carry NO flucs — the row's direct

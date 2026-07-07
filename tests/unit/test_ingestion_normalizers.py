@@ -1376,3 +1376,33 @@ def test_normalize_betr_books_reads_master_event_groups() -> None:
     assert {p.selection for p in h2h} == {"home", "away"}  # sides from the fixture name
     over = next(p for p in points if p.selection.startswith("over"))
     assert over.selection == "over 6.5" and over.odds == 1.36
+
+
+def test_unibet_races_tote_estimates_never_masquerade_as_fixed_odds() -> None:
+    """Unibet cards carry betType "Win"/"Place" (TOTE dividend estimates) next
+    to FixedWin/FixedPlace — only the FIXED odds may become win/place rows
+    (lived: a wandering tote estimate read as Unibet fixed odds and fired
+    value alerts all morning)."""
+    from sportsdata_agents.operations.ingestion.normalizers import normalize_unibet_races
+
+    payload = {"races": [{
+        "eventKey": "202607070400.T.AUS.muswellbrook.4", "sport": "horse_racing",
+        "venue": "Muswellbrook", "race_no": 4,
+        "card": {"data": {"viewer": {"event": {
+            "eventKey": "202607070400.T.AUS.muswellbrook.4",
+            "competitors": [{
+                "name": "Gemtiki", "number": 5,
+                "prices": [
+                    {"betType": "Win", "price": 14.4, "flucs": []},  # tote estimate
+                    {"betType": "FixedWin", "price": 8.0,
+                     "flucs": [{"productType": "Current", "price": 8.0}]},
+                    {"betType": "Place", "price": 3.9, "flucs": []},  # tote place
+                    {"betType": "FixedPlace", "price": 2.6, "flucs": []},
+                    {"betType": "SameRaceMulti", "price": 0, "flucs": []},
+                ],
+            }],
+        }}}},
+    }]}
+    points = normalize_unibet_races(payload)
+    by_market = {p.market: p.odds for p in points}
+    assert by_market == {"win": 8.0, "place": 2.6}  # fixed odds only, tote gone
