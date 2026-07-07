@@ -32,3 +32,25 @@ def test_already_tagged_and_non_props_pass_through() -> None:
     assert tag_prop("total", "over 224.5", {}) == {}          # no player name
     assert tag_prop("points handicap -13.5", "lionheart", {}) == {}  # esports handicap, not a ladder
     assert tag_prop("world cup daily specials", "all games over 1.5 goals in regular time", {}) == {}
+
+
+def test_form_prose_parser_real_sentences() -> None:
+    """The one grammar covering TAB formComments and Sportsbet AU overviews."""
+    import datetime as dt
+
+    from sportsdata_agents.operations.ingestion.form import parse_comment_runs
+
+    now = dt.datetime(2026, 7, 7, tzinfo=dt.UTC)
+    tab = ("First-up won by 2.5 len at Scone Red Crown May 31 over 900m. "
+           "Second run 3rd of 7 at Warwick Farm 2yo F Osc on June 24 over 1100m.")
+    runs = parse_comment_runs(tab, now)
+    assert [(r["position"], r["field_size"]) for r in runs] == [(1, 8), (3, 7)]
+    assert runs[0]["age_days"] == 37.0 and runs[1]["age_days"] == 13.0
+    sb = ("First-up ran second last of 7 at Yil All Weather on June 16 over 1500m. "
+          "Second run from a spell 5th of 8 at Kartepe on June 23 over 1400m.")
+    assert [(r["position"], r["field_size"]) for r in parse_comment_runs(sb, now)] \
+        == [(6, 7), (5, 8)]
+    # a December date "in the future" reads as LAST year
+    old = parse_comment_runs("4th of 9 at Sale on December 20 over 515m.", now)
+    assert old and 190 < old[0]["age_days"] < 210
+    assert parse_comment_runs("Trainer expects improvement.", now) == []

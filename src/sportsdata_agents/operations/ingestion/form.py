@@ -43,6 +43,10 @@ def _trim_runner(raw: dict[str, Any]) -> dict[str, Any]:
         "jockey": raw.get("riderDriverName") or raw.get("rider") or raw.get("driver"),
         "trainer": raw.get("trainerName"),
         "last_starts": raw.get("last20Starts") or raw.get("lastStarts"),
+        "runs": parse_comment_runs(
+            " ".join([str(raw.get("formComment") or "")]
+                     + [str(c.get("comment") or "") for c in raw.get("formComments") or []]),
+            dt.datetime.now(dt.UTC)),
         "rating": raw.get("techFormRating") or raw.get("rating"),
         "days_since_run": raw.get("daysSinceLastRun"),
         "runs_since_spell": raw.get("runsSinceSpell"),
@@ -50,6 +54,57 @@ def _trim_runner(raw: dict[str, Any]) -> dict[str, Any]:
         "age": raw.get("age"),
         "scratched": bool(raw.get("scratched") or raw.get("isScratched") or False),
     }
+
+
+_MON_ALT = ("January|February|March|April|May|June|July|August|"
+            "September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|"
+            "Aug|Sept|Sep|Oct|Nov|Dec")
+# one run per SENTENCE of form prose. Both TAB's formComments and Sportsbet's
+# AU overviews speak the same grammar:
+#   "3rd of 7 at Warwick Farm 2yo F Osc on June 24 over 1100m"
+#   "ran second last of 7 at Yil All Weather on June 16"
+#   "won by 2.5 len at Scone Red Crown May 31 over 900m"
+_COMMENT_RUN = __import__("re").compile(
+    r"(?:(?P<lastish>(?:second |third )?last of (?P<lfield>\d{1,2}))"
+    r"|(?P<pos>\d{1,2})(?:st|nd|rd|th)? of (?P<field>\d{1,2})"
+    r"|(?P<won>won) by [\w.\u00bd\u00bc ]{1,12}?len)"
+    rf".{{0,90}}?(?:on )?(?P<mon>{_MON_ALT}) (?P<day>\d{{1,2}})\b",
+    __import__("re").IGNORECASE)
+
+
+def parse_comment_runs(comment: str, now: dt.datetime) -> list[dict[str, Any]]:
+    """STRUCTURED runs from form-guide prose — position, field size and date
+    per sentence. The printed dates carry no year: a month/day later than
+    today reads as LAST year (form is always the recent past)."""
+    runs: list[dict[str, Any]] = []
+    for sentence in __import__("re").split(r"(?<=[.!?])\s+", str(comment or "")):
+        match = _COMMENT_RUN.search(sentence)
+        if not match:
+            continue
+        if match.group("won"):
+            position, field = 1, 8  # field size unprinted on win lines — a
+            # conservative stand-in; excluding wins would bias good horses DOWN
+        elif match.group("lastish"):
+            field = int(match.group("lfield"))
+            back = match.group("lastish").split()[0].lower()
+            position = field - {"second": 1, "third": 2}.get(back, 0)
+        else:
+            position, field = int(match.group("pos")), int(match.group("field"))
+        month = _MONTHS.get(match.group("mon")[:3].lower())
+        if month is None or not 1 <= position <= max(field, 1):
+            continue
+        try:
+            ran = dt.datetime(now.year, month, int(match.group("day")), tzinfo=dt.UTC)
+        except ValueError:
+            continue
+        if ran > now:
+            ran = ran.replace(year=now.year - 1)
+        age_days = (now - ran).total_seconds() / 86_400.0
+        if age_days > 400:
+            continue  # ancient or mis-parsed — form decay makes it noise anyway
+        runs.append({"position": position, "field_size": max(field, position),
+                     "age_days": round(age_days, 1)})
+    return runs
 
 
 _RECENT_START = __import__("re").compile(
@@ -127,6 +182,8 @@ async def ingest_sportsbet_form(
                 stats = sel.get("statistics") or {}
                 runs = [r for r in (parse_recent_start(line, now)
                                     for line in stats.get("recentStarts") or []) if r]
+                if not runs:  # AU cards carry the same facts as prose
+                    runs = parse_comment_runs(str(stats.get("overview") or ""), now)
                 if runs:
                     by_number[number] = {"number": number, "name": sel.get("name"),
                                          "scratched": bool(sel.get("isOut")), "runs": runs}
