@@ -71,6 +71,15 @@ async def test_model_value_watch_fires_noise_gates_and_degrades(
             _price("total", "over 200.5", 3.00, minutes_ago=90),  # stale: outside max_age
         ):
             s.add(row)
+        # a covered league carries a competition stamp (restricted sports
+        # fail CLOSED on unvouched leagues — the NPB-through-MLB gate)
+        from sportsdata_agents.data.models import OddsSnapshot
+        s.add(OddsSnapshot(captured_at=NOW - dt.timedelta(minutes=5),
+                           provider="sportsbet", book="sportsbet", sport="afl",
+                           event_external_id="AFL-1", event_name="Alpha v Beta",
+                           market="2way", selection="home", odds=1.44,
+                           start_time=dt.datetime(2027, 1, 1, tzinfo=dt.UTC),
+                           meta={"competition": "AFL"}))
         s.add(Subscription(tenant_id="t", workspace_id="w", name="afl-model",
                            kind="model_value", channel="log",
                            params={"sport": "afl", "min_edge_pct": 3.0}))
@@ -132,6 +141,13 @@ async def test_model_value_pools_books_into_one_market_story(
                             provider=provider, book=book, sport="afl",
                             event_external_id=event_id, market=market,
                             selection=selection, odds=odds))
+            from sportsdata_agents.data.models import OddsSnapshot
+            s.add(OddsSnapshot(captured_at=NOW - dt.timedelta(minutes=5),
+                               provider=provider, book=book, sport="afl",
+                               event_external_id=event_id, event_name="Alpha v Beta",
+                               market="2way", selection="home", odds=1.44,
+                               start_time=dt.datetime(2027, 1, 1, tzinfo=dt.UTC),
+                               meta={"competition": "AFL"}))
         s.add(Subscription(tenant_id="t", workspace_id="w", name="afl-model",
                            kind="model_value", channel="log",
                            params={"sport": "afl", "min_edge_pct": 3.0}))

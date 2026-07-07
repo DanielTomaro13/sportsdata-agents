@@ -152,6 +152,16 @@ def sport_covered(sport_label: str) -> bool:
     return _family(sport_label) in _prefs()
 
 
+def sport_restricted(sport_label: str) -> bool:
+    """Does this sport limit coverage to NAMED competitions (non-empty token
+    list)? Alert gates fail CLOSED on unknown leagues for restricted sports:
+    every covered league has a competition-stamping book (Pinnacle, Dabble)
+    on its fixtures, so 'nobody can vouch for it' means it isn't MLB/NBA/AFL
+    (lived: TAB's unstamped NPB game alerted through an MLB-only coverage)."""
+    tokens = _prefs().get(_family(sport_label))
+    return bool(tokens)
+
+
 def competition_covered(sport_label: str, competition: str) -> bool:
     """Does this competition get detail budget? Unknown sports: no. A sport
     with an empty token list: every competition."""

@@ -175,6 +175,36 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
     return quotes
 
 
+async def _sibling_competition(
+    session: AsyncSession, provider: str, event_id: str
+) -> str:
+    """The fixture's competition label from ANY sibling event's snapshots —
+    most books never stamp a league, Pinnacle always does. Empty string when
+    nobody knows (fail-open: an unknown league must not silence AFL alerts
+    from books that don't stamp competitions)."""
+    mapping = (await session.execute(
+        select(Event).where(Event.provider == provider,
+                            Event.external_id == event_id)
+    )).scalars().first()
+    if mapping is None or mapping.fixture_id is None:
+        return ""
+    siblings = (await session.execute(
+        select(Event).where(Event.fixture_id == mapping.fixture_id,
+                            Event.id != mapping.id)
+    )).scalars().all()
+    for sib in siblings:
+        comp = (await session.execute(
+            select(OddsSnapshot.meta["competition"].as_string()).where(
+                OddsSnapshot.provider == sib.provider,
+                OddsSnapshot.event_external_id == sib.external_id,
+                OddsSnapshot.meta["competition"].as_string().isnot(None),
+            ).order_by(OddsSnapshot.captured_at.desc()).limit(1)
+        )).scalar()
+        if comp:
+            return str(comp)
+    return ""
+
+
 def _cooled_down(prev_at: dt.datetime, minutes: float = 20.0) -> bool:
     """A band-GROWTH re-fire waits out a cooldown: a drifting model fair
     walks a +2% boundary on every scan, and each crossing is technically
@@ -1532,12 +1562,26 @@ async def _watch_model_value(
         if bool(sub.params.get("pre_match_only", True)) and _started(start_time):
             continue  # a started game's laggy derivatives are game state, not edge
         competition = str(((snap.meta if snap else None) or {}).get("competition") or "")
-        if competition:
-            from sportsdata_agents.operations.ingestion.coverage import competition_covered
+        if not competition:
+            # the alerted book stamps no league (TAB never does) — ask the
+            # fixture's SIBLINGS: Pinnacle stamps its competition on every
+            # row, and without this an NPB game alerted through an MLB-only
+            # coverage (lived: "ORIX v Fukuoka Softbank", 2026-07-08)
+            competition = await _sibling_competition(
+                session, event_rows[0].provider, event_id)
+        from sportsdata_agents.operations.ingestion.coverage import (
+            competition_covered,
+            sport_restricted,
+        )
 
+        if competition:
             if not competition_covered(price_sport, competition):
                 continue  # a league outside the operator's coverage (Pinnacle
                 # prices NPB/KBO; the preferences say MLB) — no alerts for it
+        elif sport_restricted(price_sport):
+            continue  # restricted sport, league unknown even via siblings —
+            # every covered league has a stamping book on its fixture, so
+            # an unvouched game is NPB/KBO/summer-league, not MLB/NBA/AFL
         places = sub.params.get("places")
         if sport == "racing":
             seed, book_quotes = _racing_engine_inputs(event_rows, int(places) if places else None)
