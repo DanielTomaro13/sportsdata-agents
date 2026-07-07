@@ -324,6 +324,19 @@ async def record_ratings_slate(
     if form_rows:
         name = "engine-form:racing"
         await _artifact(name, "racing")
+    # TAB and Sportsbet both store the SAME physical race under different
+    # keys — price it ONCE, from whichever source exposed more runners
+    def _runs_count(row: Any) -> int:
+        return sum(1 for r in row.runners or [] if r.get("runs"))
+
+    best_by_race: dict[tuple[int, Any], Any] = {}
+    for race in form_rows:
+        slot = race.start_time.replace(second=0, microsecond=0) if race.start_time else None
+        key = (int(race.race_number), slot)
+        held = best_by_race.get(key)
+        if held is None or _runs_count(race) > _runs_count(held):
+            best_by_race[key] = race
+    form_rows = list(best_by_race.values())
     for race in form_rows:
         if events_priced >= max_events:
             break
@@ -370,7 +383,7 @@ async def record_ratings_slate(
         renamed = []
         for price in board:
             number = numbers.get(price.selection)
-            if number is not None and price.market == "win":
+            if number is not None:
                 price = dataclasses.replace(price, selection=str(number))
             renamed.append(price)
         if await _record_board(name, "racing", "TAB", race.race_key, renamed):

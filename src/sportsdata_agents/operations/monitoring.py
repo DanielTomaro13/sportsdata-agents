@@ -1198,10 +1198,13 @@ async def _watch_bsp_value(
                    Prediction.event_external_id == race.race_key,
                    Prediction.market == "win",
                    Prediction.predicted_at > now - dt.timedelta(hours=6))
+            .order_by(Prediction.predicted_at.desc())
         )).all()
         if not preds:
             continue
-        prob_by_number = {str(sel): float(prob) for sel, prob in preds}
+        prob_by_number: dict[str, float] = {}
+        for sel, prob in preds:  # newest first — older passes never overwrite
+            prob_by_number.setdefault(str(sel), float(prob))
         names = {str(r.get("number")): str(r.get("name") or "") for r in race.runners or []}
         for number, prob in sorted(prob_by_number.items(), key=lambda kv: -kv[1]):
             if fired >= cap or not 0.0 < prob < 1.0:

@@ -123,7 +123,7 @@ def parse_recent_start(text: str, now: dt.datetime) -> dict[str, Any] | None:
     match = _RECENT_START.match(str(text or "").strip())
     if not match:
         return None
-    field = int(match.group("field")) + 1  # "of 8" counts the OTHERS beaten
+    field = int(match.group("field"))  # "5 of 8" = fifth in a field of eight
     pos = match.group("pos")
     position = field if pos.isalpha() else min(int(pos), field)
     month = _MONTHS.get(match.group("mon")[:3].lower())
@@ -166,8 +166,8 @@ async def ingest_sportsbet_form(
     for event in payload.get("events") or []:
         event_id = str(event.get("id", ""))
         venue = meetings.get(event_id) or event.get("competitionName") or ""
-        number = event.get("raceNumber")
-        if not venue or number is None:
+        race_no = event.get("raceNumber")
+        if not venue or race_no is None:
             continue
         # scan every market: only some carry the runner statistics block, and
         # greyhound cards may carry none at all (a horses feature)
@@ -176,8 +176,8 @@ async def ingest_sportsbet_form(
             if not isinstance(market, dict):
                 continue
             for sel in market.get("selections") or []:
-                number = sel.get("runnerNumber")
-                if number is None or number in by_number:
+                runner_number = sel.get("runnerNumber")
+                if runner_number is None or runner_number in by_number:
                     continue
                 stats = sel.get("statistics") or {}
                 runs = [r for r in (parse_recent_start(line, now)
@@ -185,17 +185,19 @@ async def ingest_sportsbet_form(
                 if not runs:  # AU cards carry the same facts as prose
                     runs = parse_comment_runs(str(stats.get("overview") or ""), now)
                 if runs:
-                    by_number[number] = {"number": number, "name": sel.get("name"),
-                                         "scratched": bool(sel.get("isOut")), "runs": runs}
+                    by_number[runner_number] = {"number": runner_number,
+                                                "name": sel.get("name"),
+                                                "scratched": bool(sel.get("isOut")),
+                                                "runs": runs}
         runners = list(by_number.values())
         if len(runners) < 3:
             continue
         start = event.get("startTime")
         start_dt = (dt.datetime.fromtimestamp(float(start), tz=dt.UTC)
                     if isinstance(start, int | float) else None)
-        rows.append({"race_key": f"{date}:S:{venue}:R{number}",
+        rows.append({"race_key": f"{date}:S:{venue}:R{race_no}",
                      "race_type": type_code.get(str(sports.get(event_id)), "R"),
-                     "venue": str(venue)[:16], "number": int(number),
+                     "venue": str(venue)[:16], "number": int(race_no),
                      "start": start_dt, "runners": runners})
     stored = 0
     if rows:
