@@ -1050,6 +1050,45 @@ async def _event_display_name(session: AsyncSession, event_id: str) -> str | Non
     )).scalar_one_or_none()
 
 
+async def _runner_form_note(session: AsyncSession, race_no: Any, start_time: Any,
+                            runner_number: Any) -> str:
+    """One line of form for the alerted runner, from the form store: the
+    compact figures plus the parsed recent runs ("2nd of 7, 13 days ago")."""
+    if race_no is None or runner_number is None or not start_time:
+        return ""
+    from sportsdata_agents.data.models import RaceForm
+
+    try:
+        start = dt.datetime.fromisoformat(str(start_time))
+    except ValueError:
+        return ""
+    race = (await session.execute(
+        select(RaceForm).where(
+            RaceForm.race_number == int(race_no),
+            RaceForm.start_time > start - dt.timedelta(minutes=10),
+            RaceForm.start_time < start + dt.timedelta(minutes=10),
+        ).order_by(RaceForm.captured_at.desc()).limit(3)
+    )).scalars().all()
+    for row in race:
+        for runner in row.runners or []:
+            if str(runner.get("number")) != str(runner_number):
+                continue
+            parts = []
+            if runner.get("last_starts"):
+                parts.append(f"figures {runner['last_starts']}")
+            runs = runner.get("runs") or []
+            if runs:
+                latest = runs[0]
+                parts.append(f"latest run {latest['position']} of "
+                             f"{latest['field_size']}, "
+                             f"{latest['age_days']:.0f} days ago")
+            if runner.get("days_since_run") is not None and not runs:
+                parts.append(f"{runner['days_since_run']} days since last run")
+            if parts:
+                return "\nForm: " + " · ".join(parts)
+    return ""
+
+
 async def _watch_racing_value(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
 ) -> int:
@@ -1103,8 +1142,11 @@ async def _watch_racing_value(
             f"(versus {candidate['versus']}){engine_note}{traded}\n"
             f"Suggested stake {_fmt_money(kelly)} of {_fmt_money(bankroll)} "
             f"bankroll{jump}"
-            f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}\n"
-            f"_Check the live price before betting_"
+            + await _runner_form_note(session, candidate.get("race_no"),
+                                      candidate.get("start_time"),
+                                      candidate.get("runner_number"))
+            + f"{_age_label(candidate.get('seen'), now or dt.datetime.now(dt.UTC))}\n"
+              f"_Check the live price before betting_"
         )
         # dedupe ONCE per race+runner+book for the window — the old edge/3
         # bucket re-fired the same runner every few minutes as its edge drifted
