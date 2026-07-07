@@ -102,6 +102,9 @@ WATCH_PARAMS: dict[str, Params] = {
         "min_edge_pct": (3.0, "recorded model edge at the latest price crossing this %"),
         "model": (None, 'fair-price family prefix ("engine:" anchored, "engine-ratings" '
                         "stats-only) — unset mixes families, newest-recorded wins"),
+        "exclude_engine_sports": (None, "engine sports dropped at the PREDICTION level "
+                                        '(e.g. ["racing"]) — cheaper than post-fetch '
+                                        "sport filters on 12k+ rows"),
         "max_prediction_age_hours": (6.0, "recorded fairs older than this are stale, not opinions"),
         "pre_match_only": (True, "skip events that have already started — recorded "
                                  "probabilities do not know the score"),

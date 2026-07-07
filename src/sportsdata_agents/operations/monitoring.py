@@ -925,32 +925,50 @@ async def _watch_value(
         ).order_by(Prediction.predicted_at.desc().nulls_last())
     )
     model_prefix = sub.params.get("model")
-    if model_prefix:
+    excluded_engine = {str(x) for x in (sub.params.get("exclude_engine_sports") or ())}
+    if model_prefix or excluded_engine:
         # one fair-price FAMILY per watch: the anchored slate and the ratings
         # slate record the same (event, market, selection) keys, and without
-        # this filter whichever recorded most recently silently wins
+        # this filter whichever recorded most recently silently wins. Engine
+        # sports excluded HERE, not after the price lookups — engine:racing
+        # alone records 12k+ predictions a day, and fetching prices for keys
+        # a sport filter would drop wedged the whole monitor pass (rc=-1
+        # timeouts, every alert kind silent; lived: 2026-07-07 evening)
         from sportsdata_agents.data.models import ModelArtifact
 
-        stmt = stmt.join(ModelArtifact, ModelArtifact.id == Prediction.model_id).where(
-            ModelArtifact.name.startswith(str(model_prefix), autoescape=True))
+        stmt = stmt.join(ModelArtifact, ModelArtifact.id == Prediction.model_id)
+        if model_prefix:
+            stmt = stmt.where(
+                ModelArtifact.name.startswith(str(model_prefix), autoescape=True))
+        for engine_sport in excluded_engine:
+            stmt = stmt.where(~ModelArtifact.name.endswith(f":{engine_sport}"))
     predictions = (await session.execute(stmt)).scalars().all()
     # newest prediction per (event, market, selection) — the slate re-records
     # every pass, and yesterday's probability is not an opinion on today's price
     newest: dict[tuple[str, str, str], Prediction] = {}
     for pred in predictions:
         newest.setdefault((pred.event_external_id, pred.market, pred.selection), pred)
+    # ONE batched lookup for the latest price per key — a query per key
+    # wedged the pass once a big model family was in scope
+    from sqlalchemy import tuple_
+
+    latest_by_key: dict[tuple[str, str, str], Price] = {}
+    keys = list(newest)
+    for chunk_start in range(0, len(keys), 4000):
+        chunk = keys[chunk_start:chunk_start + 4000]
+        rows = (await session.execute(
+            select(Price).where(
+                tuple_(Price.event_external_id, Price.market,
+                       Price.selection).in_(chunk),
+                Price.changed_at > now - dt.timedelta(hours=48),
+            ).order_by(Price.changed_at.desc())
+        )).scalars().all()
+        for row in rows:
+            latest_by_key.setdefault(
+                (row.event_external_id, row.market, row.selection), row)
     stories: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for (event_id, market, _sel), pred in newest.items():
-        latest = (await session.execute(
-            select(Price)
-            .where(
-                Price.event_external_id == pred.event_external_id,
-                Price.market == pred.market,
-                Price.selection == pred.selection,
-            )
-            .order_by(Price.changed_at.desc())
-            .limit(1)
-        )).scalars().first()
+        latest = latest_by_key.get((event_id, market, _sel))
         if latest is None or not _match(latest, sub.params):
             continue
         edge = (float(pred.prob) * float(latest.odds) - 1.0) * 100.0
