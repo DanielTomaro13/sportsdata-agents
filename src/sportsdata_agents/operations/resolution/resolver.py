@@ -489,33 +489,43 @@ async def merge_duplicate_fixtures(
         now = dt.datetime.now(dt.UTC)
         window = {(now + dt.timedelta(days=o)).strftime("%Y-%m-%d")
                   for o in range(-3, 4)}
-        by_key: dict[tuple[str, str], list[Fixture]] = {}
+        by_key: dict[str, list[tuple[Fixture, str]]] = {}
         for f in fixtures:
             day = _fixture_day(f)
             if day in window and not (f.meta or {}).get("no_merge"):
-                by_key.setdefault((f.sport, day), []).append(f)
+                by_key.setdefault(f.sport, []).append((f, day))
         merged = 0
         examined = 0
-        for (family, _day), group in by_key.items():
+        for family, group in by_key.items():
             if len(group) < 2:
                 continue
             sided = []
-            for f in group:
+            for f, day in group:
                 sides = split_sides(f.name)
                 if sides:
                     # competition-derived markers persist on the fixture — the
                     # U20 game a book names identically to the senior match
                     # must not re-merge here after resolution kept them apart
                     fm = frozenset((f.meta or {}).get("variant_markers") or ())
-                    sided.append((f, (_tokens(sides[0]) | fm, _tokens(sides[1]) | fm)))
+                    sided.append((f, (_tokens(sides[0]) | fm, _tokens(sides[1]) | fm),
+                                  day))
             # largest first: it wins the merge
-            sided.sort(key=lambda pair: -counts.get(pair[0].id, 0))
+            sided.sort(key=lambda entry: -counts.get(entry[0].id, 0))
             absorbed: set[uuid.UUID] = set()
-            for i, (winner, wsides) in enumerate(sided):
+            for i, (winner, wsides, wday) in enumerate(sided):
                 if winner.id in absorbed:
                     continue
-                for loser, lsides in sided[i + 1:]:
+                for loser, lsides, lday in sided[i + 1:]:
                     if loser.id in absorbed:
+                        continue
+                    # different days merge ONLY when one side is start-less:
+                    # a day_proxy fixture (exchange/futures founding) is the
+                    # one that can be mis-dayed (lived: Entain's proxy-dated
+                    # Fremantle v Sydney twin sat 3 days from the real
+                    # fixture and exact-day grouping never compared them);
+                    # two REAL starts on different days are different games
+                    if wday != lday and (winner.start_time is not None
+                                         and loser.start_time is not None):
                         continue
                     examined += 1
                     score = _sides_score(wsides, lsides)
@@ -526,7 +536,7 @@ async def merge_duplicate_fixtures(
                     # margin is nobody's to absorb (esoccer/table tennis play
                     # the same two names several times a day)
                     rival = max((_sides_score(lsides, osides)
-                                 for j, (other, osides) in enumerate(sided)
+                                 for j, (other, osides, _oday) in enumerate(sided)
                                  if j != i and other.id != loser.id
                                  and other.id not in absorbed),
                                 default=0.0)

@@ -32,6 +32,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -1048,13 +1049,25 @@ async def _watch_value(
         for row in rows:
             latest_by_key.setdefault(
                 (row.event_external_id, row.market, row.selection), row)
+    # fold sibling events onto their FIXTURE so one game is ONE story — the
+    # slates record predictions against several books' event ids, and
+    # event-keyed stories alerted the same match once per book (lived:
+    # Fremantle v Sydney pushed twice, TAB-keyed and Pinnacle-keyed)
+    fixture_of: dict[str, str] = {}
+    pred_event_ids = {k[0] for k in newest}
+    if pred_event_ids:
+        for ev in (await session.execute(
+                select(Event).where(Event.external_id.in_(pred_event_ids))
+        )).scalars():
+            if ev.fixture_id is not None:
+                fixture_of.setdefault(ev.external_id, str(ev.fixture_id))
     stories: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for (event_id, market, _sel), pred in newest.items():
         latest = latest_by_key.get((event_id, market, _sel))
         if latest is None or not _match(latest, sub.params):
             continue
         edge = (float(pred.prob) * float(latest.odds) - 1.0) * 100.0
-        stories.setdefault((event_id, market), []).append(
+        stories.setdefault((fixture_of.get(event_id, event_id), market), []).append(
             {"pred": pred, "row": latest, "edge": edge})
     fired = 0
     ordered = sorted(stories.items(), key=lambda kv: -max(e["edge"] for e in kv[1]))
@@ -1143,7 +1156,8 @@ async def _watch_value(
             # top-of-story fields keep the outcome re-measurement loop working
             "edge_pct": round(top["edge"], 2), "prob": float(top["pred"].prob),
             "min_edge_pct": min_edge, "provider": top["row"].provider,
-            "book": top["row"].book, "event_external_id": event_id,
+            "book": top["row"].book,
+            "event_external_id": top["row"].event_external_id,
             "market": market, "selection": top["pred"].selection,
             "selections": [{"selection": e["pred"].selection, "book": e["row"].book,
                             "odds": float(e["row"].odds),
@@ -1942,13 +1956,24 @@ async def _watch_exchange_value(
 
 
 async def _event_display_name(session: AsyncSession, event_id: str) -> str | None:
-    """The human event name for an alert — snapshots carry it, ids do not."""
-    from sportsdata_agents.data.models import OddsSnapshot
+    """The human event name for an alert — snapshots carry it, ids do not.
+    Accepts a fixture UUID too (value stories key by fixture since one game
+    is one story) — the fixture's own name answers directly."""
+    from sportsdata_agents.data.models import Fixture, OddsSnapshot
 
-    return (await session.execute(
+    name = (await session.execute(
         select(OddsSnapshot.event_name)
         .where(OddsSnapshot.event_external_id == event_id, OddsSnapshot.event_name != "")
         .order_by(OddsSnapshot.captured_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if name is not None:
+        return name
+    try:
+        fixture_uuid = uuid.UUID(event_id)
+    except ValueError:
+        return None
+    return (await session.execute(
+        select(Fixture.name).where(Fixture.id == fixture_uuid)
     )).scalar_one_or_none()
 
 

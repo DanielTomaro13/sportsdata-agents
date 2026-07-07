@@ -189,6 +189,36 @@ async def _market_main_total(session: AsyncSession, event_id: str) -> float | No
     return min(paired, key=lambda ln: abs(1.0 / paired[ln]["over"] - 1.0 / paired[ln]["under"]))
 
 
+async def _market_h2h_prob(session: AsyncSession, event_id: str) -> float | None:
+    """The market's de-vigged HOME win probability from the freshest full
+    h2h — the sanity anchor the ratings h2h fairs are held against. None
+    when no complete h2h market exists."""
+    from sportsdata_agents.data.models import Price
+    from sportsdata_agents.operations.monitoring import _market_family, _split_selection
+
+    rows = (await session.execute(
+        select(Price).where(Price.event_external_id == event_id)
+        .order_by(Price.changed_at.desc()).limit(400)
+    )).scalars().all()
+    by_market: dict[str, dict[str, float]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        if (row.market, row.selection) in seen:
+            continue
+        seen.add((row.market, row.selection))
+        if _market_family(row.market) != "h2h":
+            continue
+        side, line = _split_selection(row.selection.lower())
+        if line is None and side in ("home", "away", "draw") and float(row.odds) > 1.0:
+            by_market.setdefault(row.market, {})[side] = float(row.odds)
+    for sides in by_market.values():
+        if "home" in sides and "away" in sides:
+            overround = sum(1.0 / o for o in sides.values())
+            if 1.0 < overround <= 1.6:  # a real book's margin; else partial/stale
+                return (1.0 / sides["home"]) / overround
+    return None
+
+
 async def _upcoming_events(
     session: AsyncSession, labels: tuple[str, ...], now: dt.datetime, horizon_hours: float
 ) -> list[tuple[str, str, str, str]]:
@@ -369,6 +399,25 @@ async def record_ratings_slate(
             except (ValueError, RuntimeError) as e:
                 logger.info("ratings slate: could not price %s/%s: %s", sport, event_id, e)
                 continue
+            # H2H SANITY, same spirit as the totals band: a stats model
+            # 15+ probability points from the market's de-vigged h2h is a
+            # fitting artifact, not a 30%+ edge on an efficient market
+            # (lived: Fremantle v Sydney read away 55% against the whole
+            # industry's ~38% incl. Pinnacle — a +45% "edge" alert)
+
+            board_home = next(
+                (float(p.fair_probability) for p in board
+                 if _warehouse_key(p.market, p.selection, p.line) == ("h2h", "home")),
+                None)
+            if board_home is not None:
+                market_home = await _market_h2h_prob(session, event_id)
+                if (market_home is not None
+                        and abs(board_home - market_home) > 0.15):
+                    skipped_sanity += 1
+                    logger.info("ratings slate: %s %s h2h home %.2f vs market "
+                                "%.2f — outside the sanity band, not recorded",
+                                sport, event_name, board_home, market_home)
+                    continue
             if await _record_board(name, sport, book, event_id, board):
                 events_priced += 1
                 await session.commit()
