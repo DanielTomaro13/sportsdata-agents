@@ -13,6 +13,12 @@ import logging
 import os
 from typing import Any
 
+from sportsdata_agents.operations.ingestion.coverage import (
+    competition_covered,
+    fixture_covered,
+    sport_covered,
+)
+
 logger = logging.getLogger(__name__)
 
 # Per-cycle caps: discovery lists can be long; a feed is a snapshot, not a crawl.
@@ -303,6 +309,8 @@ async def fetch_betr_books(manager: Any) -> dict[str, Any]:
             continue
         if entry.get("MasterEventTypeId") != 2:
             continue  # racing rides the dedicated racing feeds
+        if not sport_covered(str(entry.get("EventTypeDesc") or "?")):
+            continue  # detail budget goes only to preferred sports
         types.append((int(entry["EventTypeId"]), _slug(str(entry.get("EventTypeDesc") or "?"))))
     candidates: list[tuple[str, str, int]] = []  # (start, sport, master_event_id)
     for type_id, sport in _take_rotating("betr_books_types", types, 6):
@@ -313,9 +321,13 @@ async def fetch_betr_books(manager: Any) -> dict[str, Any]:
             continue
         for master_cat in (payload.get("MasterCategories") or []) if isinstance(payload, dict) else []:
             for category in master_cat.get("Categories", []) or []:
+                if not competition_covered(sport, str(category.get("CategoryName") or "")):
+                    continue
                 for event in category.get("MasterEvents", []) or []:
                     if event.get("MasterEventClassName") != "Match":
                         continue  # futures boards are one market deep already
+                    if not fixture_covered(sport, str(event.get("MasterEventName") or "")):
+                        continue
                     if event.get("IsLive") or event.get("MasterEventId") is None:
                         continue
                     candidates.append((str(event.get("MinAdvertisedStartTime") or "9999"),
@@ -355,6 +367,7 @@ async def fetch_entain_books(manager: Any) -> dict[str, Any]:
         categories = {}
     if not categories:
         categories = dict(ENTAIN_SPORT_CATEGORIES)
+    categories = {name: cid for name, cid in categories.items() if sport_covered(name)}
     window = _take_rotating("entain_books_cats", sorted(categories.items()), 8)
     candidates: list[tuple[str, str, str]] = []  # (start, sport, event_id)
     for sport, category_id in window:
@@ -645,11 +658,14 @@ async def fetch_sportsbet_books(manager: Any) -> dict[str, Any]:
     comps: list[tuple[int, str, str]] = []
     _walk_sportsbet_nav(nav, None, comps)
     events: list[dict[str, Any]] = []
+    comps = [c for c in comps if competition_covered(c[2], c[1])]
     for comp_id, _comp_name, sport in _take_rotating("sportsbet_books_comps", comps, 25):
         try:
             payload = await manager.call_tool("sportsbet_competition_matches", {"competitionId": comp_id})
             for group in payload if isinstance(payload, list) else []:
                 for event in group.get("events", []) or []:
+                    if not fixture_covered(sport, str(event.get("displayName") or "")):
+                        continue  # tennis doubles etc.
                     if event.get("bettingStatus") == "PRICED" and event.get("id") is not None:
                         events.append({
                             "sport": sport, "event_id": str(event["id"]),
@@ -684,7 +700,7 @@ async def fetch_tab_books(manager: Any) -> dict[str, Any]:
         try:
             detail = await manager.call_tool("tab_sport", {"sport": name})
             for comp in detail.get("competitions", []) or []:
-                if comp.get("name"):
+                if comp.get("name") and competition_covered(name, str(comp["name"])):
                     pairs.append((name, str(comp["name"])))
         except Exception as e:
             logger.warning("tab books sport %s failed: %s", name, e)
@@ -721,6 +737,8 @@ async def fetch_unibet_books(manager: Any) -> dict[str, Any]:
         term = g.get("termKey")
         if not term or not (g.get("boCount") or 0):
             continue
+        if not sport_covered(str(term)):
+            continue  # detail budget goes only to preferred sports
         try:
             page = await manager.call_tool(
                 "unibet_kambi_call", {"operation": "sport_matches", "path_params": {"sport": str(term)}}
@@ -1219,7 +1237,8 @@ async def fetch_dabble_all(manager: Any) -> dict[str, Any]:
     # ball-sports comps are ~18 of ~318 actives (the rest are race meetings) —
     # PIN them into every cycle and rotate only the racing window, else an AFL
     # board waited ~4 hours for its rotation turn while racing rode every cycle
-    sports = [c for c in comps if "acing" not in str(c.get("sportName", ""))]
+    sports = [c for c in comps if "acing" not in str(c.get("sportName", ""))
+              and competition_covered(str(c.get("sportName", "")), str(c.get("name", "")))]
     racing = [c for c in comps if "acing" in str(c.get("sportName", ""))]
     window = sports + _take_rotating("dabble_all", racing, DABBLE_COMPETITIONS_PER_CYCLE)
     budgets = {"sport": DABBLE_SPORT_DETAILS_PER_CYCLE,

@@ -210,8 +210,7 @@ def test_feed_registry_is_discovery_driven() -> None:
 
     assert "nba_odds" not in FEEDS  # the CDN aggregator stays out: books of record only
     hot = {"sportsbet_all", "tab_all", "unibet_all", "entain_all", "pinnacle_all",
-           "pointsbet_all", "betr_all", "dabble_all", "betfair_all", "fanduel_us",
-           "fanduel_racing_win"}
+           "pointsbet_all", "betr_all", "dabble_all", "betfair_all", "fanduel_us"}
     books = {"sportsbet_books", "tab_books", "unibet_books", "pinnacle_books",
              "pointsbet_books", "entain_books", "betr_books"}
     racing = {"tab_racing", "sportsbet_racing", "betr_racing", "entain_racing", "pointsbet_racing", "unibet_racing"}
@@ -1477,3 +1476,39 @@ def test_market_family_joins_suffixed_h2h_but_not_periods() -> None:
     assert _market_family("team total runs over/under") is None
     assert _market_family("exact winning margin") is None
     assert _market_family("run line - after 5 innings") is None
+
+
+def test_coverage_preferences_gate_detail_spend() -> None:
+    """The operator's coverage map: preferred sports/competitions get detail
+    budget, everything else keeps only the hot tier's primaries."""
+    from sportsdata_agents.operations.ingestion.coverage import (
+        competition_covered,
+        fixture_covered,
+        racing_event_covered,
+        sport_covered,
+    )
+
+    assert competition_covered("Baseball", "MLB")
+    assert not competition_covered("Baseball", "NPB")        # Japan: not selected
+    assert competition_covered("Basketball", "WNBA")
+    assert competition_covered("Basketball", "NBL Australia")
+    assert not competition_covered("Basketball", "EuroLeague")
+    assert competition_covered("Australian Rules", "AFL Women's")
+    assert competition_covered("Rugby League", "State of Origin")
+    assert not competition_covered("Rugby League", "Super League")  # UK comp
+    assert competition_covered("Ice Hockey", "NHL")
+    assert competition_covered("MMA", "UFC 318")
+    assert competition_covered("Tennis", "Wimbledon")         # all tours
+    assert competition_covered("Golf", "Open Championship")   # all golf
+    assert not sport_covered("Soccer")                        # not selected
+    assert not sport_covered("Cricket")
+    assert not sport_covered("Table Tennis")
+    # tennis is singles only — doubles pairings are named "A/B v C/D"
+    assert fixture_covered("Tennis", "Djokovic v Alcaraz")
+    assert not fixture_covered("Tennis", "Krejcikova/Siniakova v Gauff/Pegula")
+    # racing is AU/NZ: Betfair's world cards carry the country in the venue
+    assert racing_event_covered("Menangle (AUS) 7th Jul")
+    assert racing_event_covered("Manawatu (NZL) 7th Jul")
+    assert racing_event_covered("Pakenham R5")                # local card, no tag
+    assert not racing_event_covered("Ascot (GB) 7th Jul")
+    assert not racing_event_covered("Belmont At The Big A (US) 7th Jul")

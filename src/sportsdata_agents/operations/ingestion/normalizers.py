@@ -1438,6 +1438,11 @@ def normalize_betfair_all(payload: Any) -> list[PricePoint]:
                 event_name = str(event.get("eventName", "?"))
                 if not event_id:
                     continue
+                if sport.endswith("_racing"):
+                    from sportsdata_agents.operations.ingestion.coverage import racing_event_covered
+
+                    if not racing_event_covered(event_name):
+                        continue  # AU/NZ racing only per coverage prefs
                 for market in event_node.get("marketNodes", []) or []:
                     _normalize_betfair_market(sink, market, sport, event_id, event_name)
     return sink.points

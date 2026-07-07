@@ -28,7 +28,6 @@ from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_entain_books,
     fetch_entain_races,
     fetch_fanduel_pages,
-    fetch_fanduel_races,
     fetch_kalshi_all,
     fetch_pinnacle_all,
     fetch_pinnacle_books,
@@ -61,7 +60,6 @@ from sportsdata_agents.operations.ingestion.normalizers import (
     normalize_entain_books,
     normalize_entain_races,
     normalize_fanduel_pages,
-    normalize_fanduel_races,
     normalize_kalshi_all,
     normalize_pinnacle_league,
     normalize_pointsbet_events,
@@ -198,15 +196,9 @@ FEEDS: dict[str, Feed] = {
         fetch=fetch_fanduel_pages,  # pages discovered from the nav scaffolding (B8)
         interval_s=900,
     ),
-    "fanduel_racing_win": Feed(
-        name="fanduel_racing_win",
-        provider="fanduel_racing",
-        tool="fanduel_racing_call",  # label; featured races -> race cards
-        mcp_groups=("fanduel.racing",),
-        normalizer=normalize_fanduel_races,
-        fetch=fetch_fanduel_races,
-        interval_s=60,  # racing prices move fast near post
-    ),
+    # fanduel_racing_win RETIRED 2026-07-07: 100% US tote racing — outside the
+    # operator's AU/NZ racing coverage (see ingestion/coverage.py). Re-add from
+    # git if US racing ever joins the preferences.
     # ── full-book tier (60min): EVERY market of every fixture ──────────────
     # Entain/BetR/FanDuel/racing already deliver their full books through the hot
     # tier above; these five need (or deserve) a second pass: per-fixture firehoses
