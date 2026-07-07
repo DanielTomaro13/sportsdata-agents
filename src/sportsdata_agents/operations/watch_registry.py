@@ -62,6 +62,7 @@ WATCH_PARAMS: dict[str, Params] = {
         "exchange_needs_book_prices": (True, "racing: skip exchange moves while every book "
                                              "is still SP-only — nothing is takeable until "
                                              "fixed odds post (the value scan catches the open)"),
+        "bankroll": (100.0, "stake sizing base — printed when the price beats the engine fair"),
         **_ROW_FILTERS,
     },
     "steam": {
@@ -82,10 +83,12 @@ WATCH_PARAMS: dict[str, Params] = {
         "exchange_needs_book_prices": (True, "racing: skip exchange moves while every book "
                                              "is still SP-only — nothing is takeable until "
                                              "fixed odds post (the value scan catches the open)"),
+        "bankroll": (100.0, "stake sizing base — printed when the price beats the engine fair"),
         **_ROW_FILTERS,
     },
     "value": {
         "min_edge_pct": (3.0, "recorded model edge at the latest price crossing this %"),
+        "bankroll": (100.0, "kelly stake sizing base"),
         **_ROW_FILTERS,
     },
     "scratching": {
@@ -94,6 +97,8 @@ WATCH_PARAMS: dict[str, Params] = {
     },
     "model_value": {
         "sport": (None, "engine sport (e.g. afl) — required"),
+        "pre_match_only": (True, "skip events that have already started — a live game's "
+                                 "laggy derivatives are game state, not consistency edge"),
         "price_sport": (None, "warehouse sport label when it differs from the engine's"),
         "book": (None, "only check this bookmaker's boards"),
         "min_edge_pct": (3.0, "engine-vs-book disagreement beyond the noise band"),

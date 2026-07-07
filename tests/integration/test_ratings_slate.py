@@ -10,6 +10,11 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
+
+# the REAL local engines package is the point of these tests; where it isn't
+# installed (public CI) the whole module skips — the seam's degrade-cleanly
+# behaviour is covered elsewhere
+pytest.importorskip("sportsdata_engines", reason="local engines package not installed")
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 

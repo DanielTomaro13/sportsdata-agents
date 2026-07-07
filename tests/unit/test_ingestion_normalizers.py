@@ -150,7 +150,7 @@ def test_normalize_sportsbet_h2h() -> None:
     points = normalize_sportsbet_matches(SPORTSBET_PAYLOAD, sport="afl")
     assert len(points) == 2  # the suspended event is skipped entirely
     home = next(p for p in points if p.selection == "home")
-    assert (home.provider, home.book, home.sport) == ("sportsbet", "Sportsbet", "afl")
+    assert (home.provider, home.book, home.sport) == ("sportsbet", "Sportsbet", "australian_rules")
     assert home.event_external_id == "10551746"
     assert home.market == "h2h" and home.odds == 1.73
     assert home.meta["team"] == "Western Bulldogs"

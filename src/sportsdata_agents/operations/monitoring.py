@@ -143,7 +143,8 @@ async def _context(session: AsyncSession, row: Price) -> dict[str, Any]:
     sport = (snap.sport if snap else "") or row.sport
     who = ((snap.meta or {}).get("runner") or (snap.meta or {}).get("team")) if snap else None
     selection = row.selection
-    if who and str(who).strip().lower() != row.selection.lower():
+    side = row.selection.split()[0].lower() if row.selection else ""
+    if who and side not in ("over", "under") and str(who).strip().lower() != row.selection.lower():
         selection = f"{row.selection} ({who})"
     matched = (snap.meta or {}).get("total_matched") if snap else None
     money_kind = (snap.meta or {}).get("money_kind") if snap else None
@@ -323,7 +324,9 @@ async def _coverage_pack(session: AsyncSession, sport: str) -> tuple[str, ...]:
             Price.sport == sport,
             Price.changed_at > dt.datetime.now(dt.UTC) - dt.timedelta(hours=24))
     )).scalars().all()
-    pack = tuple(sorted(rows))
+    # prediction venues price their own question universe — on a book board
+    # they can only ever read NA
+    pack = tuple(sorted(b for b in rows if b not in ("Kalshi", "Polymarket")))
     _PACK_CACHE[sport] = (time.monotonic(), pack)
     return pack
 
@@ -472,6 +475,33 @@ async def _fire(
     return True
 
 
+def _edge_stake_note(sub: Subscription, odds: float, engine_fair: float | None) -> str:
+    """Stake sizing on move alerts — only when the engine actually sees value
+    at this price (kelly needs an opinion; without a fair there is no stake)."""
+    if engine_fair is None or engine_fair <= 1.0 or odds <= engine_fair:
+        return ""
+    bankroll = float(sub.params.get("bankroll", 100.0))
+    kelly = _kelly_stake(1.0 / engine_fair, odds, bankroll)
+    return (f"\nSuggested stake {_fmt_money(kelly)} of {_fmt_money(bankroll)} "
+            f"bankroll — the price beats the engine fair")
+
+
+async def _move_form_note(session: AsyncSession, ctx: dict[str, Any], selection: Any) -> str:
+    """The alerted runner's form line on racing move alerts (the form store
+    keys runners by saddle number, so number selections only)."""
+    if ctx.get("sport") not in _RACING_LABELS or not ctx.get("start_time"):
+        return ""
+    if not str(selection).strip().isdigit():
+        return ""
+    import re as _re
+
+    race = _re.search(r"\bR(\d+)\b", str(ctx["event"]), _re.IGNORECASE)
+    if not race:
+        return ""
+    return await _runner_form_note(session, race.group(1),
+                                   ctx["start_time"].isoformat(), str(selection).strip())
+
+
 async def _watch_line_move(
     session: AsyncSession, sub: Subscription, rows: list[Price], pusher: Pusher
 ) -> int:
@@ -541,11 +571,13 @@ async def _watch_line_move(
         include = await _coverage_pack(session, str(ctx["sport"]))
         for mover, (_prev, new, _m) in group["movers"].items():
             quotes.setdefault(mover, new)  # every mover is a price, not NA
+        stake_note = _edge_stake_note(sub, float(row.odds), engine_fair)
+        form_note = await _move_form_note(session, ctx, row.selection)
         message = (
             f":chart_with_upwards_trend: Line Move — {_sport_label(ctx['sport'])} — {ctx['event']}\n"
-            f"Market: {market} · Selection: {ctx['selection']}\n"
+            f"Selection: **{ctx['selection']}** · Market: {market}\n"
             f"Price {direction_word} {move:.1f} percent: {movers}"
-            f"{engine_note}{traded}{jump}"
+            f"{engine_note}{traded}{stake_note}{form_note}{jump}"
             + _format_board(quotes, sharps, include)
         )
         key = f"line_move:{event_key}:{market}:{sel_key}:{direction}"
@@ -633,11 +665,13 @@ async def _watch_steam(
         include = await _coverage_pack(session, str(ctx["sport"]))
         for mover, (_prev, new, _n) in group["streaks"].items():
             quotes.setdefault(mover, new)  # every walking book is a price, not NA
+        stake_note = _edge_stake_note(sub, float(best["row"].odds), engine_fair)
+        form_note = await _move_form_note(session, ctx, best["row"].selection)
         message = (
             f":fire: Steam — {_sport_label(ctx['sport'])} — {ctx['event']}\n"
-            f"Market: {market} · Selection: {ctx['selection']}\n"
+            f"Selection: **{ctx['selection']}** · Market: {market}\n"
             f"Price {direction_word}: {streaks}"
-            f"{engine_note}{traded}{jump}"
+            f"{engine_note}{traded}{stake_note}{form_note}{jump}"
             + _format_board(quotes, sharps, include)
         )
         # band the dedupe by streak length: the alert fires when the streak
@@ -707,11 +741,14 @@ async def _watch_value(
             quotes = await _cross_book_quotes(session, latest)
             quotes.setdefault(latest.book, float(latest.odds))
             include = await _coverage_pack(session, str(ctx["sport"]))
+            bankroll = float(sub.params.get("bankroll", 100.0))
+            kelly = _kelly_stake(float(pred.prob), float(latest.odds), bankroll)
             message = (
                 f":moneybag: Model Edge — {_sport_label(ctx['sport'])} — {ctx['event']}\n"
-                f"{latest.book} · Market: {pred.market} · Selection: {ctx['selection']}\n"
+                f"{latest.book} · Selection: **{ctx['selection']}** · Market: {pred.market}\n"
                 f"Model probability {float(pred.prob):.0%} at odds {float(latest.odds):.2f} "
-                f"· Edge +{edge:.1f} percent"
+                f"· Edge +{edge:.1f} percent\n"
+                f"Suggested stake {_fmt_money(kelly)} of {_fmt_money(bankroll)} bankroll"
                 + _format_board(quotes, ["Pinnacle", "Betfair"], include)
             )
             payload = {
@@ -876,6 +913,14 @@ async def _watch_model_value(
             for r in event_rows if r.market.lower() in anchor_markets
         ):
             continue
+        start_time = (await session.execute(
+            select(OddsSnapshot.start_time)
+            .where(OddsSnapshot.event_external_id == event_id,
+                   OddsSnapshot.start_time.isnot(None))
+            .order_by(OddsSnapshot.captured_at.desc()).limit(1)
+        )).scalar_one_or_none()
+        if bool(sub.params.get("pre_match_only", True)) and _started(start_time):
+            continue  # a started game's laggy derivatives are game state, not edge
         if sport == "racing":
             places = sub.params.get("places")
             seed, book_quotes = _racing_engine_inputs(event_rows, int(places) if places else None)
@@ -907,14 +952,22 @@ async def _watch_model_value(
                 f"model_value:{row_book}:{event_id}:{candidate['market']}"
                 f":{candidate['selection']}:{candidate['line']}"
             )
-            at_line = f" @ {candidate['line']}" if candidate["line"] is not None else ""
+            at_line = f" {candidate['line']}" if candidate["line"] is not None else ""
             display = await _event_display_name(session, event_id) or event_id
+            fair = float(candidate["model_fair_odds"])
+            bankroll = float(sub.params.get("bankroll", 100.0))
+            kelly = _kelly_stake(1.0 / fair if fair > 1.0 else 0.0,
+                                 float(candidate["odds"]), bankroll)
+            jump = ""
+            if start_time is not None and not _started(start_time):
+                jump = f" · Starts {_local_hhmm(start_time.isoformat(), _tz_for(sub))}"
             message = (
                 f":crystal_ball: Model Value — {_sport_label(sport)} — {display}\n"
-                f"{row_book} · market: {candidate['market']} · "
-                f"selection: {candidate['selection']}{at_line}\n"
+                f"{row_book} · Selection: **{candidate['selection']}{at_line}** · "
+                f"Market: {candidate['market']}\n"
                 f"Book price {candidate['odds']:.2f} against the model fair "
-                f"{candidate['model_fair_odds']} · Edge +{candidate['edge_pct']:.1f} percent"
+                f"{candidate['model_fair_odds']} · Edge +{candidate['edge_pct']:.1f} percent\n"
+                f"Suggested stake {_fmt_money(kelly)} of {_fmt_money(bankroll)} bankroll{jump}"
             )
             payload = {**candidate, "book": row_book, "event_external_id": event_id,
                        "sport": sport, "noise_gated": scan["skipped_noise"]}
@@ -1186,8 +1239,8 @@ async def _watch_exchange_value(
         message = (
             f":scales: Exchange Value — {_sport_label(candidate['sport'])} — "
             f"{candidate['fixture']}\n"
-            f"{candidate['book']} · Market: {candidate['market']} · "
-            f"Selection: {candidate['outcome']}\n"
+            f"{candidate['book']} · Selection: **{candidate['outcome']}** · "
+            f"Market: {candidate['market']}\n"
             f"Book price {candidate['odds']:.2f} against the {exchange_book} fair "
             f"{candidate['exchange_fair_odds']:.2f}{engine_note} · "
             f"Edge +{candidate['edge_pct']:.1f} percent · "
@@ -1303,7 +1356,7 @@ async def _watch_racing_value(
         message = (
             f":racehorse: Racing Value — {candidate['race']} — "
             f"edge +{candidate['edge_pct']:.1f} percent\n"
-            f"Runner{number} {candidate['runner']}\n"
+            f"Runner{number} **{candidate['runner']}**\n"
             f"Bet: {candidate['book']} win at {candidate['odds']:.2f}\n"
             f"Market fair {candidate['fair_odds']:.2f} "
             f"(versus {candidate['versus']}){engine_note}{traded}\n"
@@ -1430,7 +1483,7 @@ async def _watch_bsp_value(
             jump = _local_hhmm(race.start_time.isoformat(), _tz_for(sub))                 if race.start_time else "?"
             message = (
                 f":crystal_ball: Exchange value from form — {title_race}\n"
-                f"Runner {number} — {name.title()}\n"
+                f"Runner {number} — **{name.title()}**\n"
                 f"Back on {exchange_book} at {back:.2f} "
                 f"(worth {effective:.2f} after {commission:.0%} commission)\n"
                 f"Form fair price {1.0 / prob:.2f}{anchored} · Edge +{edge_pct:.1f}% · "
@@ -1646,7 +1699,7 @@ async def _watch_stat_value(
             message = (
                 f":dart: Player Prop Value — {_sport_label(sports.get(event_id, '?'))} — "
                 f"{names.get(event_id, event_id)}\n"
-                f"{book} · {player} · {stat} {side} {line}\n"
+                f"{book} · **{player} · {stat} {side} {line}**\n"
                 f"Book price {odds:.2f} against the ladder-fitted fair "
                 f"{fitted_fair:.2f} · Edge +{edge_pct:.1f} percent "
                 f"(fitted from {len(seam_quotes)} rungs)"

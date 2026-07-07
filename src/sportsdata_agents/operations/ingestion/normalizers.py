@@ -155,6 +155,26 @@ def american_to_decimal(price: float) -> float:
     raise ValueError(f"not an American price: {price}")
 
 
+# One sport, one label: the books fragment the same sport across labels
+# (TAB "AFL Football" vs everyone's "Australian Rules"; Pinnacle "Hockey"/
+# "E Sports"/"Mixed Martial Arts"), which split the board packs, the engine
+# label filters and every per-sport query. Canonicalised here so EVERY
+# normalizer inherits the mapping.
+_CANON_SPORT = {
+    "afl_football": "australian_rules",
+    "afl": "australian_rules",
+    "aussie_rules": "australian_rules",
+    "hockey": "ice_hockey",
+    "e_sports": "esports",
+    "mixed_martial_arts": "mma",
+    "ufc": "mma",
+    "ufc_mma": "mma",
+    "martial_arts": "mma",
+}
+# "football" is TWO sports: Kambi/Unibet mean soccer, the US books mean gridiron
+_CANON_FOOTBALL = {"unibet": "soccer", "pinnacle": "american_football"}
+
+
 class _Sink:
     """Dedup + collect (a book repeating a key in one capture keeps the first)."""
 
@@ -163,6 +183,11 @@ class _Sink:
         self._seen: set[tuple[str, str, str, str, str]] = set()
 
     def add(self, point: PricePoint) -> None:
+        canon = (_CANON_FOOTBALL.get(point.provider, point.sport)
+                 if point.sport == "football" else
+                 _CANON_SPORT.get(point.sport, point.sport))
+        if canon != point.sport:
+            point = replace(point, sport=canon)
         if point.key not in self._seen:
             self._seen.add(point.key)
             # every book's props flow through here — tag the ones whose
