@@ -1019,19 +1019,24 @@ def _footy_engine_inputs(rows: list[Price]) -> tuple[dict[str, Any] | None, list
     totals: dict[float, dict[str, float]] = {}
     book_quotes: list[dict[str, Any]] = []
     for row in rows:
-        market = row.market.lower()
+        # family-tolerant market keys: exact-set membership left every
+        # suffixed label ("h2h - win", "total goals over/under", "run line")
+        # unseedable — the engine only ever calibrated from Pinnacle/FanDuel
+        # shaped boards. Soccer's DRAW leg rides book_quotes; the engine
+        # anchors on the home/away pair and derives the draw itself.
+        family = _market_family(row.market)
         side, line = _split_selection(row.selection.lower())
         odds = float(row.odds)
-        if market in _H2H_MARKETS and side in ("home", "away"):
+        if family == "h2h" and side in ("home", "away", "draw"):
             h2h[side] = odds
             book_quotes.append({"market": "h2h", "selection": side, "line": None, "odds": odds})
-        elif market in _TOTAL_MARKETS and side in ("over", "under") and line is not None:
+        elif family == "total" and side in ("over", "under") and line is not None:
             totals.setdefault(line, {})[side] = odds
             book_quotes.append({"market": "total", "selection": side, "line": line, "odds": odds})
-        elif market in _LINE_MARKETS and side in ("home", "away") and line is not None:
+        elif family == "line" and side in ("home", "away") and line is not None:
             book_quotes.append({"market": "line", "selection": side, "line": line, "odds": odds})
     paired = {ln: p for ln, p in totals.items() if len(p) == 2}
-    if len(h2h) != 2 or not paired:
+    if "home" not in h2h or "away" not in h2h or not paired:
         return None, []
     main = min(paired, key=lambda ln: abs(1.0 / paired[ln]["over"] - 1.0 / paired[ln]["under"]))
     seed = {
