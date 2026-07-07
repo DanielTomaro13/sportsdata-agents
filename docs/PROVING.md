@@ -120,6 +120,10 @@ scoreboard review, 21 Jul replay + verdict one-shot. Thresholds stay frozen.
 - Repair sweep: consider a rapid-repeat time guard beyond baseball (esoccer /
   table-tennis same-pairing rematches) once those sports' fixture start
   stamps are trustworthy; today the ambiguity skip is the only shield.
+- Fixture start self-heal: a one-off restamp (2026-07-07, 1475 fixtures)
+  corrected the founding-era +10h stamps from snapshot consensus and
+  unlocked 225 merges — if stale stamps reappear, fold a consensus
+  restamp into the sweep instead of hand-running it.
 
 ## Standing follow-ups (not gated on the verdict)
 
