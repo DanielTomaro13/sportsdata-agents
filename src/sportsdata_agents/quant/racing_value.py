@@ -119,7 +119,8 @@ async def scan_racing_value(
     max_fair_odds: float = 12.0,
     max_edge_pct: float = 60.0,
     max_staleness_minutes: float = 10.0,
-    min_matched: float = 500.0,
+    min_matched: float = 1000.0,
+    max_lead_minutes: float = 60.0,
     exclude_books: tuple[str, ...] = ("FanDuel",),  # not bettable from AU
     min_consensus_books: int = 3,
     min_field_overlap: int = 3,
@@ -127,6 +128,7 @@ async def scan_racing_value(
     now: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     now = now or dt.datetime.now(dt.UTC)
+    lead_bound = now + dt.timedelta(minutes=max_lead_minutes)
     rows = (await session.execute(
         select(OddsSnapshot).where(
             OddsSnapshot.market == "win",
@@ -232,6 +234,9 @@ async def scan_racing_value(
             start = unit.start
             if start is not None and start <= now:
                 continue  # the race has jumped — not an offer anyone can take
+            if start is not None and start > lead_bound:
+                continue  # hours out, books barely open — the near-jump market
+                # is the one worth acting on (and re-scanned every minute)
             for name, odds in unit.runners.items():
                 matched: float | None = None
                 if exchange_fair is not None:

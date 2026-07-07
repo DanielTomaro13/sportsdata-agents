@@ -141,7 +141,9 @@ WATCH_PARAMS: dict[str, Params] = {
         "exchange_book": ("Betfair", "fair source when liquid; else pack consensus"),
         "max_fair_odds": (12.0, "no longshot calls — de-vig lies out past this"),
         "max_staleness_minutes": (10.0, "drop books whose quotes lag the freshest by more"),
-        "min_matched": (500.0, "exchange race must have this much traded to be the fair"),
+        "min_matched": (1000.0, "exchange race must have this much traded to be the fair"),
+        "max_lead_minutes": (60.0, "only races jumping within this many minutes — hours-out "
+                                   "boards are thin and the near-jump scan re-fires anyway"),
         "exclude_books": (["FanDuel"], "books never flagged (still feed the consensus)"),
         "min_consensus_books": (3, "consensus mode needs this many OTHER books on the race "
                                    "(lower it to cover thin international cards; Betfair "

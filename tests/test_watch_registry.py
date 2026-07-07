@@ -78,7 +78,8 @@ def test_registry_defaults_match_the_monitoring_fallbacks() -> None:
     assert racing["min_edge_pct"][0] == 8.0
     assert racing["max_edge_pct"][0] == 60.0
     assert racing["max_fair_odds"][0] == 12.0
-    assert racing["min_matched"][0] == 500.0
+    assert racing["min_matched"][0] == 1000.0
+    assert racing["max_lead_minutes"][0] == 60.0
     assert params_for("arb")["threshold_pct"][0] == 1.0
     assert params_for("steam")["min_moves"][0] == 3
     assert params_for("prediction_value")["min_volume"][0] == 100.0

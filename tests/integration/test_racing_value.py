@@ -254,3 +254,18 @@ async def test_board_drops_na_books_and_verifies_runner_names(
     assert "NA" not in board.replace("books NA", "")  # no NA cells
     assert "3 books NA" in board or "4 books NA" in board  # folded into a count
     assert "**TAB 21.00**" in board  # the industry's best price is bolded
+
+
+async def test_scan_skips_races_hours_from_the_jump(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Races outside max_lead_minutes stay silent — hours-out boards are thin
+    and the near-jump scan catches the same race when it matters."""
+    await _seed(db_sessionmaker)
+    async with db_sessionmaker() as s:
+        # the seeded race jumps in 25 minutes: inside 60, outside 10
+        found = await scan_racing_value(s, min_edge_pct=8.0, max_lead_minutes=10.0, now=NOW)
+    assert found == []
+    async with db_sessionmaker() as s:
+        found = await scan_racing_value(s, min_edge_pct=8.0, max_lead_minutes=60.0, now=NOW)
+    assert len(found) == 1

@@ -380,7 +380,8 @@ def _format_board(quotes: dict[str, float], sharps: list[str],
                 f"captured yet" if engine_fair else "")
     board = " · ".join(cell(b, o) for b, o in ordered[:12])
     unpriced = sum(1 for b in {*sharps, *include} if b not in quotes)
-    tail = f" · {unpriced} books NA" if unpriced else ""
+    tail = (f" · {unpriced} {'book' if unpriced == 1 else 'books'} NA"
+            if unpriced else "")
     return f"\nacross books: {engine_cell}{board}{tail}"
 
 
@@ -1554,7 +1555,8 @@ async def _watch_racing_value(
         max_edge_pct=float(sub.params.get("max_edge_pct", 60.0)),
         max_fair_odds=float(sub.params.get("max_fair_odds", 12.0)),
         max_staleness_minutes=float(sub.params.get("max_staleness_minutes", 10.0)),
-        min_matched=float(sub.params.get("min_matched", 500.0)),
+        min_matched=float(sub.params.get("min_matched", 1000.0)),
+        max_lead_minutes=float(sub.params.get("max_lead_minutes", 60.0)),
         exclude_books=tuple(sub.params.get("exclude_books", ["FanDuel"])),
         min_consensus_books=int(sub.params.get("min_consensus_books", 3)),
         limit=cap * 3, now=now)
@@ -1615,6 +1617,8 @@ async def _watch_racing_value(
             session, race, "win",
             str(top.get("runner_number") or top.get("runner") or ""),
             str(top["book"]))
+        board.setdefault(str(top["book"]), float(top["odds"]))  # the flagged
+        # book belongs ON its own board — its price anchors the comparison
         sharps = [str(b) for b in sub.params.get("sharp_books", ["Pinnacle", "Betfair"])]
         message = (
             f":racehorse: Racing Value — {race}\n"
