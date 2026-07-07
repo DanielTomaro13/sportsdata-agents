@@ -91,6 +91,29 @@ dashboard); server-driven coverage catalogue; stale Settings header copy.
 mapping audit (8 checks incl. stats-vs-market sanity), Monday 09:00
 scoreboard review, 21 Jul replay + verdict one-shot. Thresholds stay frozen.
 
+## Reviewed backlog (triple-review 2026-07-07 — verified findings, not yet applied)
+
+- Ratings sanity gate should also bound the MARGIN vs the market's main line
+  (a two-blowout team passes the total band with a +78 margin); per-team
+  effective-appearance floor in the footy fit.
+- Racing exchange fair: cross-check each runner's exchange fair against the
+  pack median (a mildly poisoned single back inside the 0.90–1.15 band still
+  fakes +35% on one runner).
+- Form-slate dedupe key needs the venue (same race number + same minute at
+  two tracks currently drops one race).
+- Provider-scope the event lookups in _watch_value / model_value /
+  _market_main_total (numeric event ids collide across providers).
+- Scoreboard: consensus racing alerts land in the "thin Betfair" bucket
+  (matched=None < 1500) and skew tuning advice; settle-time odds ≤ 1.0 should
+  read pending, not a loss-sized win; arb credit should use the re-measured
+  margin. Fold into the grading work.
+- Scheduler calendar jobs may dispatch in LOCAL time against a UTC-authored
+  table (digest/scoreboard hours) — verify and normalise; missed calendar
+  slots have no catch-up; `_line_suffix` collapses a genuine 0.0 line.
+- Gateway: default the mutation token on; try/except the /watches DB session
+  (503 contract). MCP: per-provider rate limits are per-process (N subprocesses
+  multiply pressure); consider a shared budget if blocks recur.
+
 ## Standing follow-ups (not gated on the verdict)
 
 - Entain/Unibet persisted-hash auto-refresh hardening (MCP).
