@@ -109,6 +109,7 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
         line = _handicap_market_line(row.market.lower(), side, row.book)
     if line is None and family == "total" and side in ("over", "under"):
         line = _total_market_line(row.market.lower())
+    own_seen = await _last_seen(session, row)
     quotes: dict[str, float] = {}
     for sibling in siblings:
         want_side = side
@@ -164,9 +165,54 @@ async def _cross_book_quotes(session: AsyncSession, row: Price) -> dict[str, flo
                 continue
             # rows arrive newest-first: the first match per book IS the current
             # price — never let an older, higher change-point overwrite it
+            if not await _quote_still_listed(session, cand, own_seen):
+                continue  # a renamed/delisted selection's last change-point
+                # (lived: BetR's 09:52 "atlanta braves +1.5" shown at 19:00,
+                # nine hours after the book renamed the selection to "away")
             quotes.setdefault(cand.book, float(cand.odds))
             break
     return quotes
+
+
+def _cooled_down(prev_at: dt.datetime, minutes: float = 20.0) -> bool:
+    """A band-GROWTH re-fire waits out a cooldown: a drifting model fair
+    walks a +2% boundary on every scan, and each crossing is technically
+    'bigger' — without the floor one selection pinged three times in
+    twelve minutes."""
+    aware = prev_at if prev_at.tzinfo else prev_at.replace(tzinfo=dt.UTC)
+    return (dt.datetime.now(dt.UTC) - aware) >= dt.timedelta(minutes=minutes)
+
+
+async def _last_seen(session: AsyncSession, row: Price) -> dt.datetime | None:
+    """When this exact (provider, event, market, selection) was last captured
+    in a snapshot (ix_snap_key_time serves it in full)."""
+    seen = (await session.execute(
+        select(func.max(OddsSnapshot.captured_at)).where(
+            OddsSnapshot.provider == row.provider,
+            OddsSnapshot.event_external_id == row.event_external_id,
+            OddsSnapshot.market == row.market,
+            OddsSnapshot.selection == row.selection,
+        )
+    )).scalar()
+    if seen is None:
+        return None
+    return seen if seen.tzinfo else seen.replace(tzinfo=dt.UTC)
+
+
+async def _quote_still_listed(
+    session: AsyncSession, cand: Price, ref: dt.datetime | None
+) -> bool:
+    """Change-points persist forever, so a matching row proves the price
+    EXISTED, not that it exists: a book that renames or delists a selection
+    leaves its last change-point behind as a ghost. Live means the exact
+    selection was captured within a few hours of the ALERTED row's own last
+    sighting — relative, so the board is internally consistent whatever
+    moment it's built for."""
+    seen = await _last_seen(session, cand)
+    if seen is None:
+        return False
+    anchor = ref or dt.datetime.now(dt.UTC)
+    return (anchor - seen) <= dt.timedelta(hours=3)
 
 
 async def _nearest_line_quotes(
@@ -201,6 +247,7 @@ async def _nearest_line_quotes(
         mapped = _sel_team_side(side, own_name)  # TAB's "milwaukee +1.5"
         if mapped is not None:
             side, side_relative = mapped, True
+    own_seen = await _last_seen(session, row)
     by_line: dict[float, dict[str, float]] = {}
     for sibling in siblings:
         want_side = side
@@ -232,6 +279,8 @@ async def _nearest_line_quotes(
             if abs(cand_line - line) < 1e-9 or (cand.book, cand_line) in seen:
                 continue  # the exact line is the board's job; newest-first per key
             seen.add((cand.book, cand_line))
+            if not await _quote_still_listed(session, cand, own_seen):
+                continue  # ghost change-point of a renamed/delisted selection
             by_line.setdefault(cand_line, {}).setdefault(cand.book, float(cand.odds))
     if not by_line:
         return None
@@ -1048,11 +1097,15 @@ async def _watch_value(
         # state, and this loop is the hottest in the stack: skip before the
         # context/board/coverage queries, not after assembling the message
         band = int(max(top["edge"], 0.0) / 2.0)  # re-fire each +2% the edge grows
-        if (previously is not None and previously.kind == "value"
-                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
-                                    0.0) / 2.0)):
-            continue  # an edge drifting back DOWN a band is the same
-            # opportunity shrinking, not news (after a vanish it re-fires)
+        if previously is not None and previously.kind == "value":
+            prior_band = int(max(float(previously.payload.get("edge_pct", 0.0)),
+                                 0.0) / 2.0)
+            if band <= prior_band:
+                continue  # an edge drifting back DOWN a band is the same
+                # opportunity shrinking, not news (after a vanish it re-fires)
+            if not _cooled_down(previously.created_at):
+                continue  # growing, but a drifting fair walks a band boundary
+                # every scan — three pings in twelve minutes is spam (lived)
         ctx = await _context(session, top["row"])
         if bool(sub.params.get("pre_match_only", True)) and _started(ctx["start_time"]):
             continue  # recorded fairs do not know the live score
@@ -1508,10 +1561,12 @@ async def _watch_model_value(
                 .limit(1)
             )
         ).scalars().first()
-        if (previously is not None
-                and band <= int(max(float(previously.payload.get("edge_pct", 0.0)),
-                                    0.0) / 2.0)):
-            continue
+        if previously is not None:
+            prior_band = int(max(float(previously.payload.get("edge_pct", 0.0)),
+                                 0.0) / 2.0)
+            if band <= prior_band or not _cooled_down(previously.created_at):
+                continue  # smaller/same band is the edge shrinking; a bigger
+                # one re-fires only once the last alert is 20 minutes old
         # selection by selection, every book with edge on each
         by_sel: dict[tuple[str, float | None], list[dict[str, Any]]] = {}
         for c in cands:
