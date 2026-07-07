@@ -34,7 +34,10 @@ def upgrade() -> None:
         )
         """
     )
-    op.create_index(_INDEX, "events", ["provider", "external_id"], unique=True)
+    # if_not_exists: a fresh DB built by create_all already carries the
+    # index from the model's __table_args__
+    op.create_index(_INDEX, "events", ["provider", "external_id"],
+                    unique=True, if_not_exists=True)
 
 
 def downgrade() -> None:
