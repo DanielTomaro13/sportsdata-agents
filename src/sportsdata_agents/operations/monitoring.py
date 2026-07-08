@@ -1240,6 +1240,16 @@ async def _watch_value(
             + _format_board(quotes, ["Pinnacle", "Betfair"], include,
                             subject=f"{top['pred'].selection} · {market}")
         )
+        # lined market with books absent from THIS line: show where they are
+        # (same alt-line honesty the model_value messages carry)
+        _side, top_line_val = _split_selection(str(top["pred"].selection).lower())
+        if top_line_val is not None:
+            near = await _nearest_line_quotes(session, top["row"], float(top_line_val))
+            if near is not None:
+                nl, nq = near
+                cells = " · ".join(f"{b} {o:.2f}" for b, o in
+                                   sorted(nq.items(), key=lambda kv: -kv[1])[:6])
+                message += f"\nother books' nearest line {nl:g}: {cells}"
         payload = {
             # top-of-story fields keep the outcome re-measurement loop working
             "edge_pct": round(top["edge"], 2), "prob": float(top["pred"].prob),
@@ -2927,12 +2937,16 @@ async def run_watches(
         ).scalars().all()
         for sub in subscriptions:
             report["subscriptions"] += 1
-            # heavy watches opt into a slower lane: every_minutes=10 runs the
-            # scan only when the pass minute aligns — stat_value alone costs
-            # ~100s of ladder fitting, which every-minute passes cannot afford
+            # heavy watches opt into a slower lane: every_minutes=10 means
+            # "run when the last run is at least that old". Minute ALIGNMENT
+            # was flaky — pass start times drift with locks/pacing, and the
+            # props lane skipped 40+ minutes while a +7.6% edge sat live.
             cadence = int(sub.params.get("every_minutes") or 0)
-            if cadence > 1 and now.minute % cadence:
-                continue
+            if cadence > 1 and sub.cursor is not None:
+                last = (sub.cursor if sub.cursor.tzinfo
+                        else sub.cursor.replace(tzinfo=dt.UTC))
+                if now - last < dt.timedelta(minutes=cadence):
+                    continue
             # a small safety-lag on the cursor: ingest commits change-points
             # SECONDS after stamping changed_at, and ingest now runs concurrently
             # with monitor every 60s — a strict "> cursor" scan would skip rows
