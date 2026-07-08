@@ -99,6 +99,7 @@ def _stat_from_market(market_l: str) -> str | None:
 
 # the operator's canonical stat names — books' labels fold onto these
 _STAT_CANON = {"player performance": "player performance points",
+               "player-performance": "player performance points",
                "180s": "one eighties", "three pointers": "threes"}
 
 # segment qualifiers become part of the STAT ("disposals 1h") so half and
