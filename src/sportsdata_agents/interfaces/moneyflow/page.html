@@ -19,7 +19,8 @@
   aside header { position: sticky; top: 0; background: var(--panel); padding: 14px 16px 12px; border-bottom: 1px solid var(--line); z-index: 2; }
   aside h1 { font-size: 15px; letter-spacing: .4px; }
   aside h1 span { color: var(--accent); }
-  select { width: 100%; margin-top: 10px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px; }
+  select, input[type=search] { width: 100%; margin-top: 10px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px; }
+  input[type=search]::placeholder { color: var(--dim); }
   .race { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line); color: var(--text); padding: 10px 14px; cursor: pointer; font: inherit; }
   .race:hover { background: var(--panel2); }
   .race.sel { background: var(--panel2); box-shadow: inset 3px 0 var(--accent); }
@@ -38,16 +39,28 @@
   .badge { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; font-size: 12px; color: var(--dim); }
   .badge b { color: var(--text); font-variant-numeric: tabular-nums; }
   .badge.live { border-color: var(--steam); color: var(--steam); }
-  #meta { color: var(--dim); font-size: 12px; margin: 6px 0 14px; }
+  .badge.tight { border-color: var(--money); color: var(--money); }
+
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 12px 0 10px; padding: 8px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .ctrl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+  .ctrl select { width: auto; margin: 0; padding: 4px 6px; font-size: 12px; }
+  .ctrl input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+  .ctrl label { cursor: pointer; user-select: none; }
+  button.tbtn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+  button.tbtn.on { border-color: var(--accent); color: var(--accent); }
+  .hint { color: var(--dim); font-size: 11px; }
 
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr.steamrow td:first-child { box-shadow: inset 3px 0 var(--steam); }
+  tr.driftrow td:first-child { box-shadow: inset 3px 0 var(--drift); }
   td.name { font-weight: 600; }
   td.price { font-size: 16px; font-weight: 700; white-space: nowrap; }
   .dir { font-size: 11px; margin-left: 4px; }
   .steam { color: var(--steam); } .drift { color: var(--drift); }
+  .imp { color: var(--dim); font-size: 11px; }
   .spark { width: 120px; height: 26px; }
   .flowcell { min-width: 180px; }
   .flowbar { height: 14px; border-radius: 3px; background: var(--money); min-width: 2px; opacity: .9; }
@@ -60,6 +73,7 @@
   .womback { height: 100%; background: var(--money); }
   #foot { color: var(--dim); font-size: 11px; margin-top: 12px; }
   .pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--money); margin-right: 6px; animation: pulse 2s infinite; }
+  .pulse.paused { background: var(--dim); animation: none; }
   @keyframes pulse { 50% { opacity: .25; } }
 </style>
 </head>
@@ -69,6 +83,7 @@
     <header>
       <h1>💸 Betfair <span>money flow</span></h1>
       <select id="sport"></select>
+      <input type="search" id="search" placeholder="filter races / matches…" autocomplete="off">
     </header>
     <div id="races"><div class="note">loading sports…</div></div>
   </aside>
@@ -80,7 +95,29 @@
         <span id="pickerbox"></span>
         <span id="badges"></span>
       </div>
-      <div id="meta"></div>
+      <div class="controls">
+        <span class="ctrl">Sort
+          <select id="sortby">
+            <option value="price">Price (favourite first)</option>
+            <option value="flow">Money flow (60s)</option>
+            <option value="move">Biggest move</option>
+          </select>
+        </span>
+        <span class="ctrl">Min liquidity
+          <select id="minliq">
+            <option value="0">All</option>
+            <option value="500">$500</option>
+            <option value="2000">$2k</option>
+            <option value="10000">$10k</option>
+          </select>
+        </span>
+        <span class="ctrl">
+          <input type="checkbox" id="tradeable">
+          <label for="tradeable" title="Hide lay-only dead pegs and longshots — keeps lines priced roughly 1.2–7.0. Best for busy handicap markets.">Tradeable lines only</label>
+        </span>
+        <button class="tbtn" id="pause">⏸ Pause</button>
+        <span class="hint" id="rowcount"></span>
+      </div>
       <table>
         <thead><tr>
           <th>Selection</th><th class="num">Back</th><th class="num">Lay</th>
@@ -107,7 +144,14 @@ const SPORT_ICON = {
   "Politics": "🗳", "Special Bets": "✨",
 };
 
-let items = [], selected = null, currentItem = null;
+// settings persist across reloads
+const store = {
+  get: (k, d) => { try { const v = localStorage.getItem("mf_" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set: (k, v) => { try { localStorage.setItem("mf_" + k, JSON.stringify(v)); } catch (e) {} },
+};
+
+let items = [], selected = null, currentItem = null, lastMarket = null;
+let searchText = "", paused = false;
 let history = {};       // selection name -> [{t, est, price}]
 let cumEst = {};        // selection name -> cumulative estimated matched flow
 let prevTotal = null;   // market totalMatched at previous poll
@@ -128,23 +172,25 @@ function ttj(startIso, inplay) {
 function renderItems() {
   const box = $("races");
   box.innerHTML = "";
-  if (!items.length) { box.innerHTML = '<div class="note">nothing listed right now</div>'; return; }
-  items
+  const q = searchText.trim().toLowerCase();
+  const visible = items
     .filter(r => !r.start || new Date(r.start) - Date.now() > -6 * 3600000 || r.inplay)
-    .forEach(r => {
-      const t = ttj(r.start, r.inplay);
-      const el = document.createElement("button");
-      el.className = "race" + (selected === r.marketId ? " sel" : "");
-      el.innerHTML = `<span><div class="v">${r.label}</div>
-        <div class="m">${r.sub || ""}</div></span>
-        <span class="ttj ${t.cls}"></span>`;
-      const tick = el.querySelector(".ttj");
-      tick.textContent = t.text;
-      tick.dataset.start = r.start || "";
-      tick.dataset.inplay = r.inplay ? "1" : "";
-      el.onclick = () => selectItem(r);
-      box.appendChild(el);
-    });
+    .filter(r => !q || (r.label + " " + (r.sub || "")).toLowerCase().includes(q));
+  if (!visible.length) { box.innerHTML = '<div class="note">' + (q ? "no matches for “" + q + "”" : "nothing listed right now") + '</div>'; return; }
+  visible.forEach(r => {
+    const t = ttj(r.start, r.inplay);
+    const el = document.createElement("button");
+    el.className = "race" + (selected === r.marketId ? " sel" : "");
+    el.innerHTML = `<span><div class="v">${r.label}</div>
+      <div class="m">${r.sub || ""}</div></span>
+      <span class="ttj ${t.cls}"></span>`;
+    const tick = el.querySelector(".ttj");
+    tick.textContent = t.text;
+    tick.dataset.start = r.start || "";
+    tick.dataset.inplay = r.inplay ? "1" : "";
+    el.onclick = () => selectItem(r);
+    box.appendChild(el);
+  });
 }
 
 function tickCountdowns() {
@@ -160,8 +206,10 @@ async function loadSports() {
   const sel = $("sport");
   sel.innerHTML = sports.map(s =>
     `<option value="${s.id}">${SPORT_ICON[s.name] || "•"} ${s.name}</option>`).join("");
-  sel.onchange = () => loadItems(sel.value);
-  if (sports.length) loadItems(sports[0].id);
+  sel.onchange = () => { store.set("sport", sel.value); loadItems(sel.value); };
+  const saved = store.get("sport", null);
+  const start = sports.find(s => s.id === saved) ? saved : (sports[0] && sports[0].id);
+  if (start) { sel.value = start; loadItems(start); }
 }
 
 async function loadItems(typeId) {
@@ -200,13 +248,13 @@ function selectItem(item) {
 function selectMarket(id) {
   selected = currentItem.marketId; marketId = id;
   pollGen += 1;  // orphan any in-flight fetch of the previous market
-  history = {}; cumEst = {}; prevTotal = null;
+  history = {}; cumEst = {}; prevTotal = null; lastMarket = null;
   renderItems();
   const chosen = (currentItem.markets || []).find(x => x.marketId === id);
   $("title").textContent = currentItem.label + (chosen ? " — " + chosen.name : "");
   $("badges").innerHTML = '<span class="badge">loading…</span>';
   $("empty").style.display = "none"; $("board").style.display = "block";
-  $("rows").innerHTML = ""; $("meta").textContent = "";
+  $("rows").innerHTML = ""; $("rowcount").textContent = "";
   if (pollTimer) clearInterval(pollTimer);
   poll();
   pollTimer = setInterval(poll, 3000);
@@ -238,6 +286,14 @@ function flowWindow(pts, ms) {
   return Math.max(0, now.est - base.est);
 }
 
+function sessionMovePct(r) {
+  const pts = history[r.name] || [];
+  const first = pts.find(p => p.price != null);
+  const lastP = r.lastTraded ?? r.back;
+  if (!first || first.price == null || lastP == null) return 0;
+  return 100 * (first.price - lastP) / first.price;  // + = firming
+}
+
 function womBar(r) {
   const b = r.backSize || 0, l = r.laySize || 0;
   if (b + l < 1) return '<span class="flowpct">—</span>';
@@ -249,20 +305,19 @@ function womBar(r) {
 }
 
 async function poll() {
-  if (!marketId) return;
+  if (!marketId || paused) return;
   const gen = pollGen;
   let m;
   try { m = await (await fetch("/api/market/" + marketId)).json(); }
   catch (e) {
-    if (gen === pollGen) $("badges").insertAdjacentHTML("beforeend",
-      document.getElementById("reconn") ? "" : '<span class="badge" id="reconn">reconnecting…</span>');
+    if (gen === pollGen && !$("reconn")) $("badges").insertAdjacentHTML("beforeend", '<span class="badge" id="reconn">reconnecting…</span>');
     return;
   }
   if (gen !== pollGen) return;  // user switched markets while this was in flight
   if (m.detail) return;
   const now = Date.now();
 
-  // The public endpoint zeroes per-runner matched volume, but the MARKET
+  // The public endpoint zeroes per-selection matched volume, but the MARKET
   // total is exact — attribute each poll's new money to the selections whose
   // traded price ticked in that interval (money trades where price moves).
   const dM = prevTotal == null ? 0 : Math.max(0, m.totalMatched - prevTotal);
@@ -273,42 +328,75 @@ async function poll() {
     return (r.lastTraded ?? r.back) !== pts[pts.length - 1].price;
   });
   movers.forEach(r => { cumEst[r.name] = (cumEst[r.name] || 0) + dM / movers.length; });
-
   m.runners.forEach(r => {
     (history[r.name] = history[r.name] || []).push(
       { t: now, est: cumEst[r.name] || 0, price: r.lastTraded ?? r.back });
     if (history[r.name].length > 400) history[r.name].shift();
   });
 
+  lastMarket = m;
+  render();
+}
+
+function render() {
+  const m = lastMarket;
+  if (!m) return;
   const t = ttj(m.start, m.inplay);
   $("title").textContent = `${m.eventName} — ${m.marketName}`;
+
+  // book overround: sum of implied prob from best back across all runners.
+  // >100% is the exchange's margin; near 100% is a tight, efficient book.
+  let implied = 0;
+  m.runners.forEach(r => { if (r.back) implied += 1 / r.back; });
+  const over = implied > 0 ? 100 * implied : 0;
   const halted = m.status && m.status !== "OPEN";
   $("badges").innerHTML =
     (halted ? `<span class="badge live">⛔ ${m.status}</span>` : "")
     + `<span class="badge ${t.cls === "live" ? "live" : ""}">${m.inplay ? "🔴 IN PLAY" : "⏱ " + t.text}</span>
     <span class="badge">total matched <b>${fmtMoney(m.totalMatched)}</b></span>
-    <span class="badge">available <b>${fmtMoney(m.totalAvailable)}</b></span>`;
+    <span class="badge">available <b>${fmtMoney(m.totalAvailable)}</b></span>`
+    + (over ? `<span class="badge ${over < 102 ? "tight" : ""}" title="Sum of implied probability from best-back prices. 100% is a perfectly efficient book; the excess is margin.">book ${over.toFixed(1)}%</span>` : "");
 
-  const flows = m.runners.map(r => flowWindow(history[r.name] || [], 60000));
-  const maxFlow = Math.max(...flows, 1);
-  const totalFlow = flows.reduce((a, b) => a + b, 0);
+  const minLiq = +$("minliq").value;
+  const tradeable = $("tradeable").checked;
+  const sortby = $("sortby").value;
 
-  $("rows").innerHTML = m.runners.map((r, i) => {
+  // compute per-runner derived values on the FULL set (flow attribution used
+  // all runners), then filter for display only
+  let rows = m.runners.map(r => {
     const pts = history[r.name] || [];
-    const first = pts.find(p => p.price != null), lastP = r.lastTraded ?? r.back;
-    let dir = "";
-    if (first && lastP != null && first.price != null && lastP !== first.price) {
-      dir = lastP < first.price
-        ? `<span class="dir steam">▼ ${(100 * (first.price - lastP) / first.price).toFixed(0)}%</span>`
-        : `<span class="dir drift">▲ ${(100 * (lastP - first.price) / first.price).toFixed(0)}%</span>`;
+    return { r, pts, flow: flowWindow(pts, 60000), move: sessionMovePct(r),
+             liq: Math.max(r.backSize || 0, r.laySize || 0) };
+  });
+  const shown = rows.filter(x => {
+    if (x.liq < minLiq) return false;
+    if (tradeable && (x.r.back == null || x.r.back < 1.2 || x.r.back > 7.0)) return false;
+    return true;
+  });
+  if (sortby === "flow") shown.sort((a, b) => b.flow - a.flow);
+  else if (sortby === "move") shown.sort((a, b) => Math.abs(b.move) - Math.abs(a.move));
+  // "price" keeps server order (favourite first, dead pegs last)
+
+  const maxFlow = Math.max(...shown.map(x => x.flow), 1);
+  const totalFlow = shown.reduce((a, x) => a + x.flow, 0);
+
+  $("rowcount").textContent = shown.length < rows.length
+    ? `showing ${shown.length} of ${rows.length} selections` : `${rows.length} selections`;
+
+  $("rows").innerHTML = shown.map(({ r, pts, flow, move }) => {
+    const lastP = r.lastTraded ?? r.back;
+    let dir = "", rowcls = "";
+    if (Math.abs(move) >= 1) {
+      if (move > 0) { dir = `<span class="dir steam">▼ ${move.toFixed(0)}%</span>`; rowcls = "steamrow"; }
+      else { dir = `<span class="dir drift">▲ ${(-move).toFixed(0)}%</span>`; rowcls = "driftrow"; }
     }
-    const flow = flows[i];
     const pct = totalFlow > 0 ? (100 * flow / totalFlow) : 0;
-    return `<tr>
+    const imp = r.back ? `<div class="imp">${(100 / r.back).toFixed(0)}%</div>` : "";
+    return `<tr class="${rowcls}">
       <td class="name">${r.name}</td>
       <td class="num">${fmtOdds(r.back)}<div class="sizes">${r.backSize ? fmtMoney(r.backSize) : ""}</div></td>
       <td class="num">${fmtOdds(r.lay)}<div class="sizes">${r.laySize ? fmtMoney(r.laySize) : ""}</div></td>
-      <td class="num price">${fmtOdds(r.lastTraded)}${dir}</td>
+      <td class="num price">${fmtOdds(r.lastTraded)}${dir}${imp}</td>
       <td>${sparkline(pts)}</td>
       <td class="flowcell"><div class="flowrow">
         <div class="flowbar ${flow < 1 ? "zero" : ""}" style="width:${Math.max(2, 100 * flow / maxFlow)}px"></div>
@@ -318,8 +406,26 @@ async function poll() {
     </tr>`;
   }).join("");
 
-  $("foot").innerHTML = `<span class="pulse"></span>polling every 3s · money bars = market money growth attributed to selections whose traded price ticked (estimate — Betfair's public feed hides exact per-selection volume) · pressure = visible back $ vs lay $ at best price · ▼ firming (steam) · ▲ drifting`;
+  $("foot").innerHTML = `<span class="pulse ${paused ? "paused" : ""}"></span>${paused ? "paused" : "polling every 3s"} · money bars = market money growth attributed to selections whose traded price ticked (estimate — Betfair's public feed hides exact per-selection volume) · % under Last = implied probability · pressure = visible back $ vs lay $ · ▼ firming (steam) · ▲ drifting`;
 }
+
+// --- controls
+$("search").addEventListener("input", (e) => { searchText = e.target.value; renderItems(); });
+$("sortby").addEventListener("change", (e) => { store.set("sortby", e.target.value); render(); });
+$("minliq").addEventListener("change", (e) => { store.set("minliq", e.target.value); render(); });
+$("tradeable").addEventListener("change", (e) => { store.set("tradeable", e.target.checked); render(); });
+$("pause").addEventListener("click", () => {
+  paused = !paused;
+  $("pause").textContent = paused ? "▶ Resume" : "⏸ Pause";
+  $("pause").classList.toggle("on", paused);
+  if (!paused) poll();
+  render();
+});
+
+// restore saved control settings
+$("sortby").value = store.get("sortby", "price");
+$("minliq").value = String(store.get("minliq", "0"));
+$("tradeable").checked = store.get("tradeable", false);
 
 loadSports();
 setInterval(tickCountdowns, 1000);
