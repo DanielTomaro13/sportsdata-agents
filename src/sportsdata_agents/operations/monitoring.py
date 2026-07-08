@@ -2272,8 +2272,25 @@ async def _watch_racing_value(
             + "\n_Check the live price before betting_"
         )
         # a materially bigger opportunity (a whole 25-point band) re-alerts;
-        # the same race otherwise fires once per window
+        # the same race otherwise fires once per window — and only UPWARD: a
+        # firming price crossing a band downward is the edge shrinking, not
+        # news (same class as the bsp_value fix).
         bucket = int(top["edge_pct"] / 25.0)
+        prior = (await session.execute(
+            select(Alert)
+            .where(Alert.subscription_id == sub.id,
+                   Alert.kind == "racing_value",
+                   Alert.dedupe_key.startswith(f"racing_value:{race}:",
+                                               autoescape=True))
+            .order_by(Alert.created_at.desc()).limit(1)
+        )).scalars().first()
+        if prior is not None:
+            try:
+                prior_bucket = int(str(prior.dedupe_key).rsplit(":", 1)[-1])
+            except ValueError:
+                prior_bucket = -1
+            if bucket <= prior_bucket:
+                continue  # same opportunity shrinking/holding — not news
         key = f"racing_value:{race}:{bucket}"
         payload = {"race": race, "runners": keep[:8], "bankroll": bankroll}
         if await _fire(session, sub, kind="racing_value", key=key, message=message,
@@ -2401,7 +2418,28 @@ async def _watch_bsp_value(
                             subject=f"{top['name'].title()} · win")
             + "\n_Consider Betfair Starting Price if the current price slips_"
         )
-        key = f"bsp_value:{race.race_key}:{int(top['edge_pct'] / 5)}"
+        # only re-alert a race when its edge GROWS past the last banded alert.
+        # The key bands by edge/5, so without this a FIRMING price (shrinking
+        # edge) crossed bands DOWNWARD and re-fired the same runner at a worse
+        # price — the opposite of news (lived: Horologist 9.00/+31% then again
+        # 8.00/+17% as it steamed). Mirrors the value watch's band guard.
+        band = int(top["edge_pct"] / 5)
+        prior = (await session.execute(
+            select(Alert)
+            .where(Alert.subscription_id == sub.id,
+                   Alert.kind == "bsp_value",
+                   Alert.dedupe_key.startswith(f"bsp_value:{race.race_key}:",
+                                               autoescape=True))
+            .order_by(Alert.created_at.desc()).limit(1)
+        )).scalars().first()
+        if prior is not None:
+            try:
+                prior_band = int(str(prior.dedupe_key).rsplit(":", 1)[-1])
+            except ValueError:
+                prior_band = -1
+            if band <= prior_band:
+                continue  # same opportunity shrinking/holding — not news
+        key = f"bsp_value:{race.race_key}:{band}"
         payload = {"race_key": race.race_key,
                    "runners": [{"number": c["number"], "runner": c["name"],
                                 "back": c["back"],
