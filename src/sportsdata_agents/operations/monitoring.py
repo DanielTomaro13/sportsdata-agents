@@ -278,11 +278,12 @@ async def _quote_still_listed(
 
 async def _nearest_line_quotes(
     session: AsyncSession, row: Price, line: float
-) -> tuple[float, dict[str, float]] | None:
-    """When no other book quotes the EXACT line (alt-ladder rungs are often
-    one book's private product), the industry's nearest quoted line is the
-    context a human wants — returned as (nearest_line, {book: odds}) for the
-    same side, or None when the fixture is unresolved or nothing is close."""
+) -> dict[str, tuple[float, float]] | None:
+    """EVERY book's own closest quoted line to the alerted one — {book:
+    (line, odds)} for the same side. Books rarely share alt-ladder rungs, so
+    a single shared 'nearest line' under-represented the industry; per-book
+    nearest puts as many books as possible in every lined message. None when
+    the fixture is unresolved or nothing is close."""
     from sqlalchemy import or_
 
     from sportsdata_agents.quant.backtest import _event_name_for, _translate_side
@@ -309,7 +310,7 @@ async def _nearest_line_quotes(
         if mapped is not None:
             side, side_relative = mapped, True
     own_seen = await _last_seen(session, row)
-    by_line: dict[float, dict[str, float]] = {}
+    by_book: dict[str, tuple[float, float]] = {}
     for sibling in siblings:
         want_side = side
         if side_relative:
@@ -340,13 +341,13 @@ async def _nearest_line_quotes(
             if abs(cand_line - line) < 1e-9 or (cand.book, cand_line) in seen:
                 continue  # the exact line is the board's job; newest-first per key
             seen.add((cand.book, cand_line))
+            current = by_book.get(cand.book)
+            if current is not None and abs(current[0] - line) <= abs(cand_line - line):
+                continue  # this book already has a closer rung
             if not await _quote_still_listed(session, cand, own_seen):
                 continue  # ghost change-point of a renamed/delisted selection
-            by_line.setdefault(cand_line, {}).setdefault(cand.book, float(cand.odds))
-    if not by_line:
-        return None
-    nearest = min(by_line, key=lambda ln: abs(ln - line))
-    return nearest, by_line[nearest]
+            by_book[cand.book] = (cand_line, float(cand.odds))
+    return by_book or None
 
 
 async def _context(session: AsyncSession, row: Price) -> dict[str, Any]:
@@ -1240,16 +1241,19 @@ async def _watch_value(
             + _format_board(quotes, ["Pinnacle", "Betfair"], include,
                             subject=f"{top['pred'].selection} · {market}")
         )
-        # lined market with books absent from THIS line: show where they are
-        # (same alt-line honesty the model_value messages carry)
+        # lined market with books absent from THIS line: every absent book
+        # shows at ITS OWN closest rung (same honesty as model_value)
         _side, top_line_val = _split_selection(str(top["pred"].selection).lower())
         if top_line_val is not None:
             near = await _nearest_line_quotes(session, top["row"], float(top_line_val))
             if near is not None:
-                nl, nq = near
-                cells = " · ".join(f"{b} {o:.2f}" for b, o in
-                                   sorted(nq.items(), key=lambda kv: -kv[1])[:6])
-                message += f"\nother books' nearest line {nl:g}: {cells}"
+                absent = {b: lo for b, lo in near.items() if b not in quotes}
+                if absent:
+                    cells = " · ".join(
+                        f"{b} {ln:g}: {o:.2f}" for b, (ln, o) in
+                        sorted(absent.items(),
+                               key=lambda kv: abs(kv[1][0] - float(top_line_val)))[:8])
+                    message += f"\nnearest lines elsewhere: {cells}"
         payload = {
             # top-of-story fields keep the outcome re-measurement loop working
             "edge_pct": round(top["edge"], 2), "prob": float(top["pred"].prob),
@@ -1767,22 +1771,20 @@ async def _watch_model_value(
             jump = f" · Starts {_local_hhmm(start_time.isoformat(), _tz_for(sub))}"
         top_fair = float(top["model_fair_odds"]) if top["model_fair_odds"] else None
         top_line = f" {top['line']:g}" if top["line"] is not None else ""
-        # alt-line honesty with CONTEXT, ALWAYS: books absent from this exact
-        # line usually price a neighbouring one (their main total/spread) —
-        # show it so "N books NA" never reads as "nobody else is up"
+        # alt-line honesty with CONTEXT, ALWAYS: every book absent from this
+        # exact line shows at ITS OWN closest rung — as many books as
+        # possible represented in every lined message
         near_note = ""
-        flagged_books = {str(c["book"]) for c in cands}
         if top["line"] is not None and top.get("row") is not None:
             near = await _nearest_line_quotes(session, top["row"], float(top["line"]))
             if near is not None:
-                nl, nq = near
-                cells = " · ".join(f"{b} {o:.2f}" for b, o in
-                                   sorted(nq.items(), key=lambda kv: -kv[1])[:6])
-                lonely = not (set(quotes) - flagged_books)
-                label = (f"nearest quoted line {nl:g} (no book has "
-                         f"{top['line']:g})" if lonely
-                         else f"other books' nearest line {nl:g}")
-                near_note = f"\n{label}: {cells}"
+                absent = {b: lo for b, lo in near.items() if b not in quotes}
+                if absent:
+                    cells = " · ".join(
+                        f"{b} {ln:g}: {o:.2f}" for b, (ln, o) in
+                        sorted(absent.items(),
+                               key=lambda kv: abs(kv[1][0] - float(top["line"])))[:8])
+                    near_note = f"\nnearest lines elsewhere: {cells}"
         message = (
             f":crystal_ball: Model Value — {_sport_label(sport)} — {story['display']}\n"
             f"Market: {market} · Edge +{top['edge_pct']:.1f} percent{jump}\n"
@@ -2639,10 +2641,21 @@ async def _stat_value_cross_book(
                     if min_edge <= edge <= max_edge and (best is None or edge > best[0]):
                         best = (edge, book, side, odds, prob, r, line)
         if best is not None:
+            flagged_side, flagged_line = best[2], best[6]
+            nearest_others: dict[str, tuple[float, float]] = {}
+            for b, ls in by_book.items():
+                if flagged_line in ls and flagged_side in ls[flagged_line]:
+                    continue  # on the exact-line board already
+                rungs = [(abs(ln - flagged_line), ln, sides[flagged_side][0])
+                         for ln, sides in ls.items() if flagged_side in sides]
+                if rungs:
+                    _d, ln, o = min(rungs)
+                    nearest_others[b] = (ln, o)
             scored.append((best[0], (fixture, player, stat, best[6]),
                            {"best": best[:6], "by_book_at_line": {
                                b: {s: q[0] for s, q in ls.get(best[6], {}).items()}
                                for b, ls in by_book.items() if best[6] in ls},
+                            "nearest_others": nearest_others,
                             "n_fair": len(curve_books),
                             "curve": [(ln, round(pv, 4)) for ln, pv in pts]}))
     scored.sort(key=lambda x: -x[0])
@@ -2668,6 +2681,12 @@ async def _stat_value_cross_book(
             f"across books — {side} {line:g}: "
             + (" · ".join(board_bits) if board_bits else "only this book at this line")
         )
+        if info.get("nearest_others"):
+            near_bits = " · ".join(
+                f"{b} {ln:g}: {o:.2f}" for b, (ln, o) in
+                sorted(info["nearest_others"].items(),
+                       key=lambda kv: abs(kv[1][0] - line))[:8])
+            message += f"\nnearest lines elsewhere: {near_bits}"
         band = int(edge / 2.0)
         alert_key = f"stat_value:x:{fixture}:{player}:{stat}:{line:g}:{side}:{band}"
         if await _fire(session, sub, kind="stat_value", key=alert_key,
