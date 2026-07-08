@@ -1378,7 +1378,13 @@ def _market_family(market: str) -> str | None:
             or "moneyline" in m or "match winner" in m):
         # suffixed h2h labels ("h2h - win", "h2h - match (regular time)",
         # "h2h - head to head - including overtime") are the SAME market —
-        # the settle-qualifier suffix is each book's house style
+        # the settle-qualifier suffix is each book's house style. BUT a
+        # handicap/spread word makes it a LINE market whatever the prefix:
+        # BetR's "h2h [handicap]" rungs read as plain h2h and a -16.5 rung
+        # became the engine's h2h anchor (lived: three +28% phantom AFL
+        # edges, one flagging BOTH sides of the same market)
+        if "handicap" in m or "spread" in m:
+            return "line" if _only_market_words(m) else None
         return "h2h"
     if m in _TOTAL_MARKETS or "total" in m or "over/under" in m or "u/o" in m:
         return "total" if _only_market_words(m) else None
@@ -1427,7 +1433,9 @@ def _footy_engine_inputs(rows: list[Price]) -> tuple[dict[str, Any] | None, list
         family = _market_family(row.market)
         side, line = _split_selection(row.selection.lower())
         odds = float(row.odds)
-        if family == "h2h" and side in ("home", "away", "draw"):
+        if family == "h2h" and side in ("home", "away", "draw") and line is None:
+            # a LINED selection is never the h2h anchor even if its market
+            # label reads h2h-ish — belt to the family fix above
             h2h[side] = odds
             book_quotes.append({"market": "h2h", "selection": side, "line": None, "odds": odds})
         elif family == "total" and side in ("over", "under") and line is not None:
