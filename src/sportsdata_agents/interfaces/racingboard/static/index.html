@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RacingBoard Terminal — live money flow</title>
+  <meta name="description" content="Bloomberg-style live terminal for racing money flow — which runners are shortening (money coming in), a recommended pick per race, fair price & value across Sportsbet/Pointsbet/Betfair." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a0c'/%3E%3Cpath d='M5 21 L13 13 L18 17 L27 7' stroke='%23ffb000' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="logo">▟</span> RACING<span class="accent">BOARD</span><span class="term">TERMINAL</span></div>
+    <div class="spacer"></div>
+    <span class="stat-inline"><label>RACES</label><b id="s-races">–</b></span>
+    <span class="stat-inline"><label>FIRMERS</label><b id="s-firmers" class="up">–</b></span>
+    <span class="stat-inline"><label>BF MATCHED</label><b id="s-matched">–</b></span>
+    <span class="stat-inline"><label>NEXT</label><b id="s-next">–</b></span>
+    <span class="spacer"></span>
+    <span class="pill"><span id="conn" class="dot"></span><b id="conn-label">CONNECTING</b></span>
+    <span id="clock" class="clock"></span>
+    <button id="theme" class="icon-btn" title="Theme">◐</button>
+  </div>
+
+  <div id="banner" class="banner">
+    <span>REPLAY</span> animating a captured sequence of real market data — run live locally for real-time polling.
+    <a href="https://github.com/DanielTomaro13/RacingBoard#run-it-live" target="_blank" rel="noopener">HOW ›</a>
+  </div>
+
+  <!-- scrolling tape of runners shortening in price -->
+  <div class="tape-wrap"><div class="tape-label">▲ MONEY&nbsp;IN</div><div id="tape" class="tape"></div></div>
+
+  <main>
+    <div class="col left">
+      <section class="panel">
+        <header><h2>RACES</h2><span class="sub">nearest jump · live pick</span><span class="count" id="board-count"></span></header>
+        <div class="filters" id="code-filters">
+          <button data-code="ALL" class="active">ALL</button>
+          <button data-code="R"><i style="background:var(--code-R)"></i>R</button>
+          <button data-code="G"><i style="background:var(--code-G)"></i>G</button>
+          <button data-code="H"><i style="background:var(--code-H)"></i>H</button>
+        </div>
+        <div id="board" class="board scroll"></div>
+      </section>
+
+      <section class="panel">
+        <header><h2 class="up">▲ FIRMERS</h2><span class="sub">shortening — money in</span></header>
+        <div id="firmers" class="firmers scroll"></div>
+      </section>
+    </div>
+
+    <div class="col right">
+      <section id="detail" class="panel detail">
+        <div class="empty"><div class="big">▟</div>SELECT A RACE</div>
+      </section>
+    </div>
+  </main>
+
+  <div id="tt"></div>
+  <footer>RACINGBOARD TERMINAL · money-in = tote pool share rising / price shortening · <a href="https://github.com/DanielTomaro13/RacingBoard" target="_blank" rel="noopener">SOURCE</a></footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
