@@ -219,10 +219,11 @@ async def scan_racing_value(
             # is the market's past, and an alert on it reads a price that is
             # already gone (lived: a 4-minute-old book price alerted as the
             # race jumped). Inside 10 minutes of the start the bound drops
-            # to 2 minutes.
+            # to one capture cycle — any tighter starves the cluster before
+            # the next ingest pass lands.
             starts = [u.start for u in cluster if u.start is not None]
             if starts and min(starts) - now < dt.timedelta(minutes=10):
-                bound = min(bound, dt.timedelta(minutes=2))
+                bound = min(bound, dt.timedelta(seconds=90))
             cluster = [u for u in cluster if u.last_seen and freshest - u.last_seen <= bound]
         books = [u for u in cluster if u.book != exchange_book]
         exchange = next((u for u in cluster if u.book == exchange_book), None)

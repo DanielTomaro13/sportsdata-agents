@@ -63,6 +63,7 @@ BETFAIR_TYPES = [
     "MARKET_DESCRIPTION",
     "EVENT",
     "RUNNER_DESCRIPTION",
+    "RUNNER_STATE",  # per-runner lastPriceTraded + totalMatched — where the money went
     "RUNNER_EXCHANGE_PRICES_BEST",
 ]
 BETFAIR_CHUNK = 2  # events per byevent call

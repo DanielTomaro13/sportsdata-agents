@@ -1554,8 +1554,11 @@ def _normalize_betfair_market(sink: _Sink, market: dict[str, Any], sport: str,
             continue  # empty ladder — nothing a backer can take
         name = str((runner.get("description") or {}).get("runnerName", "?"))
         side = _side_from_event_name(name, event_name)
+        runner_state = runner.get("state") or {}
         meta: dict[str, Any] = {"lay": lays[0].get("price") if lays else None,
                                 "back_size": backs[0].get("size") if backs else None,
+                                "last_traded": runner_state.get("lastPriceTraded"),
+                                "runner_matched": runner_state.get("totalMatched"),
                                 "total_matched": state.get("totalMatched"),
                                 "market_id": market.get("marketId"),
                                 "start_time": description.get("marketTime"),
