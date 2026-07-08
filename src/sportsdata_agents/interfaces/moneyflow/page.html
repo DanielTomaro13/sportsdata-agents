@@ -75,7 +75,11 @@
   <main>
     <div class="empty" id="empty">← pick a sport, then a race or match</div>
     <div id="board" style="display:none">
-      <div id="head"></div>
+      <div id="head">
+        <h2 id="title"></h2>
+        <span id="pickerbox"></span>
+        <span id="badges"></span>
+      </div>
       <div id="meta"></div>
       <table>
         <thead><tr>
@@ -107,7 +111,7 @@ let items = [], selected = null, currentItem = null;
 let history = {};       // selection name -> [{t, est, price}]
 let cumEst = {};        // selection name -> cumulative estimated matched flow
 let prevTotal = null;   // market totalMatched at previous poll
-let pollTimer = null, marketId = null;
+let pollTimer = null, marketId = null, pollGen = 0, listGen = 0;
 
 function ttj(startIso, inplay) {
   if (inplay) return { text: "LIVE", cls: "live" };
@@ -133,10 +137,22 @@ function renderItems() {
       el.className = "race" + (selected === r.marketId ? " sel" : "");
       el.innerHTML = `<span><div class="v">${r.label}</div>
         <div class="m">${r.sub || ""}</div></span>
-        <span class="ttj ${t.cls}">${t.text}</span>`;
+        <span class="ttj ${t.cls}"></span>`;
+      const tick = el.querySelector(".ttj");
+      tick.textContent = t.text;
+      tick.dataset.start = r.start || "";
+      tick.dataset.inplay = r.inplay ? "1" : "";
       el.onclick = () => selectItem(r);
       box.appendChild(el);
     });
+}
+
+function tickCountdowns() {
+  document.querySelectorAll("#races .ttj").forEach(el => {
+    const t = ttj(el.dataset.start || null, el.dataset.inplay === "1");
+    el.textContent = t.text;
+    el.className = "ttj " + t.cls;
+  });
 }
 
 async function loadSports() {
@@ -149,35 +165,51 @@ async function loadSports() {
 }
 
 async function loadItems(typeId) {
+  const gen = ++listGen;  // a slow depth-7 fetch must not overwrite a newer sport
   $("races").innerHTML = '<div class="note">loading…</div>';
+  let next;
   try {
-    items = await (await fetch("/api/list/" + typeId)).json();
-  } catch (e) { items = []; }
+    next = await (await fetch("/api/list/" + typeId)).json();
+  } catch (e) { next = []; }
+  if (gen !== listGen) return;  // user switched sports while this was in flight
+  items = Array.isArray(next) ? next : [];
   renderItems();
 }
 
 function selectItem(item) {
   currentItem = item;
+  // the picker is built ONCE per item — rebuilding it inside poll() closed
+  // the dropdown under the user's mouse every 3 seconds
+  const box = $("pickerbox");
+  box.innerHTML = "";
+  const markets = item.markets || [];
+  if (markets.length > 1) {
+    const sel = document.createElement("select");
+    for (const x of markets) {
+      const opt = document.createElement("option");
+      opt.value = x.marketId; opt.textContent = x.name;
+      sel.appendChild(opt);
+    }
+    sel.value = item.marketId;
+    sel.addEventListener("change", () => selectMarket(sel.value));
+    box.appendChild(sel);
+  }
   selectMarket(item.marketId);
 }
 
 function selectMarket(id) {
   selected = currentItem.marketId; marketId = id;
+  pollGen += 1;  // orphan any in-flight fetch of the previous market
   history = {}; cumEst = {}; prevTotal = null;
   renderItems();
+  const chosen = (currentItem.markets || []).find(x => x.marketId === id);
+  $("title").textContent = currentItem.label + (chosen ? " — " + chosen.name : "");
+  $("badges").innerHTML = '<span class="badge">loading…</span>';
   $("empty").style.display = "none"; $("board").style.display = "block";
-  $("rows").innerHTML = ""; $("head").innerHTML = "loading…"; $("meta").textContent = "";
+  $("rows").innerHTML = ""; $("meta").textContent = "";
   if (pollTimer) clearInterval(pollTimer);
   poll();
   pollTimer = setInterval(poll, 3000);
-}
-
-function marketPicker(m) {
-  const markets = (currentItem && currentItem.markets) || [];
-  if (markets.length < 2) return "";
-  return `<select id="mktsel" onchange="selectMarket(this.value)">` + markets.map(x =>
-    `<option value="${x.marketId}" ${x.marketId === marketId ? "selected" : ""}>${x.name}</option>`
-  ).join("") + `</select>`;
 }
 
 function sparkline(pts) {
@@ -218,9 +250,15 @@ function womBar(r) {
 
 async function poll() {
   if (!marketId) return;
+  const gen = pollGen;
   let m;
   try { m = await (await fetch("/api/market/" + marketId)).json(); }
-  catch (e) { return; }
+  catch (e) {
+    if (gen === pollGen) $("badges").insertAdjacentHTML("beforeend",
+      document.getElementById("reconn") ? "" : '<span class="badge" id="reconn">reconnecting…</span>');
+    return;
+  }
+  if (gen !== pollGen) return;  // user switched markets while this was in flight
   if (m.detail) return;
   const now = Date.now();
 
@@ -243,8 +281,11 @@ async function poll() {
   });
 
   const t = ttj(m.start, m.inplay);
-  $("head").innerHTML = `<h2>${m.eventName} — ${m.marketName}</h2>${marketPicker(m)}
-    <span class="badge ${t.cls === "live" ? "live" : ""}">${m.inplay ? "🔴 IN PLAY" : "⏱ " + t.text}</span>
+  $("title").textContent = `${m.eventName} — ${m.marketName}`;
+  const halted = m.status && m.status !== "OPEN";
+  $("badges").innerHTML =
+    (halted ? `<span class="badge live">⛔ ${m.status}</span>` : "")
+    + `<span class="badge ${t.cls === "live" ? "live" : ""}">${m.inplay ? "🔴 IN PLAY" : "⏱ " + t.text}</span>
     <span class="badge">total matched <b>${fmtMoney(m.totalMatched)}</b></span>
     <span class="badge">available <b>${fmtMoney(m.totalAvailable)}</b></span>`;
 
@@ -281,7 +322,7 @@ async function poll() {
 }
 
 loadSports();
-setInterval(renderItems, 1000);  // tick countdowns
+setInterval(tickCountdowns, 1000);
 </script>
 </body>
 </html>

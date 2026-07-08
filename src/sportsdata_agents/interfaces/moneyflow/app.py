@@ -182,8 +182,14 @@ def _flatten(node: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
         exchange = runner.get("exchange") or {}
         backs = exchange.get("availableToBack") or []
         lays = exchange.get("availableToLay") or []
+        name = str((runner.get("description") or {}).get("runnerName", "?"))
+        # handicap/line markets repeat the runner name across lines — the
+        # handicap is the identity (and the page's history key)
+        handicap = runner.get("handicap")
+        if handicap:
+            name = f"{name} {float(handicap):+g}"
         runners.append({
-            "name": str((runner.get("description") or {}).get("runnerName", "?")),
+            "name": name,
             "back": backs[0].get("price") if backs else None,
             "backSize": backs[0].get("size") if backs else None,
             "lay": lays[0].get("price") if lays else None,
@@ -192,7 +198,10 @@ def _flatten(node: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
             "matched": runner_state.get("totalMatched") or 0.0,
             "status": runner_state.get("status"),
         })
-    runners.sort(key=lambda r: (r["lastTraded"] or r["back"] or 999.0))
+    # favourite-first for win/match-odds; on line markets this also sinks the
+    # lay-only dead pegs (deep in/out-of-the-money lines priced ~1.01 with no
+    # back side) below the tradeable near-even lines people actually watch
+    runners.sort(key=lambda r: (r["back"] is None, r["lastTraded"] or r["back"] or 999.0))
     return {
         "marketId": node.get("marketId"),
         "eventName": event.get("eventName"),
