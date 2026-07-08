@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from pathlib import Path
@@ -98,7 +99,7 @@ async def listing(type_id: str) -> list[dict[str, Any]]:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
     nodes = graph.get("nodes") or []
     events = {str(n["eventInfo"].get("eventId")): n["eventInfo"]
-              for n in nodes if n.get("eventInfo")}
+              for n in nodes if isinstance(n.get("eventInfo"), dict)}
 
     if type_id in _RACING:
         out = []
@@ -184,10 +185,14 @@ def _flatten(node: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
         lays = exchange.get("availableToLay") or []
         name = str((runner.get("description") or {}).get("runnerName", "?"))
         # handicap/line markets repeat the runner name across lines — the
-        # handicap is the identity (and the page's history key)
+        # handicap disambiguates them (and keys the page's history). A 0.0
+        # handicap is Match Odds (or a level-ball line) where the name is
+        # already unique, so skip the noisy "+0". Guard the cast so a
+        # non-numeric handicap can never 500 the whole board.
         handicap = runner.get("handicap")
         if handicap:
-            name = f"{name} {float(handicap):+g}"
+            with contextlib.suppress(TypeError, ValueError):
+                name = f"{name} {float(handicap):+g}"
         runners.append({
             "name": name,
             "back": backs[0].get("price") if backs else None,

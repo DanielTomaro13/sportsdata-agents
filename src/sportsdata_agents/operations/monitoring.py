@@ -36,7 +36,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.data.models import (
@@ -2964,81 +2964,120 @@ async def run_watches(
     now = now or dt.datetime.now(dt.UTC)
     report: dict[str, Any] = {"subscriptions": 0, "alerts": 0}
     async with session_factory() as session:
-        subscriptions = (
-            await session.execute(select(Subscription).where(Subscription.active.is_(True)))
-        ).scalars().all()
-        for sub in subscriptions:
-            report["subscriptions"] += 1
-            # heavy watches opt into a slower lane: every_minutes=10 means
-            # "run when the last run is at least that old". Minute ALIGNMENT
-            # was flaky — pass start times drift with locks/pacing, and the
-            # props lane skipped 40+ minutes while a +7.6% edge sat live.
-            cadence = int(sub.params.get("every_minutes") or 0)
-            if cadence > 1 and sub.cursor is not None:
-                last = (sub.cursor if sub.cursor.tzinfo
-                        else sub.cursor.replace(tzinfo=dt.UTC))
-                if now - last < dt.timedelta(minutes=cadence):
-                    continue
-            # a small safety-lag on the cursor: ingest commits change-points
-            # SECONDS after stamping changed_at, and ingest now runs concurrently
-            # with monitor every 60s — a strict "> cursor" scan would skip rows
-            # whose changed_at ≤ cursor but that committed after the last SELECT.
-            # The _fire dedupe absorbs the small re-scan overlap.
-            cursor = (sub.cursor - dt.timedelta(seconds=90)) if sub.cursor else now - dt.timedelta(hours=6)
-            try:
-                if sub.kind in ("line_move", "steam"):
-                    # steam needs the FULL window_minutes to see min_moves moves —
-                    # at a 60s monitor a key has ≤1 change-point since the cursor,
-                    # so the cursor-window steam could never fire (dead watch).
-                    if sub.kind == "steam":
-                        window = float(sub.params.get("window_minutes", 30))
-                        floor = now - dt.timedelta(minutes=window)
-                    else:
-                        floor = cursor
-                    rows = list(
-                        (
-                            await session.execute(
-                                select(Price).where(Price.changed_at > floor).order_by(Price.changed_at)
-                            )
-                        ).scalars()
-                    )
-                    if sub.kind == "line_move":
-                        fired = await _watch_line_move(session, sub, rows, push)
-                    else:
-                        fired = await _watch_steam(session, sub, rows, push)
-                elif sub.kind == "value":
-                    fired = await _watch_value(session, sub, push, now=now)
-                elif sub.kind == "scratching":
-                    fired = await _watch_scratching(session, sub, push)
-                elif sub.kind == "racing_value":
-                    fired = await _watch_racing_value(session, sub, push, now=now)
-                elif sub.kind == "prediction_value":
-                    fired = await _watch_prediction_value(session, sub, push, now=now)
-                elif sub.kind == "bsp_value":
-                    fired = await _watch_bsp_value(session, sub, push, now=now)
-                elif sub.kind == "back_lay":
-                    fired = await _watch_back_lay(session, sub, push, now=now)
-                elif sub.kind == "stat_value":
-                    fired = await _watch_stat_value(session, sub, push, now=now)
-                elif sub.kind == "exchange_value":
-                    fired = await _watch_exchange_value(session, sub, push, now=now)
-                elif sub.kind == "arb":
-                    fired = await _watch_arb(session, sub, push, now=now)
-                elif sub.kind == "model_value":
-                    fired = await _watch_model_value(session, sub, push, now=now)
-                else:
-                    logger.warning("unknown watch kind %s (subscription %s)", sub.kind, sub.id)
-                    continue
-                sub.cursor = now
-                report["alerts"] += fired
-                if await _push_digest(session, sub, push, now):
-                    report["digests"] = report.get("digests", 0) + 1
-            except Exception as e:  # one broken watch must not sink the pass
-                logger.warning("watch %s (%s) failed: %s", sub.name, sub.kind, e)
-                report[f"error:{sub.name}"] = str(e)
+        # ONE monitor pass at a time. The scheduler spawns a fresh monitor each
+        # tick; when a pass runs long, two overlap and both UPDATE the same
+        # subscription cursors — a textbook Postgres deadlock (lived: ~24
+        # aborted passes/hr, PendingRollbackError chained off asyncpg
+        # DeadlockDetectedError). A session-level advisory lock serializes
+        # them; the second monitor skips cleanly rather than deadlocking.
+        # Held across _fire's mid-pass commits (same connection) and released
+        # in finally. No-op on SQLite (tests are single-process).
+        is_pg = session.bind is not None and session.bind.dialect.name == "postgresql"
+        if is_pg:
+            got = (
+                await session.execute(
+                    text("SELECT pg_try_advisory_lock(:k)"), {"k": _MONITOR_LOCK_KEY}
+                )
+            ).scalar()
+            if not got:
+                report["skipped"] = "another monitor pass holds the lock"
+                return report
         try:
-            report["outcomes_measured"] = await measure_arb_outcomes(session, now=now)
-        except Exception as e:  # measurement is bookkeeping — never sink the pass
-            logger.warning("arb outcome measurement failed: %s", e)
-        await session.commit()
+            return await _run_watches_locked(session, push=push, now=now, report=report)
+        finally:
+            if is_pg:
+                await session.execute(
+                    text("SELECT pg_advisory_unlock(:k)"), {"k": _MONITOR_LOCK_KEY}
+                )
+
+
+# a fixed application-defined key for the monitor's pg advisory lock
+_MONITOR_LOCK_KEY = 8274123
+
+
+async def _run_watches_locked(
+    session: AsyncSession,
+    *,
+    push: Pusher,
+    now: dt.datetime,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """The monitor pass body, run by run_watches under its advisory lock."""
+    subscriptions = (
+        await session.execute(select(Subscription).where(Subscription.active.is_(True)))
+    ).scalars().all()
+    for sub in subscriptions:
+        report["subscriptions"] += 1
+        # heavy watches opt into a slower lane: every_minutes=10 means
+        # "run when the last run is at least that old". Minute ALIGNMENT
+        # was flaky — pass start times drift with locks/pacing, and the
+        # props lane skipped 40+ minutes while a +7.6% edge sat live.
+        cadence = int(sub.params.get("every_minutes") or 0)
+        if cadence > 1 and sub.cursor is not None:
+            last = (sub.cursor if sub.cursor.tzinfo
+                    else sub.cursor.replace(tzinfo=dt.UTC))
+            if now - last < dt.timedelta(minutes=cadence):
+                continue
+        # a small safety-lag on the cursor: ingest commits change-points
+        # SECONDS after stamping changed_at, and ingest now runs concurrently
+        # with monitor every 60s — a strict "> cursor" scan would skip rows
+        # whose changed_at ≤ cursor but that committed after the last SELECT.
+        # The _fire dedupe absorbs the small re-scan overlap.
+        cursor = (sub.cursor - dt.timedelta(seconds=90)) if sub.cursor else now - dt.timedelta(hours=6)
+        try:
+            if sub.kind in ("line_move", "steam"):
+                # steam needs the FULL window_minutes to see min_moves moves —
+                # at a 60s monitor a key has ≤1 change-point since the cursor,
+                # so the cursor-window steam could never fire (dead watch).
+                if sub.kind == "steam":
+                    window = float(sub.params.get("window_minutes", 30))
+                    floor = now - dt.timedelta(minutes=window)
+                else:
+                    floor = cursor
+                rows = list(
+                    (
+                        await session.execute(
+                            select(Price).where(Price.changed_at > floor).order_by(Price.changed_at)
+                        )
+                    ).scalars()
+                )
+                if sub.kind == "line_move":
+                    fired = await _watch_line_move(session, sub, rows, push)
+                else:
+                    fired = await _watch_steam(session, sub, rows, push)
+            elif sub.kind == "value":
+                fired = await _watch_value(session, sub, push, now=now)
+            elif sub.kind == "scratching":
+                fired = await _watch_scratching(session, sub, push)
+            elif sub.kind == "racing_value":
+                fired = await _watch_racing_value(session, sub, push, now=now)
+            elif sub.kind == "prediction_value":
+                fired = await _watch_prediction_value(session, sub, push, now=now)
+            elif sub.kind == "bsp_value":
+                fired = await _watch_bsp_value(session, sub, push, now=now)
+            elif sub.kind == "back_lay":
+                fired = await _watch_back_lay(session, sub, push, now=now)
+            elif sub.kind == "stat_value":
+                fired = await _watch_stat_value(session, sub, push, now=now)
+            elif sub.kind == "exchange_value":
+                fired = await _watch_exchange_value(session, sub, push, now=now)
+            elif sub.kind == "arb":
+                fired = await _watch_arb(session, sub, push, now=now)
+            elif sub.kind == "model_value":
+                fired = await _watch_model_value(session, sub, push, now=now)
+            else:
+                logger.warning("unknown watch kind %s (subscription %s)", sub.kind, sub.id)
+                continue
+            sub.cursor = now
+            report["alerts"] += fired
+            if await _push_digest(session, sub, push, now):
+                report["digests"] = report.get("digests", 0) + 1
+        except Exception as e:  # one broken watch must not sink the pass
+            logger.warning("watch %s (%s) failed: %s", sub.name, sub.kind, e)
+            report[f"error:{sub.name}"] = str(e)
+    try:
+        report["outcomes_measured"] = await measure_arb_outcomes(session, now=now)
+    except Exception as e:  # measurement is bookkeeping — never sink the pass
+        logger.warning("arb outcome measurement failed: %s", e)
+    await session.commit()
     return report

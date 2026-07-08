@@ -880,6 +880,7 @@ async def fetch_pointsbet_books(manager: Any) -> dict[str, Any]:
 # races reached only ~30 minutes ahead — a race 80 minutes out had two
 # books captured and its alerts read "no other book has priced this"
 RACES_PER_CYCLE = int(os.environ.get("SPORTSDATA_AGENTS_RACES_PER_CYCLE", "25"))
+SPORTSBET_RACECARD_CHUNK = 20  # sportsbet_multiple_racecards caps at 20 eventIds
 _RACE_TYPE_SPORT = {
     "r": "horse_racing", "t": "horse_racing", "thoroughbred": "horse_racing",
     "horse": "horse_racing", "horse racing": "horse_racing",
@@ -937,12 +938,23 @@ async def fetch_sportsbet_races(manager: Any) -> dict[str, Any]:
     chosen = [(start, sport, event) for _intl, start, sport, event in pending[:RACES_PER_CYCLE]]
     if not chosen:
         return {"events": [], "sports": {}}
-    cards = await manager.call_tool(
-        "sportsbet_multiple_racecards", {"eventIds": [e["id"] for _s, _sp, e in chosen]}
-    )
+    # sportsbet_multiple_racecards faults with HTTP 400 above 20 eventIds
+    # ("Events list size ranges between 1 and 20") — so a RACES_PER_CYCLE of
+    # 25 silently dropped the WHOLE sportsbet card. Batch in 20s.
+    event_ids = [e["id"] for _s, _sp, e in chosen]
+    events: list[dict[str, Any]] = []
+    for i in range(0, len(event_ids), SPORTSBET_RACECARD_CHUNK):
+        batch = event_ids[i : i + SPORTSBET_RACECARD_CHUNK]
+        try:
+            cards = await manager.call_tool(
+                "sportsbet_multiple_racecards", {"eventIds": batch}
+            )
+            events.extend(cards.get("events") or [])
+        except Exception as e:  # one batch failing must not sink the rest
+            logger.warning("sportsbet racecards batch %s failed: %s", batch, e)
     sports = {str(e["id"]): sport for _s, sport, e in chosen}
     meetings = {str(e["id"]): str(e.get("_meeting") or "") for _s, _sp, e in chosen}
-    return {"events": cards.get("events") or [], "sports": sports, "meetings": meetings}
+    return {"events": events, "sports": sports, "meetings": meetings}
 
 
 # live-verified category ids from the meetings route (Ipswich=horse,

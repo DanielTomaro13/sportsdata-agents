@@ -134,6 +134,10 @@
 const $ = (id) => document.getElementById(id);
 const fmtMoney = (v) => v >= 1000 ? "$" + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k" : "$" + Math.round(v);
 const fmtOdds = (v) => v == null ? "—" : (v < 10 ? v.toFixed(2) : v.toFixed(1));
+// Betfair names carry &, <, ', quotes (team names, sponsors) — escape before
+// any innerHTML interpolation so they render as text, not markup.
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const SPORT_ICON = {
   "Horse Racing": "🐎", "Greyhound Racing": "🐕", "Soccer": "⚽", "Tennis": "🎾",
@@ -181,8 +185,8 @@ function renderItems() {
     const t = ttj(r.start, r.inplay);
     const el = document.createElement("button");
     el.className = "race" + (selected === r.marketId ? " sel" : "");
-    el.innerHTML = `<span><div class="v">${r.label}</div>
-      <div class="m">${r.sub || ""}</div></span>
+    el.innerHTML = `<span><div class="v">${esc(r.label)}</div>
+      <div class="m">${esc(r.sub || "")}</div></span>
       <span class="ttj ${t.cls}"></span>`;
     const tick = el.querySelector(".ttj");
     tick.textContent = t.text;
@@ -202,10 +206,13 @@ function tickCountdowns() {
 }
 
 async function loadSports() {
-  const sports = await (await fetch("/api/sports")).json();
+  let sports;
+  try { sports = await (await fetch("/api/sports")).json(); } catch (e) { sports = []; }
+  if (!Array.isArray(sports)) sports = [];
+  if (!sports.length) { $("races").innerHTML = '<div class="note">could not load sports — is the server reachable?</div>'; return; }
   const sel = $("sport");
   sel.innerHTML = sports.map(s =>
-    `<option value="${s.id}">${SPORT_ICON[s.name] || "•"} ${s.name}</option>`).join("");
+    `<option value="${esc(s.id)}">${SPORT_ICON[s.name] || "•"} ${esc(s.name)}</option>`).join("");
   sel.onchange = () => { store.set("sport", sel.value); loadItems(sel.value); };
   const saved = store.get("sport", null);
   const start = sports.find(s => s.id === saved) ? saved : (sports[0] && sports[0].id);
@@ -393,7 +400,7 @@ function render() {
     const pct = totalFlow > 0 ? (100 * flow / totalFlow) : 0;
     const imp = r.back ? `<div class="imp">${(100 / r.back).toFixed(0)}%</div>` : "";
     return `<tr class="${rowcls}">
-      <td class="name">${r.name}</td>
+      <td class="name">${esc(r.name)}</td>
       <td class="num">${fmtOdds(r.back)}<div class="sizes">${r.backSize ? fmtMoney(r.backSize) : ""}</div></td>
       <td class="num">${fmtOdds(r.lay)}<div class="sizes">${r.laySize ? fmtMoney(r.laySize) : ""}</div></td>
       <td class="num price">${fmtOdds(r.lastTraded)}${dir}${imp}</td>
