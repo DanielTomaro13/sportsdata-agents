@@ -215,6 +215,14 @@ async def scan_racing_value(
         freshest = max((u.last_seen for u in cluster if u.last_seen), default=None)
         if freshest is not None:
             bound = dt.timedelta(minutes=max_staleness_minutes)
+            # NEAR THE JUMP the market moves in seconds: a quote minutes old
+            # is the market's past, and an alert on it reads a price that is
+            # already gone (lived: a 4-minute-old book price alerted as the
+            # race jumped). Inside 10 minutes of the start the bound drops
+            # to 2 minutes.
+            starts = [u.start for u in cluster if u.start is not None]
+            if starts and min(starts) - now < dt.timedelta(minutes=10):
+                bound = min(bound, dt.timedelta(minutes=2))
             cluster = [u for u in cluster if u.last_seen and freshest - u.last_seen <= bound]
         books = [u for u in cluster if u.book != exchange_book]
         exchange = next((u for u in cluster if u.book == exchange_book), None)

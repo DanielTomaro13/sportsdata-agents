@@ -464,6 +464,12 @@ def _racing_board_key(ctx_event: str) -> str:
     base, _, race = ctx_event.partition(" · ")
     match = _re.search(r"\bR(\d+)\b", race or base)
     venue = base.split(" (")[0].strip()
+    # books suffix the venue with a country token ("Ascot Park Nz" at
+    # PointsBet vs "Ascot Park" everywhere else) — one race, one story
+    parts = venue.split()
+    if len(parts) > 1 and parts[-1].lower() in ("nz", "nzl", "aus", "au",
+                                                "uk", "gb", "usa", "us"):
+        venue = " ".join(parts[:-1])
     if race and match:
         return f"{venue} R{match.group(1)}"
     if race:
