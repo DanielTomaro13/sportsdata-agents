@@ -208,6 +208,10 @@ WATCH_PARAMS: dict[str, Params] = {
         "min_edge_pct": (5.0, "quoted rung pays above the fair by this %"),
         "max_edge_pct": (30.0, "edges above this are data artifacts, never bets"),
         "min_fair_books": (1, "books with a de-viggable O/U pair needed for a fair"),
+        "deep_stats": (["disposals", "points", "tries"],
+                       "stats whose fair needs deep_min_fair_books pair-makers"),
+        "deep_min_fair_books": (2, "pair-makers required for deep stats — a "
+                                   "one-book disposals fair is lazy"),
         "hours": (2.0, "how far back to look for prop quotes"),
         "min_rungs": (3, "ladder mode: distinct thresholds needed for a fit"),
         "max_rmse_log": (0.08, "ladder mode: reject self-disagreeing ladders"),

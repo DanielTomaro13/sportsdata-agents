@@ -25,6 +25,7 @@ _STAT_WORDS = sorted((
     "disposals", "kicks", "handballs", "marks", "tackles", "goals", "behinds",
     "hitouts", "clearances", "inside 50s", "fantasy points", "supercoach points",
     "tries", "try assists", "run metres", "tackle busts", "offloads",
+    "player performance",
     "line breaks", "kick metres", "all run metres",
     "points", "rebounds", "assists", "threes", "three pointers", "steals",
     "blocks", "turnovers",
@@ -46,7 +47,8 @@ _STATS_ALT = "|".join(re.escape(s) for s in _STAT_WORDS)
 _NAME = r"[a-z][a-z.'-]*(?: [a-z][a-z.'-]*){1,3}?"
 
 # market "<player> <stat>" (optional dash), selection "over/under N[.5]"
-_MARKET_PROP = re.compile(rf"^(?P<player>{_NAME})\s*[-\u2013:]?\s*(?P<stat>{_STATS_ALT})$")
+_MARKET_PROP = re.compile(rf"^(?P<player>{_NAME})\s*[-\u2013:]?\s*(?P<stat>{_STATS_ALT})"
+                          rf"(?:\s+(?P<mline>\d{{1,3}}(?:\.5)?))?$")
 _OU_SELECTION = re.compile(r"^(?P<side>over|under)\s+(?P<line>\d{1,3}(?:\.5)?)$")
 
 # selection "<player> N+ <stat>" — the N-plus ladder form
@@ -95,14 +97,60 @@ def _stat_from_market(market_l: str) -> str | None:
     return _MARKET_STAT_SINGULAR.get(word, word)
 
 
+# the operator's canonical stat names — books' labels fold onto these
+_STAT_CANON = {"player performance": "player performance points",
+               "180s": "one eighties", "three pointers": "threes"}
+
+# segment qualifiers become part of the STAT ("disposals 1h") so half and
+# quarter ladders pool cross-book WITHOUT contaminating full-game fairs
+_SEGMENT_QUAL = (
+    ("1st half", "1h"), ("first half", "1h"), ("2nd half", "2h"),
+    ("second half", "2h"), ("1st quarter", "1q"), ("first quarter", "1q"),
+    ("2nd quarter", "2q"), ("3rd quarter", "3q"), ("4th quarter", "4q"),
+)
+
+# "anytime goalscorer"/"anytime tryscorer" IS the 0.5-line ladder rung —
+# every book prints it, the deepest cross-book prop pool there is. Order-
+# dependent variants (first/last/2nd scorer, team-scoped) never tag.
+_ANYTIME = re.compile(r"^anytime (goal|try) ?scorer$")
+
+
+def _canon_stat(stat: str) -> str:
+    return _STAT_CANON.get(stat, stat)
+
+
 def tag_prop(market: str, selection: str, meta: dict) -> dict:
     """The point's meta, with player/stat/stat_line/line_type added when the
     market/selection names carry a recognisable prop shape. Already-tagged
     points (Dabble) and non-props pass through untouched."""
     if meta.get("player"):
+        stat = str(meta.get("stat") or "")
+        canon = _canon_stat(stat)
+        if stat and canon != stat:
+            return {**meta, "stat": canon}
         return meta
     market_l = market.strip().lower()
     selection_l = selection.strip().lower()
+
+    # segment-qualified props keep their qualifier IN the stat name
+    qual = ""
+    for phrase, tag in _SEGMENT_QUAL:
+        for pattern in (f" - {phrase}", f"{phrase} "):
+            if pattern in market_l or market_l.endswith(f" {phrase}"):
+                qual = f" {tag}"
+                market_l = (market_l.replace(f" - {phrase}", "")
+                            .replace(f"{phrase} ", "").strip())
+                break
+        if qual:
+            break
+
+    anytime = _ANYTIME.match(market_l)
+    if anytime and selection_l and not any(ch.isdigit() for ch in selection_l):
+        stat = "goals" if anytime.group(1) == "goal" else "tries"
+        return {**meta, "player": selection.strip().title(),
+                "stat": _canon_stat(stat) + qual, "stat_line": 0.5,
+                "line_type": "over", "prop_tagged": True}
+
     if not (_MARKET_ANY_STAT.search(market_l) or _ANY_STAT.search(selection_l)):
         return meta
 
@@ -110,7 +158,7 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
     if matched:
         # "20+" means 20 or more — the over side of a 19.5 line
         return {**meta, "player": matched.group("player").title(),
-                "stat": matched.group("stat"),
+                "stat": _canon_stat(matched.group("stat")) + qual,
                 "stat_line": float(matched.group("n")) - 0.5,
                 "line_type": "over", "prop_tagged": True}
 
@@ -119,7 +167,7 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
         # TAB inverts the ladder: the threshold IS the market, the player the
         # selection ("25+ Disposals" / "Nick Daicos")
         return {**meta, "player": selection.strip().title(),
-                "stat": market_nplus.group("stat"),
+                "stat": _canon_stat(market_nplus.group("stat")) + qual,
                 "stat_line": float(market_nplus.group("n")) - 0.5,
                 "line_type": "over", "prop_tagged": True}
 
@@ -130,20 +178,20 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
         echo = _PLAYER_NPLUS_ECHO.match(selection_l)
         if echo:
             return {**meta, "player": echo.group("player").title(),
-                    "stat": market_stat,
+                    "stat": _canon_stat(market_stat) + qual,
                     "stat_line": float(echo.group("n")) - 0.5,
                     "line_type": "over", "prop_tagged": True}
         ou = _PLAYER_OU_ECHO.match(selection_l)
         if ou:
             return {**meta, "player": ou.group("player").title(),
-                    "stat": market_stat,
+                    "stat": _canon_stat(market_stat) + qual,
                     "stat_line": float(ou.group("line")),
                     "line_type": ou.group("side"), "prop_tagged": True}
 
     market_stat_nplus = _STAT_NPLUS_MARKET.match(market_l)
     if market_stat_nplus and selection_l and not any(ch.isdigit() for ch in selection_l):
         return {**meta, "player": selection.strip().title(),
-                "stat": market_stat_nplus.group("stat"),
+                "stat": _canon_stat(market_stat_nplus.group("stat")) + qual,
                 "stat_line": float(market_stat_nplus.group("n")) - 0.5,
                 "line_type": "over", "prop_tagged": True}
 
@@ -151,7 +199,15 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
     side_match = _OU_SELECTION.match(selection_l)
     if market_match and side_match:
         return {**meta, "player": market_match.group("player").title(),
-                "stat": market_match.group("stat"),
+                "stat": _canon_stat(market_match.group("stat")) + qual,
                 "stat_line": float(side_match.group("line")),
                 "line_type": side_match.group("side"), "prop_tagged": True}
+    if (market_match and market_match.group("mline")
+            and selection_l in ("over", "under")):
+        # Dabble style: the line lives in the MARKET ("… player performance
+        # 43.5") and the selection is a bare side
+        return {**meta, "player": market_match.group("player").title(),
+                "stat": _canon_stat(market_match.group("stat")) + qual,
+                "stat_line": float(market_match.group("mline")),
+                "line_type": selection_l, "prop_tagged": True}
     return meta

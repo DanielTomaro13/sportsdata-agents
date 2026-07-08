@@ -2533,6 +2533,11 @@ async def _stat_value_cross_book(
     cap = int(sub.params.get("max_alerts_per_cycle", 5))
     bankroll = float(sub.params.get("bankroll", 100.0))
     min_fair_books = int(sub.params.get("min_fair_books", 1))
+    # deep markets have several pair-makers, and a one-book fair there is
+    # lazy — the operator's rule: disposals never fairs from one book
+    deep_stats = {str(s) for s in sub.params.get(
+        "deep_stats", ["disposals", "points", "tries"])}
+    deep_min = int(sub.params.get("deep_min_fair_books", 2))
 
     rows = (await session.execute(
         select(OddsSnapshot).where(
@@ -2588,6 +2593,7 @@ async def _stat_value_cross_book(
     fired = 0
     scored: list[tuple[float, tuple, dict]] = []
     for (fixture, player, stat), by_book in groups.items():
+        key = (fixture, player, stat)
         # fair CURVE: median de-vigged p(over) per line, across every book
         # with an O/U pair at that line
         curve_pts: dict[float, list[float]] = {}
@@ -2600,7 +2606,8 @@ async def _stat_value_cross_book(
                         curve_pts.setdefault(line, []).append(
                             (1.0 / over) / (1.0 / over + 1.0 / under))
                         curve_books.add(book)
-        if len(curve_books) < min_fair_books:
+        stat_floor = deep_min if key[2] in deep_stats else min_fair_books
+        if len(curve_books) < stat_floor:
             continue
         pts = sorted((ln, statistics.median(ps)) for ln, ps in curve_pts.items())
         # survival must fall as the line rises; a badly inverted curve is
