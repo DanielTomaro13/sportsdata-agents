@@ -180,6 +180,57 @@ def maybe_vacuum(db_path: Path) -> bool:
     return True
 
 
+async def _run_custodian_postgres(
+    database_url: str, *, force_days: int | None = None
+) -> dict[str, Any]:
+    """Retention for a Postgres warehouse: age-prune the capture tables so they
+    stop growing without bound. Postgres reclaims deleted rows for REUSE via
+    autovacuum (the file won't shrink without a VACUUM FULL, but growth is
+    bounded — steady state, not a balloon). Window is size-aware: the tighter
+    of the configured default and any size-budget override wins."""
+    import os
+
+    from sqlalchemy import text
+
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.operations.ingestion import prune_prices, prune_snapshots
+
+    report: dict[str, Any] = {"action": "prune", "backend": "postgres"}
+    default_days = int(os.environ.get("SPORTSDATA_AGENTS_RETENTION_DAYS", "21"))
+    prices_days_env = int(os.environ.get("SPORTSDATA_AGENTS_PRICES_RETENTION_DAYS", "60"))
+
+    engine = make_engine(database_url)
+    sf = make_sessionmaker(engine)
+    try:
+        async with sf() as session:
+            size = int(
+                (await session.execute(text("SELECT pg_database_size(current_database())"))).scalar() or 0
+            )
+        report["warehouse_gb"] = round(size / 2**30, 2)
+
+        keep_days = force_days if force_days is not None else default_days
+        budget_days = plan_budget_days(size, warehouse_budget_bytes())
+        if budget_days is not None and budget_days < keep_days:
+            keep_days = budget_days
+            report["budget_forced"] = True
+        report["keep_days"] = keep_days
+
+        report["pruned_snapshots"] = await prune_snapshots(sf, older_than_days=keep_days)
+        # prices keeps AT LEAST as long as snapshots, longer by default
+        prices_days = max(keep_days, prices_days_env)
+        report["prices_keep_days"] = prices_days
+        report["pruned_prices"] = await prune_prices(sf, older_than_days=prices_days)
+
+        async with sf() as session:
+            after = int(
+                (await session.execute(text("SELECT pg_database_size(current_database())"))).scalar() or 0
+            )
+        report["warehouse_gb_after"] = round(after / 2**30, 2)
+    finally:
+        await engine.dispose()
+    return report
+
+
 async def run_custodian(
     database_url: str,
     *,
@@ -195,7 +246,16 @@ async def run_custodian(
     state = read_ops_state()
     custodian = dict(state.get("custodian") or {})
 
-    if db_path is None or not db_path.exists():
+    if db_path is None:
+        # Postgres: the file-based disk/backup/vacuum machinery below is all
+        # SQLite-specific, but RETENTION still has to run — without it the
+        # capture tables grow without bound (lived: the live Postgres warehouse
+        # hit 5.7GB because pruning was gated to SQLite and silently no-op'd).
+        if "postgres" in database_url:
+            return await _run_custodian_postgres(database_url, force_days=force_days)
+        report["note"] = "non-sqlite or missing warehouse — nothing to manage locally"
+        return report
+    if not db_path.exists():
         report["note"] = "non-sqlite or missing warehouse — nothing to manage locally"
         return report
 

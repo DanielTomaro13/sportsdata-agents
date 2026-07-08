@@ -16,6 +16,7 @@ from sportsdata_agents.operations.ingestion import (
     PricePoint,
     ingest_once,
     line_movement,
+    prune_prices,
     prune_snapshots,
     record_points,
     run_loop,
@@ -78,6 +79,22 @@ async def test_prune_keeps_recent_and_all_change_points(
     async with db_sessionmaker() as s:
         assert (await s.execute(select(func.count()).select_from(OddsSnapshot))).scalar_one() == 1
         assert (await s.execute(select(func.count()).select_from(Price))).scalar_one() == 2  # series intact
+
+
+async def test_prune_prices_drops_old_change_points(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The change-point series is durable but not infinite — retention prunes
+    prices past its (longer) window. Without this, `prices` grew unbounded on
+    the live Postgres warehouse (the custodian only pruned snapshots)."""
+    old = dt.datetime.now(dt.UTC) - dt.timedelta(days=120)
+    await record_points(db_sessionmaker, [_point(1.85)], captured_at=old)  # change-point @ old
+    await record_points(db_sessionmaker, [_point(1.92)])  # change-point @ now
+    async with db_sessionmaker() as s:
+        assert (await s.execute(select(func.count()).select_from(Price))).scalar_one() == 2
+    assert await prune_prices(db_sessionmaker, older_than_days=90) == 1  # only the 120d-old one
+    async with db_sessionmaker() as s:
+        assert (await s.execute(select(func.count()).select_from(Price))).scalar_one() == 1
 
 
 class FakeManager:

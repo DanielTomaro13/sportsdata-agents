@@ -359,3 +359,30 @@ async def prune_snapshots(
     if pruned:
         logger.info("pruned %d snapshots older than %dd", pruned, older_than_days)
     return pruned
+
+
+async def prune_prices(
+    session_factory: async_sessionmaker[AsyncSession], *, older_than_days: int = 60
+) -> int:
+    """Retention for the change-point ``prices`` series. It is the durable,
+    model-readable record, so it keeps a LONGER window than raw snapshots — but
+    'longer' is not 'forever': at scale it still grows unbounded (lived: 1.9GB
+    of it in the 5.7GB warehouse). Same batched, one-commit-per-batch shape as
+    ``prune_snapshots`` so a huge delete never holds the writer for minutes."""
+    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=older_than_days)
+    pruned = 0
+    for _ in range(PRUNE_MAX_BATCHES):
+        async with session_factory() as session:
+            batch_ids = select(Price.id).where(
+                Price.changed_at < cutoff
+            ).limit(PRUNE_BATCH_ROWS).scalar_subquery()
+            result = await session.execute(
+                delete(Price).where(Price.id.in_(batch_ids)))
+            await session.commit()
+        got = int(getattr(result, "rowcount", 0) or 0)
+        pruned += got
+        if got < PRUNE_BATCH_ROWS:
+            break  # window clear
+    if pruned:
+        logger.info("pruned %d prices older than %dd", pruned, older_than_days)
+    return pruned
