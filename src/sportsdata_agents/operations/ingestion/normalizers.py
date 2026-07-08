@@ -964,12 +964,28 @@ def normalize_sportsbet_races(payload: Any) -> list[PricePoint]:
                     continue
                 number = sel.get("runnerNumber") or sel.get("number")
                 selection = str(number) if number is not None else str(sel.get("name", "?")).lower()
+                meta = {"runner": sel.get("name"), "post_time": event.get("startTime")}
                 sink.add(PricePoint(
                     provider="sportsbet_racing", book="Sportsbet", sport=sport,
                     event_external_id=event_id, event_name=event_name,
-                    market=market_key, selection=selection, odds=odds,
-                    meta={"runner": sel.get("name"), "post_time": event.get("startTime")},
+                    market=market_key, selection=selection, odds=odds, meta=meta,
                 ))
+                if market_key == "win":
+                    # the same fixed "L" row carries an EXPLICIT place price
+                    # (placePriceNum/Den beside winPriceNum/Den) — labelled,
+                    # unlike Entain's legendless price-type table
+                    place = None
+                    for row in sel.get("prices", []) or []:
+                        if row.get("priceCode") == "L" or row.get("placePriceNum") is not None:
+                            place = _odds_ok(row.get("placePrice"))
+                            if place is not None:
+                                break
+                    if place is not None:
+                        sink.add(PricePoint(
+                            provider="sportsbet_racing", book="Sportsbet", sport=sport,
+                            event_external_id=event_id, event_name=event_name,
+                            market="place", selection=selection, odds=place, meta=meta,
+                        ))
     return sink.points
 
 
@@ -1072,6 +1088,8 @@ def normalize_pointsbet_races(payload: Any) -> list[PricePoint]:
         sport = str(card.get("racingType") or "racing").strip().lower()
         sport = {"thoroughbred": "horse_racing", "greyhound": "greyhound_racing",
                  "harness": "harness_racing"}.get(sport, f"{sport}_racing" if sport else "racing")
+        names = {str(r.get("number")): r.get("runnerName")
+                 for r in card.get("runners", []) or []}
         for runner in card.get("runners", []) or []:
             if runner.get("isScratched"):
                 continue
@@ -1085,6 +1103,24 @@ def normalize_pointsbet_races(payload: Any) -> list[PricePoint]:
                 meta={"runner": runner.get("runnerName"),
                       "post_time": card.get("advertisedStartTimeUtc")},
             ))
+        # the card's markets[] labels products EXPLICITLY (FixedWin/FixedPlc,
+        # totes as ToteWin/TotePlc) — the unambiguous fixed place source.
+        # runnerId is "RS:<raceId>/<number>".
+        for market in card.get("markets", []) or []:
+            if market.get("marketType") != "FixedPlc":
+                continue
+            for sel in market.get("selections", []) or []:
+                odds = _odds_ok(sel.get("price"))
+                number = str(sel.get("runnerId", "")).rsplit("/", 1)[-1]
+                if odds is None or not number.isdigit():
+                    continue
+                sink.add(PricePoint(
+                    provider="pointsbet_racing", book="PointsBet", sport=sport,
+                    event_external_id=event_id, event_name=event_name,
+                    market="place", selection=number, odds=odds,
+                    meta={"runner": names.get(number),
+                          "post_time": card.get("advertisedStartTimeUtc")},
+                ))
     return sink.points
 
 
