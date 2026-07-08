@@ -68,6 +68,32 @@ _STAT_NPLUS_MARKET = re.compile(
 # a cheap pre-filter: no stat word anywhere → not a prop, skip the regexes
 _ANY_STAT = re.compile(rf"\b(?:{_STATS_ALT})\b")
 
+# PointsBet buries the stat in the MARKET (often SINGULAR: "pick your own
+# mark", "to get disposals", "to kick goals", "player disposals over/under")
+# and prints selections "<player> N+ N" / "<player> over 24.5 24.5" with a
+# trailing echo of the line
+_MARKET_STAT_SINGULAR = {
+    "mark": "marks", "tackle": "tackles", "goal": "goals", "kick": "kicks",
+    "handball": "handballs", "disposal": "disposals", "hitout": "hitouts",
+    "clearance": "clearances", "try": "tries", "point": "points",
+}
+_MARKET_ANY_STAT = re.compile(
+    rf"\b(?:{_STATS_ALT}|{'|'.join(_MARKET_STAT_SINGULAR)})\b")
+_PLAYER_NPLUS_ECHO = re.compile(
+    rf"^(?P<player>{_NAME})\s+(?P<n>\d{{1,3}})\+(?:\s+\d{{1,3}}(?:\.\d+)?)?$")
+_PLAYER_OU_ECHO = re.compile(
+    rf"^(?P<player>{_NAME})\s+(?P<side>over|under)\s+(?P<line>\d{{1,3}}(?:\.5)?)"
+    rf"(?:\s+\d{{1,3}}(?:\.\d+)?)?$")
+
+
+def _stat_from_market(market_l: str) -> str | None:
+    hits = _MARKET_ANY_STAT.findall(market_l)
+    if not hits:
+        return None
+    # verb phrases put the stat LAST ("to KICK goals" is a goals market)
+    word = hits[-1]
+    return _MARKET_STAT_SINGULAR.get(word, word)
+
 
 def tag_prop(market: str, selection: str, meta: dict) -> dict:
     """The point's meta, with player/stat/stat_line/line_type added when the
@@ -77,7 +103,7 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
         return meta
     market_l = market.strip().lower()
     selection_l = selection.strip().lower()
-    if not (_ANY_STAT.search(market_l) or _ANY_STAT.search(selection_l)):
+    if not (_MARKET_ANY_STAT.search(market_l) or _ANY_STAT.search(selection_l)):
         return meta
 
     matched = _NPLUS_SELECTION.match(selection_l)
@@ -96,6 +122,23 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
                 "stat": market_nplus.group("stat"),
                 "stat_line": float(market_nplus.group("n")) - 0.5,
                 "line_type": "over", "prop_tagged": True}
+
+    # PointsBet: stat in the market, player + threshold (+ echo) as selection
+    market_stat = _stat_from_market(market_l)
+    if market_stat and not any(seg in market_l for seg in
+                               ("1st", "2nd", "3rd", "4th", "half", "quarter")):
+        echo = _PLAYER_NPLUS_ECHO.match(selection_l)
+        if echo:
+            return {**meta, "player": echo.group("player").title(),
+                    "stat": market_stat,
+                    "stat_line": float(echo.group("n")) - 0.5,
+                    "line_type": "over", "prop_tagged": True}
+        ou = _PLAYER_OU_ECHO.match(selection_l)
+        if ou:
+            return {**meta, "player": ou.group("player").title(),
+                    "stat": market_stat,
+                    "stat_line": float(ou.group("line")),
+                    "line_type": ou.group("side"), "prop_tagged": True}
 
     market_stat_nplus = _STAT_NPLUS_MARKET.match(market_l)
     if market_stat_nplus and selection_l and not any(ch.isdigit() for ch in selection_l):
