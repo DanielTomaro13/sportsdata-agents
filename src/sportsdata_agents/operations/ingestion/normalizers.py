@@ -998,11 +998,21 @@ _PSEUDO_RUNNERS = frozenset({"odds", "evens", "favourite", "favourites", "favori
                              "field", "the field", "any other", "any other runner"})
 
 
+# Entain's prices{} table keys rows "{entrant_id}:{product_type_id}:" with no
+# in-payload legend, but the product-type ids are STABLE and confirmed from
+# the GraphQL betTypeSelectors ("Win/Place" -> "Fixed Odds" -> productTypeName
+# "Fixed Win"/"Fixed Place" -> these ids); verified against a live card where
+# they reproduce coherent win/place pairs (operator-supplied, 2026-07-08)
+_ENTAIN_FIXED_WIN = "940b8704-e497-4a76-b390-00918ff7d282"
+_ENTAIN_FIXED_PLACE = "7cf3eea6-5654-42be-9c2e-6de280e7bb34"
+
+
 def normalize_entain_races(payload: Any) -> list[PricePoint]:
     """Ladbrokes racecards: entrants keyed by uuid; the LIVE fixed win price is
-    the tail of price_fluctuations[entrant_id] (the prices{} table mixes ~50
-    price types — flucs, totes, deductions — with no legend; the fluctuation
-    series is the one unambiguous fixed-odds source, PointsBet-style)."""
+    the tail of price_fluctuations[entrant_id] (proven source, kept), and the
+    fixed PLACE price is the prices{} row keyed with the Fixed Place product
+    type id — the once-legendless table now has a legend for the two products
+    that matter."""
     if not isinstance(payload, dict):
         return []
     sink = _Sink()
@@ -1026,13 +1036,25 @@ def normalize_entain_races(payload: Any) -> list[PricePoint]:
                 continue
             number = entrant.get("number")
             selection = str(number) if number is not None else str(entrant.get("name", "?")).lower()
+            meta = {"runner": entrant.get("name"), "runner_number": number,
+                    "post_time": entry.get("start")}
             sink.add(PricePoint(
                 provider="entain_racing", book="Ladbrokes", sport=sport,
                 event_external_id=race_id, event_name=event_name,
-                market="win", selection=selection, odds=odds,
-                meta={"runner": entrant.get("name"), "runner_number": number,
-                      "post_time": entry.get("start")},
+                market="win", selection=selection, odds=odds, meta=meta,
             ))
+            place_row = (card.get("prices") or {}).get(
+                f"{ent_id}:{_ENTAIN_FIXED_PLACE}:") or {}
+            place_odds_obj = place_row.get("odds") or {}
+            num, den = place_odds_obj.get("numerator"), place_odds_obj.get("denominator")
+            if isinstance(num, int | float) and isinstance(den, int | float) and den:
+                place = _odds_ok(1.0 + num / den)
+                if place is not None:
+                    sink.add(PricePoint(
+                        provider="entain_racing", book="Ladbrokes", sport=sport,
+                        event_external_id=race_id, event_name=event_name,
+                        market="place", selection=selection, odds=place, meta=meta,
+                    ))
     return sink.points
 
 

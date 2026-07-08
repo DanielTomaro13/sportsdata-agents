@@ -2533,9 +2533,12 @@ async def _stat_value_cross_book(
                 fixture_of[(ev.provider, ev.external_id)] = str(ev.fixture_id)
 
     # latest quote per (group, book, side); books' capture cadences differ,
-    # so keep the freshest sighting per key (rows arrive oldest-first)
-    groups: dict[tuple[str, str, str, float],
-                 dict[str, dict[str, tuple[float, Any]]]] = {}
+    # so keep the freshest sighting per key (rows arrive oldest-first).
+    # GROUP AT (fixture, player, stat): books ladder at DIFFERENT rungs (TAB
+    # prints 20+/19.5 where Dabble pairs at 22.5) and exact-line grouping
+    # starved the scan to 3 comparisons a day — the fair is a CURVE.
+    groups: dict[tuple[str, str, str],
+                 dict[str, dict[float, dict[str, tuple[float, Any]]]]] = {}
     for r in rows:
         meta = r.meta or {}
         player = _player_key(meta.get("player"))
@@ -2556,38 +2559,74 @@ async def _stat_value_cross_book(
                 continue  # a started game's props are game state
         fixture = fixture_of.get((r.provider, r.event_external_id),
                                  f"{r.provider}:{r.event_external_id}")
-        key = (fixture, player, stat, line)
-        groups.setdefault(key, {}).setdefault(r.book, {})[side] = (float(r.odds), r)
+        key = (fixture, player, stat)
+        groups.setdefault(key, {}).setdefault(r.book, {}).setdefault(
+            line, {})[side] = (float(r.odds), r)
+
+    import math
 
     fired = 0
     scored: list[tuple[float, tuple, dict]] = []
-    for key, by_book in groups.items():
-        fair_probs = []
-        fair_books = []
-        for book, sides in by_book.items():
-            if "over" in sides and "under" in sides:
-                over, under = sides["over"][0], sides["under"][0]
-                if over > 1.0 and under > 1.0:
-                    fair_probs.append((1.0 / over) / (1.0 / over + 1.0 / under))
-                    fair_books.append(book)
-        if len(fair_probs) < min_fair_books:
+    for (fixture, player, stat), by_book in groups.items():
+        # fair CURVE: median de-vigged p(over) per line, across every book
+        # with an O/U pair at that line
+        curve_pts: dict[float, list[float]] = {}
+        curve_books: set[str] = set()
+        for book, lines in by_book.items():
+            for line, sides in lines.items():
+                if "over" in sides and "under" in sides:
+                    over, under = sides["over"][0], sides["under"][0]
+                    if over > 1.0 and under > 1.0:
+                        curve_pts.setdefault(line, []).append(
+                            (1.0 / over) / (1.0 / over + 1.0 / under))
+                        curve_books.add(book)
+        if len(curve_books) < min_fair_books:
             continue
-        fair_over = statistics.median(fair_probs)
-        if not 0.03 < fair_over < 0.97:
-            continue  # extreme rungs: de-vig noise dominates out here
+        pts = sorted((ln, statistics.median(ps)) for ln, ps in curve_pts.items())
+        # survival must fall as the line rises; a badly inverted curve is
+        # noise, not a fair (small wobble tolerated)
+        import itertools
+
+        if any(p1 > p0 + 0.03
+               for (_l0, p0), (_l1, p1) in itertools.pairwise(pts)):
+            continue
+        by_line = dict(pts)
+
+        def _fair_at(line: float, pts=pts, by_line=by_line) -> float | None:
+            exact = by_line.get(line)
+            if exact is not None:
+                return exact
+            lo = [pt for pt in pts if pt[0] < line]
+            hi = [pt for pt in pts if pt[0] > line]
+            if not lo or not hi:
+                return None  # NEVER extrapolate beyond the quoted curve
+            (l0, p0), (l1, p1) = lo[-1], hi[0]
+            if p0 <= 0.0 or p1 <= 0.0:
+                return None
+            w = (line - l0) / (l1 - l0)
+            return math.exp((1.0 - w) * math.log(p0) + w * math.log(p1))
+
         best = None
-        for book, sides in by_book.items():
-            for side, (odds, r) in sides.items():
-                if len(fair_books) == 1 and book == fair_books[0]:
-                    continue  # the sole fair source can't be its own outlier
-                prob = fair_over if side == "over" else 1.0 - fair_over
-                edge = (odds * prob - 1.0) * 100.0
-                if min_edge <= edge <= max_edge and (best is None or edge > best[0]):
-                    best = (edge, book, side, odds, prob, r)
+        for book, lines in by_book.items():
+            for line, sides in lines.items():
+                fair_over = _fair_at(line)
+                if fair_over is None or not 0.03 < fair_over < 0.97:
+                    continue
+                if (len(curve_books) == 1 and book in curve_books
+                        and line in by_line):
+                    continue  # the sole fair source can't out-price its own rung
+                for side, (odds, r) in sides.items():
+                    prob = fair_over if side == "over" else 1.0 - fair_over
+                    edge = (odds * prob - 1.0) * 100.0
+                    if min_edge <= edge <= max_edge and (best is None or edge > best[0]):
+                        best = (edge, book, side, odds, prob, r, line)
         if best is not None:
-            scored.append((best[0], key, {"best": best, "by_book": by_book,
-                                          "n_fair": len(fair_probs),
-                                          "fair_over": fair_over}))
+            scored.append((best[0], (fixture, player, stat, best[6]),
+                           {"best": best[:6], "by_book_at_line": {
+                               b: {s: q[0] for s, q in ls.get(best[6], {}).items()}
+                               for b, ls in by_book.items() if best[6] in ls},
+                            "n_fair": len(curve_books),
+                            "curve": [(ln, round(pv, 4)) for ln, pv in pts]}))
     scored.sort(key=lambda x: -x[0])
 
     for edge, (fixture, player, stat, line), info in scored:
@@ -2597,17 +2636,19 @@ async def _stat_value_cross_book(
         _, book, side, odds, prob, r = best
         kelly = _kelly_stake(prob, odds, bankroll)
         board_bits = []
-        for b, sides in sorted(info["by_book"].items()):
+        for b, sides in sorted(info["by_book_at_line"].items()):
             if side in sides:
-                board_bits.append(f"{b} {sides[side][0]:.2f}")
+                board_bits.append(f"{b} {sides[side]:.2f}")
         message = (
             f":dart: Player Prop Value — {_sport_label(r.sport)} — {r.event_name}\n"
             f"**{str((r.meta or {}).get('player') or player).title()} · {stat} "
             f"{side} {line:g}**\n"
             f"{book} {odds:.2f} · industry fair {1.0 / prob:.2f} "
-            f"(de-vigged from {info['n_fair']} book{'s' if info['n_fair'] != 1 else ''}) "
+            f"(curve from {info['n_fair']} book{'s' if info['n_fair'] != 1 else ''}, "
+            f"{len(info['curve'])} line{'s' if len(info['curve']) != 1 else ''}) "
             f"· edge +{edge:.1f} percent · stake {_fmt_money(kelly)}\n"
-            f"across books — {side} {line:g}: " + " · ".join(board_bits)
+            f"across books — {side} {line:g}: "
+            + (" · ".join(board_bits) if board_bits else "only this book at this line")
         )
         band = int(edge / 2.0)
         alert_key = f"stat_value:x:{fixture}:{player}:{stat}:{line:g}:{side}:{band}"
