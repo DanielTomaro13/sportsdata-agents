@@ -1327,6 +1327,93 @@ def scoreboard(
 
 
 @app.command()
+def shadow(
+    file: str = typer.Option(..., "--file", help="Bet-journal CSV (bookmaker export or hand-kept)."),
+    json_out: str = typer.Option("", "--json", help="Also write the full report JSON here."),
+) -> None:
+    """Shadow account: audit your ACTUAL bets against the alert stream —
+    which alerts you bet, your price vs the quoted one, stake vs printed
+    Kelly, and the every-alert counterfactual beside your real P&L."""
+    import asyncio
+    import json as _json
+    import pathlib
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.observability.notify import slack_to_plain
+    from sportsdata_agents.quant.scoreboard import format_scoreboard
+    from sportsdata_agents.quant.shadow_account import (
+        format_shadow_report,
+        parse_bets,
+        shadow_report,
+    )
+
+    console = Console()
+    bets = parse_bets(file)
+    if not bets:
+        console.print(f"no bets parsed from {file}")
+        raise typer.Exit(1)
+
+    async def _run() -> None:
+        engine = make_engine(get_settings().database_url)
+        sf = make_sessionmaker(engine)
+        try:
+            async with sf() as session:
+                report = await shadow_report(session, bets)
+        finally:
+            await engine.dispose()
+        console.print(slack_to_plain(format_shadow_report(report)))
+        if report.get("counterfactual"):
+            console.print(slack_to_plain(format_scoreboard(report["counterfactual"])))
+        if json_out:
+            pathlib.Path(json_out).write_text(
+                _json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
+            console.print(f"full report written to {json_out}")
+
+    asyncio.run(_run())
+
+
+@app.command(name="signal-bench")
+def signal_bench_cmd(
+    days: float = typer.Option(14.0, "--days", help="Settled-race window to bench against."),
+) -> None:
+    """Bench RAW signals (steam, engine gap, market control) by information
+    coefficient against settled racing outcomes — which signals know something
+    the closing market didn't price. |t| >= 2 is 'worth a look', not proof."""
+    import asyncio
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from rich.console import Console
+
+    from sportsdata_agents.config import get_settings
+    from sportsdata_agents.data.db import make_engine, make_sessionmaker
+    from sportsdata_agents.observability.notify import slack_to_plain
+    from sportsdata_agents.quant.signal_bench import format_signal_bench, signal_bench
+
+    console = Console()
+
+    async def _run() -> None:
+        engine = make_engine(get_settings().database_url)
+        try:
+            async with make_sessionmaker(engine)() as session:
+                report = await signal_bench(session, days=days)
+        finally:
+            await engine.dispose()
+        console.print(slack_to_plain(format_signal_bench(report)))
+
+    asyncio.run(_run())
+
+
+@app.command()
 def monitor(
     watch: str | None = typer.Option(None, "--add", help='Create a watch inline: "name:kind:threshold" '
                                                          '(e.g. "big-moves:line_move:8").'),
@@ -1786,10 +1873,16 @@ def replay_export(
         with path.open("w", encoding="utf-8") as fh:
             for row in report["fixtures"]:
                 fh.write(_json.dumps(row) + "\n")
+        # the run card rides beside the export: knobs, window, coverage and a
+        # config fingerprint, so week-over-week replays compare like with like
+        card_path = path.with_suffix(path.suffix + ".run_card.json")
+        card_path.write_text(_json.dumps(report["run_card"], indent=2) + "\n",
+                             encoding="utf-8")
         skipped = ", ".join(f"{k}={v}" for k, v in
                             sorted(report["skipped"].items())) or "none"
         console.print(f"exported {len(report['fixtures'])} fixtures to {path} "
-                      f"· skipped: {skipped}")
+                      f"· skipped: {skipped} · run card {card_path} "
+                      f"(config {report['run_card']['config_fingerprint']})")
 
     asyncio.run(_run())
 

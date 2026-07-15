@@ -222,3 +222,51 @@ async def test_model_value_settles_totals_and_lines_against_scores(
     assert v["pnl"] == pytest.approx(-1.0)
     text = format_scoreboard(report)
     assert "Model value (calibrated)" in text and "CLV" in text
+
+
+async def test_run_card_rides_the_replay_export(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Even an empty export carries a complete, fingerprinted run card —
+    that's what makes week-over-week replays comparable."""
+    from sportsdata_agents.quant.replay_export import export_replay_fixtures
+
+    report = await export_replay_fixtures(db_sessionmaker, days=7.0,
+                                          minutes_before=45.0)
+    card = report["run_card"]
+    assert card["exported"] == 0 and report["fixtures"] == []
+    assert card["config"]["days"] == 7.0
+    assert card["config"]["minutes_before"] == 45.0
+    assert len(card["config_fingerprint"]) == 12
+    # the fingerprint is a function of the KNOBS, not the data
+    again = await export_replay_fixtures(db_sessionmaker, days=7.0,
+                                         minutes_before=45.0)
+    assert again["run_card"]["config_fingerprint"] == card["config_fingerprint"]
+    other = await export_replay_fixtures(db_sessionmaker, days=14.0,
+                                         minutes_before=45.0)
+    assert other["run_card"]["config_fingerprint"] != card["config_fingerprint"]
+
+
+async def test_attribution_buckets_settled_bets_by_odds_and_edge() -> None:
+    from sportsdata_agents.quant.scoreboard import _attribution
+
+    rows = (
+        [{"section": "racing", "stake": 1.0, "pnl": 1.5, "odds": 2.5,
+          "edge": 12.0, "book": None}] * 6
+        + [{"section": "racing", "stake": 1.0, "pnl": -1.0, "odds": 15.0,
+            "edge": 45.0, "book": None}] * 6
+        + [{"section": "racing", "stake": 1.0, "pnl": -1.0, "odds": 3.0,
+            "edge": None, "book": None}] * 2  # too thin for its own bucket? no — joins 2-4
+    )
+    attr = _attribution(rows)
+    racing = attr["racing"]
+    assert racing["by_odds"]["2-4"]["settled"] == 8
+    assert racing["by_odds"]["10+"]["settled"] == 6
+    assert racing["by_odds"]["10+"]["roi_pct"] == -100.0
+    # edge bands only count rows that HAVE an edge
+    assert racing["by_edge"]["10-20%"]["settled"] == 6
+    assert racing["by_edge"]["40%+"]["settled"] == 6
+    # buckets thinner than the floor are dropped, not shown as noise
+    thin = _attribution([{"section": "bsp", "stake": 1.0, "pnl": 1.0,
+                          "odds": 2.0, "edge": None, "book": None}] * 3)
+    assert thin == {}

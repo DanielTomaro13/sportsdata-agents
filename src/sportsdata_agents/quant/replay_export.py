@@ -14,6 +14,8 @@ drops fixtures overstates itself.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -182,4 +184,27 @@ async def export_replay_fixtures(
                 "close_quotes": _quote_rows(close) if close else [],
                 "result": {"home_score": score[0], "away_score": score[1]},
             })
-        return {"fixtures": out, "skipped": skipped}
+        # the RUN CARD makes replays comparable across weeks: same knobs +
+        # same window shape => apples to apples; a drifted fingerprint says
+        # "you're not comparing like with like" before the metrics lie to you
+        per_sport: dict[str, int] = {}
+        for row in out:
+            per_sport[row["sport"]] = per_sport.get(row["sport"], 0) + 1
+        config = {"days": days, "minutes_before": minutes_before,
+                  "sports": sorted(wanted & set(_ENGINE_SPORT)),
+                  "anchor_books": list(_ANCHOR_BOOKS)}
+        fingerprint = hashlib.sha256(
+            json.dumps(config, sort_keys=True).encode()).hexdigest()[:12]
+        run_card = {
+            "generated_at": now.isoformat(),
+            "window": {"since": since.isoformat(), "until": now.isoformat()},
+            "config": config,
+            "config_fingerprint": fingerprint,
+            "exported": len(out),
+            "per_sport": dict(sorted(per_sport.items())),
+            "skipped": dict(sorted(skipped.items())),
+            "coverage_pct": (round(100.0 * len(out) /
+                                   (len(out) + sum(skipped.values())), 1)
+                             if (out or skipped) else None),
+        }
+        return {"fixtures": out, "skipped": skipped, "run_card": run_card}

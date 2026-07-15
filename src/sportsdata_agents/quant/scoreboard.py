@@ -51,6 +51,14 @@ from sportsdata_agents.data.models import Alert, Event, EventResult, Fixture, Pr
 __all__ = ["alert_pnl", "format_scoreboard"]
 
 
+def _maybe_float(value: Any) -> float | None:
+    """float(value) or None — payload fields are user-shaped JSON."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _grade(market: str, selection: str, line: float | None,
            home: int, away: int) -> str | None:
     """win/loss/push for a normalised sports selection against a final score;
@@ -154,24 +162,33 @@ async def alert_pnl(
         select(Alert).where(Alert.created_at >= since, Alert.created_at < until)
     )).scalars().all()
 
-    racing = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
-              "staked": 0.0, "pnl": 0.0}
+    racing: dict[str, Any] = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
+                              "staked": 0.0, "pnl": 0.0}
     arbs = {"fired": 0, "measured": 0, "still_takeable": 0, "locked_profit": 0.0}
-    value = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
-             "staked": 0.0, "pnl": 0.0}  # prediction + exchange h2h
+    value: dict[str, Any] = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
+                             "staked": 0.0, "pnl": 0.0}  # prediction + exchange h2h
     # flat-$1 graded sections: hit-rate + flat-stake ROI + CLV per kind
     def _flat() -> dict[str, Any]:
         return {"fired": 0, "settled": 0, "wins": 0, "pushes": 0, "pending": 0,
                 "staked": 0.0, "pnl": 0.0, "clv_n": 0, "clv_sum": 0.0}
     flat: dict[str, dict[str, Any]] = {"model_value": _flat(), "value": _flat()}
-    bsp = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
-           "staked": 0.0, "pnl": 0.0}
+    bsp: dict[str, Any] = {"fired": 0, "settled": 0, "wins": 0, "pending": 0,
+                           "staked": 0.0, "pnl": 0.0}
     other: dict[str, dict[str, int]] = {}
     racing_buckets = {"thin": {"settled": 0, "staked": 0.0, "pnl": 0.0},
                       "liquid": {"settled": 0, "staked": 0.0, "pnl": 0.0},
                       # no Betfair depth stamped at all (consensus alerts) —
                       # binning them "thin" skewed the tuning advice
                       "no_exchange": {"settled": 0, "staked": 0.0, "pnl": 0.0}}
+    # one row per SETTLED bet (pushes excluded — a returned stake carries no
+    # information): feeds both the significance layer and the attribution
+    # breakdown. section keys: racing / bsp / value / model_value / value_flat.
+    bet_rows: list[dict[str, Any]] = []
+
+    def _record(section: str, *, stake: float, pnl: float, odds: float,
+                edge: float | None = None, book: str | None = None) -> None:
+        bet_rows.append({"section": section, "stake": stake, "pnl": pnl,
+                         "odds": odds, "edge": edge, "book": book})
 
     # Results are recorded under ONE provider's race ids while alerts carry
     # the FLAGGED book's — a direct (provider, event) lookup would leave most
@@ -321,14 +338,19 @@ async def alert_pnl(
                           else "thin" if float(matched) < 1500 else "liquid")
             b = racing_buckets[bucket_key]
             b["staked"] += stake
+            runners_pl = payload.get("runners") or []
+            top_edge = (_maybe_float(runners_pl[0].get("edge_pct"))
+                        if runners_pl and isinstance(runners_pl[0], dict) else None)
             if str(number) == winner:
                 racing["wins"] += 1
                 won = stake * (odds - 1.0)
                 racing["pnl"] += won
                 b["pnl"] += won
+                _record("racing", stake=stake, pnl=won, odds=odds, edge=top_edge)
             else:
                 racing["pnl"] -= stake
                 b["pnl"] -= stake
+                _record("racing", stake=stake, pnl=-stake, odds=odds, edge=top_edge)
             b["settled"] += 1
         elif alert.kind == "bsp_value":
             bsp["fired"] += 1
@@ -348,11 +370,15 @@ async def alert_pnl(
                 continue
             bsp["settled"] += 1
             bsp["staked"] += stake
+            bsp_edge = _maybe_float(top_runner.get("edge_pct"))
             if str(number) == str(winner):
                 bsp["wins"] += 1
                 bsp["pnl"] += stake * (odds - 1.0)
+                _record("bsp", stake=stake, pnl=stake * (odds - 1.0), odds=odds,
+                        edge=bsp_edge)
             else:
                 bsp["pnl"] -= stake
+                _record("bsp", stake=stake, pnl=-stake, odds=odds, edge=bsp_edge)
         elif alert.kind == "arb":
             arbs["fired"] += 1
             # legacy alerts stored outcome as a plain string — dicts only here
@@ -384,11 +410,15 @@ async def alert_pnl(
                 continue
             value["settled"] += 1
             value["staked"] += stake
+            back_odds = float(payload.get("back_odds", 0.0))
             if winner == outcome_label:
                 value["wins"] += 1
-                value["pnl"] += stake * (float(payload.get("back_odds", 0.0)) - 1.0)
+                value["pnl"] += stake * (back_odds - 1.0)
+                _record("value", stake=stake, pnl=stake * (back_odds - 1.0),
+                        odds=back_odds, book=back)
             else:
                 value["pnl"] -= stake
+                _record("value", stake=stake, pnl=-stake, odds=back_odds, book=back)
         elif alert.kind == "exchange_value":
             value["fired"] += 1
             stake = float(payload.get("kelly_stake") or 0.0)
@@ -403,11 +433,16 @@ async def alert_pnl(
                 continue
             value["settled"] += 1
             value["staked"] += stake
+            ex_odds = float(payload.get("odds", 0.0))
+            ex_edge = _maybe_float(payload.get("edge_pct"))
             if winner == outcome_label:
                 value["wins"] += 1
-                value["pnl"] += stake * (float(payload.get("odds", 0.0)) - 1.0)
+                value["pnl"] += stake * (ex_odds - 1.0)
+                _record("value", stake=stake, pnl=stake * (ex_odds - 1.0),
+                        odds=ex_odds, edge=ex_edge)
             else:
                 value["pnl"] -= stake
+                _record("value", stake=stake, pnl=-stake, odds=ex_odds, edge=ex_edge)
         elif alert.kind in ("model_value", "value"):
             section = flat[alert.kind]
             section["fired"] += 1
@@ -445,14 +480,22 @@ async def alert_pnl(
                 continue
             section["settled"] += 1
             section["staked"] += 1.0  # flat $1: hit-rate + flat ROI, no Kelly
+            sample_key = "model_value" if alert.kind == "model_value" else "value_flat"
+            flat_edge = _maybe_float(payload.get("edge_pct")
+                                     if alert.kind == "value"
+                                     else (payload.get("candidates") or [{}])[0].get("edge_pct"))
             if graded == "win":
                 section["wins"] += 1
                 section["pnl"] += odds - 1.0
+                _record(sample_key, stake=1.0, pnl=odds - 1.0, odds=odds,
+                        edge=flat_edge, book=book)
             elif graded == "push":
                 section["pushes"] += 1
                 section["staked"] -= 1.0  # returned stake
             else:
                 section["pnl"] -= 1.0
+                _record(sample_key, stake=1.0, pnl=-1.0, odds=odds,
+                        edge=flat_edge, book=book)
             closing = await _closing_odds(
                 session, book=book, event_id=event_id, market=raw_market,
                 selection=raw_sel, start=fixture_start.get(fixture_id))
@@ -478,9 +521,21 @@ async def alert_pnl(
         section["pnl"] = round(section["pnl"], 2)
         section["clv_mean_pct"] = (round(section.pop("clv_sum") / section["clv_n"], 2)
                                    if section["clv_n"] else None)
+    # significance: is each section's ROI luck at this sample size, or edge?
+    def _section_bets(section: str) -> list[tuple[float, float, float]]:
+        return [(r["stake"], r["pnl"], r["odds"])
+                for r in bet_rows if r["section"] == section]
+
+    racing["significance"] = _significance(_section_bets("racing"))
+    bsp["significance"] = _significance(_section_bets("bsp"))
+    value["significance"] = _significance(_section_bets("value"))
+    flat["model_value"]["significance"] = _significance(_section_bets("model_value"))
+    flat["value"]["significance"] = _significance(_section_bets("value_flat"))
+
     report = {"since": since.isoformat(), "until": until.isoformat(),
               "racing": racing, "arbs": arbs, "value": value, "bsp": bsp,
-              "flat": flat, "other": other, "racing_buckets": racing_buckets}
+              "flat": flat, "other": other, "racing_buckets": racing_buckets,
+              "attribution": _attribution(bet_rows)}
     report["suggestions"] = tuning_suggestions(report)
     return report
 
@@ -488,6 +543,149 @@ async def alert_pnl(
 def _roi(stats: dict[str, Any]) -> float | None:
     staked = float(stats.get("staked") or 0.0)
     return (float(stats["pnl"]) / staked * 100.0) if staked else None
+
+
+# ---------------------------------------------------------------------------
+# statistical significance — is a section's ROI signal, or luck?
+#
+# Two complementary answers per section, computed from the individual settled
+# bets (stake, pnl, odds):
+#
+# - bootstrap 95% CI on ROI: resample the bets with replacement; the interval
+#   says how much the ROI estimate itself wobbles at this sample size. A CI
+#   whose low end clears 0 is the "this held up" signal.
+# - Monte Carlo fair-market p-value: simulate the SAME bets (same odds, same
+#   stakes) under the null that every price was fair — each bet wins with
+#   probability 1/odds. p = share of simulated worlds with ROI >= observed.
+#   Conservative by construction: real book prices carry vig, so a random
+#   bettor's true win probability is BELOW 1/odds and the null is generous.
+#
+# Both are pure resampling — no distributional assumptions, no new deps.
+# ---------------------------------------------------------------------------
+
+_SIG_MIN_SETTLED = 5      # below this, any interval is astrology
+_SIG_SIMS = 2000          # resamples/simulations per answer
+_SIG_SEED = 20260708      # fixed seed: the same report twice is the same report
+
+
+def _significance(bets: list[tuple[float, float, float]],
+                  *, sims: int = _SIG_SIMS) -> dict[str, Any] | None:
+    """Bootstrap CI + fair-market Monte Carlo for one section's settled bets.
+
+    ``bets`` rows are (stake, pnl, odds) for each SETTLED bet (pushes
+    excluded — returned stakes carry no information).
+    """
+    import random
+
+    bets = [(s, p, o) for s, p, o in bets if s > 0 and o > 1.0]
+    n = len(bets)
+    if n < _SIG_MIN_SETTLED:
+        return None
+    rng = random.Random(_SIG_SEED)
+    total_staked = sum(s for s, _p, _o in bets)
+    observed_roi = sum(p for _s, p, _o in bets) / total_staked * 100.0
+
+    # bootstrap the ROI
+    rois: list[float] = []
+    for _ in range(sims):
+        staked = pnl = 0.0
+        for _k in range(n):
+            s, p, _o = bets[rng.randrange(n)]
+            staked += s
+            pnl += p
+        if staked > 0:
+            rois.append(pnl / staked * 100.0)
+    rois.sort()
+    lo = rois[int(0.025 * len(rois))]
+    hi = rois[min(int(0.975 * len(rois)), len(rois) - 1)]
+
+    # fair-market null: same bets, win probability 1/odds
+    at_least = 0
+    for _ in range(sims):
+        pnl = 0.0
+        for s, _p, o in bets:
+            pnl += s * (o - 1.0) if rng.random() < 1.0 / o else -s
+        if pnl / total_staked * 100.0 >= observed_roi:
+            at_least += 1
+    p_fair = at_least / sims
+
+    return {"n": n, "roi_pct": round(observed_roi, 2),
+            "roi_ci95": [round(lo, 2), round(hi, 2)],
+            "p_fair_market": round(p_fair, 4),
+            "verdict": ("edge" if p_fair < 0.05 and lo > 0
+                        else "promising" if p_fair < 0.20
+                        else "indistinguishable from luck")}
+
+
+# ---------------------------------------------------------------------------
+# attribution — WHERE did the P&L come from? Settled bets bucketed by odds
+# band, quoted edge band, and book, per section: the replay/tuning loop reads
+# this to see which slice of a kind carries the result (a kind can be +ROI
+# overall while one odds band quietly bleeds).
+# ---------------------------------------------------------------------------
+
+_ATTR_MIN_N = 5  # buckets thinner than this are noise, not attribution
+
+
+def _odds_band(odds: float) -> str:
+    if odds < 2.0:
+        return "<2"
+    if odds < 4.0:
+        return "2-4"
+    if odds < 10.0:
+        return "4-10"
+    return "10+"
+
+
+def _edge_band(edge: float) -> str:
+    if edge < 10.0:
+        return "<10%"
+    if edge < 20.0:
+        return "10-20%"
+    if edge < 40.0:
+        return "20-40%"
+    return "40%+"
+
+
+def _attribution(bet_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def _bucketize(rows: list[dict[str, Any]], key_fn: Any) -> dict[str, Any]:
+        buckets: dict[str, dict[str, float]] = {}
+        for r in rows:
+            key = key_fn(r)
+            if key is None:
+                continue
+            b = buckets.setdefault(str(key), {"settled": 0, "staked": 0.0, "pnl": 0.0})
+            b["settled"] += 1
+            b["staked"] += r["stake"]
+            b["pnl"] += r["pnl"]
+        out = {}
+        for key, b in buckets.items():
+            if b["settled"] < _ATTR_MIN_N or not b["staked"]:
+                continue
+            out[key] = {"settled": int(b["settled"]),
+                        "staked": round(b["staked"], 2),
+                        "pnl": round(b["pnl"], 2),
+                        "roi_pct": round(b["pnl"] / b["staked"] * 100.0, 1)}
+        return out
+
+    result: dict[str, Any] = {}
+    sections = {r["section"] for r in bet_rows}
+    for section in sorted(sections):
+        rows = [r for r in bet_rows if r["section"] == section]
+        entry: dict[str, Any] = {}
+        by_odds = _bucketize(rows, lambda r: _odds_band(r["odds"]))
+        if by_odds:
+            entry["by_odds"] = by_odds
+        by_edge = _bucketize(
+            rows, lambda r: _edge_band(r["edge"]) if r.get("edge") is not None else None)
+        if by_edge:
+            entry["by_edge"] = by_edge
+        by_book = _bucketize(rows, lambda r: r.get("book") or None)
+        if by_book:
+            entry["by_book"] = by_book
+        if entry:
+            result[section] = entry
+    return result
 
 
 def tuning_suggestions(report: dict[str, Any]) -> list[str]:
@@ -529,6 +727,15 @@ def format_scoreboard(report: dict[str, Any]) -> str:
     """The weekly push, in plain English with the caveats attached."""
     racing = report["racing"]
     arbs = report["arbs"]
+
+    def _sig_note(section: dict[str, Any]) -> str:
+        sig = section.get("significance")
+        if not sig:
+            return ""
+        lo, hi = sig["roi_ci95"]
+        return (f"\n    ↳ 95% CI [{lo:+.1f}%, {hi:+.1f}%] · "
+                f"p(luck) {sig['p_fair_market']:.2f} → {sig['verdict']}")
+
     lines = [":bar_chart: Alert P&L scoreboard (last 7 days)"]
     if racing["settled"]:
         roi = (racing["pnl"] / racing["staked"] * 100.0) if racing["staked"] else 0.0
@@ -537,6 +744,7 @@ def format_scoreboard(report: dict[str, Any]) -> str:
             f"{racing['wins']} won · staked ${racing['staked']:.2f} · "
             f"P&L ${racing['pnl']:+.2f} ({roi:+.1f}% ROI)"
             + (f" · {racing['pending']} pending results" if racing["pending"] else "")
+            + _sig_note(racing)
         )
     elif racing["fired"]:
         lines.append(f"Racing: {racing['fired']} fired, all awaiting results")
@@ -548,6 +756,7 @@ def format_scoreboard(report: dict[str, Any]) -> str:
             f"{value['fired']} fired — {value['wins']} won · "
             f"staked ${value['staked']:.2f} · P&L ${value['pnl']:+.2f} ({roi:+.1f}% ROI)"
             + (f" · {value['pending']} pending" if value.get("pending") else "")
+            + _sig_note(value)
         )
     elif value.get("fired"):
         lines.append(f"Value (prediction/exchange): {value['fired']} fired, awaiting results")
@@ -558,7 +767,8 @@ def format_scoreboard(report: dict[str, Any]) -> str:
             f"BSP/form value: {bsp['settled']} settled of {bsp['fired']} fired — "
             f"{bsp['wins']} won · staked ${bsp['staked']:.2f} · "
             f"P&L ${bsp['pnl']:+.2f} ({roi:+.1f}% ROI)"
-            + (f" · {bsp['pending']} pending" if bsp.get("pending") else ""))
+            + (f" · {bsp['pending']} pending" if bsp.get("pending") else "")
+            + _sig_note(bsp))
     elif bsp.get("fired"):
         lines.append(f"BSP/form value: {bsp['fired']} fired, awaiting results")
     labels = {"model_value": "Model value (calibrated)",
@@ -574,7 +784,8 @@ def format_scoreboard(report: dict[str, Any]) -> str:
                 + (f", {section['pushes']} pushed" if section.get("pushes") else "")
                 + f" · flat-$1 P&L ${section['pnl']:+.2f} ({roi:+.1f}% ROI)"
                 + (f" · mean CLV {clv:+.1f}% over {section['clv_n']}"
-                   if clv is not None else ""))
+                   if clv is not None else "")
+                + _sig_note(section))
         elif section.get("fired"):
             lines.append(f"{labels.get(kind, kind)}: {section['fired']} fired, "
                          "awaiting results")
@@ -586,6 +797,16 @@ def format_scoreboard(report: dict[str, Any]) -> str:
     for kind, stats in sorted(report["other"].items()):
         lines.append(f"{kind}: {stats['fired']} fired · "
                      f"{stats['still_value']} still live when re-checked")
+    attribution = report.get("attribution") or {}
+    for section, dims in sorted(attribution.items()):
+        for dim_label, dim_key in (("odds", "by_odds"), ("edge", "by_edge"),
+                                   ("book", "by_book")):
+            buckets = dims.get(dim_key)
+            if not buckets:
+                continue
+            parts = [f"{k} n={v['settled']} {v['roi_pct']:+.0f}%"
+                     for k, v in sorted(buckets.items())]
+            lines.append(f"  {section} by {dim_label}: " + " · ".join(parts))
     if len(lines) == 1:
         lines.append("No alerts fired this period.")
     for tip in report.get("suggestions") or []:
