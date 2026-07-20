@@ -139,6 +139,20 @@ class Poller:
             except Exception:
                 pass
 
+        # the sportsdata racing engine's form opinion, when the warehouse has
+        # one — degrades to nothing (market fair only) when it doesn't
+        try:
+            from .engine_fair import engine_prices
+
+            probs = await engine_prices(date=ref.date, code=ref.code,
+                                        venue_mnem=ref.venue_mnem,
+                                        race_no=ref.race_no)
+            for runner in snap.runners:
+                if runner.number in probs:
+                    runner.engine_prob = probs[runner.number]
+        except Exception:
+            pass
+
         finalize_snapshot(snap)
         self.store.add_snapshot(race_key, snap)
 

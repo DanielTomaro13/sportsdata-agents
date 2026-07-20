@@ -193,6 +193,7 @@ main { display: grid; grid-template-columns: 340px 1fr; gap: 8px; padding: 8px; 
 .grow .delta.flatc { color: var(--muted); }
 .grow .best { color: var(--up); font-weight: 700; }
 .grow .best .bk { font-size: 8px; color: var(--muted); }
+.eng { font-size: 8px; font-weight: 800; color: #06060a; background: var(--amber); border-radius: 2px; padding: 0 2px; margin-left: 3px; vertical-align: top; }
 .grow .val.pos { color: var(--up); } .grow .val.neg { color: var(--muted); }
 .grow .bf { color: var(--ink2); }
 .spark { width: 68px; height: 20px; display: block; }

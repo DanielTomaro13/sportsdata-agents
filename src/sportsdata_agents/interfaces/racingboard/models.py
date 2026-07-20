@@ -47,9 +47,15 @@ class RunnerFlow:
     corp_best: float | None = None
     corp_best_book: str | None = None
 
-    # Fair price (de-vigged from the sharpest market — Betfair, else tote) and the
-    # value edge of the best available book price vs that fair price (%; >0 = value).
+    # The sportsdata racing engine's form win probability, when the warehouse
+    # has one for this runner (else None → board falls back to market fair).
+    engine_prob: float | None = None
+
+    # Fair price and the value edge of the best available book price vs it
+    # (%; >0 = value). fair_source names where the fair came from:
+    # "engine" (form model) | "betfair" (de-vigged exchange) | "tote" (pool).
     fair_price: float | None = None
+    fair_source: str | None = None
     value_pct: float | None = None
 
     # Betfair exchange (horses/greys).

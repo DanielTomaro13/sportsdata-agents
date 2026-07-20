@@ -305,26 +305,45 @@ def finalize_snapshot(snapshot: RaceSnapshot) -> None:
         return
 
     fair_prob: dict[int, float] = {}
+    source: dict[int, str] = {}
+    threshold = max(4, int(0.6 * len(active)))
 
-    # Prefer Betfair mids when they cover most of the field (sharpest fair).
+    # The sportsdata racing engine wins when it covers the field: the form
+    # model sees a wide barrier or a 3kg swing the market prices slowly.
+    # Renormalise its probs over the runners it covers so fair is a proper
+    # distribution even when a couple of runners are engine-blind.
+    eng = {r.number: r.engine_prob for r in active
+           if r.engine_prob and r.engine_prob > 0}
+    if len(eng) >= threshold:
+        total = sum(eng.values())
+        if total > 0:
+            for num, p in eng.items():
+                fair_prob[num] = p / total
+                source[num] = "engine"
+
+    # Betfair mids fill anyone the engine didn't cover (and engine-less races).
     mids = {r.number: (r.bf_back + r.bf_lay) / 2
             for r in active if r.bf_back and r.bf_lay}
-    if len(mids) >= max(4, int(0.6 * len(active))):
+    if len(mids) >= threshold:
         inv_total = sum(1.0 / m for m in mids.values())
         if inv_total > 0:
             for num, m in mids.items():
-                fair_prob[num] = (1.0 / m) / inv_total
+                if num not in fair_prob:
+                    fair_prob[num] = (1.0 / m) / inv_total
+                    source[num] = "betfair"
 
-    # Tote pool share fills any runner Betfair didn't cover (and tote-only races).
+    # Tote pool share fills any runner still uncovered (and tote-only races).
     for r in active:
         if r.number not in fair_prob and r.tote_pool_share:
             fair_prob[r.number] = r.tote_pool_share
+            source[r.number] = "tote"
 
     for r in active:
         fp = fair_prob.get(r.number)
         if not fp or fp <= 0:
             continue
         r.fair_price = round(1.0 / fp, 2)
+        r.fair_source = source.get(r.number)
         # Value only where the fair estimate is trustworthy (not deep longshots)
         # and the edge is plausible (a huge one is a stale/scratched-price mirage).
         if r.corp_best and r.fair_price <= 20:

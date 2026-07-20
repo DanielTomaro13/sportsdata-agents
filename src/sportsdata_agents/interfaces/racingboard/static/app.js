@@ -203,7 +203,7 @@
         <div class="ghead"><span>#</span><span>RUNNER</span><span class="r">SHARE</span><span class="r">Δ IN</span><span class="r">FAIR</span><span class="r">BEST</span><span class="r">VAL</span><span class="r">BF</span><span class="r">TREND</span></div>
         ${runners.map((r) => grow(r, maxShare, pickNum)).join("")}
       </div>
-      <div class="legend"><b>▲ money in</b> = tote pool share rising / price shortening · FAIR = de-vigged Betfair·tote · VAL = best book vs fair · cells flash on change</div>`;
+      <div class="legend"><b>▲ money in</b> = tote pool share rising / price shortening · FAIR = <span class="eng">E</span> sportsdata racing engine, else de-vigged Betfair·tote · VAL = best book vs fair · cells flash on change</div>`;
 
     el.querySelectorAll("canvas.spark").forEach(drawSpark);
     wireTips(el);
@@ -241,7 +241,7 @@
         <span class="nm">${esc(r.name)} ${r.direction === "firming" ? '<span class="up">▲</span>' : ""}</span>
         <span class="r share">${pct(share)}<span class="bar" style="width:${barW}%"></span></span>
         <span class="r delta ${dv > 0.5 ? "up" : "flatc"}">${dv != null && dv > 0.5 ? "+" + dv.toFixed(0) : "·"}</span>
-        <span class="r">${r.fair_price ? r.fair_price.toFixed(2) : "–"}</span>
+        <span class="r">${r.fair_price ? r.fair_price.toFixed(2) : "–"}${r.fair_source === "engine" ? '<span class="eng" title="sportsdata racing engine fair">E</span>' : ""}</span>
         <span class="r best">${r.corp_best ? r.corp_best.toFixed(2) : "–"}${r.corp_best_book ? ` <span class="bk">${BOOK[r.corp_best_book] || ""}</span>` : ""}</span>
         <span class="r val ${val > 0 ? "pos" : "neg"}">${val != null ? (val > 0 ? "+" : "") + val.toFixed(0) : "·"}</span>
         <span class="r bf">${r.bf_back ? r.bf_back.toFixed(1) : "–"}</span>
