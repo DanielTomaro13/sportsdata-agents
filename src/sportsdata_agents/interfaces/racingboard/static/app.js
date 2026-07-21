@@ -203,10 +203,105 @@
         <div class="ghead"><span>#</span><span>RUNNER</span><span class="r">SHARE</span><span class="r">Δ IN</span><span class="r">FAIR</span><span class="r">BEST</span><span class="r">VAL</span><span class="r">BF</span><span class="r">TREND</span></div>
         ${runners.map((r) => grow(r, maxShare, pickNum)).join("")}
       </div>
+      ${pricePanel(runners)}
       <div class="legend"><b>▲ money in</b> = tote pool share rising / price shortening · FAIR = <span class="eng">E</span> sportsdata racing engine, else de-vigged Betfair·tote · VAL = best book vs fair · cells flash on change</div>`;
 
     el.querySelectorAll("canvas.spark").forEach(drawSpark);
     wireTips(el);
+  }
+
+  // ---------- exotics & same-race-multi price generator (client-side, mirrors
+  // quant/exotics.py — Harville closed form for exotics, Plackett-Luce Monte
+  // Carlo for SRM; driven by the runner FAIR prices already on the board, so
+  // it uses the sportsdata racing engine's win probs when they're present) ----
+  const pricer = { bet: "exacta", picks: [], legs: [], box: false, result: null };
+  const BANDS = { win: 1, top2: 2, top3: 3, top4: 4 };
+  const EXOTIC_N = { exacta: 2, quinella: 2, trifecta: 3, first4: 4 };
+
+  function winProbs(runners) {
+    const p = {};
+    let tot = 0;
+    for (const r of runners) {
+      if (r.fair_price && r.fair_price > 1) { p[r.number] = 1 / r.fair_price; tot += p[r.number]; }
+    }
+    for (const k in p) p[k] /= tot || 1;
+    return p;
+  }
+  function orderedProb(probs, seq) {
+    let rem = 1, pr = 1;
+    for (const n of seq) { const q = probs[n]; if (!q || rem <= 0) return 0; pr *= q / rem; rem -= q; }
+    return pr;
+  }
+  function perms(arr, k) {
+    if (k === 0) return [[]];
+    const out = [];
+    arr.forEach((x, i) => { for (const rest of perms(arr.slice(0, i).concat(arr.slice(i + 1)), k - 1)) out.push([x, ...rest]); });
+    return out;
+  }
+  function priceExotic(probs, bet, picks, box) {
+    const need = EXOTIC_N[bet];
+    if (picks.length < need) return { warning: `needs ${need} runners` };
+    let prob = 0, combos = 1;
+    if (bet === "quinella") { prob = orderedProb(probs, [picks[0], picks[1]]) + orderedProb(probs, [picks[1], picks[0]]); if (box) { const ps = perms(picks, 2); prob = ps.reduce((s, q) => s + orderedProb(probs, q), 0); combos = picks.length * (picks.length - 1) / 2; } }
+    else if (box) { const ps = perms(picks, need); prob = ps.reduce((s, q) => s + orderedProb(probs, q), 0); combos = ps.length; }
+    else prob = orderedProb(probs, picks.slice(0, need));
+    return prob > 0 ? { prob, fair: 1 / prob, combos } : { warning: "no chance / unpriced" };
+  }
+  function priceSRM(probs, legs, sims = 8000) {
+    if (legs.length < 2) return { warning: "2+ legs" };
+    if (legs.filter((l) => BANDS[l.position] === 1).length > 1) return { prob: 0, fair: null, warning: "two can't both win" };
+    const nums = Object.keys(probs).map(Number), depth = Math.max(...legs.map((l) => BANDS[l.position]));
+    let hits = 0;
+    for (let s = 0; s < sims; s++) {
+      const pool = nums.slice(), w = pool.map((n) => probs[n]), pos = {};
+      for (let d = 0; d < depth && pool.length; d++) {
+        let tot = 0; for (const x of w) tot += x; let x = Math.random() * tot, idx = 0;
+        for (; idx < w.length; idx++) { x -= w[idx]; if (x <= 0) break; }
+        idx = Math.min(idx, pool.length - 1); pos[pool[idx]] = d + 1; pool.splice(idx, 1); w.splice(idx, 1);
+      }
+      if (legs.every((l) => (pos[l.runner] || 99) <= BANDS[l.position])) hits++;
+    }
+    const prob = hits / sims;
+    return prob > 0 ? { prob, fair: 1 / prob, sims } : { warning: "no simulated combos landed" };
+  }
+
+  function pricePanel(runners) {
+    const isSrm = pricer.bet === "srm";
+    const opts = runners.map((r) => `<option value="${r.number}">${r.number} · ${esc(r.name)}</option>`).join("");
+    const chips = isSrm
+      ? pricer.legs.map((l, i) => `<span class="pxchip" data-rm="${i}">#${l.runner} ${l.position} ✕</span>`).join("")
+      : pricer.picks.map((n, i) => `<span class="pxchip" data-rm="${i}">${i ? "→ " : ""}#${n} ✕</span>`).join("");
+    const res = pricer.result;
+    let resHtml = '<span class="flatc">build a bet, then generate</span>';
+    if (res) {
+      if (res.warning) resHtml = `<span class="down">${esc(res.warning)}</span>`;
+      else resHtml = `<b class="up">$${res.fair.toFixed(2)}</b> fair · <span class="flatc">${(res.prob * 100).toFixed(res.prob < 0.01 ? 3 : 2)}%</span>${res.combos > 1 ? ` · ${res.combos} combos` : ""}${res.sims ? ` · ${res.sims} sims` : ""}`;
+    }
+    return `<div class="pricer">
+      <div class="pxhead">GENERATE PRICE <span class="sub">exotics &amp; same-race multi — off the board's fair prices</span></div>
+      <div class="pxrow">
+        ${["exacta", "quinella", "trifecta", "first4", "srm"].map((b) => `<button class="pxbet ${pricer.bet === b ? "on" : ""}" data-bet="${b}">${b.toUpperCase()}</button>`).join("")}
+        ${isSrm ? "" : `<label class="pxbox"><input type="checkbox" id="pxbox" ${pricer.box ? "checked" : ""}> box</label>`}
+      </div>
+      <div class="pxrow">
+        <select id="pxrunner">${opts}</select>
+        ${isSrm ? `<select id="pxpos"><option value="win">win</option><option value="top2">top-2</option><option value="top3" selected>top-3</option><option value="top4">top-4</option></select>` : ""}
+        <button class="pxadd" id="pxadd">+ add</button>
+        <button class="pxclear" id="pxclear">clear</button>
+      </div>
+      <div class="pxchips">${chips || '<span class="flatc">pick runners…</span>'}</div>
+      <div class="pxrow"><button class="pxgen" id="pxgen">⚡ Generate price</button><span class="pxresult">${resHtml}</span></div>
+    </div>`;
+  }
+
+  function computePrice() {
+    const d = state.details[state.selected];
+    if (!d) return;
+    const probs = winProbs(d.runners.filter((r) => !r.scratched));
+    pricer.result = pricer.bet === "srm"
+      ? priceSRM(probs, pricer.legs)
+      : priceExotic(probs, pricer.bet, pricer.picks, pricer.box);
+    renderDetail();
   }
 
   function pickCard(p) {
@@ -319,6 +414,26 @@
     $("clock").textContent = new Date().toLocaleTimeString("en-GB");
     renderTop(); renderBoard();
   }, 1000);
+
+  // price generator — one delegated listener on the (persistent) #detail node,
+  // so it survives the detail panel's re-render every poll without losing state
+  $("detail").addEventListener("click", (e) => {
+    const bet = e.target.closest(".pxbet");
+    if (bet) { pricer.bet = bet.dataset.bet; pricer.picks = []; pricer.legs = []; pricer.result = null; return renderDetail(); }
+    if (e.target.closest("#pxadd")) {
+      const num = Number($("pxrunner").value);
+      if (pricer.bet === "srm") { if (!pricer.legs.some((l) => l.runner === num)) pricer.legs.push({ runner: num, position: $("pxpos").value }); }
+      else if (!pricer.picks.includes(num)) pricer.picks.push(num);
+      return renderDetail();
+    }
+    const rm = e.target.closest(".pxchip");
+    if (rm) { const i = Number(rm.dataset.rm); (pricer.bet === "srm" ? pricer.legs : pricer.picks).splice(i, 1); pricer.result = null; return renderDetail(); }
+    if (e.target.closest("#pxclear")) { pricer.picks = []; pricer.legs = []; pricer.result = null; return renderDetail(); }
+    if (e.target.closest("#pxgen")) return computePrice();
+  });
+  $("detail").addEventListener("change", (e) => {
+    if (e.target.id === "pxbox") { pricer.box = e.target.checked; if (pricer.result) computePrice(); }
+  });
 
   const api = qs.get("api") || cfg.apiBase;
   if (api) { cfg.apiBase = api; liveConnect(); }

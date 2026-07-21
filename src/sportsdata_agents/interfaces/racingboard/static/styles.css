@@ -217,3 +217,22 @@ main { display: grid; grid-template-columns: 340px 1fr; gap: 8px; padding: 8px; 
 
 footer { text-align: center; color: var(--muted); font-size: 10px; font-family: var(--mono); padding: 10px 0 20px; }
 footer a { color: var(--muted); }
+
+/* ---------- price generator (exotics & SRM) ---------- */
+.pricer { margin: 8px; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 5px; background: var(--panel2); }
+.pxhead { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--amber); margin-bottom: 8px; }
+.pxhead .sub { color: var(--muted); font-weight: 400; letter-spacing: .3px; margin-left: 6px; }
+.pxrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; }
+.pxbet { font-family: var(--mono); font-size: 10px; letter-spacing: .5px; background: var(--panel3); color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; cursor: pointer; }
+.pxbet.on { color: #06060a; background: var(--amber); border-color: var(--amber); font-weight: 700; }
+.pxbox { font-family: var(--mono); font-size: 11px; color: var(--ink2); display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; }
+.pricer select { font-family: var(--mono); font-size: 12px; background: var(--panel3); color: var(--ink); border: 1px solid var(--line2); border-radius: 3px; padding: 4px 6px; }
+.pxadd, .pxclear, .pxgen { font-family: var(--mono); font-size: 11px; border-radius: 3px; padding: 4px 10px; cursor: pointer; border: 1px solid var(--line2); background: var(--panel3); color: var(--ink); }
+.pxclear { color: var(--muted); }
+.pxgen { background: var(--up); color: #06210f; border-color: var(--up); font-weight: 700; }
+.pxgen:hover { filter: brightness(1.08); }
+.pxchips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; min-height: 20px; }
+.pxchip { font-family: var(--mono); font-size: 11px; background: var(--panel3); border: 1px solid var(--line2); border-radius: 3px; padding: 2px 7px; cursor: pointer; color: var(--ink); }
+.pxchip:hover { border-color: var(--down); }
+.pxresult { font-family: var(--mono); font-size: 13px; margin-left: 6px; }
+.pxresult b { font-size: 16px; }

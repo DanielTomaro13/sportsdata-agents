@@ -68,7 +68,7 @@ app = FastAPI(title="Racing Money Flow", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -89,6 +89,54 @@ async def api_race(race_key: str) -> JSONResponse:
     if detail is None:
         return JSONResponse({"error": "not found or not yet polled"}, status_code=404)
     return JSONResponse(detail)
+
+
+def _win_probs_for(race_key: str) -> tuple[dict[int, float], str]:
+    """Win probabilities for a race from the latest snapshot, and their source.
+
+    Uses each active runner's fair_price (1/fair) — which finalize_snapshot
+    already sets from the racing ENGINE when it covers the field, else
+    Betfair/tote — so exotics inherit the engine's opinion automatically."""
+    st = store.races.get(race_key)
+    if st is None or st.latest is None:
+        return {}, "none"
+    probs: dict[int, float] = {}
+    sources: set[str] = set()
+    for r in st.latest.runners:
+        if r.scratched or not r.fair_price or r.fair_price <= 1.0:
+            continue
+        probs[int(r.number)] = 1.0 / float(r.fair_price)
+        if r.fair_source:
+            sources.add(r.fair_source)
+    source = "engine" if sources == {"engine"} else (
+        "+".join(sorted(sources)) if sources else "market")
+    return probs, source
+
+
+@app.post("/api/price")
+async def api_price(body: dict) -> JSONResponse:
+    """Generate a fair price for an exotic or same-race multi on a race's
+    live win probabilities. Body:
+      {"race_key": ..., "bet": "exacta|quinella|trifecta|first4|srm",
+       "selection": [n, ...], "legs": [{"runner": n, "position": "top3"}],
+       "box": bool, "margin": 0.0}"""
+    from sportsdata_agents.quant.exotics import price_exotic, price_srm
+
+    race_key = str(body.get("race_key", ""))
+    bet = str(body.get("bet", "")).lower()
+    probs, source = _win_probs_for(race_key)
+    if not probs:
+        return JSONResponse({"warning": "race not priced yet"}, status_code=409)
+    margin = float(body.get("margin") or 0.0)
+    if bet == "srm":
+        result = price_srm(probs, list(body.get("legs") or []), margin=margin)
+    elif bet in ("exacta", "quinella", "trifecta", "first4"):
+        result = price_exotic(probs, bet, [int(x) for x in body.get("selection") or []],
+                              box=bool(body.get("box")), margin=margin)
+    else:
+        return JSONResponse({"warning": f"unknown bet {bet!r}"}, status_code=400)
+    result["price_source"] = source
+    return JSONResponse(result)
 
 
 @app.websocket("/ws")
