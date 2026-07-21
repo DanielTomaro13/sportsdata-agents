@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sports Board — sharp line & value</title>
+<meta name="description" content="Team-sports terminal: prediction markets + exchange (Kalshi · Polymarket · Betfair · Pinnacle) as the sharp line, bookmakers measured against it for value, with an engine same-game-multi price generator." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a0c'/%3E%3Cpath d='M5 20 L12 13 L18 18 L27 8' stroke='%234a9bff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="logo">◪</span> SPORTS<span class="accent">BOARD</span><span class="term">TERMINAL</span></div>
+    <span class="spacer"></span>
+    <span class="stat-inline"><label>GAMES</label><b id="s-games">–</b></span>
+    <span class="stat-inline"><label>SHARP</label><b class="sharp">Kalshi·Poly·Betfair·Pinnacle</b></span>
+    <span class="spacer"></span>
+    <span class="pill"><span id="conn" class="dot"></span><b id="conn-label">CONNECTING</b></span>
+    <span id="clock" class="clock"></span>
+    <button id="theme" class="icon-btn" title="Theme">◐</button>
+  </div>
+
+  <main>
+    <div class="col left">
+      <section class="panel">
+        <header><h2>GAMES</h2><span class="sub">sharp line vs the books</span><span class="count" id="games-count"></span></header>
+        <div id="games" class="games scroll"><div class="note">loading…</div></div>
+      </section>
+    </div>
+    <div class="col right">
+      <section id="detail" class="panel detail"><div class="empty"><div class="big">◪</div>SELECT A GAME</div></section>
+    </div>
+  </main>
+  <footer>SPORTSBOARD · sharp = de-vigged blend of whichever of Kalshi·Polymarket·Betfair·Pinnacle priced the game · VALUE = best book vs sharp · SGM = engine correlated price</footer>
+  <script src="app.js"></script>
+</body>
+</html>
