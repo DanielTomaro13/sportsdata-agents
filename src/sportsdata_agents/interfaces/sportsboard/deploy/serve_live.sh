@@ -30,7 +30,10 @@ cleanup() { echo; echo "stopping…"; kill "${BACK_PID:-}" "${TUN_PID:-}" 2>/dev
 trap cleanup EXIT INT TERM
 
 echo "▶ starting self-contained live board on :$PORT (polls from your IP) …"
+# ENGINE_BACKEND=local gives the SGM button CORRELATED prices from the local
+# engines package (falls back to the independent product if it isn't installed).
 PORT="$PORT" SPORTSBOARD_LIVE=1 \
+  SPORTSDATA_AGENTS_ENGINE_BACKEND="${SPORTSDATA_AGENTS_ENGINE_BACKEND:-local}" \
   SPORTSDATA_AGENTS_DATABASE_URL="sqlite+aiosqlite:///$STORE" \
   "$PY" -m sportsdata_agents.interfaces.sportsboard > "$ROOT/sportsboard.log" 2>&1 &
 BACK_PID=$!

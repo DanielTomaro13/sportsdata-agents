@@ -247,7 +247,11 @@
       const o = v.fair_odds || (m.fair[sel] ? 1 / m.fair[sel] : null);
       const lab = m.family === "h2h" ? teamOf(d, sel)
         : `${m.label.replace("Head to Head", "H2H").replace("Total O/U", "O/U")} ${sel}`;
-      sgm.legs.push({ key, label: lab, odds: o, prob: m.fair[sel] });
+      // market/selection/line ride along so the ENGINE can price the legs
+      // jointly; without them it can't identify the leg and we'd silently
+      // fall back to the independent product.
+      sgm.legs.push({ key, label: lab, odds: o, prob: m.fair[sel],
+                      market: m.family, selection: sel, line: m.line ?? null });
     }
     sgm.result = null; renderDetail();
   }
@@ -271,6 +275,45 @@
                + "same-game multi is usually SHORTER than this"] };
   }
 
+  // Market quotes in the shape the engine's correlation model expects, limited to
+  // the families the chosen legs actually use (and the matching line):
+  //   h2h → [home, away] · total → [line, over, under] · line → [line, home, away]
+  //
+  // These must be RAW book prices (overround > 1), not our de-vigged fair odds:
+  // a fair pair sums to exactly 1.0, which the engine rightly rejects as a stale
+  // or arbed quote. So take one coherent book's two-way price, sharps first.
+  const SHARP_BOOKS = ["Pinnacle", "Betfair", "Kalshi", "Polymarket"];
+
+  function twoWay(m, a, b) {
+    const q = m.quotes || {};
+    const books = Object.keys(q).sort((x, y) => {
+      const ix = SHARP_BOOKS.indexOf(x), iy = SHARP_BOOKS.indexOf(y);
+      return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy);
+    });
+    for (const bk of books) {
+      const x = q[bk][a], y = q[bk][b];
+      if (x > 1 && y > 1 && (1 / x + 1 / y) > 1) return [x, y];  // has vig → usable
+    }
+    return null;
+  }
+
+  function engineQuotes(d, legs) {
+    const q = {};
+    const want = new Map();
+    for (const l of legs) if (l.market) want.set(l.market, l.line ?? null);
+    for (const m of (d.markets || [])) {
+      if (!want.has(m.family)) continue;
+      const wl = want.get(m.family);
+      if (wl != null && m.line != null && +m.line !== +wl) continue;  // wrong line
+      const [a, b] = m.family === "total" ? ["over", "under"] : ["home", "away"];
+      const pair = twoWay(m, a, b);
+      if (!pair) continue;
+      if (m.family === "h2h") q.h2h = pair;
+      else if (m.line != null) q[m.family] = [+m.line, pair[0], pair[1]];
+    }
+    return q;
+  }
+
   async function generate() {
     const d = state.detail;
     if (sgm.legs.length < 2) { sgm.result = { warning: "add at least 2 legs" }; return renderDetail(); }
@@ -278,7 +321,8 @@
     try {
       sgm.result = await (await fetch(apiBase.replace(/^ws/, "http") + "/api/sgm", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sport: d.sport, fixture_id: d.fixture_id, legs: sgm.legs }),
+        body: JSON.stringify({ sport: d.sport, fixture_id: d.fixture_id,
+                               quotes: engineQuotes(d, sgm.legs), legs: sgm.legs }),
       })).json();
     } catch { sgm.result = independentSgm(sgm.legs); }
     renderDetail();
