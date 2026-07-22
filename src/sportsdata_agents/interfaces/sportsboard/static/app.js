@@ -7,8 +7,24 @@
   const SIDE = { home: "HOME", away: "AWAY", draw: "DRAW" };
   const SHARP = new Set(["Kalshi", "Polymarket", "Betfair", "Pinnacle"]);
 
-  const state = { games: [], selected: null, detail: null, sportFilter: "ALL", search: "", expanded: {} };
+  const state = { games: [], selected: null, detail: null, sportFilter: "ALL", search: "", expanded: {}, mode: "live" };
   const sgm = { legs: [], result: null };
+
+  // live warehouse API, or a captured static snapshot (GitHub Pages demo).
+  const cfg = window.SB_CONFIG || {};
+  const apiBase = new URLSearchParams(location.search).get("api") || cfg.apiBase || "";
+  let replay = null;  // {games:[...], details:{fixture_id: detail}}
+  const isReplay = () => state.mode === "replay";
+  async function ensureReplay() {
+    if (replay) return replay;
+    try { replay = await (await fetch(cfg.replayUrl || "data/replay.json")).json(); }
+    catch { replay = { games: [], details: {} }; }
+    return replay;
+  }
+  async function api(path) {
+    if (isReplay()) throw new Error("replay");
+    return (await fetch(apiBase.replace(/^ws/, "http") + path)).json();
+  }
 
   function ttj(iso) {
     if (!iso) return { t: "", c: "" };
@@ -23,7 +39,11 @@
   // ---------- games list ----------
   async function loadGames() {
     let d;
-    try { d = await (await fetch("/api/games")).json(); } catch { setConn(false); return; }
+    if (isReplay()) { d = await ensureReplay(); }
+    else {
+      try { d = await api("/api/games"); }
+      catch { if (cfg.forceReplay || cfg.replayUrl) { state.mode = "replay"; d = await ensureReplay(); } else { setConn(false); return; } }
+    }
     setConn(true);
     state.games = d.games || [];
     $("s-games").textContent = state.games.length;
@@ -70,8 +90,11 @@
   async function refreshDetail(fresh) {
     if (!state.selected) return;
     let d;
-    try { d = await (await fetch("/api/game/" + encodeURIComponent(state.selected))).json(); } catch { return; }
-    if (d.error) { if (fresh) $("detail").innerHTML = '<div class="empty"><div class="big">◪</div>NO DATA</div>'; return; }
+    if (isReplay()) { d = (await ensureReplay()).details[state.selected]; }
+    else {
+      try { d = await api("/api/game/" + encodeURIComponent(state.selected)); } catch { return; }
+    }
+    if (!d || d.error) { if (fresh) $("detail").innerHTML = '<div class="empty"><div class="big">◪</div>NO DATA</div>'; return; }
     state.detail = d;
     renderDetail();
   }
@@ -226,19 +249,33 @@
     const ms = $("mktsearch"); if (ms) ms.oninput = (e) => { state._mq = e.target.value; const p = ms.selectionStart; renderDetail(); const n = $("mktsearch"); if (n) { n.focus(); n.setSelectionRange(p, p); } };
   }
 
+  function independentSgm(legs) {
+    // same shape /api/sgm returns with no engine — the honest client-side floor
+    const p = legs.reduce((a, l) => a * l.prob, 1);
+    return { fair_probability: p, fair_odds: +(1 / p).toFixed(2), correlation_lift: 1,
+             priced_by: "independent",
+             warnings: ["no engine connected — legs priced independently; a real "
+               + "same-game multi is usually SHORTER than this"] };
+  }
+
   async function generate() {
     const d = state.detail;
     if (sgm.legs.length < 2) { sgm.result = { warning: "add at least 2 legs" }; return renderDetail(); }
+    if (isReplay()) { sgm.result = independentSgm(sgm.legs); return renderDetail(); }
     try {
-      sgm.result = await (await fetch("/api/sgm", {
+      sgm.result = await (await fetch(apiBase.replace(/^ws/, "http") + "/api/sgm", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sport: d.sport, fixture_id: d.fixture_id, legs: sgm.legs }),
       })).json();
-    } catch { sgm.result = { warning: "price service unreachable" }; }
+    } catch { sgm.result = independentSgm(sgm.legs); }
     renderDetail();
   }
 
-  function setConn(ok) { const dot = $("conn"), l = $("conn-label"); dot.className = "dot" + (ok ? " on" : ""); l.textContent = ok ? "LIVE" : "OFFLINE"; }
+  function setConn(ok) {
+    const dot = $("conn"), l = $("conn-label");
+    if (isReplay()) { dot.className = "dot rep"; l.textContent = "SNAPSHOT"; return; }
+    dot.className = "dot" + (ok ? " on" : ""); l.textContent = ok ? "LIVE" : "OFFLINE";
+  }
 
   $("gsearch").addEventListener("input", (e) => { state.search = e.target.value; renderGames(); });
   const th = localStorage.getItem("sb-theme"); if (th) document.documentElement.setAttribute("data-theme", th);
@@ -248,6 +285,7 @@
     localStorage.setItem("sb-theme", c);
   };
   setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-GB"); }, 1000);
+  if (cfg.forceReplay && !apiBase) state.mode = "replay";
   loadGames();
-  setInterval(loadGames, 15000);
+  if (!isReplay()) setInterval(loadGames, 15000);  // a static snapshot doesn't re-poll
 })();

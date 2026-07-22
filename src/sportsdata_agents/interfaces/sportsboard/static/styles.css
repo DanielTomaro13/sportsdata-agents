@@ -105,3 +105,5 @@ table.ladder{width:100%;border-collapse:collapse;margin:2px 0}
 .ladder td.best{color:var(--up);font-weight:700}
 /* sgm preview */
 .sgmprev{margin-left:auto;font-family:var(--mono);font-size:11px}
+
+.dot.rep{background:var(--amber);box-shadow:0 0 0 3px color-mix(in srgb,var(--amber) 25%,transparent)}
