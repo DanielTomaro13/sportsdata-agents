@@ -194,3 +194,40 @@ async def test_detail_returns_totals_and_spreads_not_just_h2h(
     assert total["value"]["over"]["best_book"] == "Sportsbet"   # 1.95 the longest over
     line = next(m for m in d["markets"] if m["family"] == "line")
     assert line["line"] == -3.5
+
+
+async def test_market_flow_tracks_the_sharp_line_and_money_over_time(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Money flow: reconstruct the blended sharp line + Betfair matched at
+    time buckets across the window, and the open->now drift."""
+    from sportsdata_agents.interfaces.sportsboard.warehouse import (
+        _fixture_events,
+        market_flow,
+    )
+    async with db_sessionmaker() as s:
+        f = Fixture(sport="basketball", external_id="fl", name="Nuggets v Suns",
+                    start_time=NOW + dt.timedelta(hours=1))
+        s.add(f)
+        await s.flush()
+        s.add(Event(provider="betfair", external_id="bf-fl", fixture_id=f.id))
+        # home steams from 2.20 (0.45) to 1.80 (0.56) over 6 snapshots; matched grows
+        for i in range(6):
+            cap = NOW - dt.timedelta(hours=5) + dt.timedelta(hours=i)
+            home = 2.20 - i * 0.08
+            away = 1.80 + i * 0.10
+            for side, o in (("home", home), ("away", away)):
+                s.add(OddsSnapshot(provider="betfair", book="Betfair", sport="basketball",
+                                   event_external_id="bf-fl", event_name="Nuggets v Suns",
+                                   market="h2h", selection=side, odds=o, captured_at=cap,
+                                   start_time=f.start_time,
+                                   meta={"total_matched": 10000.0 * (i + 1)} if side == "home" else {}))
+        await s.commit()
+        events = (await _fixture_events(s, {f.id}))[f.id]
+        flow = await market_flow(s, events, now=NOW, window_hours=8.0)
+
+    assert flow["sharp_series"]                       # a reconstructed series
+    assert flow["moves"]["home"]["delta"] > 0         # home firmed (prob rose)
+    assert flow["moves"]["away"]["delta"] < 0         # away drifted
+    assert flow["matched_now"] == 60000.0             # latest matched
+    assert flow["matched_delta_60m"] is not None

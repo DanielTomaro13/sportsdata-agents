@@ -109,6 +109,94 @@ async def _markets_by_source(
     return markets, money
 
 
+async def market_flow(
+    session: AsyncSession, events: list[Event], *,
+    now: dt.datetime | None = None, window_hours: float = 8.0, buckets: int = 16,
+) -> dict[str, Any]:
+    """Where the money and the line have moved over time, for the h2h.
+
+    Reconstructs the blended sharp line at ``buckets`` evenly-spaced moments
+    across the window (latest quote per source at/before each moment, then
+    blended) — so the series is the SHARP consensus over time, not one book.
+    Plus Betfair's matched-volume curve (money flowing in) and each side's
+    open→now drift. Empty when nothing was captured."""
+    from sportsdata_agents.operations.monitoring import _market_family, _split_selection
+
+    if not events:
+        return {}
+    ext_ids = {e.external_id for e in events}
+    now = now or dt.datetime.now(dt.UTC)
+    start = now - dt.timedelta(hours=window_hours)
+    snaps = (await session.execute(
+        select(OddsSnapshot).where(
+            OddsSnapshot.event_external_id.in_(ext_ids),
+            OddsSnapshot.captured_at >= start,
+        ).order_by(OddsSnapshot.captured_at.asc()))).scalars().all()
+    # keep only h2h; index by (source, side) -> [(t, odds)], + Betfair matched
+    hist: dict[tuple[str, str], list[tuple[dt.datetime, float]]] = {}
+    matched: list[tuple[dt.datetime, float]] = []
+
+    def _aware(t: dt.datetime) -> dt.datetime:
+        return t if t.tzinfo else t.replace(tzinfo=dt.UTC)
+
+    for snap in snaps:
+        if _market_family(snap.market) != "h2h":
+            continue
+        side, line = _split_selection(str(snap.selection).lower())
+        if line is not None or side not in _SIDES:
+            continue
+        try:
+            odds = float(snap.odds)
+        except (TypeError, ValueError):
+            continue
+        cap = _aware(snap.captured_at)
+        if odds > 1.0:
+            hist.setdefault((snap.book, side), []).append((cap, odds))
+        if snap.book == "Betfair" and (snap.meta or {}).get("total_matched") is not None:
+            matched.append((cap, float(snap.meta["total_matched"])))
+    if not hist:
+        return {}
+    span = max((now - start).total_seconds(), 1.0)
+    times = [start + dt.timedelta(seconds=span * i / (buckets - 1)) for i in range(buckets)]
+
+    def _asof(ser: list[tuple[dt.datetime, float]], t: dt.datetime) -> float | None:
+        val = None
+        for ts, v in ser:  # ascending; last one at/before t
+            if ts <= t:
+                val = v
+            else:
+                break
+        return val
+
+    series: list[dict[str, Any]] = []
+    for t in times:
+        by_source: dict[str, dict[str, float]] = {}
+        for (book, side), ser in hist.items():
+            o = _asof(ser, t)
+            if o is not None:
+                by_source.setdefault(book, {})[side] = o
+        blended = sharp_line(by_source)["fair"]
+        if blended:
+            series.append({"t": t.isoformat(),
+                           **{side: round(blended.get(side, 0.0), 4) for side in _SIDES if side in blended}})
+    matched_series = [{"t": t.isoformat(), "matched": v} for t, v in matched]
+    moves: dict[str, dict[str, float]] = {}
+    if len(series) >= 2:
+        first, last = series[0], series[-1]
+        for side in _SIDES:
+            if side in first and side in last:
+                moves[side] = {"open": first[side], "now": last[side],
+                               "delta": round(last[side] - first[side], 4)}
+    matched_delta = None
+    if matched:
+        recent = [v for t, v in matched if t >= now - dt.timedelta(minutes=60)]
+        if recent:
+            matched_delta = round(max(recent) - min(v for _t, v in matched), 0)
+    return {"sharp_series": series, "matched_series": matched_series,
+            "moves": moves, "matched_now": matched[-1][1] if matched else None,
+            "matched_delta_60m": matched_delta, "window_hours": window_hours}
+
+
 def _priced_markets(
     markets: dict[tuple[str, float | None], dict[str, dict[str, float]]],
 ) -> list[dict[str, Any]]:
@@ -207,10 +295,12 @@ async def game_detail(session: AsyncSession, fixture_id: str,
     if f is None:
         return None
     events = await _fixture_events(session, {f.id})
-    markets, money = await _markets_by_source(session, events.get(f.id, []), now=now)
+    fx_events = events.get(f.id, [])
+    markets, money = await _markets_by_source(session, fx_events, now=now)
     priced = _priced_markets(markets)
     h2h = next((m for m in priced if m["family"] == "h2h"), None)
     rating = await _engine_rating(session, f.sport, f)
+    flow = await market_flow(session, fx_events, now=now)
     home, away = _teams(f.name)
     return {
         "fixture_id": str(f.id), "sport": f.sport, "name": f.name,
@@ -222,4 +312,5 @@ async def game_detail(session: AsyncSession, fixture_id: str,
         "quotes": h2h["quotes"] if h2h else {},
         "markets": priced,          # every priced market (h2h first)
         "bf_money": money, "engine_rating": rating,
+        "flow": flow,               # sharp line + Betfair money over time
     }
