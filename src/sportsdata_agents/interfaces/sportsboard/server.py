@@ -3,6 +3,9 @@ engine SGM price generator)."""
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -11,10 +14,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .live import live_enabled, run_poller
 from .warehouse import game_detail, list_games
 
 STATIC_DIR = Path(__file__).parent / "static"
-app = FastAPI(title="Sports Board")
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """When SPORTSBOARD_LIVE is set, poll live upstreams in-process (self-contained
+    live board). Default off — the server stays a pure warehouse reader."""
+    task = asyncio.create_task(run_poller()) if live_enabled() else None
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+app = FastAPI(title="Sports Board", lifespan=_lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["GET", "POST"], allow_headers=["*"])
 

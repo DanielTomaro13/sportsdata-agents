@@ -1,5 +1,6 @@
-# Deploy the warehouse-backed sports board to Render (https://render.com) on the
-# FREE tier: New → Blueprint → point at the sportsdata-agents repo. Once live,
+# Deploy the self-contained sports board to Render (https://render.com) on the
+# FREE tier: New → Blueprint → point at the sportsdata-agents repo. One process
+# polls live upstreams in-process and serves the board. Once live,
 # open the public page wired to it:  https://sportsdata-ai.com/sports/?api=https://<service>.onrender.com
 #
 # Free-tier caveats (all inherent to $0 hosting — none are bugs):

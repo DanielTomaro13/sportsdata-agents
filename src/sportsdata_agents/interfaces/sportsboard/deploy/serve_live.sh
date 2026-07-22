@@ -10,30 +10,29 @@
 #   • serves the full live board UI directly, and
 #   • can back the public page:  https://sportsdata-ai.com/sports/?api=<tunnel>
 #
-# This is the co-located model: one throwaway warehouse fed by `agents ingest`
-# and read by the board. The money-flow window fills in over the first few
-# minutes as snapshots accumulate.
+# Self-contained model: ONE process polls live upstreams in-process (SPORTSBOARD_LIVE)
+# into a throwaway SQLite store it also serves from — no separate ingest, no durable
+# warehouse. The money-flow window fills over the first few minutes, like the racing
+# board on a cold start.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"   # → repo root (src/…/deploy → up 5)
 cd "$ROOT"
 
 PORT="${SPORTSBOARD_PORT:-8792}"
 PY="$ROOT/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
-AGENTS="$ROOT/.venv/bin/agents"; [ -x "$AGENTS" ] || AGENTS="agents"
 PAGES_URL="https://sportsdata-ai.com/sports"
+STORE="$(mktemp -t sportsboard-XXXX.db)"
 TUN_LOG="$(mktemp)"
 
 command -v cloudflared >/dev/null || { echo "cloudflared not found → brew install cloudflared"; exit 1; }
 
-cleanup() { echo; echo "stopping…"; kill "${ING_PID:-}" "${BACK_PID:-}" "${TUN_PID:-}" 2>/dev/null || true; rm -f "$TUN_LOG"; }
+cleanup() { echo; echo "stopping…"; kill "${BACK_PID:-}" "${TUN_PID:-}" 2>/dev/null || true; rm -f "$TUN_LOG" "$STORE"; }
 trap cleanup EXIT INT TERM
 
-echo "▶ starting ingestion loop (fills the warehouse from your IP) …"
-"$AGENTS" ingest --loop > "$ROOT/ingest.log" 2>&1 &
-ING_PID=$!
-
-echo "▶ starting board backend on :$PORT …"
-PORT="$PORT" "$PY" -m sportsdata_agents.interfaces.sportsboard > "$ROOT/sportsboard.log" 2>&1 &
+echo "▶ starting self-contained live board on :$PORT (polls from your IP) …"
+PORT="$PORT" SPORTSBOARD_LIVE=1 \
+  SPORTSDATA_AGENTS_DATABASE_URL="sqlite+aiosqlite:///$STORE" \
+  "$PY" -m sportsdata_agents.interfaces.sportsboard > "$ROOT/sportsboard.log" 2>&1 &
 BACK_PID=$!
 
 for i in $(seq 1 60); do
@@ -41,7 +40,7 @@ for i in $(seq 1 60); do
   sleep 1
   [ "$i" = 60 ] && { echo "backend didn't come up — see sportsboard.log"; exit 1; }
 done
-echo "✓ backend up (money-flow window builds over the next few minutes)"
+echo "✓ board up & priming live upstreams (money-flow window builds over the next few minutes)"
 
 echo "▶ opening Cloudflare tunnel …"
 cloudflared tunnel --url "http://localhost:$PORT" > "$TUN_LOG" 2>&1 &

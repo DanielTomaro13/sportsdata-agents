@@ -250,13 +250,17 @@ async def list_games(
 ) -> list[dict[str, Any]]:
     """Every upcoming game (all leagues; racing excluded) with a priced h2h,
     summarised: coverage, market count, favourite, Betfair money."""
+    from sportsdata_agents.operations.resolution.resolver import split_sides
+
     now = now or dt.datetime.now(dt.UTC)
     fixtures = [
         f for f in (await session.execute(
             select(Fixture).where(Fixture.start_time >= now,
                                   Fixture.start_time <= now + dt.timedelta(hours=hours)))
         ).scalars()
-        if f.sport not in RACING_SPORTS
+        # real two-sided matches only — drops player props / novelty specials
+        # ("Trea Turner (Home Runs)", "Correct Score") that resolve to h2h noise
+        if f.sport not in RACING_SPORTS and split_sides(f.name or "") is not None
     ]
     events = await _fixture_events(session, {f.id for f in fixtures})
     out: list[dict[str, Any]] = []
