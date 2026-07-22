@@ -10,17 +10,30 @@
   const state = { games: [], selected: null, detail: null, sportFilter: "ALL", search: "", expanded: {}, mode: "live" };
   const sgm = { legs: [], result: null };
 
-  // live warehouse API, or a captured static snapshot (GitHub Pages demo).
+  // live warehouse API, or a captured static REPLAY the page animates (the
+  // GitHub Pages demo). Replay = an array of frames [{games, details}, …] the
+  // board steps through over time, mirroring the racing board.
   const cfg = window.SB_CONFIG || {};
-  const apiBase = new URLSearchParams(location.search).get("api") || cfg.apiBase || "";
-  let replay = null;  // {games:[...], details:{fixture_id: detail}}
+  const qs = new URLSearchParams(location.search);
+  const apiBase = qs.get("api") || cfg.apiBase || "";
+  let frames = null, replayFrame = 0, replayTimer = null, liveTimer = null;
   const isReplay = () => state.mode === "replay";
-  async function ensureReplay() {
-    if (replay) return replay;
-    try { replay = await (await fetch(cfg.replayUrl || "data/replay.json")).json(); }
-    catch { replay = { games: [], details: {} }; }
-    return replay;
+  async function ensureFrames() {
+    if (frames) return frames;
+    try {
+      const j = await (await fetch(qs.get("replay") || cfg.replayUrl || "data/replay.json")).json();
+      frames = Array.isArray(j) ? j : [j];  // back-compat: a single snapshot → one frame
+    } catch { frames = []; }
+    if (!frames.length) frames = [{ games: [], details: {} }];
+    return frames;
   }
+  const curFrame = () => frames[replayFrame % frames.length];
+  function enterReplay() {
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+    state.mode = "replay";
+    if (!replayTimer && cfg.animate !== false) replayTimer = setInterval(replayTick, 2600);
+  }
+  function replayTick() { replayFrame++; loadGames(); }
   async function api(path) {
     if (isReplay()) throw new Error("replay");
     return (await fetch(apiBase.replace(/^ws/, "http") + path)).json();
@@ -39,10 +52,10 @@
   // ---------- games list ----------
   async function loadGames() {
     let d;
-    if (isReplay()) { d = await ensureReplay(); }
+    if (isReplay()) { await ensureFrames(); d = { games: curFrame().games || [] }; }
     else {
       try { d = await api("/api/games"); }
-      catch { if (cfg.forceReplay || cfg.replayUrl) { state.mode = "replay"; d = await ensureReplay(); } else { setConn(false); return; } }
+      catch { if (cfg.forceReplay || cfg.replayUrl) { enterReplay(); await ensureFrames(); d = { games: curFrame().games || [] }; } else { setConn(false); return; } }
     }
     setConn(true);
     state.games = d.games || [];
@@ -90,7 +103,7 @@
   async function refreshDetail(fresh) {
     if (!state.selected) return;
     let d;
-    if (isReplay()) { d = (await ensureReplay()).details[state.selected]; }
+    if (isReplay()) { await ensureFrames(); d = (curFrame().details || {})[state.selected]; }
     else {
       try { d = await api("/api/game/" + encodeURIComponent(state.selected)); } catch { return; }
     }
@@ -273,7 +286,7 @@
 
   function setConn(ok) {
     const dot = $("conn"), l = $("conn-label");
-    if (isReplay()) { dot.className = "dot rep"; l.textContent = "SNAPSHOT"; return; }
+    if (isReplay()) { dot.className = "dot rep"; l.textContent = "REPLAY"; const b = $("banner"); if (b) b.classList.add("show"); return; }
     dot.className = "dot" + (ok ? " on" : ""); l.textContent = ok ? "LIVE" : "OFFLINE";
   }
 
@@ -285,7 +298,7 @@
     localStorage.setItem("sb-theme", c);
   };
   setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-GB"); }, 1000);
-  if (cfg.forceReplay && !apiBase) state.mode = "replay";
+  if (cfg.forceReplay && !apiBase) enterReplay();
   loadGames();
-  if (!isReplay()) setInterval(loadGames, 15000);  // a static snapshot doesn't re-poll
+  if (!isReplay()) liveTimer = setInterval(loadGames, 15000);  // live re-polls; replay self-animates
 })();

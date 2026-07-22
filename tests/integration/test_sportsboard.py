@@ -32,7 +32,7 @@ async def _seed_game(s: AsyncSession, *, fixture_id, quotes: dict[str, dict[str,
                 provider=book.lower(), book=book, sport="basketball",
                 event_external_id=ext, event_name="Lakers v Celtics",
                 market="h2h", selection=side, odds=odds,
-                captured_at=start - dt.timedelta(minutes=2), start_time=start,
+                captured_at=NOW - dt.timedelta(minutes=2), start_time=start,
                 meta=(betfair_meta if book == "Betfair" else {})))
 
 
@@ -90,7 +90,7 @@ async def test_afl_game_falls_back_to_the_sharps_present(
                 s.add(OddsSnapshot(provider=book.lower(), book=book, sport="afl",
                                    event_external_id=ext, event_name="Lions v Bombers",
                                    market="h2h", selection=side, odds=odds,
-                                   captured_at=f.start_time - dt.timedelta(minutes=1),
+                                   captured_at=NOW - dt.timedelta(minutes=1),
                                    start_time=f.start_time, meta={}))
         await s.commit()
         d = await game_detail(s, str(fid), now=NOW)
@@ -181,7 +181,7 @@ async def test_detail_returns_totals_and_spreads_not_just_h2h(
                                        event_external_id=ext, event_name="Chiefs v Bills",
                                        market=market.split()[0] if " " in market else market,
                                        selection=sel, odds=odds,
-                                       captured_at=f.start_time - dt.timedelta(minutes=1),
+                                       captured_at=NOW - dt.timedelta(minutes=1),
                                        start_time=f.start_time, meta={}))
         await s.commit()
         d = await game_detail(s, str(f.id), now=NOW)

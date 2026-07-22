@@ -75,6 +75,7 @@ async def _markets_by_source(
         select(OddsSnapshot).where(
             OddsSnapshot.event_external_id.in_(ext_ids),
             OddsSnapshot.captured_at >= floor,
+            OddsSnapshot.captured_at <= now,  # freshest snapshot AS OF `now` (no-op live; rewinds for replay capture)
         ).order_by(OddsSnapshot.captured_at.desc()))).scalars().all()
     markets: dict[tuple[str, float | None], dict[str, dict[str, float]]] = {}
     seen: set[tuple[str, str, float | None, str]] = set()

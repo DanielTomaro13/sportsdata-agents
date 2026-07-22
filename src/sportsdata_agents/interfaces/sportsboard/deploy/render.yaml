@@ -1,0 +1,25 @@
+# Deploy the warehouse-backed sports board to Render (https://render.com) on the
+# FREE tier: New → Blueprint → point at the sportsdata-agents repo. Once live,
+# open the public page wired to it:  https://sportsdata-ai.com/sports/?api=https://<service>.onrender.com
+#
+# Free-tier caveats (all inherent to $0 hosting — none are bugs):
+#   • the service SLEEPS after ~15 min idle and its disk is EPHEMERAL, so on a
+#     cold wake the money-flow window rebuilds over the first few minutes;
+#   • Render's cloud IP may be rate/geo-limited by some books — the sharp sources
+#     (Kalshi / Polymarket / Betfair / Pinnacle) and most US books come through.
+# For a rock-solid free live board, prefer deploy/serve_live.sh (runs from your
+# own IP through a Cloudflare quick tunnel).
+services:
+  - type: web
+    name: sportsboard
+    runtime: python
+    plan: free
+    buildCommand: >
+      pip install -e .
+      "sportsdata-mcp @ git+https://github.com/DanielTomaro13/sportsdata-mcp"
+    startCommand: bash src/sportsdata_agents/interfaces/sportsboard/deploy/render_start.sh
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      - key: SPORTSDATA_AGENTS_DATABASE_URL
+        value: "sqlite+aiosqlite:////tmp/sportsboard.db"
