@@ -40,8 +40,11 @@ _VALUE_BAND = 60.0      # a bigger "edge" is a stale/mismatched quote, not value
 def devig(quotes: dict[str, float]) -> dict[str, float]:
     """Proportional de-vig of one source's complete market into fair probs.
     Returns {} when a price is missing or non-positive (an incomplete book
-    can't be de-vigged honestly)."""
-    if not quotes:
+    can't be de-vigged honestly), or when fewer than two selections are
+    priced — normalising a lone side trivially yields probability 1.0, which
+    surfaced on the board as a nonsense "$1.00 / 100% sharp" line and fed
+    SGM legs a certainty."""
+    if len(quotes) < 2:
         return {}
     inv: dict[str, float] = {}
     for sel, odds in quotes.items():

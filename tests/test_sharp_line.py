@@ -19,9 +19,18 @@ def test_devig_removes_the_margin():
 
 
 def test_devig_refuses_an_incomplete_or_bad_market():
-    assert devig({"home": 1.90}) == {"home": 1.0}  # single-outcome still normalises
+    # A lone side normalises to certainty, which reached the board as a
+    # "$1.00 / 100% sharp" row and handed SGM a leg it treated as sure.
+    # One priced outcome is not a market, so refuse it.
+    assert devig({"home": 1.90}) == {}
     assert devig({"home": 1.90, "away": 1.0}) == {}   # a <=1.0 price is a bug
     assert devig({}) == {}
+
+
+def test_devig_still_handles_three_way_markets():
+    r = devig({"home": 2.5, "draw": 3.4, "away": 3.0})
+    assert len(r) == 3
+    assert abs(sum(r.values()) - 1.0) < 1e-9
 
 
 def test_blend_averages_devigged_probs_across_present_sources():
