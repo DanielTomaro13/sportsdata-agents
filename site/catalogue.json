@@ -2713,6 +2713,779 @@
    ]
   },
   {
+   "id": "espnfantasy",
+   "name": "ESPN Fantasy",
+   "kind": "sport",
+   "byo": false,
+   "proxied": false,
+   "count": 27,
+   "tools": [
+    {
+     "name": "espnfantasy_games",
+     "desc": "All five ESPN fantasy games with each one's CURRENT season id and scoring period — call this first to resolve seasonId/scoringPeriodId.",
+     "args": [],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_season",
+     "desc": "One game-season's status: current scoring period, start/end dates, whether it is active.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_pro_teams",
+     "desc": "Pro (real-world) teams for a fantasy season: ids, abbreviations, BYE weeks, and each team's games keyed by scoring period.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_players",
+     "desc": "The player universe for a season (id, name, position, pro team, % owned). Defaults to 50 players — pass fantasy_filter to widen or filter.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "fantasy_filter",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_league_defaults",
+     "desc": "ESPN's stock league templates (scoring/roster presets) by scoring-type id — the defaults a new league starts from.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "scoringTypeId",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_player_news",
+     "desc": "Recent fantasy news items for one player (injury/usage blurbs that drive start-sit calls).",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "playerId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_league",
+     "desc": "Raw league read with ANY combination of views — the escape hatch when no dedicated tool below fits, or to fetch several views in one round trip.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "fantasy_filter",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_league_settings",
+     "desc": "League rules: name, size, scoring items, roster slots, schedule/playoff format, waiver + keeper + trade settings.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_teams",
+     "desc": "Fantasy teams with records, points for/against, playoff seed and projected rank.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_rosters",
+     "desc": "Every fantasy team's roster — who each manager holds, their lineup slot, acquisition type and player stats. LARGE (hundreds of KB).",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_standings",
+     "desc": "League standings — records, points for/against, division and playoff seeding.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_matchups",
+     "desc": "Full season schedule of head-to-head fantasy matchups with each side's total and per-period points.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_draft",
+     "desc": "Draft results — every pick in order with round, team, player, keeper flag and auction bid.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_transactions",
+     "desc": "Completed transactions (adds, drops, trades, waiver claims) for a scoring period.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "fantasy_filter",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_pending_transactions",
+     "desc": "Pending/unprocessed transactions — waiver claims and trade offers awaiting processing (needs the private cookie in most leagues).",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_status",
+     "desc": "League lifecycle status — current matchup period, latest scoring period, whether the season is active, waiver process dates.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_nav",
+     "desc": "Lightweight nav payload — league name, size and the current user's team, for cheap orientation before a heavy call.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_everything",
+     "desc": "UNDOCUMENTED mega-view (`allon`): settings + teams + rosters + schedule + draft + the whole player pool in ONE response. VERY LARGE (multi-MB) — prefer a targeted tool unless you genuinely need everything.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_communication",
+     "desc": "League message board / activity feed (chat topics, trade chatter, activity posts). 404s when the league has no communication group.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "fantasy_filter",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_league_history",
+     "desc": "Pre-2018 seasons and cross-season history via the leagueHistory path. Only works for leagues that HAVE history — check espnfantasy_status.status.previousSeasons first; an empty list there means this returns 404. Returns a single-element ARRAY, not an object.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_boxscore",
+     "desc": "Week box scores — each matchup with both lineups, per-player actual and projected points. The start/sit post-mortem view.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_matchup_score",
+     "desc": "Compact matchup scores for the season — totals only, no lineups. Much smaller than the box score.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "fantasy_filter",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_scoreboard",
+     "desc": "Scoreboard for a scoring period — matchup totals plus the pro-game state behind each fantasy team.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_live_scoring",
+     "desc": "Live in-progress scoring for the current period — points so far and how many roster spots have yet to play.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_positional_ratings",
+     "desc": "Positional ratings — average fantasy points allowed by each pro defence to each position (the strength-of-matchup table).",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_player_info",
+     "desc": "The league's player pool with ownership %, ratings, projections and injury status — pass a status filter for FREE AGENTS / WAIVERS (the waiver-wire tool).",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "fantasy_filter",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "espnfantasy_player_card",
+     "desc": "Deep card for specific players — full season + per-period stat splits and projections, as the site's player popup shows.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "view",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "fantasy_filter",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    }
+   ]
+  },
+  {
    "id": "fanduel",
    "name": "FanDuel",
    "kind": "gambling",

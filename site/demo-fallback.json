@@ -1,9 +1,9 @@
 {
   "stats": {
-    "providers": 28,
-    "groups": 84,
-    "tools": 492,
-    "as_of": "2026-06-26"
+    "providers": 29,
+    "groups": 88,
+    "tools": 522,
+    "as_of": "2026-07-31"
   },
   "prompts": [
     {
