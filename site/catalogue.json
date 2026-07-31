@@ -777,8 +777,203 @@
    "kind": "gambling",
    "byo": false,
    "proxied": false,
-   "count": 8,
+   "count": 9,
    "tools": [
+    {
+     "name": "betfair_market_prices",
+     "desc": "Exchange back/lay prices + state for one or more markets (the core odds feed).",
+     "args": [
+      {
+       "n": "marketIds",
+       "t": "array",
+       "r": true
+      },
+      {
+       "n": "types",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "currencyCode",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "locale",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "rollupLimit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "rollupModel",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "_ak",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "alt",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "betfair_markets_by_event",
+     "desc": "Market STRUCTURE for an event (market ids, names, runners) — probed live 2026-07-06: this route STRIPS exchange prices (runners come back without the exchange block) and 400s on multi-id batches. For prices, feed the market ids into betfair_market_prices; for bulk market-id discovery, betfair_navigation with attachments=MENU,EVENT,MARKET returns 1000+ MARKET nodes per event type in one call.",
+     "args": [
+      {
+       "n": "eventIds",
+       "t": "array",
+       "r": true
+      },
+      {
+       "n": "types",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "currencyCode",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "locale",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "rollupLimit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "rollupModel",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "_ak",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "alt",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "betfair_cashout",
+     "desc": "Cash-out availability for one or more markets.",
+     "args": [
+      {
+       "n": "marketIds",
+       "t": "array",
+       "r": true
+      },
+      {
+       "n": "_ak",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "alt",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "betfair_navigation",
+     "desc": "Navigation graph by node — traverse sport → group → event → market. Feed market ids into betfair_market_prices.",
+     "args": [
+      {
+       "n": "nodeIds",
+       "t": "array",
+       "r": true
+      },
+      {
+       "n": "attachments",
+       "t": "array",
+       "r": false
+      },
+      {
+       "n": "maxInDistance",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "maxOutDistance",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "maxResults",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "currencyCode",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "locale",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "_ak",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "alt",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "betfair_scores",
+     "desc": "Live scores for one or more in-play events (per-sport score detail).",
+     "args": [
+      {
+       "n": "eventIds",
+       "t": "array",
+       "r": true
+      },
+      {
+       "n": "locale",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "_ak",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "alt",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
     {
      "name": "betfair_event_details",
      "desc": "In-play event details (event name, competition, primary market, runners, start time) for one or more events.",
@@ -851,179 +1046,6 @@
     {
      "name": "betfair_event_timelines",
      "desc": "Live timelines + running scores for several in-play events at once (batch).",
-     "args": [
-      {
-       "n": "eventIds",
-       "t": "array",
-       "r": true
-      },
-      {
-       "n": "locale",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "_ak",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "alt",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "betfair_market_prices",
-     "desc": "Exchange back/lay prices + state for one or more markets (the core odds feed).",
-     "args": [
-      {
-       "n": "marketIds",
-       "t": "array",
-       "r": true
-      },
-      {
-       "n": "types",
-       "t": "array",
-       "r": false
-      },
-      {
-       "n": "currencyCode",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "locale",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "rollupLimit",
-       "t": "integer",
-       "r": false
-      },
-      {
-       "n": "rollupModel",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "_ak",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "alt",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "betfair_markets_by_event",
-     "desc": "All markets + back/lay prices for one or more events (by event id, when you don't have market ids yet).",
-     "args": [
-      {
-       "n": "eventIds",
-       "t": "array",
-       "r": true
-      },
-      {
-       "n": "types",
-       "t": "array",
-       "r": false
-      },
-      {
-       "n": "currencyCode",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "locale",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "rollupLimit",
-       "t": "integer",
-       "r": false
-      },
-      {
-       "n": "rollupModel",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "_ak",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "alt",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "betfair_navigation",
-     "desc": "Navigation graph by node — traverse sport → group → event → market. Feed market ids into betfair_market_prices.",
-     "args": [
-      {
-       "n": "nodeIds",
-       "t": "array",
-       "r": true
-      },
-      {
-       "n": "attachments",
-       "t": "array",
-       "r": false
-      },
-      {
-       "n": "maxInDistance",
-       "t": "integer",
-       "r": false
-      },
-      {
-       "n": "maxOutDistance",
-       "t": "integer",
-       "r": false
-      },
-      {
-       "n": "maxResults",
-       "t": "integer",
-       "r": false
-      },
-      {
-       "n": "currencyCode",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "locale",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "_ak",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "alt",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "betfair_scores",
-     "desc": "Live scores for one or more in-play events (per-sport score detail).",
      "args": [
       {
        "n": "eventIds",
@@ -2283,8 +2305,183 @@
    "kind": "gambling",
    "byo": false,
    "proxied": false,
-   "count": 15,
+   "count": 16,
    "tools": [
+    {
+     "name": "entain_quicklinks_list",
+     "desc": "Navigation quick-links (racing/sports nav tiles).",
+     "args": [
+      {
+       "n": "filter",
+       "t": "object",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_featured_slider",
+     "desc": "Featured slider events (homepage hero carousel).",
+     "args": [],
+     "example": null
+    },
+    {
+     "name": "entain_racing_meeting",
+     "desc": "All race meetings + races for one date (normalised UUID-keyed tables).",
+     "args": [
+      {
+       "n": "date",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "timezone",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_racing_next_races",
+     "desc": "Next races about to jump, grouped per racing category.",
+     "args": [
+      {
+       "n": "count",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "categories",
+       "t": "object",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_racing_racecard",
+     "desc": "Full priced racecard for one race — entrants, fixed-odds fluctuations, form.",
+     "args": [
+      {
+       "n": "method",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "id",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_racing_search",
+     "desc": "Racing search facets (barrier/country/jockey/trainer buckets); optional full-text.",
+     "args": [
+      {
+       "n": "q",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "category_ids",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_racing_future_markets",
+     "desc": "Legacy v1 racing RPC selector (future-markets races feed).",
+     "args": [
+      {
+       "n": "method",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "exclude",
+       "t": "object",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_sport_event_card",
+     "desc": "Complete event card — every market, selection and price for one sport event.",
+     "args": [
+      {
+       "n": "id",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_sport_event_request",
+     "desc": "Bulk events + markets + prices for one or more sport categories.",
+     "args": [
+      {
+       "n": "category_ids",
+       "t": "object",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_event_market_rules",
+     "desc": "Settlement rules for every named market, indexed by rule id.",
+     "args": [],
+     "example": null
+    },
+    {
+     "name": "entain_event_market_type_groups",
+     "desc": "Market-tab group definitions for a sport category (lower priority renders first).",
+     "args": [
+      {
+       "n": "category_id",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_event_market_type_group_maps",
+     "desc": "Join table between market types and market-type groups (dedup by pair).",
+     "args": [
+      {
+       "n": "category_id",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_metadata_by_url",
+     "desc": "SEO metadata (page title) for a given URL path.",
+     "args": [
+      {
+       "n": "url",
+       "t": "string",
+       "r": true
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "entain_video_channels",
+     "desc": "Racing live-video channels (HLS .m3u8 URLs; verify token expires within minutes).",
+     "args": [],
+     "example": null
+    },
     {
      "name": "entain_cms_entries",
      "desc": "Contentful CMS entries (promotions, major-event nav) via the www CDN proxy.",
@@ -2318,44 +2515,8 @@
      "example": null
     },
     {
-     "name": "entain_event_market_rules",
-     "desc": "Settlement rules for every named market, indexed by rule id.",
-     "args": [],
-     "example": null
-    },
-    {
-     "name": "entain_event_market_type_group_maps",
-     "desc": "Join table between market types and market-type groups (dedup by pair).",
-     "args": [
-      {
-       "n": "category_id",
-       "t": "string",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_event_market_type_groups",
-     "desc": "Market-tab group definitions for a sport category (lower priority renders first).",
-     "args": [
-      {
-       "n": "category_id",
-       "t": "string",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_featured_slider",
-     "desc": "Featured slider events (homepage hero carousel).",
-     "args": [],
-     "example": null
-    },
-    {
      "name": "entain_graphql_call",
-     "desc": "Call any of Entain's 127 persisted GraphQL operations against",
+     "desc": "Call any of Entain's 127 persisted GraphQL operations against api.ladbrokes.com.au/gql/router by name + variables. Hashes are managed server-side; a PERSISTED_QUERY_NOT_FOUND (gateway APQ-cache eviction) is self-healed automatically by re-POSTing the stored query document. If it still surfaces, run `sportsdata-mcp refresh-hashes entain`. GraphQL IDs are type-prefixed (RacingRace:<uuid>, SportingEvent:<uuid>): variable type ID! wants the prefixed form, UUID! wants the bare uuid. Read entain://graphql/operations for the full op list + variable signatures.",
      "args": [
       {
        "n": "operation",
@@ -2364,132 +2525,10 @@
       },
       {
        "n": "variables",
-       "t": "any",
+       "t": "object",
        "r": false
       }
      ],
-     "example": null
-    },
-    {
-     "name": "entain_metadata_by_url",
-     "desc": "SEO metadata (page title) for a given URL path.",
-     "args": [
-      {
-       "n": "url",
-       "t": "string",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_quicklinks_list",
-     "desc": "Navigation quick-links (racing/sports nav tiles).",
-     "args": [
-      {
-       "n": "filter",
-       "t": "any",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_racing_future_markets",
-     "desc": "Legacy v1 racing RPC selector (future-markets races feed).",
-     "args": [
-      {
-       "n": "method",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "exclude",
-       "t": "any",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_racing_meeting",
-     "desc": "All race meetings + races for one date (normalised UUID-keyed tables).",
-     "args": [
-      {
-       "n": "date",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "timezone",
-       "t": "string",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_racing_next_races",
-     "desc": "Next races about to jump, grouped per racing category.",
-     "args": [
-      {
-       "n": "count",
-       "t": "integer",
-       "r": true
-      },
-      {
-       "n": "categories",
-       "t": "any",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_racing_search",
-     "desc": "Racing search facets (barrier/country/jockey/trainer buckets); optional full-text.",
-     "args": [
-      {
-       "n": "q",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "category_ids",
-       "t": "any",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_sport_event_card",
-     "desc": "Complete event card — every market, selection and price for one sport event.",
-     "args": [
-      {
-       "n": "id",
-       "t": "string",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_sport_event_request",
-     "desc": "Bulk events + markets + prices for one or more sport categories.",
-     "args": [
-      {
-       "n": "category_ids",
-       "t": "any",
-       "r": true
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "entain_video_channels",
-     "desc": "Racing live-video channels (HLS .m3u8 URLs; verify token expires within minutes).",
-     "args": [],
      "example": null
     }
    ]
@@ -9262,254 +9301,12 @@
    "kind": "gambling",
    "byo": false,
    "proxied": true,
-   "count": 22,
+   "count": 24,
    "tools": [
-    {
-     "name": "tab_cms_call",
-     "desc": "Fetch one of TAB's CMS content feeds from cmsapi.tab.com.au by operation",
-     "args": [
-      {
-       "n": "operation",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "path_params",
-       "t": "any",
-       "r": false
-      },
-      {
-       "n": "query_params",
-       "t": "any",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_competition",
-     "desc": "Competition page: its matches, bet options and (optionally) top markets.",
-     "args": [
-      {
-       "n": "sport",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "competition",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "numTopMarkets",
-       "t": "integer",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_featured_events",
-     "desc": "Editorially featured events across racing + sports for the homepage carousel.",
-     "args": [
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_live_events_summary",
-     "desc": "Summary of events currently in-play / live across sports.",
-     "args": [
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_match",
-     "desc": "Full match book: all markets + bet options, Same Game Multi, contestants, live state and stats.",
-     "args": [
-      {
-       "n": "sport",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "competition",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "match",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_match_markets",
-     "desc": "Just the markets + selections + prices for one match (leaner than the full match object).",
-     "args": [
-      {
-       "n": "sport",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "competition",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "match",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_multi_builder",
-     "desc": "Multi-builder items for one sport (suggested legs / combinations for building multis).",
-     "args": [
-      {
-       "n": "sport",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
     {
      "name": "tab_racing_dates",
      "desc": "Racing dates that have meetings (today, tomorrow, future), each linking to its meetings.",
      "args": [
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_racing_futures_meetings",
-     "desc": "Futures racing meetings (ante-post / long-dated markets like Cup outrights).",
-     "args": [
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "returnOffers",
-       "t": "boolean",
-       "r": false
-      },
-      {
-       "n": "returnPromo",
-       "t": "boolean",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_racing_futures_race",
-     "desc": "Racecard for one FUTURES market: futures URLs put the race NAME (not a number) in the race slot, so the integer-typed tab_racing_race cannot",
-     "args": [
-      {
-       "n": "date",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "raceType",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "venueMnemonic",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "raceName",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      },
-      {
-       "n": "fixedOdds",
-       "t": "boolean",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_racing_jackpots",
-     "desc": "Current racing jackpot / carryover pools across meetings.",
-     "args": [
-      {
-       "n": "jurisdiction",
-       "t": "string",
-       "r": false
-      }
-     ],
-     "example": null
-    },
-    {
-     "name": "tab_racing_meeting_races",
-     "desc": "The races for one meeting (by race type + venue code), each linking to its full racecard.",
-     "args": [
-      {
-       "n": "date",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "raceType",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "venueMnemonic",
-       "t": "string",
-       "r": true
-      },
       {
        "n": "jurisdiction",
        "t": "string",
@@ -9525,7 +9322,7 @@
       {
        "n": "date",
        "t": "string",
-       "r": true
+       "r": false
       },
       {
        "n": "jurisdiction",
@@ -9540,6 +9337,134 @@
       {
        "n": "returnPromo",
        "t": "boolean",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_racing_meeting_races",
+     "desc": "The races for one meeting (by race type + venue code), each linking to its full racecard.",
+     "args": [
+      {
+       "n": "date",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "venueMnemonic",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_racing_race",
+     "desc": "Full racecard for one race: runners with fixed + parimutuel odds, form ratings, pools, bet types; results + dividends once run.",
+     "args": [
+      {
+       "n": "date",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "venueMnemonic",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceNumber",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_racing_race_form",
+     "desc": "Detailed form guide for one race (past performances, ratings, comments per runner).",
+     "args": [
+      {
+       "n": "date",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "venueMnemonic",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceNumber",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_racing_runner_form",
+     "desc": "DETAILED per-runner form: full past-start history with positions, margins, distances and dates.",
+     "args": [
+      {
+       "n": "date",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "venueMnemonic",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceNumber",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "runnerNumber",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
        "r": false
       }
      ],
@@ -9573,29 +9498,9 @@
      "example": null
     },
     {
-     "name": "tab_racing_race",
-     "desc": "Full racecard for one race: runners with fixed + parimutuel odds, form ratings, pools, bet types; results + dividends once run.",
+     "name": "tab_racing_jackpots",
+     "desc": "Current racing jackpot / carryover pools across meetings.",
      "args": [
-      {
-       "n": "date",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "raceType",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "venueMnemonic",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "raceNumber",
-       "t": "integer",
-       "r": true
-      },
       {
        "n": "jurisdiction",
        "t": "string",
@@ -9605,46 +9510,68 @@
      "example": null
     },
     {
-     "name": "tab_racing_race_form",
-     "desc": "Detailed form guide for one race (past performances, ratings, comments per runner).",
+     "name": "tab_racing_futures_meetings",
+     "desc": "Futures racing meetings (ante-post / long-dated markets like Cup outrights).",
      "args": [
-      {
-       "n": "date",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "raceType",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "venueMnemonic",
-       "t": "string",
-       "r": true
-      },
-      {
-       "n": "raceNumber",
-       "t": "integer",
-       "r": true
-      },
       {
        "n": "jurisdiction",
        "t": "string",
+       "r": false
+      },
+      {
+       "n": "returnOffers",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "returnPromo",
+       "t": "boolean",
        "r": false
       }
      ],
      "example": null
     },
     {
-     "name": "tab_recommendation_featured",
-     "desc": "Featured items for one recommendation category (e.g. Jockey Challenge, Racing Extras). 404s when the category isn't currently featured.",
+     "name": "tab_racing_futures_race",
+     "desc": "Racecard for one FUTURES market: futures URLs put the race NAME (not a number) in the race slot, so the integer-typed tab_racing_race cannot reach them.",
      "args": [
       {
-       "n": "category",
+       "n": "date",
        "t": "string",
-       "r": true
+       "r": false
       },
+      {
+       "n": "raceType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "venueMnemonic",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "raceName",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "fixedOdds",
+       "t": "boolean",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_sports",
+     "desc": "All sports offered, each linking to its competitions (HATEOAS root for the sports tree).",
+     "args": [
       {
        "n": "jurisdiction",
        "t": "string",
@@ -9660,7 +9587,7 @@
       {
        "n": "sport",
        "t": "string",
-       "r": true
+       "r": false
       },
       {
        "n": "jurisdiction",
@@ -9671,9 +9598,110 @@
      "example": null
     },
     {
-     "name": "tab_sports",
-     "desc": "All sports offered, each linking to its competitions (HATEOAS root for the sports tree).",
+     "name": "tab_competition",
+     "desc": "Competition page: its matches, bet options and (optionally) top markets.",
      "args": [
+      {
+       "n": "sport",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "competition",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "numTopMarkets",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_tournament",
+     "desc": "Tournament page nested inside a competition (tennis, golf and other tournament-structured sports): its matches with top markets. Competitions whose page shows matches:[] list their events here.",
+     "args": [
+      {
+       "n": "sport",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "competition",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "tournament",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "numTopMarkets",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_match",
+     "desc": "Full match book: all markets + bet options, Same Game Multi, contestants, live state and stats.",
+     "args": [
+      {
+       "n": "sport",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "competition",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "match",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_match_markets",
+     "desc": "Just the markets + selections + prices for one match (leaner than the full match object).",
+     "args": [
+      {
+       "n": "sport",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "competition",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "match",
+       "t": "string",
+       "r": false
+      },
       {
        "n": "jurisdiction",
        "t": "string",
@@ -9737,12 +9765,87 @@
      "example": null
     },
     {
+     "name": "tab_multi_builder",
+     "desc": "Multi-builder items for one sport (suggested legs / combinations for building multis).",
+     "args": [
+      {
+       "n": "sport",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
      "name": "tab_trending_props",
      "desc": "Trending sports propositions / bets across the book.",
      "args": [
       {
        "n": "jurisdiction",
        "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_featured_events",
+     "desc": "Editorially featured events across racing + sports for the homepage carousel.",
+     "args": [
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_live_events_summary",
+     "desc": "Summary of events currently in-play / live across sports.",
+     "args": [
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_recommendation_featured",
+     "desc": "Featured items for one recommendation category (e.g. Jockey Challenge, Racing Extras). 404s when the category isn't currently featured.",
+     "args": [
+      {
+       "n": "category",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": null
+    },
+    {
+     "name": "tab_cms_call",
+     "desc": "Fetch one of TAB's CMS content feeds from cmsapi.tab.com.au by operation name (homepage / offers / promotions / racing). Each ships the standard query defaults (platform, os, jurisdiction, authentication-status); override jurisdiction via query_params if needed. Read tab://cms/operations for the list.",
+     "args": [
+      {
+       "n": "operation",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "query_params",
+       "t": "object",
        "r": false
       }
      ],
