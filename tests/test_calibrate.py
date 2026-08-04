@@ -18,6 +18,12 @@ import pytest
 
 from sportsdata_agents.quant.calibrate import calibrate_export, load_replay_fixtures
 
+# the pricing engine is an OPTIONAL dependency — the platform runs bare by
+# default (see test_engines_seam), so these tests skip rather than fail when it
+# is not installed. Everything here needs a real board, not a stub: the point is
+# that engine probabilities land on the diagonal.
+pytest.importorskip("sportsdata_engines")
+
 
 def _export(tmp_path: Path, n: int = 12, *, benchmark: str = "model",
             pin_levers: bool = False) -> Path:

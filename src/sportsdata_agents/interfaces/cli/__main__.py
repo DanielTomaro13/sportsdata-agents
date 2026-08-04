@@ -1865,7 +1865,12 @@ def calibrate(
         console.print(f"[red]no such export: {source}[/red] — run `replay-export` first")
         raise typer.Exit(1)
 
-    report = calibrate_export(source, bins=bins, min_family_rows=min_family_rows)
+    try:
+        report = calibrate_export(source, bins=bins, min_family_rows=min_family_rows)
+    except ModuleNotFoundError as exc:  # engines is an optional dependency
+        console.print(f"[red]{exc.name} is not installed[/red] — calibration needs "
+                      "the pricing engines package (`pip install sportsdata-engines`)")
+        raise typer.Exit(1) from exc
     if not report["rows"]:
         console.print(f"[yellow]{report['fixtures']} fixtures priced nothing settleable[/yellow]")
         if report["dropped"]:
