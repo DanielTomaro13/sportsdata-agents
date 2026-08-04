@@ -1833,6 +1833,96 @@ def price_slate(
     asyncio.run(_run())
 
 
+@app.command(name="calibrate")
+def calibrate(
+    path: str = typer.Option("replay-fixtures.jsonl", "--in", help="JSONL from replay-export."),
+    bins: int = typer.Option(10, "--bins", help="Reliability buckets."),
+    min_family_rows: int = typer.Option(30, "--min-rows", help="Below this a family is named, not scored."),
+    json_out: str = typer.Option("", "--json", help="Also write the full report here."),
+) -> None:
+    """Score an exported replay for CALIBRATION rather than profit.
+
+    `scoreboard` asks whether our edges made money — a filtered subset. This
+    asks whether the probabilities are right, across every market that settled.
+    An engine can be well calibrated and still lose to the margin, or profit
+    while badly calibrated; only this tells the two apart.
+
+    The headline is skill vs the de-vigged CLOSING line: positive means the
+    engine carried information the closing price did not. Brier on its own is
+    mostly a statement about how many longshots were in the sample.
+    """
+    import json as _json
+    import pathlib as _pathlib
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from sportsdata_agents.quant.calibrate import calibrate_export
+
+    console = Console()
+    source = _pathlib.Path(path)
+    if not source.exists():
+        console.print(f"[red]no such export: {source}[/red] — run `replay-export` first")
+        raise typer.Exit(1)
+
+    report = calibrate_export(source, bins=bins, min_family_rows=min_family_rows)
+    if not report["rows"]:
+        console.print(f"[yellow]{report['fixtures']} fixtures priced nothing settleable[/yellow]")
+        if report["dropped"]:
+            console.print(f"dropped: {report['dropped']}")
+        raise typer.Exit(0)
+
+    skill = report["skill_vs_close"]
+    skill_text = ("[dim]no closing benchmark[/dim]" if skill is None
+                  else f"[green]{skill:+.4f}[/green]" if skill > 0
+                  else f"[red]{skill:+.4f}[/red]")
+    console.print(
+        f"{report['fixtures']} fixtures · {report['rows']} settled markets · "
+        f"brier {report['brier']:.5f} · log loss {report['log_loss']:.4f} · "
+        f"skill vs close {skill_text} "
+        f"({report['benchmarked_rows']} benchmarked)"
+    )
+    if report["dropped"]:
+        console.print(f"[yellow]dropped: {report['dropped']}[/yellow]")
+
+    curve = Table(title="Reliability — predicted vs observed")
+    for column in ("bucket", "n", "predicted", "observed", "±", "gap"):
+        curve.add_column(column, justify="right" if column != "bucket" else "left")
+    for bucket in report["reliability"]:
+        gap = bucket["observed"] - bucket["predicted"]
+        # flag only what clears its OWN error: a thin bucket is not a miss
+        loud = abs(gap) > 2.0 * max(bucket["std_error"], 1e-9) and bucket["n"] >= 30
+        curve.add_row(
+            f"[{bucket['lower']:.1f},{bucket['upper']:.1f})",
+            f"{int(bucket['n'])}", f"{bucket['predicted']:.4f}",
+            f"{bucket['observed']:.4f}", f"{bucket['std_error']:.4f}",
+            f"[red]{gap:+.4f}[/red]" if loud else f"{gap:+.4f}",
+        )
+    console.print(curve)
+
+    if report["families"]:
+        families = Table(title="By market family")
+        for column in ("family", "n", "brier", "log loss", "skill vs close"):
+            families.add_column(column, justify="right" if column != "family" else "left")
+        for name, entry in sorted(report["families"].items(),
+                                  key=lambda kv: -kv[1]["n"]):
+            family_skill = entry["skill_vs_close"]
+            families.add_row(
+                name, f"{entry['n']}", f"{entry['brier']:.5f}",
+                f"{entry['log_loss']:.4f}",
+                "—" if family_skill is None else f"{family_skill:+.4f}",
+            )
+        console.print(families)
+    if report["thin_families"]:
+        console.print(f"[dim]too thin to score ({min_family_rows} rows): "
+                      f"{', '.join(report['thin_families'])}[/dim]")
+
+    if json_out:
+        _pathlib.Path(json_out).write_text(_json.dumps(report, indent=2) + "\n",
+                                           encoding="utf-8")
+        console.print(f"full report written to {json_out}")
+
+
 @app.command(name="replay-export")
 def replay_export(
     out: str = typer.Option("replay-fixtures.jsonl", "--out", help="JSONL output path."),
