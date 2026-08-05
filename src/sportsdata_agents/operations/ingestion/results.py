@@ -277,6 +277,15 @@ _ESPN_LEAGUES: tuple[tuple[str, str, str], ...] = (
     ("football", "nfl", "american_football"),
     ("football", "college-football", "american_football"),
     ("hockey", "nhl", "ice_hockey"),
+    # NBA rides ESPN, not its own CDN. cdn.nba.com now answers 403 host-wide
+    # (Akamai "Access Denied" on every path, not just the scoreboard) and
+    # stats.nba.com does not answer at all. A cookie session does not lift it:
+    # a plain HTTP jar picks up 2 cookies from nba.com and is still refused,
+    # because Akamai's _abck/bm_sz tokens are minted by JavaScript the client
+    # never runs. ESPN serves the same completed games with scores — verified
+    # 15/15 completed on 2026-04-10 — so it is the source rather than the
+    # fallback until someone wants to drive a real browser for the tokens.
+    ("basketball", "nba", "basketball"),
     ("basketball", "wnba", "basketball"),
     ("basketball", "mens-college-basketball", "basketball"),
     ("basketball", "womens-college-basketball", "basketball"),
