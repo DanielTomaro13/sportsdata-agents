@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.danieltomaro.sportsdata-results</string>
+
+    <!-- Settles what the ingest captured. Without this the warehouse records
+         prices and never learns outcomes, which leaves every downstream
+         measurement (scoreboard, backtest, signal bench, calibration) with an
+         empty denominator. Hourly rather than daily because some sources only
+         serve a live/today board and lose the day once it rolls over. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/danieltomaro/Documents/Projects/sportsdata-agents/.venv/bin/agents</string>
+        <string>results</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/danieltomaro/Documents/Projects/sportsdata-agents</string>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/danieltomaro/Library/Logs/sportsdata-agents/results.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/danieltomaro/Library/Logs/sportsdata-agents/results.err.log</string>
+</dict>
+</plist>

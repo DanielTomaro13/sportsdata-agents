@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.danieltomaro.sportsdata-ingest</string>
+
+    <!-- 'cron 900' is the STATELESS pacing mode: each invocation runs only the
+         feeds whose own interval boundary was crossed in the last 900s. That is
+         why this is a periodic job rather than 'ingest loop': a long-running loop
+         dies silently with the laptop, and nothing notices. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/danieltomaro/Documents/Projects/sportsdata-agents/.venv/bin/agents</string>
+        <string>ingest</string>
+        <string>--once</string>
+        <string>--cron</string>
+        <string>900</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/danieltomaro/Documents/Projects/sportsdata-agents</string>
+
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/danieltomaro/Library/Logs/sportsdata-agents/ingest.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/danieltomaro/Library/Logs/sportsdata-agents/ingest.err.log</string>
+</dict>
+</plist>
