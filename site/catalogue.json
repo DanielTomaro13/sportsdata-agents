@@ -15029,6 +15029,225 @@
    ]
   },
   {
+   "id": "ufc",
+   "name": "UFC",
+   "kind": "sport",
+   "tag": "sport",
+   "byo": false,
+   "proxied": false,
+   "verified": true,
+   "count": 9,
+   "tools": [
+    {
+     "name": "ufc_athlete",
+     "desc": "One fighter with FULL career statistics and current ranking attached. The main athlete tool.",
+     "args": [
+      {
+       "n": "title",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "include",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{data:[{attributes:{title, nickname, age, dob, octagon_debut, stats_height, stats_weight, stats_reach_arm, stats_reach_leg, strengths, origin:{country_code}, residence, fightmetric_id, short_description}}], included:[{type:'athlete_stat--athlete_stat', attributes:{\u2026see ufc_athlete_stats for the full field list\u2026}}, {type:'athlete_ranking--athlete_ranking', attributes:{weight_class_rank, weight_clas"
+    },
+    {
+     "name": "ufc_athlete_stats",
+     "desc": "League-wide FightMetric statistics, sortable \u2014 the all-time leaderboards. For ONE fighter's stats use ufc_athlete instead; this collection cannot be filtered.",
+     "args": [
+      {
+       "n": "sort",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "offset",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{data:[{attributes:{drupal_internal__fightmetric_id, career_fights, career_wins, career_losses, career_draws, career_no_contest, win_ko, win_sub, win_dec, first_rd_fin, title_def, win_streak, former_champion, avg_fight_time (SECONDS), total_bonuses, total_performance_night, total_fight_night, sig_strikes_landed, sig_strikes_attempted, sig_strikes_accuracy, stand_str_land, stand_str_att, clinch_str"
+    },
+    {
+     "name": "ufc_event_card",
+     "desc": "One event WITH its full fight card attached. Use this rather than ufc_events when you want the bouts.",
+     "args": [
+      {
+       "n": "title",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "include",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{data:[{attributes:{title, fight_card_time_main, event_card_location}, relationships:{fights:{data:[{type:'node--fight', id}]}}}], included:[{type:'node--fight', id, attributes:{title:'Fighter A vs Fighter B'}, relationships:{red_corner, blue_corner, fight_final_winner}}, {type:'node--athlete', \u2026}]}  \u2014 the CARD IS IN `included`, matched to `data[0].relationships.fights.data[].id`. Nothing useful i"
+    },
+    {
+     "name": "ufc_events",
+     "desc": "UFC events \u2014 past and upcoming \u2014 with per-segment card times, venue and location.",
+     "args": [
+      {
+       "n": "sort",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "offset",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "title",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "include",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{data:[{type:'node--event', id, attributes:{title:'UFC 330', number:330, subtitle, main_fight_name, fight_card_time_early, fight_card_time_prelims, fight_card_time_main, event_card_location:'Xfinity Mobile Arena, Philadelphia United States', main_card_time_localized, fightmetric_id, path:{alias:'/event/ufc-330'}}, relationships:{fights, venue, event_status, title_fight}}], links:{next, self}}  \u2014 t"
+    },
+    {
+     "name": "ufc_fights",
+     "desc": "Individual bouts \u2014 both corners and the winner \u2014 back to UFC 1.",
+     "args": [
+      {
+       "n": "sort",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "offset",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "title",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "include",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{data:[{attributes:{title:'Royce Gracie vs Ken Shamrock', created, changed}, relationships:{red_corner:{data:{type:'node--athlete', id}}, blue_corner:{\u2026}, fight_final_winner:{\u2026}, fight_status}}], included:[\u2026athletes\u2026]}  \u2014 `fight_final_winner` is null for an upcoming or drawn bout, so do not infer a loser from its absence."
+    },
+    {
+     "name": "ufc_jsonapi_index",
+     "desc": "The JSON:API resource index \u2014 all 290 resource types ufc.com exposes, for discovering surfaces this spec does not wrap yet.",
+     "args": [],
+     "example": "{jsonapi:{version}, links:{'node--event':{href}, 'node--athlete':{href}, 'athlete_stat--athlete_stat':{href}, \u2026290 entries\u2026}}  \u2014 each key is a resource type and its href is the collection URL. Useful when you need something this provider does not expose; most of the 290 are CMS plumbing (paragraphs, media, config) rather than sport data."
+    },
+    {
+     "name": "ufc_rankings",
+     "desc": "Divisional rankings, including pound-for-pound, with each fighter's previous position.",
+     "args": [
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "offset",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "fightmetric_id",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "sort",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "[{attributes:{fightmetric_id, weight_class_rank, weight_class_rank_previous, meta_weight_class_rank, meta_weight_class_rank_previous, is_interim, category}}]  \u2014 `category` distinguishes the division (0 appears to be pound-for-pound); compare `weight_class_rank` with `weight_class_rank_previous` for movement. Resolve `fightmetric_id` to a name via ufc_athlete_stats or ufc_search_athletes."
+    },
+    {
+     "name": "ufc_round_records",
+     "desc": "The single-round record book: most significant strikes, total strikes, takedowns and submission attempts in one round, ranked.",
+     "args": [
+      {
+       "n": "sort",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "offset",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "[{attributes:{fightmetric_id, rank, round, statname, value (a STRING), combined}}]  \u2014 `combined: true` means BOTH fighters' totals in that round; `false` is one fighter's. Mixing the two produces a nonsense leaderboard, so filter on it if you care. Resolve `fightmetric_id` to a name via ufc_search_athletes.\n\nWARNING: `filter[round]` and `filter[statname]` return 0 rows rather than an error (verifi"
+    },
+    {
+     "name": "ufc_search_athletes",
+     "desc": "Find fighters by partial name. Start here \u2014 every other athlete tool needs an exact title or an id.",
+     "args": [
+      {
+       "n": "name",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "operator",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{data:[{type:'node--athlete', id:'<uuid>', attributes:{title:'Israel Adesanya', nickname, fightmetric_id, path:{alias:'/athlete/israel-adesanya'}}}]}  \u2014 keep BOTH the uuid `id` (for JSON:API lookups) and `fightmetric_id` (for joining to stats and round records)."
+    }
+   ]
+  },
+  {
    "id": "unibet",
    "name": "Unibet",
    "kind": "gambling",
