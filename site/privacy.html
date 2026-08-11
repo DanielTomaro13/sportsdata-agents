@@ -23,51 +23,70 @@
   <a class="back" href="./">← sportsdata</a>
   <div class="wordmark">sports<span>data</span></div>
   <h1>Privacy Policy</h1>
-  <p class="dim">Last updated: 16 June 2026</p>
+  <p class="dim">Last updated: 11 August 2026</p>
 
-  <p>This policy explains how <b>sportsdata</b> handles personal information for
-  the sportsdata Service.</p>
+  <p>This policy explains how <b>sportsdata</b> handles personal information. The short
+  version: this website collects page analytics and nothing else, and the software
+  itself runs entirely on your own machine.</p>
 
-  <h2>1. What we collect</h2>
+  <h2>1. What this website collects</h2>
   <ul>
-    <li><b>Account &amp; billing</b> — your email and subscription details. Card payments
-      are processed by <b>Stripe</b>; we do <b>not</b> store your full card details.</li>
-    <li><b>Licence &amp; entitlement</b> — your licence key and which feeds it grants, so
-      the Service can verify access.</li>
-    <li><b>Minimal operational data</b> — e.g. licence-verification requests. We do not
-      receive the contents of your AI conversations — the MCP runs on your machine.</li>
+    <li><b>Page analytics</b> — we use <b>Cloudflare Web Analytics</b>, which records
+      page views, referrer and rough country. It sets <b>no cookies</b>, does no
+      fingerprinting and does not track you across other sites. That is why this site
+      has no cookie banner.</li>
+    <li><b>Nothing else.</b> There are no accounts, no sign-up, no forms and no
+      newsletter. We do not ask for your email and have nowhere to store it.</li>
+    <li><b>The demo is a recording.</b> The interactive demo on the home page plays back
+      a saved transcript from a file. It makes no network request and sends nothing
+      anywhere.</li>
   </ul>
 
-  <h2>2. How we use it</h2>
-  <p>To provide and secure the Service, process billing, verify entitlements, provide
-  support, and send service/transactional emails. We do not sell your personal
-  information.</p>
+  <h2>2. What the software collects</h2>
+  <ul>
+    <li><b>Nothing, by default.</b> sportsdata-mcp runs on your machine and talks
+      directly to the sports providers. We never see your queries, your results, or the
+      contents of your AI conversations.</li>
+    <li><b>Usage counters stay local.</b> The server records its own call counts and
+      error rates so you can run <code>sportsdata-mcp stats</code>. That file never
+      leaves your machine.</li>
+    <li><b>Optional telemetry is off unless you turn it on</b>, which takes two
+      deliberate steps and has no default that transmits. Tool arguments are never
+      recorded. See
+      <a href="https://github.com/DanielTomaro13/sportsdata-mcp/blob/main/docs/TELEMETRY.md">docs/TELEMETRY.md</a>
+      for exactly what it would send.</li>
+    <li><b>Your provider keys are yours.</b> Keys you supply for optional providers are
+      read from your own environment and sent only to that provider. We never receive
+      them.</li>
+  </ul>
 
   <h2>3. Who we share it with</h2>
-  <ul>
-    <li><b>Stripe</b> — payment processing.</li>
-    <li><b>Resend</b> — transactional email (licence + setup).</li>
-    <li><b>Cloudflare</b> — entitlement service hosting.</li>
-    <li>Authorities where required by law.</li>
-  </ul>
+  <p>Nobody. We hold no personal information to share. Cloudflare processes the page
+  analytics described above as our provider; GitHub serves the site and hosts the code.</p>
 
-  <h2>4. Retention &amp; security</h2>
-  <p>We keep account/billing records while your subscription is active and as required
-  for legal/accounting purposes, then delete or anonymise them. We use reasonable
-  technical measures to protect data; no system is perfectly secure.</p>
+  <h2>4. Third-party providers</h2>
+  <p>When you run the software it requests data directly from the sports and betting
+  providers it supports. Those requests are between you and them, under their terms and
+  privacy policies — we are not a party to them and never see them.</p>
 
-  <h2>5. Your rights</h2>
-  <p>You may request access to, correction of, or deletion of your personal information,
-  subject to legal limits. Contact <b>danieltomaro@icloud.com</b>. This policy is intended to be
-  consistent with the Australian Privacy Principles.</p>
+  <h2>5. Retention &amp; your rights</h2>
+  <p>We hold no personal data about you, so there is nothing to export, correct or
+  delete. Cloudflare's analytics data is aggregate and not tied to an identity. If you
+  believe we hold something about you, contact us and we will look.</p>
 
   <h2>6. Contact</h2>
-  <p><b>danieltomaro@icloud.com</b> · <b>sportsdata</b>, Victoria, Australia.</p>
+  <p>Open an issue at
+  <a href="https://github.com/DanielTomaro13/sportsdata-mcp/issues">github.com/DanielTomaro13/sportsdata-mcp</a>.</p>
 
   <footer>
     <div class="wordmark">sports<span>data</span></div>
-    <div>© 2026 · <a href="terms.html">Terms</a> · <a href="refunds.html">Refunds</a> · <a href="./">Home</a></div>
+    <div>© 2026 · <a href="terms.html">Terms</a> · <a href="./">Home</a></div>
   </footer>
 </div>
+<!-- Cloudflare Web Analytics. The token is a PUBLIC site identifier, not a
+     secret — it ships in the HTML of every page by design. Privacy-preserving: no
+     cookies, no fingerprinting, no cross-site tracking, which is why privacy.html
+     does not need a cookie banner. -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "5740db870bb34d4b844d2a9d8cce3455"}'></script>
 </body>
 </html>
