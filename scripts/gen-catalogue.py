@@ -94,7 +94,9 @@ def _example(tool) -> str:
 def build() -> dict:
     if MCP_REPO.exists() and str(MCP_REPO) not in sys.path:
         sys.path.insert(0, str(MCP_REPO))
-    from sportsdata_mcp.spec_loader import load_all_specs  # noqa: PLC0415 - optional dep
+    # Imported here rather than at module scope: optional dep, and the sys.path
+    # insert above has to land first.
+    from sportsdata_mcp.spec_loader import load_all_specs
 
     providers = []
     for spec in sorted(load_all_specs(), key=lambda s: s.provider.id):
