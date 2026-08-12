@@ -5603,6 +5603,199 @@
    ]
   },
   {
+   "id": "fpl",
+   "name": "Fantasy Premier League",
+   "kind": "sport",
+   "tag": "sport",
+   "byo": false,
+   "proxied": false,
+   "verified": true,
+   "count": 16,
+   "tools": [
+    {
+     "name": "fpl_classic_league",
+     "desc": "Classic (total-points) league standings, paginated.",
+     "args": [
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "page_standings",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "page_new_entries",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{league:{id, name, created, closed, admin_entry, start_event, league_type, scoring}, new_entries:{has_next, page, results}, standings:{has_next, page, results:[{id, entry, entry_name, player_name, rank, last_rank, rank_sort, total, event_total}]}}  \u2014 `entry` is the manager id for fpl_manager; `rank` vs `last_rank` gives movement. Big leagues page at 50."
+    },
+    {
+     "name": "fpl_dream_team",
+     "desc": "The highest-scoring XI of a completed gameweek.",
+     "args": [
+      {
+       "n": "gameweek",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": "{top_player:{id, points}, team:[{element, position, points}]}  \u2014 404s until the gameweek is finished."
+    },
+    {
+     "name": "fpl_event_status",
+     "desc": "Whether bonus points and league tables have been finalised for the current gameweek.",
+     "args": [],
+     "example": "{status:[{bonus_added, date, event, points:'r'|'p'|'l'}], leagues:'Updated'|''}  \u2014 this is how you know scores are FINAL. `bonus_added: false` means bonus points are still provisional, so a score read now may change."
+    },
+    {
+     "name": "fpl_fixtures",
+     "desc": "Fixtures with FPL difficulty ratings, and goal/assist/bonus breakdowns once played.",
+     "args": [
+      {
+       "n": "event",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "future",
+       "t": "boolean",
+       "r": false
+      }
+     ],
+     "example": "[{id, code, event, team_h, team_a, team_h_score, team_a_score, kickoff_time, started, finished, finished_provisional, minutes, team_h_difficulty:1-5, team_a_difficulty:1-5, stats:[{identifier:'goals_scored'|'assists'|'bonus'|'bps'|'saves'|\u2026, h:[{element, value}], a:[{element, value}]}]}]  \u2014 `stats` is EMPTY until the match is played, then carries per-player contributions keyed by player id. The tw"
+    },
+    {
+     "name": "fpl_game_rules",
+     "desc": "Positions, chips, phases and scoring settings \u2014 the lookup tables the other tools' ids refer to.",
+     "args": [],
+     "example": "{element_types:[{id:1-4, singular_name:'Goalkeeper', plural_name, squad_select, squad_min_play, squad_max_play, element_count}], chips:[{id, name:'wildcard'|'freehit'|'bboost'|'3xc', number, start_event, stop_event}], phases:[{id, name:'Overall'|'August', start_event, stop_event}], game_settings:{squad_squadplay, squad_total_spend, transfers_cost, transfers_limit, \u2026}, element_stats:[{label:'Goals"
+    },
+    {
+     "name": "fpl_gameweeks",
+     "desc": "All 38 gameweeks: deadlines, average scores, highest score, chip usage, and which one is current.",
+     "args": [],
+     "example": "{events:[{id:1-38, name:'Gameweek 1', deadline_time:'2026-08-15T17:30:00Z', deadline_time_epoch, finished, data_checked, is_previous, is_current, is_next, average_entry_score, highest_score, highest_scoring_entry, most_selected, most_transferred_in, most_captained, most_vice_captained, top_element, transfers_made, chip_plays:[{chip_name, num_played}]}]}  \u2014 `deadline_time` is THE thing an agent nee"
+    },
+    {
+     "name": "fpl_h2h_league",
+     "desc": "Head-to-head league standings with win/draw/loss records.",
+     "args": [
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "page_standings",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{league:{id, name, league_type, scoring:'h'}, standings:{has_next, page, results:[{id, entry, entry_name, player_name, rank, last_rank, total, matches_played, matches_won, matches_drawn, matches_lost, points_for}]}}  \u2014 `total` is H2H league points (3 a win), `points_for` the FPL points scored. Ranking is on `total`, so a high scorer can sit mid-table."
+    },
+    {
+     "name": "fpl_live_gameweek",
+     "desc": "Live per-player scoring for a gameweek \u2014 points as they are being earned.",
+     "args": [
+      {
+       "n": "gameweek",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": "{elements:[{id, stats:{minutes, goals_scored, assists, clean_sheets, goals_conceded, saves, bonus, bps, total_points, expected_goals, \u2026}, explain:[{fixture, stats:[{identifier, points, value}]}]}]}  \u2014 `explain` breaks a player's points down by WHY they were awarded, which is the only way to reconcile a score. Returns `{elements: []}` for a gameweek that has not started \u2014 empty is normal pre-season"
+    },
+    {
+     "name": "fpl_manager",
+     "desc": "A manager's squad summary: overall rank, points, and every league they are in.",
+     "args": [
+      {
+       "n": "managerId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": "{id, name:'Squad Name', player_first_name, player_last_name, player_region_name, summary_overall_points, summary_overall_rank, summary_event_points, summary_event_rank, current_event, started_event, last_deadline_bank, last_deadline_value, last_deadline_total_transfers, leagues:{classic:[{id, name, entry_rank, entry_last_rank}], h2h:[\u2026], cup:{\u2026}}}  \u2014 `last_deadline_value` and `last_deadline_bank`"
+    },
+    {
+     "name": "fpl_manager_history",
+     "desc": "A manager's gameweek-by-gameweek history, past seasons, and chips already used.",
+     "args": [
+      {
+       "n": "managerId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": "{current:[{event, points, total_points, rank, overall_rank, bank, value, event_transfers, event_transfers_cost, points_on_bench}], past:[{season_name:'2024/25', total_points, rank}], chips:[{name:'wildcard', time, event}]}  \u2014 `chips` is what has ALREADY been played, which is how you know what is still available. `current` is empty before gameweek 1."
+    },
+    {
+     "name": "fpl_manager_picks",
+     "desc": "The exact XI, bench order, captain and chip a manager used in a gameweek.",
+     "args": [
+      {
+       "n": "managerId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "gameweek",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": "{active_chip, automatic_subs:[{element_in, element_out}], entry_history:{event, points, total_points, rank, bank, value, event_transfers, event_transfers_cost, points_on_bench}, picks:[{element, position:1-15, multiplier:0|1|2|3, is_captain, is_vice_captain}]}  \u2014 `position` 1-11 is the XI and 12-15 the bench IN ORDER. `multiplier` 2 is the captain, 3 a triple-captain chip, and 0 means they did not"
+    },
+    {
+     "name": "fpl_my_team",
+     "desc": "YOUR current squad including picks not yet visible to others, plus bank, free transfers and chip availability. Needs your FPL session cookie.",
+     "args": [
+      {
+       "n": "managerId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": "{picks:[{element, position, selling_price, purchase_price, multiplier, is_captain, is_vice_captain}], chips:[{status_for_entry:'available'|'played'|'unavailable', name, number, start_event, stop_event, chip_type}], transfers:{cost, status, limit, made, bank, value}}  \u2014 the ONE place `selling_price` and `purchase_price` appear: FPL sells a risen player back at half the gain, so selling_price is oft"
+    },
+    {
+     "name": "fpl_player_detail",
+     "desc": "One player in full: every gameweek this season, past seasons, and upcoming fixtures with difficulty.",
+     "args": [
+      {
+       "n": "playerId",
+       "t": "integer",
+       "r": true
+      }
+     ],
+     "example": "{fixtures:[{id, event, team_h, team_a, is_home, difficulty:1-5, kickoff_time}], history:[{element, fixture, round, total_points, minutes, goals_scored, assists, clean_sheets, bonus, bps, expected_goals, value, transfers_balance, selected, was_home, opponent_team}], history_past:[{season_name:'2024/25', total_points, minutes, goals_scored, end_cost, start_cost}]}  \u2014 `difficulty` is FPL's own 1 (eas"
+    },
+    {
+     "name": "fpl_players",
+     "desc": "Every FPL player with price, form, ownership, expected goals and availability. LARGE \u2014 ~65k tokens for all 581 players; use fpl_player_detail for one player's depth.",
+     "args": [],
+     "example": "{elements:[{id, web_name:'Salah', team:11, element_type:3, now_cost:145, total_points, points_per_game:'6.2', form:'5.4', selected_by_percent:'42.1', status:'a'|'i'|'d'|'s'|'u', news:'Knock - 75% chance of playing', chance_of_playing_next_round, minutes, goals_scored, assists, clean_sheets, bonus, expected_goals:'0.54', expected_assists, defensive_contribution, ict_index, ep_next:'6.1'}]}  \u2014 `now_"
+    },
+    {
+     "name": "fpl_set_piece_notes",
+     "desc": "Official set-piece taker notes per club \u2014 who takes penalties, corners and free kicks.",
+     "args": [],
+     "example": "{last_updated, teams:[{id, notes:[{external_link, info_message:'Penalties: Haaland, then Alvarez', source_link}]}]}  \u2014 genuinely useful for FPL and priced-market work alike: penalty duty is worth several points a season and moves with injuries."
+    },
+    {
+     "name": "fpl_teams",
+     "desc": "The 20 Premier League clubs with FPL's attack/defence strength ratings.",
+     "args": [],
+     "example": "{teams:[{id:1-20, name:'Arsenal', short_name:'ARS', code, strength:1-5, strength_overall_home, strength_overall_away, strength_attack_home, strength_attack_away, strength_defence_home, strength_defence_away, played, win, draw, loss, points, position, form}]}  \u2014 `id` is FPL's own alphabetical 1-20, NOT the Premier League's official team id; join to the `premierleague` provider by name. The strength"
+    }
+   ]
+  },
+  {
    "id": "golfcourseapi",
    "name": "GolfCourse API",
    "kind": "sport",
