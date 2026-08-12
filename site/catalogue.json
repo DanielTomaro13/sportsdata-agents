@@ -15170,9 +15170,9 @@
     },
     {
      "name": "ufc_jsonapi_index",
-     "desc": "The JSON:API resource index \u2014 all 290 resource types ufc.com exposes, for discovering surfaces this spec does not wrap yet.",
+     "desc": "The JSON:API resource index \u2014 all 291 resource types ufc.com exposes, for discovering surfaces this spec does not wrap yet.",
      "args": [],
-     "example": "{jsonapi:{version}, links:{'node--event':{href}, 'node--athlete':{href}, 'athlete_stat--athlete_stat':{href}, \u2026290 entries\u2026}}  \u2014 each key is a resource type and its href is the collection URL. Useful when you need something this provider does not expose; most of the 290 are CMS plumbing (paragraphs, media, config) rather than sport data."
+     "example": "{jsonapi:{version}, links:{'node--event':{href}, 'node--athlete':{href}, 'athlete_stat--athlete_stat':{href}, \u2026291 entries\u2026}}  \u2014 each key is a resource type and its href is the collection URL. Useful when you need something this provider does not expose; most of the 291 are CMS plumbing (paragraphs, media, config) rather than sport data."
     },
     {
      "name": "ufc_rankings",
@@ -15189,17 +15189,12 @@
        "r": false
       },
       {
-       "n": "fightmetric_id",
-       "t": "integer",
-       "r": false
-      },
-      {
        "n": "sort",
        "t": "string",
        "r": false
       }
      ],
-     "example": "[{attributes:{fightmetric_id, weight_class_rank, weight_class_rank_previous, meta_weight_class_rank, meta_weight_class_rank_previous, is_interim, category}}]  \u2014 `category` distinguishes the division (0 appears to be pound-for-pound); compare `weight_class_rank` with `weight_class_rank_previous` for movement. Resolve `fightmetric_id` to a name via ufc_athlete_stats or ufc_search_athletes."
+     "example": "[{attributes:{fightmetric_id, weight_class_rank, weight_class_rank_previous, meta_weight_class_rank, meta_weight_class_rank_previous, is_interim, category}}]  \u2014 `category` distinguishes the division (0 appears to be pound-for-pound); compare `weight_class_rank` with `weight_class_rank_previous` for movement. Resolve `fightmetric_id` to a name via ufc_search_athletes.\n\nWARNING: like the other custo"
     },
     {
      "name": "ufc_round_records",
