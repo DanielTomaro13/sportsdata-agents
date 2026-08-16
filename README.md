@@ -3,6 +3,7 @@
 [![CI](https://github.com/DanielTomaro13/sportsdata-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielTomaro13/sportsdata-agents/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/DanielTomaro13/sportsdata-agents)](https://github.com/DanielTomaro13/sportsdata-agents/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20this%20project-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/danieltomaro)
 
 > **Documentation:** [Architecture & system design](docs/ARCHITECTURE.md) ·
 > [Repo structure](docs/STRUCTURE.md) · [Agent roster](docs/AGENTS.md) ·
@@ -197,6 +198,15 @@ browser (no payment logic in the app). What remains to go live is account
 setup, not code — see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md), the milestone log
 in [`docs/history/BUILD_PLAN.md`](docs/history/BUILD_PLAN.md), and
 [`POST_DEV.md`](./POST_DEV.md) for everything built-but-switched-off.
+
+---
+
+## Support this project
+
+sportsdata-agents is free and MIT-licensed, with no paid tier and nothing gated.
+If it's useful to you, you can support the work at
+**[ko-fi.com/danieltomaro](https://ko-fi.com/danieltomaro)** — optional, and a
+star or a good bug report helps just as much.
 
 ---
 
