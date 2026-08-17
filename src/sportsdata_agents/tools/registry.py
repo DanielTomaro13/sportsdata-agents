@@ -11,6 +11,7 @@ from typing import Any
 
 from sportsdata_agents.agents.harness import ToolDef
 from sportsdata_agents.tools.desk import DESK_TOOLS
+from sportsdata_agents.tools.fantasy import FANTASY_TOOLS
 from sportsdata_agents.tools.skillsmith import SKILLSMITH_TOOLS
 
 
@@ -553,6 +554,10 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
     **DESK_TOOLS,
     # Skill learning loop — the generalist's growth mechanism.
     **SKILLSMITH_TOOLS,
+    # Fantasy: the ONLY route from an agent to a real team. These wrap the policy /
+    # approval / read-back plane; the raw `fpl.write` MCP tools are never granted to a
+    # spec, because a gate the model can call around is not a gate.
+    **FANTASY_TOOLS,
 }
 
 

@@ -1,13 +1,17 @@
 spec_version: 1
 
-# Fantasy Premier League — Phase 0 of the fantasy-agent plan: a RECOMMENDER.
+# Fantasy Premier League — Phase 1: a manager that PROPOSES, and acts only where the
+# owner's policy already said it could.
 #
-# It reads a real squad and says what it would do and why. It takes NO actions: FPL's
-# write endpoints exist and their payloads are known (see the MCP repo's
-# docs/FANTASY-AGENTS-PLAN.md), but they are deliberately not wired here. Phase 0 exists
-# to answer the question that decides whether the rest is worth building — are the
-# agent's decisions actually better than the owner's? — and that question is answered
-# more cheaply and safely by advice than by execution.
+# It reads a real squad, decides what it would do, and routes that through the policy
+# plane in `sportsdata_agents.fantasy`. What happens next is not the agent's choice:
+# every action is applied, sent to the owner for approval, or refused, according to
+# settings the owner controls with `agents fantasy policy`. Defaults are `ask`.
+#
+# THE RAW WRITE TOOLS ARE NOT GRANTED HERE, and that is the design rather than an
+# oversight. `fpl.write` is absent from mcp_groups; the three `fpl_propose_*` native
+# tools are the only route to FPL, and each one runs policy → approval → single write →
+# read-back. A policy the model could call around would be decoration.
 #
 # Separate from `fantasy_advisor`, which is DFS-shaped: salary caps, contest rules,
 # cash-vs-GPP. Season-long FPL is a different game — 38 hard deadlines, price changes,
@@ -16,12 +20,35 @@ spec_version: 1
 agent:
   id: fpl_manager
   display_name: "FPL Manager"
-  description: "Fantasy Premier League: squad review, captaincy, transfers and chip timing. Advisory only — takes no actions."
-  version: 0.1.0
+  description: "Fantasy Premier League: squad review, captaincy, transfers and chip timing. Proposes changes; the owner's policy decides whether they happen."
+  version: 0.2.0
   model_tier: balanced
   system_prompt: |
-    You advise on a Fantasy Premier League squad. You RECOMMEND; you never act. There
-    are no write tools here, and you should say so plainly if asked to make a change.
+    You manage a Fantasy Premier League squad on behalf of its owner.
+
+    YOU DO NOT DECIDE WHETHER YOUR CHANGES HAPPEN. You propose them with
+    `fpl_propose_lineup` and `fpl_propose_transfer`; the owner's policy decides whether
+    each one is applied now, sent to them to approve, or refused. Every call returns
+    `status` and `team_changed`. READ THEM AND REPORT WHAT THEY SAY:
+
+      * `team_changed: true`  → the change is live and was verified against the squad.
+      * `status: "proposed"`  → NOTHING HAS CHANGED. It is waiting on the owner. Say so
+                                plainly and give them the `proposal_id`.
+      * `status: "skipped"`   → the policy refused. Say why (the `policy` field).
+      * `status: "failed"`    → the write did not land as intended. Tell the owner to
+                                check their team; read `mismatches` out to them.
+
+    Never tell the owner you have changed their team unless `team_changed` is true. That
+    is the single worst mistake available to you: an owner who believes their lineup is
+    set will not check it.
+
+    TWO NUMBERS ARE NOT YOURS TO STATE. The deadline and the points cost of a transfer
+    are computed from FPL's own data by the tools. Do not assert a cost — make the call
+    and read `points_cost` back. Your arithmetic is not the authority here.
+
+    CHIPS ALWAYS GO TO THE OWNER, whatever else the policy allows. There are four in a
+    season and each is unrecoverable. Propose one only with a clear argument for the
+    timing, and expect to be asked to justify it.
 
     ALWAYS START by establishing the state, in this order. Skipping any of it produces
     confident wrong advice:
@@ -80,10 +107,14 @@ agent:
     # This agent plays exactly one game on exactly one platform, so naming FPL's four
     # groups gives it all 16 tools and nothing else. Capabilities remain the right
     # choice for an agent that genuinely spans providers.
+    #
+    # `fpl.write` is NOT here. The three native fpl_propose_* tools are the only route
+    # to a write, and they run the policy plane first. Adding fpl.write to this list
+    # would hand the model an unpoliced path to a real team.
     mcp_groups: [fpl.players, fpl.reference, fpl.fixtures, fpl.managers]
-    native: [run_python]
-  # Advisory only. Writing to someone's team is Phase 1, behind a policy engine and an
-  # approval step — not something this agent should acquire by accident.
+    native: [run_python, fpl_propose_lineup, fpl_propose_transfer, fpl_review_proposals]
+  # Belt and braces: even if `fpl.write` were added to mcp_groups by mistake,
+  # fpl_transfers carries `sport.transactions` and would still be refused.
   forbidden_capabilities: [sport.transactions]
   sandbox: ephemeral
   context:

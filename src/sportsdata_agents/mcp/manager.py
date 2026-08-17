@@ -66,6 +66,20 @@ DENY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# EXACT names exempted from the pattern above, and nothing else ever gets added
+# casually. The invariant is "no agent places a bet or moves money"; these move a
+# footballer between a squad and a bench for in-game currency, and no real money exists
+# anywhere in the endpoint. The filter is a NAME filter and cannot tell the two senses
+# of "transfer" apart.
+#
+# Listed by exact name on purpose. Relaxing the regex instead — say, requiring a word
+# boundary or excluding an `fpl_` prefix — would silently re-admit anything else that
+# happens to be named that way, and the value of this filter is that it is blunt.
+DENY_EXCEPTIONS = frozenset({
+    "fpl_transfers",         # MCP: FPL squad transfers (in-game currency only)
+    "fpl_propose_transfer",  # native: the policy-gated wrapper around it
+})
+
 
 class ForbiddenToolError(PermissionError):
     """Raised when something asks for a tool the no-money invariant forbids."""
@@ -77,6 +91,8 @@ class ForbiddenToolError(PermissionError):
 
 def is_denied(tool_name: str) -> bool:
     """True if a tool name trips the no-money deny-filter."""
+    if tool_name in DENY_EXCEPTIONS:
+        return False
     return bool(DENY_PATTERN.search(tool_name))
 
 
