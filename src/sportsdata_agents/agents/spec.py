@@ -36,7 +36,18 @@ def _validate_names(kind: str, names: list[str], pattern: re.Pattern[str]) -> li
 
 
 class ToolsSpec(BaseModel):
-    """What an agent may call. Prefer capabilities (cross-provider) over raw groups."""
+    """What an agent may call.
+
+    Capabilities for an agent that genuinely spans providers; GROUPS for one that does
+    not. That is a change from the older "prefer capabilities" rule, which assumed
+    capabilities narrow the tool set — with 63 providers in the catalogue they widen it.
+    Measured on the FPL agent: the thirteen capabilities it needs resolve to 289 tools
+    (~115k tokens of definitions, against a 120k budget) because `ref.players` alone
+    matches a dozen providers, while naming FPL's four groups gives all 16 of its tools
+    for ~3k tokens.
+
+    Rule of thumb: if the agent plays one game on one platform, name the groups.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
