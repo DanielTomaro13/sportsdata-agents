@@ -779,10 +779,6 @@ def chat(
     asyncio.run(_chat())
 
 
-if __name__ == "__main__":  # pragma: no cover
-    app()
-
-
 @app.command()
 def ingest(
     once: bool = typer.Option(True, "--once/--loop", help="One capture (default) or the scheduled loop."),
@@ -2292,3 +2288,135 @@ def watches_rm(name: str = typer.Argument(..., help="The watch to delete.")) -> 
             await engine.dispose()
 
     asyncio.run(_run())
+
+
+# ─── fantasy: policies and the approvals queue ──────────────────────────
+
+fantasy_app = typer.Typer(
+    name="fantasy",
+    help="Fantasy teams: set what the agent may do unattended (`policy`), and approve "
+         "or reject what it wants to do (`pending`, `approve`, `reject`).",
+    no_args_is_help=True,
+)
+app.add_typer(fantasy_app, name="fantasy")
+
+
+@fantasy_app.command(name="pending")
+def fantasy_pending() -> None:
+    """Everything waiting on you, newest first. Expired proposals are dropped here
+    rather than shown — a proposal past its deadline can no longer be approved."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from sportsdata_agents.fantasy.approvals import Store
+
+    store = Store.load()
+    rows = sorted(store.pending(), key=lambda p: p.expires_at)
+    if not rows:
+        typer.echo("nothing pending")
+        return
+
+    table = Table(title="awaiting your approval")
+    for col in ("id", "team", "action", "what", "cost", "expires"):
+        table.add_column(col)
+    for p in rows:
+        table.add_row(
+            p.id[:8], f"{p.platform}:{p.entry}", p.action, p.summary,
+            f"{p.cost_points}pt" if p.cost_points else "-",
+            p.expires_at.replace("T", " "),
+        )
+    Console().print(table)
+    typer.echo("\napprove with:  agents fantasy approve <id>")
+
+
+@fantasy_app.command(name="show")
+def fantasy_show(proposal_id: str = typer.Argument(..., help="Id or unique prefix.")) -> None:
+    """The full diff and the exact payload that would be sent."""
+    import json
+
+    from sportsdata_agents.fantasy.approvals import Store
+
+    p = Store.load().find(proposal_id)
+    if p is None:
+        typer.echo(f"error: no proposal matching {proposal_id!r}", err=True)
+        raise typer.Exit(1)
+    typer.echo(p.as_notification())
+    typer.echo(f"\nstate: {p.state.value}")
+    if p.outcome:
+        typer.echo(f"outcome: {p.outcome}")
+    typer.echo("\npayload that would be sent:")
+    typer.echo(json.dumps(p.payload, indent=2))
+
+
+@fantasy_app.command(name="approve")
+def fantasy_approve(proposal_id: str = typer.Argument(..., help="Id or unique prefix.")) -> None:
+    """Approve a proposal. Approval does not execute it — the next agent run does, and
+    only while the proposal is still inside its deadline."""
+    from sportsdata_agents.fantasy.approvals import Store
+
+    store = Store.load()
+    p, msg = store.approve(proposal_id)
+    if p is None or msg != "approved":
+        typer.echo(f"not approved: {msg}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"✓ {msg}: {p.summary}")
+
+
+@fantasy_app.command(name="reject")
+def fantasy_reject(proposal_id: str = typer.Argument(..., help="Id or unique prefix.")) -> None:
+    """Reject a proposal. It will not be acted on."""
+    from sportsdata_agents.fantasy.approvals import Store
+
+    p, msg = Store.load().reject(proposal_id)
+    if p is None:
+        typer.echo(f"error: {msg}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"✓ rejected: {p.summary}")
+
+
+@fantasy_app.command(name="policy")
+def fantasy_policy(
+    entry: int = typer.Argument(..., help="Your team/manager id on the platform."),
+    platform: str = typer.Option("fpl", help="Platform this team is on."),
+    set_: list[str] = typer.Option(
+        None, "--set", help="key=value, e.g. --set lineup=auto --set max_hit=4"),
+) -> None:
+    """Show or change what the agent may do to one team unattended.
+
+    With no --set this prints the current settings. Everything defaults to `ask`,
+    because the cost of an agent that acts too freely is a season and the cost of one
+    that asks too often is a notification.
+    """
+    from sportsdata_agents.fantasy.policy import LeaguePolicy, load_policies, save_policy
+
+    key = f"{platform}:{entry}"
+    policies = load_policies()
+    policy = policies.get(key) or LeaguePolicy(platform=platform, entry=entry)
+
+    if set_:
+        updates = dict(_parse_kv(list(set_)))
+        for field_, value in updates.items():
+            if not hasattr(policy, field_):
+                typer.echo(f"error: no such setting {field_!r}", err=True)
+                raise typer.Exit(1)
+            setattr(policy, field_, value)
+        try:
+            policy.__post_init__()  # re-run the rules; chips=auto is rejected here
+        except ValueError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(1) from None
+        save_policy(policy)
+        typer.echo(f"✓ saved policy for {key}")
+
+    typer.echo(f"\n{key}")
+    for field_ in ("lineup", "captain", "transfers", "chips", "max_hit",
+                   "quiet_hours", "max_actions_per_gameweek",
+                   "act_within_hours_of_deadline"):
+        typer.echo(f"  {field_:<28} {getattr(policy, field_)}")
+    typer.echo("\n  chips are never automatic — that is a rule, not a default")
+
+
+# Must stay LAST: `python -m sportsdata_agents.interfaces.cli` executes the module top to
+# bottom, so anything below this line would not be registered before app() runs.
+if __name__ == "__main__":  # pragma: no cover
+    app()
