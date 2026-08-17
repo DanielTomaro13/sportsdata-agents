@@ -38,8 +38,8 @@
   :root{--bg:#05080f;--ink:#eef2ff;--dim:#8e97b3;--acc1:#6e8bff;--acc2:#3dd6f5;--border:rgba(255,255,255,.1)}
   *{box-sizing:border-box}
   body{background:var(--bg);color:var(--ink);font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
-    margin:0;padding:48px 20px;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:760px;margin:0 auto}
+    margin:0;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:0 20px 48px}
   .wordmark{font-weight:800;font-size:18px;letter-spacing:-.3px}
   .wordmark span{background:linear-gradient(90deg,var(--acc1),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
   a{color:var(--acc2)}
@@ -54,18 +54,20 @@
 </style>
 </head>
 <body>
+<div class="navbar">
+  <nav class="sitenav" aria-label="Primary">
+  <a class="wordmark" href="/">sports<span>data</span></a>
+  <div class="sitenav-links">
+    <a href="/">Home</a>
+    <a href="/#feeds">Tools</a>
+    <a href="/agents.html">Agents</a>
+    <a href="/board/">Racing board</a>
+    <a href="/sports/">Sports board</a>
+    <a href="/search.html">Search</a>
+  </div>
+</nav>
+</div>
 <div class="wrap">
-    <nav class="sitenav" aria-label="Primary">
-    <a class="wordmark" href="/">sports<span>data</span></a>
-    <div class="sitenav-links">
-      <a href="/#feeds">Tools</a>
-      <a href="/agents.html">Agents</a>
-      <a href="/engines.html">Pricing engines</a>
-      <a href="/board/">Racing board</a>
-      <a href="/sports/">Sports board</a>
-      <a href="/search.html">Search</a>
-    </div>
-  </nav>
 
   <div class="crumbs"><a href="/">Home</a> › <span aria-current="page">Terms of Service</span></div>
   <h1>Terms of Service</h1>

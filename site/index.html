@@ -199,22 +199,21 @@
   main { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
 
   /* ── nav ── */
-  /* Pinned to the top of the viewport, like every other page's bar. Needs its own
-     background so the hero and the marquee do not show through underneath it. */
-  nav { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px;
-    flex-wrap: wrap; padding: 16px 0; position: sticky; top: 0; z-index: 60;
-    background: rgba(5,8,15,.72); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  /* Pinned to the top of the viewport, like every other page's bar. The background lives
+     on the full-width wrapper; the nav itself is just the centred column inside it. */
+  .navbar { position: sticky; top: 0; z-index: 60;
+    background: rgba(5,8,15,.93); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border-bottom: 1px solid rgba(255,255,255,.07); }
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    nav { background: rgba(5,8,15,.94); }
-  }
+  nav { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px;
+    flex-wrap: wrap; max-width: 1060px; margin: 0 auto; padding: 16px 24px; }
+  .wordmark { text-decoration: none; color: var(--ink); }
   .navlinks { display: flex; gap: 8px 18px; flex-wrap: wrap; }
   .navlinks a { color: var(--dim); text-decoration: none; font-size: 14px; transition: color .2s; }
   .navlinks a:hover, .navlinks a:focus-visible { color: var(--ink); }
   /* Pinned on a phone too, so it stays one row: the links scroll sideways instead of
      wrapping onto three lines and swallowing a third of the screen. */
   @media (max-width: 900px) {
-    nav { flex-wrap: nowrap; gap: 14px; padding: 11px 0; }
+    nav { flex-wrap: nowrap; gap: 14px; padding: 11px 20px; }
     .navlinks { flex-wrap: nowrap; overflow-x: auto; min-width: 0; gap: 14px;
       scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; }
     .navlinks::-webkit-scrollbar { display: none; }
@@ -469,14 +468,17 @@
 <body>
 <div class="orbs"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
 <div class="grid-bg"></div>
-<main>
-  <a class="skiplink" href="#main-content">Skip to content</a>
+<a class="skiplink" href="#main-content">Skip to content</a>
+<!-- The bar sits OUTSIDE main so its background runs edge to edge. Inside main it was
+     clipped to the 1060px column, and the hero orbs showed past its ends — which is why
+     it read as a different colour from the bar on every other page. -->
+<div class="navbar">
   <nav aria-label="Primary">
-    <div class="wordmark">sports<span>data</span></div>
+    <a class="wordmark" href="/">sports<span>data</span></a>
     <div class="navlinks">
+      <a href="/">Home</a>
       <a href="#feeds">Tools</a>
       <a href="agents.html">Agents</a>
-      <a href="engines.html">Pricing engines</a>
       <a href="board/">Racing board</a>
       <a href="sports/">Sports board</a>
       <a href="#faq">FAQ</a>
@@ -485,6 +487,8 @@
     </div>
     <div class="chip">Free &amp; <b>open source</b></div>
   </nav>
+</div>
+<main>
   <div id="main-content"></div>
 
   <div class="hero">
@@ -862,12 +866,12 @@ uvx sportsdata-mcp serve
       .xcard .go{display:inline-block;margin-top:10px;font-size:13px;color:var(--acc2)}
     </style>
     <div class="sec-head"><h2>Explore the rest of the site</h2>
-      <p>Three live surfaces built on the same data plane — all free to open, nothing to install.</p></div>
+      <p>Live surfaces built on the same data plane — all free to open, nothing to install.</p></div>
     <div class="xgrid">
-      <a class="xcard" href="engines.html">
-        <h3>Pricing engines →</h3>
-        <p>Every market the engines can price — 224 markets across 15 sports, measured from the engines themselves rather than claimed.</p>
-        <span class="go">See the coverage matrix</span>
+      <a class="xcard" href="agents.html">
+        <h3>Agent types →</h3>
+        <p>The full roster in six kinds, the anatomy of an agent spec, and the FPL Manager agent end to end — spec, tool budget and a sample answer.</p>
+        <span class="go">See which agent to leverage</span>
       </a>
       <a class="xcard" href="board/">
         <h3>Racing board →</h3>
@@ -967,7 +971,6 @@ uvx sportsdata-mcp serve
         <a href="#get">Download</a>
         <a href="#demo">Watch the demo</a>
         <a href="agents.html">Agent types</a>
-        <a href="engines.html">Pricing engines</a>
       </div>
       <div>
         <h4>Live boards</h4>
