@@ -3,9 +3,157 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Live sports data and cross-book odds as MCP tools — wired straight into your own AI client. Stats, results, odds; bring your own model key.">
-<title>sportsdata — sports data MCPs for your own AI tool</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236e8bff'/%3E%3Cstop offset='1' stop-color='%237cf5c8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%2305080f'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='url(%23g)' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<title>Sports Data MCP Server — Live Odds &amp; Stats | sportsdata</title>
+<meta name="description" content="Free, open-source MCP server giving Claude, Cursor or any AI client live sports data and cross-book odds — 60+ providers, 750+ tools. No account, no key, no catch.">
+<link rel="canonical" href="https://sportsdata-ai.com/">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="theme-color" content="#05080f">
+<meta name="author" content="sportsdata">
+
+<!-- icons -->
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+
+<!-- open graph / twitter -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="sportsdata">
+<meta property="og:locale" content="en_AU">
+<meta property="og:url" content="https://sportsdata-ai.com/">
+<meta property="og:title" content="Sports Data MCP Server — Live Odds &amp; Stats in Your Own AI Tool">
+<meta property="og:description" content="Free, open-source MCP server giving Claude, Cursor or any AI client live sports data and cross-book odds — 60+ providers, 750+ tools. No account, no key, no catch.">
+<meta property="og:image" content="https://sportsdata-ai.com/assets/og-cover.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="sportsdata — live odds and stats in your own AI tool. Free and open source MCP server.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Sports Data MCP Server — Live Odds &amp; Stats in Your Own AI Tool">
+<meta name="twitter:description" content="Free, open-source MCP server giving any AI client live sports data and cross-book odds — 60+ providers, 750+ tools.">
+<meta name="twitter:image" content="https://sportsdata-ai.com/assets/og-cover.jpg">
+
+<!-- Structured data. Counts are deliberately written as "60+"/"750+" rather than exact
+     figures: the real numbers come from catalogue.json at runtime and move every time a
+     provider ships, and stale precision here is worse than honest approximation. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://sportsdata-ai.com/#website",
+      "url": "https://sportsdata-ai.com/",
+      "name": "sportsdata",
+      "description": "Free, open-source MCP server for live sports data and cross-book odds.",
+      "inLanguage": "en",
+      "publisher": { "@id": "https://sportsdata-ai.com/#org" },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://sportsdata-ai.com/search.html?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://sportsdata-ai.com/#org",
+      "name": "sportsdata",
+      "url": "https://sportsdata-ai.com/",
+      "logo": "https://sportsdata-ai.com/assets/icon-512.png",
+      "email": "danieltomaro@icloud.com",
+      "sameAs": [
+        "https://github.com/DanielTomaro13/sportsdata-mcp",
+        "https://github.com/DanielTomaro13/sportsdata-agents",
+        "https://ko-fi.com/danieltomaro"
+      ]
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://sportsdata-ai.com/#app",
+      "name": "sportsdata MCP",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Model Context Protocol server",
+      "operatingSystem": "macOS, Windows, Linux",
+      "url": "https://sportsdata-ai.com/",
+      "downloadUrl": "https://api.sportsdata-ai.com/download",
+      "softwareHelp": "https://github.com/DanielTomaro13/sportsdata-mcp",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "description": "An MCP server exposing live sports data and cross-book betting odds from 60+ providers as 750+ tools, usable from Claude Desktop, Cursor or any MCP client.",
+      "publisher": { "@id": "https://sportsdata-ai.com/#org" },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "AUD",
+        "availability": "https://schema.org/InStock"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://sportsdata-ai.com/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is an MCP server for sports data?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "The Model Context Protocol (MCP) is an open standard that lets an AI client call external tools. sportsdata is an MCP server that exposes live sports data and bookmaker odds as tools, so an assistant like Claude Desktop or Cursor can fetch real fixtures, stats and prices instead of guessing from memory."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How much does sportsdata cost?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Nothing. Both the MCP data plane and the agent workbench app are free and MIT licensed. There is no account and no API key to buy. If you use the agent app you supply your own model key, and you pay your model provider directly for that usage. Donations on Ko-fi are voluntary and unlock nothing."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which sports and bookmakers are covered?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Over 60 providers. Sport and stats feeds cover AFL, NRL, NBA, MLB, NFL, NHL, EPL, cricket, golf, tennis, F1, UFC, and horse, harness and greyhound racing. Odds come from bookmakers including Sportsbet, TAB, Pinnacle, Unibet, PointsBet, Ladbrokes, Neds, betr, Dabble and FanDuel, plus odds aggregators and the Kalshi and Polymarket prediction markets."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I install it in Claude Desktop or Cursor?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "The server is published on PyPI, so a single line wires it into any MCP client: uvx sportsdata-mcp serve. There is also a prebuilt app that needs no Python — download it, unzip, and run ./sportsdata-mcp setup."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I need my own API keys?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "For most providers, no. A subset of feeds require a key you obtain yourself from that provider; those are marked with a key icon in the tool browser, and everything else works with no credentials at all."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does sportsdata give betting advice?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. It returns data — prices, stats, fixtures and model outputs — for information only. Nothing on the site or in the tools is betting or financial advice, and the service is for adults aged 18 and over."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is my data sent anywhere?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. The MCP server runs on your own machine and talks directly to the upstream data providers, so your conversations and your model key never reach us. This website uses Cloudflare Web Analytics for page counts, which sets no cookies, does no fingerprinting and does not track you across other sites."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 <style>
   :root {
     --bg: #05080f;
@@ -51,7 +199,32 @@
   main { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
 
   /* ── nav ── */
-  nav { display: flex; align-items: center; justify-content: space-between; padding: 26px 0; }
+  /* Pinned to the top of the viewport, like every other page's bar. Needs its own
+     background so the hero and the marquee do not show through underneath it. */
+  nav { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px;
+    flex-wrap: wrap; padding: 16px 0; position: sticky; top: 0; z-index: 60;
+    background: rgba(5,8,15,.72); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255,255,255,.07); }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    nav { background: rgba(5,8,15,.94); }
+  }
+  .navlinks { display: flex; gap: 8px 18px; flex-wrap: wrap; }
+  .navlinks a { color: var(--dim); text-decoration: none; font-size: 14px; transition: color .2s; }
+  .navlinks a:hover, .navlinks a:focus-visible { color: var(--ink); }
+  /* Pinned on a phone too, so it stays one row: the links scroll sideways instead of
+     wrapping onto three lines and swallowing a third of the screen. */
+  @media (max-width: 900px) {
+    nav { flex-wrap: nowrap; gap: 14px; padding: 11px 0; }
+    .navlinks { flex-wrap: nowrap; overflow-x: auto; min-width: 0; gap: 14px;
+      scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; }
+    .navlinks::-webkit-scrollbar { display: none; }
+    .navlinks a { font-size: 13px; white-space: nowrap; }
+    .chip { display: none; }
+  }
+  .skiplink { position: absolute; left: -9999px; top: 0; background: var(--acc2); color: #06101f;
+    padding: 10px 18px; border-radius: 0 0 10px 0; font-weight: 650; z-index: 100; }
+  .skiplink:focus { left: 0; }
+  :focus-visible { outline: 2px solid var(--acc2); outline-offset: 3px; border-radius: 4px; }
   .wordmark { font-weight: 800; font-size: 19px; letter-spacing: -.3px; }
   .wordmark span { background: linear-gradient(90deg, var(--acc1), var(--acc2));
                    -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -297,10 +470,22 @@
 <div class="orbs"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
 <div class="grid-bg"></div>
 <main>
-  <nav>
+  <a class="skiplink" href="#main-content">Skip to content</a>
+  <nav aria-label="Primary">
     <div class="wordmark">sports<span>data</span></div>
+    <div class="navlinks">
+      <a href="#feeds">Tools</a>
+      <a href="agents.html">Agents</a>
+      <a href="engines.html">Pricing engines</a>
+      <a href="board/">Racing board</a>
+      <a href="sports/">Sports board</a>
+      <a href="#faq">FAQ</a>
+      <a href="#get">Get it</a>
+      <a href="search.html">Search</a>
+    </div>
     <div class="chip">Free &amp; <b>open source</b></div>
   </nav>
+  <div id="main-content"></div>
 
   <div class="hero">
     <div class="eyebrow"><span class="dot"></span><span data-cat="headline">Cross-book odds from 10 bookmakers, 4 odds aggregators and 2 prediction markets, plus 42 sports feeds</span></div>
@@ -377,7 +562,7 @@
       .tb-empty{color:var(--faint,#62748f);font-size:13px;padding:24px;text-align:center}
     </style>
     <div class="sec-head"><h2>Browse every tool</h2><p>Pick an MCP to see exactly what it gives you — every tool, across <span data-cat="providers">60</span> data providers.</p></div>
-    <p class="boundary"><b>Base is the data tools, inside your own AI client</b> (Claude Desktop, Cursor, ChatGPT… — you bring your model key). <b>No agents, no app to run</b> — just live sports &amp; odds in the assistant you already use. <em>The agent app (chat, the agent team, alerts) is Plus/Pro — coming soon, a separate product.</em></p>
+    <p class="boundary"><b>These are the data tools, inside your own AI client</b> (Claude Desktop, Cursor, ChatGPT… — you bring your model key). <b>No agents, no app to run</b> — just live sports &amp; odds in the assistant you already use. <em>Want the chat, the agent team and the live monitors too? That's the <a href="#app" style="color:var(--acc2)">agent workbench app</a> — also free, also open source, and a separate download.</em></p>
     <div class="tb">
       <div class="tb-left">
         <input class="tb-search" id="tb-search" placeholder="Search tools…" />
@@ -449,7 +634,7 @@
       <h2>Watch the agents work</h2>
       <p>Pick a question. The team routes it to a specialist, calls the real data tools,
       and answers with sources — every step visible.</p>
-      <p style="font-size:13px;color:var(--warn,#fbbf24)">A recorded preview of the <b>coming-soon agent app</b> — not included in Base. What's on sale today is the raw <b>data tools</b>, inside your own AI client.</p>
+      <p style="font-size:13px;color:var(--warn,#fbbf24)">A recorded preview of the <b>agent workbench app</b>, which is a separate free download. If you just want the raw <b>data tools</b> inside your own AI client, you don't need the app at all.</p>
     </div>
     <div class="prompts" id="prompts"></div>
     <div class="console">
@@ -467,6 +652,70 @@
         <span class="live"></span><span id="foot-note">pick a prompt to run the demo</span>
         <button class="replay" id="replay" hidden>↻ replay</button>
       </div>
+    </div>
+  </section>
+
+  <section id="agents">
+    <style>
+      .agrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));max-width:1000px;margin:0 auto}
+      /* these are anchors, so colour must be set explicitly — index.html has no global a{} rule
+         and the headings would otherwise render as default browser-blue link text */
+      .acard{display:block;text-decoration:none;color:var(--ink);
+        background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:18px 20px;
+        transition:transform .3s var(--ease),border-color .3s}
+      .acard:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.22)}
+      .acard .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+        color:var(--acc1);margin-bottom:7px}
+      .acard h3{font-size:15.5px;margin-bottom:5px;color:var(--ink)}
+      .acard p{font-size:13px;color:var(--dim);line-height:1.55}
+      .acard .who{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+      .acard .who span{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border-radius:999px;
+        background:rgba(255,255,255,.05);border:1px solid var(--card-border);color:var(--faint,#62748f)}
+      .aftr{max-width:1000px;margin:18px auto 0;display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+        justify-content:space-between;border:1px solid var(--card-border);border-radius:16px;
+        background:var(--card);padding:18px 22px}
+      .aftr p{font-size:13.5px;color:var(--dim);margin:0;max-width:62ch}
+      .aftr p b{color:var(--ink)}
+      .aftr a{flex:none;font-size:13.5px;color:var(--acc2);text-decoration:none;font-weight:600}
+    </style>
+    <div class="sec-head"><h2>Which agent to leverage</h2>
+      <p>Twenty-eight specialists ship with the app, in six kinds. You rarely have to pick — the
+      orchestrator routes for you — but it's worth knowing what's on the bench.</p></div>
+    <div class="agrid">
+      <a class="acard" href="agents.html">
+        <div class="k">Kind 01–02</div>
+        <h3>Router &amp; data specialists</h3>
+        <p>A toolless orchestrator that delegates, and desks that each own one slice of the data
+        plane — odds, stats, racing, prediction markets, news.</p>
+        <div class="who"><span>orchestrator</span><span>odds_specialist</span><span>racing_analyst</span></div>
+      </a>
+      <a class="acard" href="agents.html">
+        <div class="k">Kind 03–04</div>
+        <h3>Quant &amp; guardrails</h3>
+        <p>Sandboxed modelling, backtests and arb hunting — then the ledger agents that keep the
+        record straight and gate sizing against your bankroll.</p>
+        <div class="who"><span>modelling</span><span>backtester</span><span>bankroll_manager</span></div>
+      </a>
+      <a class="acard" href="agents.html#fpl">
+        <div class="k">Kind 05</div>
+        <h3>Domain agents</h3>
+        <p>Where the competition's rulebook is the hard part, not the data. The <b style="color:var(--ink)">FPL
+        Manager</b> — squad, captaincy, chips — is the worked example, spec and all.</p>
+        <div class="who"><span>fpl_manager</span><span>fantasy_advisor</span></div>
+      </a>
+      <a class="acard" href="agents.html">
+        <div class="k">Kind 06</div>
+        <h3>Meta agents</h3>
+        <p>The generalist catches what nothing else covers and writes a reusable skill from it; the
+        builder turns a recurring need into a versioned agent of your own.</p>
+        <div class="who"><span>generalist</span><span>agent_builder</span></div>
+      </a>
+    </div>
+    <div class="aftr">
+      <p><b>Every agent is a spec file:</b> a narrow tool surface, a prompt full of that domain's
+      traps, and hard ceilings on calls, tokens, time and dollars. The full roster, the anatomy of a
+      spec, and the FPL agent end to end →</p>
+      <a href="agents.html">See the agent types →</a>
     </div>
   </section>
 
@@ -584,7 +833,7 @@ uvx sportsdata-mcp serve
 # or the prebuilt app (no Python):
 #   download, unzip, ./sportsdata-mcp setup</code>
         <a class="buy" href="https://cursor.com/en/install-mcp?name=sportsdata&config=eyJjb21tYW5kIjogInV2eCIsICJhcmdzIjogWyJzcG9ydHNkYXRhLW1jcCIsICJzZXJ2ZSJdfQ==">Add to Cursor →</a>
-        <a class="buy ghost" href="https://api.sportsdata-ai.com/download">Download app →</a>
+        <a class="buy ghost" href="thanks.html">Download app →</a>
         <a class="buy ghost" href="https://github.com/DanielTomaro13/sportsdata-mcp">Source on GitHub</a>
       </div>
       <div class="tier getcard">
@@ -602,12 +851,181 @@ uvx sportsdata-mcp serve
     <div class="tnote">BYO model key for the app · advisory only — not betting or financial advice · some bookmaker feeds are geo-restricted outside their home region · <a href="#demo">see it work first</a></div>
   </section>
 
+  <section id="explore">
+    <style>
+      .xgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;max-width:1000px;margin:0 auto}
+      .xcard{display:block;text-decoration:none;background:var(--card);border:1px solid var(--card-border);
+        border-radius:16px;padding:22px 24px;transition:transform .3s var(--ease),border-color .3s}
+      .xcard:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.22)}
+      .xcard h3{font-size:17px;color:var(--ink);margin-bottom:6px}
+      .xcard p{font-size:13.5px;color:var(--dim);line-height:1.55}
+      .xcard .go{display:inline-block;margin-top:10px;font-size:13px;color:var(--acc2)}
+    </style>
+    <div class="sec-head"><h2>Explore the rest of the site</h2>
+      <p>Three live surfaces built on the same data plane — all free to open, nothing to install.</p></div>
+    <div class="xgrid">
+      <a class="xcard" href="engines.html">
+        <h3>Pricing engines →</h3>
+        <p>Every market the engines can price — 224 markets across 15 sports, measured from the engines themselves rather than claimed.</p>
+        <span class="go">See the coverage matrix</span>
+      </a>
+      <a class="xcard" href="board/">
+        <h3>Racing board →</h3>
+        <p>A terminal for racing money flow: which runners are shortening, a fair price per runner, and value across Sportsbet, PointsBet and Betfair.</p>
+        <span class="go">Open the racing terminal</span>
+      </a>
+      <a class="xcard" href="sports/">
+        <h3>Sports board →</h3>
+        <p>Prediction markets and the exchange as the sharp line — Kalshi, Polymarket, Betfair, Pinnacle — with bookmakers measured against it for value.</p>
+        <span class="go">Open the sports terminal</span>
+      </a>
+    </div>
+  </section>
+
+  <section id="faq">
+    <style>
+      .faq{max-width:820px;margin:0 auto}
+      .faq details{border-bottom:1px solid var(--card-border);padding:4px 0}
+      .faq summary{cursor:pointer;list-style:none;padding:18px 30px 18px 0;font-size:16.5px;
+        font-weight:600;color:var(--ink);position:relative}
+      .faq summary::-webkit-details-marker{display:none}
+      .faq summary::after{content:"+";position:absolute;right:4px;top:16px;font-size:22px;
+        font-weight:400;color:var(--acc2)}
+      .faq details[open] summary::after{content:"−"}
+      .faq .a{padding:0 0 20px;color:var(--dim);font-size:15px;line-height:1.7;max-width:74ch}
+      .faq .a code{font-family:var(--mono);font-size:13px;background:rgba(255,255,255,.06);
+        border:1px solid var(--card-border);border-radius:6px;padding:2px 7px}
+      .faq .a a{color:var(--acc2)}
+    </style>
+    <div class="sec-head"><h2>Questions, answered</h2></div>
+    <div class="faq">
+      <details open>
+        <summary>What is an MCP server for sports data?</summary>
+        <div class="a">The Model Context Protocol (MCP) is an open standard that lets an AI client call
+        external tools. sportsdata is an MCP server that exposes live sports data and bookmaker odds
+        as tools, so an assistant like Claude Desktop or Cursor can fetch real fixtures, stats and
+        prices instead of guessing from memory.</div>
+      </details>
+      <details>
+        <summary>How much does sportsdata cost?</summary>
+        <div class="a">Nothing. Both the MCP data plane and the agent workbench app are free and MIT
+        licensed. There is no account and no API key to buy. If you use the agent app you supply your
+        own model key, and you pay your model provider directly for that usage.
+        <a href="https://ko-fi.com/danieltomaro" target="_blank" rel="noopener">Donations</a> are
+        voluntary and unlock nothing.</div>
+      </details>
+      <details>
+        <summary>Which sports and bookmakers are covered?</summary>
+        <div class="a">Over <span data-cat="providers">60</span> providers. Sport and stats feeds
+        cover AFL, NRL, NBA, MLB, NFL, NHL, EPL, cricket, golf, tennis, F1, UFC, and horse, harness
+        and greyhound racing. Odds come from bookmakers including Sportsbet, TAB, Pinnacle, Unibet,
+        PointsBet, Ladbrokes, Neds, betr, Dabble and FanDuel, plus odds aggregators and the Kalshi
+        and Polymarket prediction markets. <a href="#feeds">Browse every tool</a>.</div>
+      </details>
+      <details>
+        <summary>How do I install it in Claude Desktop or Cursor?</summary>
+        <div class="a">The server is published on PyPI, so a single line wires it into any MCP client:
+        <code>uvx sportsdata-mcp serve</code>. There is also a prebuilt app that needs no Python —
+        download it, unzip, and run <code>./sportsdata-mcp setup</code>. See <a href="#get">Get it</a>.</div>
+      </details>
+      <details>
+        <summary>Do I need my own API keys?</summary>
+        <div class="a">For most providers, no. A subset of feeds require a key you obtain yourself
+        from that provider — those are marked with a 🔑 in the tool browser above. Everything else
+        works with no credentials at all.</div>
+      </details>
+      <details>
+        <summary>Does sportsdata give betting advice?</summary>
+        <div class="a">No. It returns data — prices, stats, fixtures and model outputs — for
+        information only. Nothing on this site or in the tools is betting or financial advice, and the
+        service is for adults aged 18 and over. Gamble responsibly.</div>
+      </details>
+      <details>
+        <summary>Is my data sent anywhere?</summary>
+        <div class="a">No. The MCP server runs on your own machine and talks directly to the upstream
+        data providers, so your conversations and your model key never reach us. This website uses
+        Cloudflare Web Analytics for page counts, which sets no cookies, does no fingerprinting and
+        does not track you across other sites — see the <a href="privacy.html">privacy policy</a>.</div>
+      </details>
+    </div>
+  </section>
+
   <footer>
+    <style>
+      .fnav{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:22px;
+        text-align:left;max-width:900px;margin:0 auto 30px;padding-bottom:26px;
+        border-bottom:1px solid var(--card-border)}
+      .fnav h4{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim);
+        margin-bottom:10px;font-weight:600}
+      .fnav a{display:block;color:#b6c0dd;text-decoration:none;font-size:13.5px;padding:3px 0}
+      .fnav a:hover{color:var(--ink)}
+    </style>
+    <nav class="fnav" aria-label="Footer">
+      <div>
+        <h4>Product</h4>
+        <a href="#feeds">Browse every tool</a>
+        <a href="#get">Download</a>
+        <a href="#demo">Watch the demo</a>
+        <a href="agents.html">Agent types</a>
+        <a href="engines.html">Pricing engines</a>
+      </div>
+      <div>
+        <h4>Live boards</h4>
+        <a href="board/">Racing board</a>
+        <a href="sports/">Sports board</a>
+      </div>
+      <div>
+        <h4>Source</h4>
+        <a href="https://github.com/DanielTomaro13/sportsdata-mcp">MCP server on GitHub</a>
+        <a href="https://github.com/DanielTomaro13/sportsdata-agents">Agent app on GitHub</a>
+        <a href="https://ko-fi.com/danieltomaro" target="_blank" rel="noopener">Support on Ko-fi ☕</a>
+      </div>
+      <div>
+        <h4>Site</h4>
+        <a href="search.html">Search</a>
+        <a href="sitemap.html">Sitemap</a>
+        <a href="mailto:danieltomaro@icloud.com">Contact</a>
+      </div>
+      <div>
+        <h4>Legal</h4>
+        <a href="terms.html">Terms</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="accessibility.html">Accessibility</a>
+      </div>
+    </nav>
     <div class="wordmark">sports<span>data</span></div>
     <div>Free &amp; open source (MIT) · BYO model key · Informational only, not betting or financial advice · 18+ · © 2026</div>
-    <div style="margin-top:6px"><a href="https://github.com/DanielTomaro13/sportsdata-mcp" style="color:var(--dim);text-decoration:none">GitHub</a> · <a href="https://ko-fi.com/danieltomaro" target="_blank" rel="noopener" style="color:var(--dim);text-decoration:none">Support on Ko-fi</a> · <a href="mailto:danieltomaro@icloud.com" style="color:var(--dim);text-decoration:none">Contact</a> · <a href="terms.html" style="color:var(--dim);text-decoration:none">Terms</a> · <a href="privacy.html" style="color:var(--dim);text-decoration:none">Privacy</a></div>
+    <div style="margin-top:6px;font-size:12.5px">Built and maintained by one person —
+      <a href="https://ko-fi.com/danieltomaro" target="_blank" rel="noopener" style="color:var(--acc2)">support it on Ko-fi ☕</a></div>
+    <div style="margin-top:6px;font-size:12.5px">Gambling can be harmful. Australian help is available 24/7 —
+      <a href="https://www.gamblinghelponline.org.au/" rel="noopener" style="color:var(--dim)">Gambling Help Online</a>
+      or 1800 858 858.</div>
   </footer>
 </main>
+
+<a href="#top" id="totop" aria-label="Back to top" title="Back to top">↑</a>
+<style>
+  #totop{position:fixed;right:20px;bottom:20px;z-index:50;width:44px;height:44px;border-radius:50%;
+    display:grid;place-items:center;text-decoration:none;font-size:19px;color:var(--ink);
+    background:rgba(12,18,34,.85);border:1px solid var(--card-border);backdrop-filter:blur(8px);
+    opacity:0;visibility:hidden;transform:translateY(10px);transition:opacity .3s,transform .3s,visibility .3s}
+  #totop.show{opacity:1;visibility:visible;transform:none}
+  #totop:hover{border-color:rgba(255,255,255,.25)}
+  @media print{#totop{display:none}}
+</style>
+<script>
+  (() => {
+    const btn = document.getElementById("totop");
+    if (!btn) return;
+    const sync = () => btn.classList.toggle("show", scrollY > 700);
+    addEventListener("scroll", sync, { passive: true });
+    sync();
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    });
+  })();
+</script>
 
 <script>
 
@@ -619,13 +1037,68 @@ window.GATEWAY_URL = null;
    null = no script, no tracking, nothing leaves the page. */
 window.ANALYTICS_URL = null;
 const GW = window.GATEWAY_URL;
-if (window.ANALYTICS_URL) {
-  const ga = document.createElement("script");
-  ga.async = true;
-  ga.dataset.goatcounter = window.ANALYTICS_URL;
-  ga.src = "https://gc.zgo.at/count.js";
-  document.head.appendChild(ga);
-}
+
+/* Consent gate for the OPTIONAL GoatCounter hook below, which is off.
+   Page analytics today is Cloudflare Web Analytics (see the beacon at the end of
+   this file): cookie-free, no fingerprinting, no cross-site tracking — which is
+   why the site needs no cookie banner, as privacy.html explains. If you ever set
+   ANALYTICS_URL to a script that DOES set cookies, this gate makes it opt-in:
+   nothing loads until the visitor accepts, and the choice lives in localStorage
+   rather than a cookie, so declining leaves nothing behind. */
+(() => {
+  const url = window.ANALYTICS_URL;
+  if (!url) return;
+  const KEY = "sd-analytics-consent";
+  const load = () => {
+    const ga = document.createElement("script");
+    ga.async = true;
+    ga.dataset.goatcounter = url;
+    ga.src = "https://gc.zgo.at/count.js";
+    document.head.appendChild(ga);
+  };
+  let stored = null;
+  try { stored = localStorage.getItem(KEY); } catch {}
+  if (stored === "granted") return load();
+  if (stored === "denied") return;
+
+  const bar = document.createElement("div");
+  bar.className = "consent";
+  bar.setAttribute("role", "dialog");
+  bar.setAttribute("aria-live", "polite");
+  bar.setAttribute("aria-label", "Analytics consent");
+  bar.innerHTML = `
+    <p>We'd like to count page views with a <b>cookie-free</b> analytics script
+      (no personal data, no cross-site tracking, no advertising). Nothing loads unless
+      you say yes. See our <a href="privacy.html">privacy policy</a>.</p>
+    <div class="consent-btns">
+      <button type="button" data-consent="denied" class="ghost">Decline</button>
+      <button type="button" data-consent="granted">Accept</button>
+    </div>`;
+  const style = document.createElement("style");
+  style.textContent = `
+    .consent{position:fixed;left:16px;right:16px;bottom:16px;z-index:200;max-width:620px;
+      margin:0 auto;display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+      justify-content:space-between;padding:16px 20px;border-radius:14px;
+      background:rgba(10,15,28,.95);border:1px solid var(--card-border);
+      backdrop-filter:blur(10px);box-shadow:0 16px 48px rgba(0,0,0,.45)}
+    .consent p{font-size:13px;color:var(--dim);line-height:1.55;flex:1;min-width:240px;margin:0}
+    .consent p b{color:var(--ink)} .consent p a{color:var(--acc2)}
+    .consent-btns{display:flex;gap:8px}
+    .consent button{border:0;border-radius:9px;padding:9px 18px;font-size:13.5px;
+      font-weight:650;cursor:pointer;color:#06101f;
+      background:linear-gradient(90deg,var(--acc2),var(--acc3))}
+    .consent button.ghost{background:transparent;color:var(--ink);
+      border:1px solid var(--card-border)}`;
+  document.head.appendChild(style);
+  bar.addEventListener("click", (e) => {
+    const choice = e.target.closest("[data-consent]")?.dataset.consent;
+    if (!choice) return;
+    try { localStorage.setItem(KEY, choice); } catch {}
+    bar.remove();
+    if (choice === "granted") load();
+  });
+  addEventListener("DOMContentLoaded", () => document.body.appendChild(bar));
+})();
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const sleep = (ms) => new Promise(r => setTimeout(r, REDUCED ? 0 : ms));
 async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
