@@ -18,6 +18,7 @@
     {
       "now": "2026-06-12T23:30:30",
       "due": [
+        "fantasy",
         "form",
         "ingest",
         "monitor",
@@ -39,6 +40,7 @@
       "due": [
         "budget_watch",
         "custodian",
+        "fantasy",
         "form",
         "ingest",
         "monitor",
@@ -51,6 +53,7 @@
       "now": "2026-06-15T09:30:30",
       "due": [
         "eval_benchmark",
+        "fantasy",
         "form",
         "ingest",
         "monitor",
@@ -63,6 +66,7 @@
       "due": [
         "budget_watch",
         "custodian",
+        "fantasy",
         "form",
         "ingest",
         "monitor",
@@ -76,6 +80,7 @@
       "due": [
         "budget_watch",
         "custodian",
+        "fantasy",
         "form",
         "ingest",
         "monitor",
@@ -89,6 +94,7 @@
       "due": [
         "budget_watch",
         "custodian",
+        "fantasy",
         "form",
         "ingest",
         "monitor",
@@ -102,6 +108,7 @@
       "due": [
         "budget_watch",
         "custodian",
+        "fantasy",
         "form",
         "ingest",
         "monitor",

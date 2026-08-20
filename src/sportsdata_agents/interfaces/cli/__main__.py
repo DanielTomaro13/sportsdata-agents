@@ -2416,6 +2416,36 @@ def fantasy_policy(
     typer.echo("\n  chips are never automatic — that is a rule, not a default")
 
 
+@fantasy_app.command(name="check")
+def fantasy_check() -> None:
+    """Verify every watched team's credential against the live provider, and say how
+    long there is to fix it. Read-only: never runs the agent, never writes."""
+    import asyncio
+
+    from sportsdata_agents.fantasy.watch import tick
+
+    result = asyncio.run(tick(run_agent=False))
+    for line in result.lines:
+        typer.echo(line)
+    typer.echo(f"\nchecked {result.checked} team(s), {result.alerts} alert(s)")
+
+
+@fantasy_app.command(name="tick")
+def fantasy_tick(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Check and report; never wake the agent."),
+) -> None:
+    """The scheduler's entry point: verify credentials, alert if a deadline is close and
+    something is broken, and wake the agent once per gameweek inside its policy window."""
+    import asyncio
+
+    from sportsdata_agents.fantasy.watch import tick
+
+    result = asyncio.run(tick(run_agent=not dry_run))
+    for line in result.lines:
+        typer.echo(line)
+    typer.echo(f"\n{result.checked} checked, {result.alerts} alert(s), {result.runs} run(s)")
+
+
 # Must stay LAST: `python -m sportsdata_agents.interfaces.cli` executes the module top to
 # bottom, so anything below this line would not be registered before app() runs.
 if __name__ == "__main__":  # pragma: no cover

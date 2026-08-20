@@ -1,7 +1,7 @@
 # Fantasy: letting an agent touch a real team
 
 An agent that can set your lineup can also ruin your season. This document describes the
-three things that stand between a model's opinion and a change on your actual team, and
+four things that stand between a model's opinion and a change on your actual team, and
 why each of them exists.
 
 The model decides *what* is a good move. None of the machinery below has an opinion about
@@ -101,3 +101,48 @@ only, never on 5xx.
 `sportsdata-mcp connect fpl` collects the session cookie and `csrftoken` from the local
 browser, verifies them against a live call, and stores them 0600. Nothing in this package
 handles a password, and no credential is ever printed.
+
+## 4. Running the season
+
+Two pieces turn the above from built into running. Both are deterministic — no LLM in
+this path — and both live in the scheduler's `fantasy` job, every 30 minutes.
+
+### The staleness alarm
+
+The plan calls this the highest-value reliability work in the whole build, and the reason
+is an asymmetry: a cookie that expired on Tuesday is a two-minute chore if you hear about
+it on Tuesday, and a lost gameweek if you hear about it at 17:29 on Friday.
+
+So the credential is verified **through the same call the agent uses** (`fpl_my_team` —
+a check that exercises a different code path can pass while the write fails), and the
+urgency scales with time to the deadline rather than being one flat alarm:
+
+| time to deadline | priority | re-alerts at most |
+|---|---|---|
+| more than 72h | *silent* | — there is genuinely time |
+| 24–72h | default | daily |
+| 6–24h | high | every 6h |
+| under 6h | **urgent** | hourly |
+
+A state *change* always speaks, whatever the cooldown — working→expired is news. A
+transient failure (`unknown`) **never** pages: alarming on a network blip makes the real
+expiry indistinguishable from a bad afternoon at FPL, and an alarm you mute is an alarm
+you have already lost.
+
+```bash
+agents fantasy check
+```
+
+### The run trigger
+
+Wakes the agent **once per gameweek**, inside the window its own policy defines
+(`act_within_hours_of_deadline`) — so widening the window moves the run earlier and there
+is no second setting to keep in sync. Without this, a 30-minute job inside a 6-hour
+window would be a dozen billed LLM runs per gameweek, all proposing the same thing.
+
+`last_run_event` is stamped **on success only**, so a crashed run is retried on the next
+tick rather than silently costing you the gameweek. A broken credential stops the run
+before it starts — waking an agent that cannot authenticate spends money to produce a 403.
+
+Teams are watched because they have a saved policy. Setting a policy is the opt-in; there
+is no separate subscription to forget about.

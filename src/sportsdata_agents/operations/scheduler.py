@@ -154,6 +154,14 @@ JOBS: tuple[Job, ...] = (
         log="cron.log", weekday=6, at=(7, 0), timeout_s=900, operator_only=True),
     Job(name="budget_watch", args=("ops", "budget-watch"),
         log="cron.log", interval_s=3600, timeout_s=300, operator_only=True),
+    # Fantasy: verify credentials well before a deadline, and wake the manager once per
+    # gameweek inside its policy window. 30 minutes because the two things it guards
+    # move on different clocks — a cookie can expire at any hour, and an act window is
+    # hours wide, so a half-hour granularity is precise enough for both while keeping
+    # the authenticated credential check cheap (it self-throttles to 12-hourly until a
+    # deadline is inside a day). A no-op costing nothing when no team has a policy.
+    Job(name="fantasy", args=("fantasy", "tick"),
+        log="fantasy.log", interval_s=1800, timeout_s=900),
 )
 
 # ─── event-proximity pacing ────────────────────────────────────────────────

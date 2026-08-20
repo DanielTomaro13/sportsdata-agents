@@ -1,0 +1,369 @@
+"""The part that makes it a season rather than a demo.
+
+Two jobs, both cheap and both deterministic — no LLM in this path:
+
+1. **The staleness alarm.** Verify the credential works DAYS before a deadline. The
+   plan calls this the highest-value reliability work in the whole build, and the reason
+   is the asymmetry: a cookie that expired on Tuesday is a two-minute chore if you learn
+   about it on Tuesday, and a lost gameweek if you learn about it at 17:29 on Friday.
+
+2. **The run trigger.** Wake the agent once, inside the window its policy says it may
+   act in. Without this the policy engine is real but nothing ever consults it.
+
+THREE THINGS THIS DELIBERATELY DOES NOT DO:
+
+* **It does not nag.** A credential that is fine produces silence. An alarm that fires
+  every 30 minutes for three days is one the owner mutes, and then the real one is muted
+  too. Urgency scales with time-to-deadline instead: quiet beyond 72h, daily inside it,
+  loud inside 24h.
+* **It does not re-run the agent on every tick.** Once per gameweek per team. A 30-minute
+  job inside a 6-hour act window would otherwise be a dozen LLM runs per gameweek, each
+  billed, each proposing the same thing.
+* **It does not watch teams nobody asked it to.** The registry is the set of saved
+  policies. Setting a policy is the opt-in; there is no separate subscription to forget.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+class Credential(StrEnum):
+    OK = "ok"
+    EXPIRED = "expired"       # present but signed out, or rejected
+    MISSING = "missing"       # never configured
+    UNKNOWN = "unknown"       # the check itself failed (network, upstream down)
+
+
+# How loud to be, by hours remaining before the deadline. First match wins.
+#
+# The ladder exists because "your cookie is broken" means something different four days
+# out (a chore) than it does four hours out (a lost gameweek), and one alert tone for
+# both trains the owner to ignore the one that matters.
+LADDER: tuple[tuple[float, str, float], ...] = (
+    #  hours_left <=, ntfy priority, re-alert no more often than (hours)
+    (6.0,   "urgent",  1.0),
+    (24.0,  "high",    6.0),
+    (72.0,  "default", 24.0),
+)
+#: Beyond the last rung, log and stay silent — there is genuinely time.
+QUIET_BEYOND_HOURS = 72.0
+
+
+@dataclass
+class WatchState:
+    """What we already told the owner, so we do not tell them again."""
+
+    last_alert_at: str = ""
+    last_alerted_credential: str = ""
+    last_run_event: int = 0
+    last_checked_at: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict) -> WatchState:
+        return cls(**{k: v for k, v in d.items() if k in cls.__annotations__})
+
+
+@dataclass
+class Watch:
+    """Per-team watch state, keyed the same way policies are (`platform:entry`)."""
+
+    path: Path
+    teams: dict[str, WatchState] = field(default_factory=dict)
+
+    @classmethod
+    def load(cls, base: Path | None = None) -> Watch:
+        from ..paths import data_dir
+
+        path = (base or data_dir()) / "fantasy-watch.json"
+        w = cls(path=path)
+        if path.exists():
+            raw = json.loads(path.read_text())
+            w.teams = {k: WatchState.from_dict(v) for k, v in raw.items()}
+        return w
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            json.dumps({k: asdict(v) for k, v in self.teams.items()}, indent=2))
+
+    def for_key(self, key: str) -> WatchState:
+        return self.teams.setdefault(key, WatchState())
+
+
+# ─── is the credential actually usable? ─────────────────────────────────
+
+
+def flatten_error(e: BaseException, _depth: int = 0) -> str:
+    """Every message in an exception tree, joined.
+
+    Load-bearing, and found the hard way. The MCP client runs inside an anyio task
+    group, so a clean `403 Authentication credentials were not provided` arrives
+    wrapped as `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)`.
+    Matching on `str(e)` alone therefore classified a plainly-expired cookie as UNKNOWN
+    — and UNKNOWN never pages. The alarm would have stayed silent for exactly the
+    failure it exists to catch.
+    """
+    if _depth > 6:  # cyclic __context__ chains exist; bound the walk
+        return ""
+    parts = [str(e)]
+    for sub in getattr(e, "exceptions", ()) or ():
+        parts.append(flatten_error(sub, _depth + 1))
+    for chained in (e.__cause__, e.__context__):
+        if chained is not None and chained is not e:
+            parts.append(flatten_error(chained, _depth + 1))
+    return " | ".join(p for p in parts if p)
+
+
+def classify_error(text: str) -> tuple[Credential, str] | None:
+    """Map an upstream failure to a credential state, or None when it says nothing
+    about the credential."""
+    # MISSING is checked FIRST: the "set FPL_SESSION_COOKIE" error also carries a 403,
+    # and "you never configured it" is a different chore from "yours went stale".
+    if "FPL_SESSION_COOKIE" in text or "needs an API key" in text:
+        return Credential.MISSING, "no FPL session cookie is configured"
+    if "403" in text or "Authentication credentials" in text or "credentials were not" in text:
+        return Credential.EXPIRED, "FPL rejected the session cookie (403)"
+    return None
+
+
+async def check_credential(entry: int) -> tuple[Credential, str]:
+    """Ask FPL, through the SAME path the agent would use.
+
+    Deliberately not a bespoke request to `/api/me/`: a check that exercises a different
+    code path than the write can pass while the write fails. This calls `fpl_my_team`,
+    which is what a lineup change reads first.
+    """
+    from ..tools.fantasy import _mcp_call
+
+    try:
+        body = await _mcp_call("fpl_my_team", {"managerId": entry})
+    except BaseException as e:
+        text = flatten_error(e)
+        if (verdict := classify_error(text)) is not None:
+            return verdict
+        # An upstream wobble is NOT an expiry. Calling it one would cry wolf and, worse,
+        # would make the real expiry indistinguishable from a bad afternoon at FPL.
+        return Credential.UNKNOWN, f"could not check: {type(e).__name__}: {text[:160]}"
+
+    if isinstance(body, dict) and body.get("picks"):
+        return Credential.OK, f"session valid — {len(body['picks'])} picks readable"
+    return Credential.EXPIRED, "the session answered but returned no squad"
+
+
+# ─── how loud, and how often ────────────────────────────────────────────
+
+
+def alert_plan(
+    state: Credential, *, hours_left: float, last_alert_at: str,
+    last_alerted_credential: str, now: datetime,
+) -> tuple[bool, str]:
+    """(should_alert, ntfy priority).
+
+    UNKNOWN never pages on its own. A network blip at 3am is not the owner's problem, and
+    an alarm that fires on transient failures is one they will mute before the real
+    expiry ever happens.
+    """
+    if state is Credential.OK or state is Credential.UNKNOWN:
+        return False, "default"
+    if hours_left > QUIET_BEYOND_HOURS:
+        return False, "default"
+
+    priority, cooldown_h = "urgent", 1.0
+    for ceiling, prio, cool in LADDER:
+        if hours_left <= ceiling:
+            priority, cooldown_h = prio, cool
+            break
+
+    # A state CHANGE always speaks, whatever the cooldown — going from working to
+    # expired is news even if we alerted an hour ago about something else.
+    if last_alerted_credential and last_alerted_credential != state.value:
+        return True, priority
+    if not last_alert_at:
+        return True, priority
+    since = (now - datetime.fromisoformat(last_alert_at)).total_seconds() / 3600
+    return since >= cooldown_h, priority
+
+
+def alert_text(entry: int, state: Credential, detail: str, hours_left: float) -> str:
+    urgency = (
+        "the deadline is inside a day" if hours_left <= 24
+        else f"{hours_left:.0f}h until the deadline"
+    )
+    return (
+        f"FPL credential {state.value} for team {entry} — {urgency}.\n"
+        f"  {detail}\n"
+        f"  Your agent cannot set the lineup or transfer until this is fixed.\n"
+        f"  Fix it with:  sportsdata-mcp connect fpl"
+    )
+
+
+# ─── should the agent run at all? ───────────────────────────────────────
+
+
+def run_due(
+    *, policy, event: int, hours_left: float, last_run_event: int, now: datetime,
+) -> tuple[bool, str]:
+    """Whether to wake the agent for this gameweek.
+
+    Runs ONCE per gameweek. The window is the policy's own `act_within_hours_of_deadline`,
+    so an owner who widens it gets an earlier run and nobody has two settings to keep in
+    sync.
+    """
+    if last_run_event >= event:
+        return False, f"already ran for GW{event}"
+    if hours_left <= 0:
+        return False, "the deadline has passed"
+    if hours_left > policy.act_within_hours_of_deadline:
+        return False, f"{hours_left:.1f}h out; window opens at {policy.act_within_hours_of_deadline}h"
+    if policy._in_quiet_hours(now):
+        # Held, not skipped: the next tick outside quiet hours picks it up, and the
+        # window is hours wide, so a night-time deadline is not silently missed.
+        return False, "inside quiet hours — holding until the window reopens"
+    return True, f"GW{event} deadline in {hours_left:.1f}h"
+
+
+# ─── the tick the scheduler calls ───────────────────────────────────────
+
+
+@dataclass
+class TickResult:
+    checked: int = 0
+    alerts: int = 0
+    runs: int = 0
+    lines: list[str] = field(default_factory=list)
+
+    def say(self, line: str) -> None:
+        self.lines.append(line)
+        logger.info("fantasy watch: %s", line)
+
+
+#: Don't re-check the credential on every tick — it is an authenticated upstream call.
+#: Far from a deadline a daily check is plenty; close to one it is checked every tick,
+#: because that is when a stale answer is the expensive one.
+CHECK_INTERVAL_HOURS = 12.0
+
+
+async def tick(*, now: datetime | None = None, base: Path | None = None,
+               run_agent: bool = True) -> TickResult:
+    """One pass: verify credentials, alert if needed, wake the agent if it is due."""
+    from .policy import load_policies
+
+    now = now or datetime.now(tz=UTC)
+    result = TickResult()
+    policies = load_policies(base)
+    if not policies:
+        result.say("no teams have a policy — nothing to watch")
+        return result
+
+    from ..tools.fantasy import _next_gameweek
+
+    try:
+        event, deadline = await _next_gameweek()
+    except Exception as e:
+        result.say(f"could not read the next gameweek: {e}")
+        return result
+
+    hours_left = (deadline - now).total_seconds() / 3600
+    watch = Watch.load(base)
+    result.say(f"GW{event}, deadline in {hours_left:.1f}h, {len(policies)} team(s) watched")
+
+    for key, policy in policies.items():
+        if policy.platform != "fpl":
+            continue  # only FPL has a write plane today
+        st = watch.for_key(key)
+        result.checked += 1
+
+        if _due_for_check(st, now, hours_left):
+            state, detail = await check_credential(policy.entry)
+            st.last_checked_at = now.isoformat(timespec="seconds")
+            should, priority = alert_plan(
+                state, hours_left=hours_left, last_alert_at=st.last_alert_at,
+                last_alerted_credential=st.last_alerted_credential, now=now,
+            )
+            if should:
+                await _page(alert_text(policy.entry, state, detail, hours_left), priority)
+                st.last_alert_at = now.isoformat(timespec="seconds")
+                result.alerts += 1
+                result.say(f"{key}: ALERTED ({state.value}, {priority}) — {detail}")
+            else:
+                result.say(f"{key}: {state.value} — {detail}")
+            # Recorded whether or not we alerted, so a recovery is seen as a change
+            # next time rather than as more of the same.
+            st.last_alerted_credential = state.value
+            if state is not Credential.OK:
+                watch.save()
+                continue  # a broken credential cannot run an agent
+
+        due, why = run_due(policy=policy, event=event, hours_left=hours_left,
+                           last_run_event=st.last_run_event, now=now)
+        if not due:
+            result.say(f"{key}: not running — {why}")
+            continue
+        result.say(f"{key}: RUNNING — {why}")
+        if run_agent:
+            ok = await _wake_agent(policy.entry, event, deadline)
+            if ok:
+                # Only stamped on success, so a crashed run is retried next tick rather
+                # than silently costing the owner a gameweek.
+                st.last_run_event = event
+                result.runs += 1
+            else:
+                result.say(f"{key}: the agent run failed — will retry next tick")
+        watch.save()
+
+    watch.save()
+    return result
+
+
+def _due_for_check(st: WatchState, now: datetime, hours_left: float) -> bool:
+    if hours_left <= 24:
+        return True
+    if not st.last_checked_at:
+        return True
+    since = (now - datetime.fromisoformat(st.last_checked_at)).total_seconds() / 3600
+    return since >= CHECK_INTERVAL_HOURS
+
+
+async def _page(text: str, priority: str) -> bool:
+    from ..observability.notify import ntfy_url_for, post_ntfy, push_to_channel
+    from .approvals import alert_channel
+
+    channel = alert_channel()
+    if channel == "ntfy" or channel.startswith("ntfy:"):
+        return await post_ntfy(ntfy_url_for(channel) or "", text, priority=priority)
+    return await push_to_channel(channel, text)
+
+
+async def _wake_agent(entry: int, event: int, deadline: datetime) -> bool:
+    """Run fpl_manager for one team. The agent decides WHAT; the policy plane it calls
+    through decides whether any of it happens."""
+    import asyncio
+    import sys
+
+    prompt = (
+        f"The GW{event} deadline is {deadline.isoformat()} — that is soon, which is why "
+        f"you have been woken. Review team {entry}: read the gameweek, the squad, the "
+        f"fixtures and the players, then set the best XI and captain you can justify, and "
+        f"make any transfer that is clearly worth it. Use fpl_propose_lineup and "
+        f"fpl_propose_transfer — report exactly what the policy did with each, and do not "
+        f"claim a change unless team_changed came back true."
+    )
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "sportsdata_agents.interfaces.cli",
+        "run", "--agent", "fpl_manager", prompt,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    out, _ = await proc.communicate()
+    if proc.returncode != 0:
+        logger.warning("fpl_manager run failed rc=%s: %s", proc.returncode,
+                       (out or b"").decode(errors="ignore")[-400:])
+        return False
+    return True
