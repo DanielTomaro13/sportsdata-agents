@@ -215,7 +215,7 @@ async def test_a_failed_agent_run_is_retried_next_tick(watched, monkeypatch):
                         _fake_gw(2, NOW + timedelta(hours=3)))
     monkeypatch.setattr(w, "check_credential", _fake_cred(Credential.OK, "ok"))
 
-    async def fails(entry, event, deadline):
+    async def fails(policy, event, deadline):
         return False
 
     monkeypatch.setattr(w, "_wake_agent", fails)
@@ -230,14 +230,14 @@ def _fake_gw(event, deadline):
 
 
 def _fake_cred(state, detail):
-    async def go(entry):
+    async def go(entry, policy=None):
         return state, detail
     return go
 
 
 def _record(sink):
-    async def go(entry, event, deadline):
-        sink.append((entry, event))
+    async def go(policy, event, deadline):
+        sink.append((policy.entry, event))
         return True
     return go
 
@@ -285,3 +285,56 @@ def test_flatten_survives_a_cyclic_exception_chain():
     a, b = RuntimeError("outer"), RuntimeError("inner")
     a.__context__, b.__context__ = b, a       # a cycle; the walk must still terminate
     assert "outer" in flatten_error(a)
+
+
+async def test_an_unreadable_schedule_still_checks_the_credential(monkeypatch, tmp_path):
+    """The horizon comes from an AUTHENTICATED endpoint, so the commonest reason it
+    fails is the very thing the alarm exists to report. Returning early on that failure
+    meant a missing ESPN cookie produced no alert at all — the second time this shape of
+    bug hid the alarm from itself. Found live."""
+    import sportsdata_agents.fantasy.watch as w
+    from sportsdata_agents.fantasy.policy import LeaguePolicy, save_policy
+
+    monkeypatch.setattr("sportsdata_agents.paths.data_dir", lambda: tmp_path)
+    monkeypatch.setenv("FANTASY_ALERT_CHANNEL", "log")
+    save_policy(LeaguePolicy(platform="espn", entry=4,
+                             context={"leagueId": 1, "seasonId": 2026, "game": "ffl"}), tmp_path)
+
+    async def no_schedule(policy):
+        raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(w, "_horizon", no_schedule)
+    monkeypatch.setattr(w, "check_credential",
+                        _fake_cred(Credential.MISSING, "no ESPN cookie is configured"))
+    ran = []
+    monkeypatch.setattr(w, "_wake_agent", _record(ran))
+
+    result = await tick(now=NOW, base=tmp_path)
+    assert result.alerts == 1, "a broken credential must page even when the schedule is unreadable"
+    assert ran == [], "and nothing should be run against a schedule we cannot see"
+
+
+async def test_a_working_credential_with_no_schedule_runs_nothing_and_stays_quiet(
+        monkeypatch, tmp_path):
+    """The other half: an unreadable schedule with a healthy credential is a real
+    upstream problem, not the owner's chore. Report it, do not page, do not act."""
+    import sportsdata_agents.fantasy.watch as w
+    from sportsdata_agents.fantasy.policy import LeaguePolicy, save_policy
+
+    monkeypatch.setattr("sportsdata_agents.paths.data_dir", lambda: tmp_path)
+    monkeypatch.setenv("FANTASY_ALERT_CHANNEL", "log")
+    save_policy(LeaguePolicy(platform="espn", entry=4, lineup="auto", quiet_hours=None,
+                             context={"leagueId": 1, "seasonId": 2026, "game": "ffl"}), tmp_path)
+
+    async def no_schedule(policy):
+        raise RuntimeError("upstream 503")
+
+    monkeypatch.setattr(w, "_horizon", no_schedule)
+    monkeypatch.setattr(w, "check_credential", _fake_cred(Credential.OK, "cookie valid"))
+    ran = []
+    monkeypatch.setattr(w, "_wake_agent", _record(ran))
+
+    result = await tick(now=NOW, base=tmp_path)
+    assert result.alerts == 0
+    assert result.runs == 0
+    assert ran == []

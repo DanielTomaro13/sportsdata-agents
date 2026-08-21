@@ -2379,7 +2379,9 @@ def fantasy_policy(
     entry: int = typer.Argument(..., help="Your team/manager id on the platform."),
     platform: str = typer.Option("fpl", help="Platform this team is on."),
     set_: list[str] = typer.Option(
-        None, "--set", help="key=value, e.g. --set lineup=auto --set max_hit=4"),
+        None, "--set",
+        help="key=value, e.g. --set lineup=auto --set max_hit=4. ESPN also needs "
+             "--set context.leagueId=… --set context.seasonId=… --set context.game=ffl"),
 ) -> None:
     """Show or change what the agent may do to one team unattended.
 
@@ -2389,12 +2391,29 @@ def fantasy_policy(
     """
     from sportsdata_agents.fantasy.policy import LeaguePolicy, load_policies, save_policy
 
-    key = f"{platform}:{entry}"
-    policies = load_policies()
-    policy = policies.get(key) or LeaguePolicy(platform=platform, entry=entry)
+    updates = dict(_parse_kv(list(set_))) if set_ else {}
+    # `context.leagueId=…` — ESPN needs a league, season and game to name a team at all,
+    # so they are settable in the same breath as the modes rather than in a second step.
+    ctx = {k.split(".", 1)[1]: v for k, v in updates.items() if k.startswith("context.")}
+    updates = {k: v for k, v in updates.items() if not k.startswith("context.")}
 
-    if set_:
-        updates = dict(_parse_kv(list(set_)))
+    policies = load_policies()
+    existing = next((p for p in policies.values()
+                     if p.platform == platform and p.entry == entry
+                     and (not ctx.get("leagueId")
+                          or str(p.context.get("leagueId")) == str(ctx["leagueId"]))), None)
+    if existing is not None:
+        policy = existing
+        policy.context.update(ctx)
+    else:
+        try:
+            policy = LeaguePolicy(platform=platform, entry=entry, context=ctx)
+        except ValueError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(1) from None
+    key = policy.key
+
+    if updates or ctx:
         for field_, value in updates.items():
             if not hasattr(policy, field_):
                 typer.echo(f"error: no such setting {field_!r}", err=True)
@@ -2406,9 +2425,11 @@ def fantasy_policy(
             typer.echo(f"error: {e}", err=True)
             raise typer.Exit(1) from None
         save_policy(policy)
-        typer.echo(f"✓ saved policy for {key}")
+        typer.echo(f"✓ saved policy for {policy.key}")
 
     typer.echo(f"\n{key}")
+    if policy.context:
+        typer.echo(f"  {'context':<28} {policy.context}")
     for field_ in ("lineup", "captain", "transfers", "chips", "max_hit",
                    "quiet_hours", "max_actions_per_gameweek",
                    "act_within_hours_of_deadline"):

@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, time
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 Mode = Literal["auto", "auto_if_free", "ask", "never"]
 
@@ -56,6 +56,22 @@ class Decision:
 class LeaguePolicy:
     """One team's settings. Serialised per (platform, entry)."""
 
+    #: Identity a platform needs beyond `entry`, validated at construction so a policy
+    #: that could never execute cannot be saved in the first place.
+    REQUIRED_CONTEXT: ClassVar[dict[str, tuple[str, ...]]] = {
+        "espn": ("leagueId", "seasonId", "game"),
+    }
+
+    #: Platforms with ONE hard lock for the whole team. FPL has a gameweek deadline: a
+    #: real instant, and "act within N hours of it" means waiting for team news.
+    #:
+    #: ESPN has no such moment — a fantasy week rolls over and each player locks at his
+    #: own kickoff. Its horizon is therefore a rolling `now + N`, which never counts
+    #: down, so the too-early rule would be a constant: permanently open or permanently
+    #: shut, never a window. On those platforms the rule is skipped and the real bound is
+    #: the once-per-period run trigger.
+    HARD_DEADLINE: ClassVar[frozenset[str]] = frozenset({"fpl"})
+
     platform: str
     entry: int
 
@@ -76,6 +92,12 @@ class LeaguePolicy:
     #: has landed, early enough to leave room to fix a failure.
     act_within_hours_of_deadline: float = 6.0
 
+    #: Whatever the platform needs to identify the team beyond `entry`. FPL needs
+    #: nothing. ESPN needs {leagueId, seasonId, game} — all public identifiers straight
+    #: out of the league URL, never credentials. Stored with the policy so the scheduler
+    #: can act on a team without a human present to supply them.
+    context: dict = field(default_factory=dict)
+
     notes: list[str] = field(default_factory=list)
 
     # ─── the rule that is not configurable ──────────────────────────────
@@ -89,6 +111,13 @@ class LeaguePolicy:
             )
         if self.max_hit < 0:
             raise ValueError("max_hit cannot be negative")
+        for key in self.REQUIRED_CONTEXT.get(self.platform, ()):
+            if not self.context.get(key):
+                raise ValueError(
+                    f"{self.platform} needs {key!r} in context to identify the team — "
+                    f"needs {sorted(self.REQUIRED_CONTEXT[self.platform])}, all readable "
+                    "from the league URL"
+                )
 
     # ─── decisions ──────────────────────────────────────────────────────
 
@@ -144,7 +173,8 @@ class LeaguePolicy:
             )
 
         hours_left = (deadline - now).total_seconds() / 3600
-        if hours_left > self.act_within_hours_of_deadline:
+        if (self.platform in self.HARD_DEADLINE
+                and hours_left > self.act_within_hours_of_deadline):
             return Decision(
                 Verdict.SKIP,
                 f"{hours_left:.1f}h until the deadline — too early; team news is still moving",
@@ -168,7 +198,16 @@ class LeaguePolicy:
 
     @property
     def key(self) -> str:
-        return f"{self.platform}:{self.entry}"
+        """Unique per TEAM, not per team id.
+
+        `entry` alone is unique on FPL (a manager id is global) but not on ESPN, where
+        every league numbers its teams from 1 — so two leagues both have a team 4, and a
+        bare `espn:4` key would let a policy for one silently govern the other.
+        """
+        parts = [self.platform, str(self.entry)]
+        if league := self.context.get("leagueId"):
+            parts.insert(1, str(league))
+        return ":".join(parts)
 
     def to_dict(self) -> dict:
         d = asdict(self)

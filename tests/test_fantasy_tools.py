@@ -96,7 +96,7 @@ def test_the_no_money_filter_still_denies_everything_that_moves_money():
 
 
 def test_the_propose_tools_are_registered_and_resolvable():
-    names = ["fpl_propose_lineup", "fpl_propose_transfer", "fpl_review_proposals"]
+    names = ["fpl_propose_lineup", "fpl_propose_transfer", "fantasy_review_proposals"]
     assert [t.name for t in get_native_tools(names)] == names
 
 
@@ -229,6 +229,6 @@ async def test_a_free_transfer_on_auto_if_free_goes_through(mcp, tmp_path):
 
 async def test_review_proposals_cannot_approve(mcp):
     await ft.fpl_propose_lineup({"entry": ENTRY, "picks": squad(), "summary": "Set the XI"})
-    out = await ft.fpl_review_proposals({})
+    out = await ft.fantasy_review_proposals({})
     assert len(out["pending"]) == 1
     assert "Only the owner can approve" in out["note"]

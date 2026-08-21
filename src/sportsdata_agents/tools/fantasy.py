@@ -186,7 +186,7 @@ async def fpl_propose_transfer(args: dict[str, Any]) -> Any:
     return result
 
 
-async def fpl_review_proposals(args: dict[str, Any]) -> Any:
+async def fantasy_review_proposals(args: dict[str, Any]) -> Any:
     """What is currently waiting on the owner. Read-only — an agent cannot approve its
     own proposal, which is the entire point of there being one."""
     from sportsdata_agents.fantasy.approvals import Store
@@ -334,13 +334,13 @@ FANTASY_TOOLS: dict[str, ToolDef] = {
         },
         execute=fpl_propose_transfer,
     ),
-    "fpl_review_proposals": ToolDef(
-        name="fpl_review_proposals",
+    "fantasy_review_proposals": ToolDef(
+        name="fantasy_review_proposals",
         description=(
             "List proposals still waiting on the owner's approval. Read-only — you cannot approve "
             "your own proposal, and should not imply to the owner that you can."
         ),
         parameters={"type": "object", "properties": {}},
-        execute=fpl_review_proposals,
+        execute=fantasy_review_proposals,
     ),
 }

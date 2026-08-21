@@ -112,7 +112,7 @@ agent:
     # to a write, and they run the policy plane first. Adding fpl.write to this list
     # would hand the model an unpoliced path to a real team.
     mcp_groups: [fpl.players, fpl.reference, fpl.fixtures, fpl.managers]
-    native: [run_python, fpl_propose_lineup, fpl_propose_transfer, fpl_review_proposals]
+    native: [run_python, fpl_propose_lineup, fpl_propose_transfer, fantasy_review_proposals]
   # Belt and braces: even if `fpl.write` were added to mcp_groups by mistake,
   # fpl_transfers carries `sport.transactions` and would still be refused.
   forbidden_capabilities: [sport.transactions]

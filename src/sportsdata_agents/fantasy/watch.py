@@ -134,13 +134,18 @@ def classify_error(text: str) -> tuple[Credential, str] | None:
     return None
 
 
-async def check_credential(entry: int) -> tuple[Credential, str]:
-    """Ask FPL, through the SAME path the agent would use.
+async def check_credential(entry: int, policy=None) -> tuple[Credential, str]:
+    """Ask the platform, through the SAME path the agent would use.
 
-    Deliberately not a bespoke request to `/api/me/`: a check that exercises a different
-    code path than the write can pass while the write fails. This calls `fpl_my_team`,
-    which is what a lineup change reads first.
+    Deliberately not a bespoke request to some cheap `/me/` endpoint: a check that
+    exercises a different code path than the write can pass while the write fails. FPL is
+    checked with `fpl_my_team` and ESPN with `espnfantasy_rosters` — in both cases the
+    call a change reads first.
     """
+    platform = getattr(policy, "platform", "fpl")
+    if platform == "espn":
+        return await _check_espn(entry, policy)
+
     from ..tools.fantasy import _mcp_call
 
     try:
@@ -156,6 +161,56 @@ async def check_credential(entry: int) -> tuple[Credential, str]:
     if isinstance(body, dict) and body.get("picks"):
         return Credential.OK, f"session valid — {len(body['picks'])} picks readable"
     return Credential.EXPIRED, "the session answered but returned no squad"
+
+
+async def _check_espn(entry: int, policy) -> tuple[Credential, str]:
+    """ESPN's cookie pair, verified against the actual league.
+
+    This matters MORE than FPL's, not less. An `espn_s2` lasts about a year, which means
+    it fails exactly once per season, silently, at a moment nobody chose — and a league
+    you can no longer read is indistinguishable from a league you were removed from
+    unless something checks on purpose.
+    """
+    from ..tools.espn_fantasy import _mcp_call
+
+    ctx = getattr(policy, "context", {}) or {}
+    missing = [k for k in ("leagueId", "seasonId", "game") if not ctx.get(k)]
+    if missing:
+        return Credential.UNKNOWN, f"policy is missing {', '.join(missing)} — cannot check"
+    try:
+        body = await _mcp_call("espnfantasy_rosters", {
+            "game": ctx["game"], "seasonId": int(ctx["seasonId"]),
+            "leagueId": int(ctx["leagueId"]), "view": ["mRoster"],
+        })
+    except BaseException as e:
+        text = flatten_error(e)
+        if (verdict := classify_espn_error(text)) is not None:
+            return verdict
+        return Credential.UNKNOWN, f"could not check: {type(e).__name__}: {text[:160]}"
+
+    teams = (body or {}).get("teams") or [] if isinstance(body, dict) else []
+    if not teams:
+        return Credential.EXPIRED, "ESPN answered but returned no teams"
+    if not any(int(t.get("id", -1)) == entry for t in teams):
+        # Readable but not ours: a real state, and a different chore from an expiry.
+        return Credential.EXPIRED, (
+            f"league readable but team {entry} is not in it — check the teamId, or you "
+            "may have been removed from the league"
+        )
+    return Credential.OK, f"cookie valid — {len(teams)} teams readable"
+
+
+def classify_espn_error(text: str) -> tuple[Credential, str] | None:
+    """ESPN's typed error bodies, which say precisely which failure this is."""
+    if "ESPN_FANTASY_COOKIE" in text or "needs an API key" in text:
+        return Credential.MISSING, "no ESPN cookie is configured"
+    if "AUTH_LEAGUE_NOT_VISIBLE" in text or "not authorized to view this League" in text:
+        return Credential.EXPIRED, "ESPN will not show this league — the cookie is stale or you lost access"
+    if "AUTH_MISSING_CREDENTIALS" in text or "Credentials are missing" in text:
+        return Credential.MISSING, "ESPN received no credentials"
+    if "401" in text or "Unauthorized" in text:
+        return Credential.EXPIRED, "ESPN rejected the cookie (401)"
+    return None
 
 
 # ─── how loud, and how often ────────────────────────────────────────────
@@ -192,16 +247,18 @@ def alert_plan(
     return since >= cooldown_h, priority
 
 
-def alert_text(entry: int, state: Credential, detail: str, hours_left: float) -> str:
+def alert_text(entry: int, state: Credential, detail: str, hours_left: float,
+               platform: str = "fpl") -> str:
     urgency = (
         "the deadline is inside a day" if hours_left <= 24
         else f"{hours_left:.0f}h until the deadline"
     )
+    connector = {"fpl": "fpl", "espn": "espnfantasy"}.get(platform, platform)
     return (
-        f"FPL credential {state.value} for team {entry} — {urgency}.\n"
+        f"{platform.upper()} credential {state.value} for team {entry} — {urgency}.\n"
         f"  {detail}\n"
-        f"  Your agent cannot set the lineup or transfer until this is fixed.\n"
-        f"  Fix it with:  sportsdata-mcp connect fpl"
+        f"  Your agent cannot set the lineup or move players until this is fixed.\n"
+        f"  Fix it with:  sportsdata-mcp connect {connector}"
     )
 
 
@@ -245,6 +302,11 @@ class TickResult:
         logger.info("fantasy watch: %s", line)
 
 
+#: Stand-in for "we could not find out how long there is". Deliberately inside the
+#: alerting range: not knowing how long you have is not a reason to assume you have
+#: plenty, and the usual cause of not knowing is the credential itself.
+UNKNOWN_HORIZON_HOURS = 12.0
+
 #: Don't re-check the credential on every tick — it is an authenticated upstream call.
 #: Far from a deadline a daily check is plenty; close to one it is checked every tick,
 #: because that is when a stale answer is the expensive one.
@@ -263,33 +325,45 @@ async def tick(*, now: datetime | None = None, base: Path | None = None,
         result.say("no teams have a policy — nothing to watch")
         return result
 
-    from ..tools.fantasy import _next_gameweek
-
-    try:
-        event, deadline = await _next_gameweek()
-    except Exception as e:
-        result.say(f"could not read the next gameweek: {e}")
-        return result
-
-    hours_left = (deadline - now).total_seconds() / 3600
     watch = Watch.load(base)
-    result.say(f"GW{event}, deadline in {hours_left:.1f}h, {len(policies)} team(s) watched")
+    result.say(f"{len(policies)} team(s) watched")
 
     for key, policy in policies.items():
-        if policy.platform != "fpl":
-            continue  # only FPL has a write plane today
+        if policy.platform not in ("fpl", "espn"):
+            continue  # no write plane for this platform yet
         st = watch.for_key(key)
         result.checked += 1
 
+        # The horizon is PER TEAM, not per tick. FPL has one global deadline; an ESPN
+        # league has its own scoring period, and two ESPN leagues need not agree. Reading
+        # one clock and applying it to every policy is how a team gets acted on against
+        # another league's schedule.
+        # A FAILED horizon lookup must NOT skip the credential check. The horizon comes
+        # from an authenticated endpoint, so the commonest reason it fails is the very
+        # thing the alarm exists to report — and returning early here meant a missing
+        # ESPN cookie produced no alert at all. Found live, and the second time this
+        # shape of bug has hidden the alarm from itself.
+        event = None
+        deadline = None
+        try:
+            event, deadline = await _horizon(policy)
+            hours_left = (deadline - now).total_seconds() / 3600
+        except BaseException as e:
+            hours_left = UNKNOWN_HORIZON_HOURS
+            result.say(f"{key}: could not read the schedule "
+                       f"({type(e).__name__}: {flatten_error(e)[:120]}) — checking the "
+                       "credential anyway, which is usually the cause")
+
         if _due_for_check(st, now, hours_left):
-            state, detail = await check_credential(policy.entry)
+            state, detail = await check_credential(policy.entry, policy)
             st.last_checked_at = now.isoformat(timespec="seconds")
             should, priority = alert_plan(
                 state, hours_left=hours_left, last_alert_at=st.last_alert_at,
                 last_alerted_credential=st.last_alerted_credential, now=now,
             )
             if should:
-                await _page(alert_text(policy.entry, state, detail, hours_left), priority)
+                await _page(alert_text(policy.entry, state, detail, hours_left,
+                                       policy.platform), priority)
                 st.last_alert_at = now.isoformat(timespec="seconds")
                 result.alerts += 1
                 result.say(f"{key}: ALERTED ({state.value}, {priority}) — {detail}")
@@ -302,6 +376,11 @@ async def tick(*, now: datetime | None = None, base: Path | None = None,
                 watch.save()
                 continue  # a broken credential cannot run an agent
 
+        if event is None or deadline is None:
+            result.say(f"{key}: not running — no schedule to act against")
+            watch.save()
+            continue
+
         due, why = run_due(policy=policy, event=event, hours_left=hours_left,
                            last_run_event=st.last_run_event, now=now)
         if not due:
@@ -309,7 +388,7 @@ async def tick(*, now: datetime | None = None, base: Path | None = None,
             continue
         result.say(f"{key}: RUNNING — {why}")
         if run_agent:
-            ok = await _wake_agent(policy.entry, event, deadline)
+            ok = await _wake_agent(policy, event, deadline)
             if ok:
                 # Only stamped on success, so a crashed run is retried next tick rather
                 # than silently costing the owner a gameweek.
@@ -321,6 +400,23 @@ async def tick(*, now: datetime | None = None, base: Path | None = None,
 
     watch.save()
     return result
+
+
+async def _horizon(policy) -> tuple[int, datetime]:
+    """(period id, the moment decisions must beat) for ONE team.
+
+    FPL's is a hard deadline the API states outright. ESPN has no single lock — a fantasy
+    week rolls and each player locks at his own kickoff — so the current scoring period
+    plus a short horizon stands in, which keeps the agent acting near kickoff where the
+    team news actually is.
+    """
+    if policy.platform == "espn":
+        from ..tools.espn_fantasy import _scoring_period
+
+        return await _scoring_period(policy.context)
+    from ..tools.fantasy import _next_gameweek
+
+    return await _next_gameweek()
 
 
 def _due_for_check(st: WatchState, now: datetime, hours_left: float) -> bool:
@@ -342,28 +438,51 @@ async def _page(text: str, priority: str) -> bool:
     return await push_to_channel(channel, text)
 
 
-async def _wake_agent(entry: int, event: int, deadline: datetime) -> bool:
-    """Run fpl_manager for one team. The agent decides WHAT; the policy plane it calls
-    through decides whether any of it happens."""
-    import asyncio
-    import sys
+#: Which agent manages which platform.
+AGENTS = {"fpl": "fpl_manager", "espn": "espn_manager"}
 
-    prompt = (
+
+def _prompt_for(policy, event: int, deadline: datetime) -> str:
+    if policy.platform == "espn":
+        ctx = policy.context
+        return (
+            f"Scoring period {event} is live in ESPN league {ctx.get('leagueId')} "
+            f"({ctx.get('game')} {ctx.get('seasonId')}), and you have been woken because "
+            f"decisions are due by {deadline.isoformat()}. Manage team {policy.entry}: "
+            f"read the league settings for the slot map, the rosters, the matchups and "
+            f"the free agents, then set the best legal lineup you can justify and make "
+            f"any add/drop clearly worth it. Use espn_propose_lineup and "
+            f"espn_propose_add_drop — report exactly what the policy did with each, and "
+            f"never claim a change unless team_changed came back true."
+        )
+    return (
         f"The GW{event} deadline is {deadline.isoformat()} — that is soon, which is why "
-        f"you have been woken. Review team {entry}: read the gameweek, the squad, the "
-        f"fixtures and the players, then set the best XI and captain you can justify, and "
-        f"make any transfer that is clearly worth it. Use fpl_propose_lineup and "
+        f"you have been woken. Review team {policy.entry}: read the gameweek, the squad, "
+        f"the fixtures and the players, then set the best XI and captain you can justify, "
+        f"and make any transfer that is clearly worth it. Use fpl_propose_lineup and "
         f"fpl_propose_transfer — report exactly what the policy did with each, and do not "
         f"claim a change unless team_changed came back true."
     )
+
+
+async def _wake_agent(policy, event: int, deadline: datetime) -> bool:
+    """Run the platform's manager for one team. The agent decides WHAT; the policy plane
+    it calls through decides whether any of it happens."""
+    import asyncio
+    import sys
+
+    agent = AGENTS.get(policy.platform)
+    if agent is None:
+        logger.warning("no manager agent for platform %s", policy.platform)
+        return False
     proc = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "sportsdata_agents.interfaces.cli",
-        "run", "--agent", "fpl_manager", prompt,
+        "run", "--agent", agent, _prompt_for(policy, event, deadline),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
     out, _ = await proc.communicate()
     if proc.returncode != 0:
-        logger.warning("fpl_manager run failed rc=%s: %s", proc.returncode,
+        logger.warning("%s run failed rc=%s: %s", agent, proc.returncode,
                        (out or b"").decode(errors="ignore")[-400:])
         return False
     return True

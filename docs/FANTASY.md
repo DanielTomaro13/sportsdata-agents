@@ -146,3 +146,63 @@ before it starts — waking an agent that cannot authenticate spends money to pr
 
 Teams are watched because they have a saved policy. Setting a policy is the opt-in; there
 is no separate subscription to forget about.
+
+---
+
+## ESPN
+
+The second platform, and the reason the plane is now genuinely platform-agnostic rather
+than FPL with a coat of paint. Policy, proposals, expiry, read-back and the refusal to
+retry are shared; `fantasy/adapters.py` holds everything that differs, which is four
+questions per platform: which tool writes a lineup, which writes a roster move, how the
+squad is read back, and what shape a "pick" is.
+
+### Setting a team up
+
+```bash
+sportsdata-mcp connect espnfantasy
+agents fantasy policy 4 --platform espn \
+  --set context.leagueId=899098157 --set context.seasonId=2026 --set context.game=ffl \
+  --set lineup=auto --set transfers=auto --set max_hit=15
+```
+
+`context` is not optional: an ESPN team is `(league, season, game, teamId)`, and a policy
+without it is refused at construction rather than failing later against a real roster.
+The policy key includes the league for the same reason — every ESPN league numbers its
+teams from 1, so a bare `espn:4` would let one league's policy govern another's team.
+
+### What is different about ESPN, and why the code cares
+
+| | FPL | ESPN |
+|---|---|---|
+| Deadline | one hard lock per gameweek | none — the week rolls, players lock at their own kickoff |
+| Captain | yes | **no** — asserting one would fail every correct write |
+| Formation | one rule, 15/11 | per sport **and** per league; the league's settings are the authority |
+| Cost of a move | points hit | FAAB budget on waivers |
+| Roster size after a move | always constant | may legitimately change (an unpaired ADD) |
+
+The deadline row is load-bearing. ESPN's horizon is a rolling `now + N`, so hours-left
+never counts down — applying FPL's "don't act until you're close" rule there is a
+constant, not a window, and it blocked the ESPN agent permanently. Platforms without a
+hard deadline skip that rule; the once-per-scoring-period run trigger is the real bound.
+
+### Waivers
+
+`bidAmount` is checked against the team's actual remaining budget **before** the policy
+sees it, and it is what `max_hit` governs. A model reasoning about a budget it has not
+read will bid 40 out of 12. A waiver also does **not** change the roster immediately — it
+is processed on the league's waiver run — so a read-back straight after a claim correctly
+shows no change, and the agent is told to say which kind of move it made.
+
+### Trades are not automated, and that is deliberate
+
+`TRADE_PROPOSE` sends a message to another person. That is a different category of act
+from moving your own bench player, and no policy setting turns it on.
+
+### Verification status
+
+The two write tools were transcribed from ESPN's own public JS bundle — the request
+builder, the item shapes and the transaction envelope, quoted in `espnfantasy.yaml`. They
+carry `shapes_verified: false` and say so in their tool descriptions, because no live 200
+has been seen yet. The 27 read tools are unaffected: `shapes_verified` is now per
+endpoint, so being honest about 2 tools does not slap a warning on 27 good ones.

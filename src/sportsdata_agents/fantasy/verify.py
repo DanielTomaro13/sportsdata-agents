@@ -23,6 +23,11 @@ from dataclasses import dataclass, field
 SQUAD_SIZE = 15
 XI_SIZE = 11
 
+#: Platforms where a captain exists at all. ESPN fantasy has no armband — asserting one
+#: there would report "NO CAPTAIN is set" on every correct write, which is how a verifier
+#: teaches people to ignore it.
+HAS_CAPTAIN = frozenset({"fpl"})
+
 
 @dataclass
 class VerifyResult:
@@ -44,12 +49,16 @@ def _by_element(picks: list[dict]) -> dict[int, dict]:
     return {int(p["element"]): p for p in picks}
 
 
-def verify_lineup(intended: list[dict], actual: list[dict]) -> VerifyResult:
-    """Compare an intended pick list against what FPL reports afterwards.
+def verify_lineup(intended: list[dict], actual: list[dict], *,
+                  platform: str = "fpl") -> VerifyResult:
+    """Compare an intended pick list against what the platform reports afterwards.
 
     Checks the fields a lineup write actually sets — slot, captaincy, multiplier — and
     ignores everything the provider owns (prices, element_type), because a difference
     there is not evidence the write failed.
+
+    `platform` gates the rules that are not universal. ESPN has no captain and no fixed
+    squad size, so applying FPL's would produce a mismatch on every correct ESPN write.
     """
     want, got = _by_element(intended), _by_element(actual)
     mismatches: list[str] = []
@@ -72,26 +81,50 @@ def verify_lineup(intended: list[dict], actual: list[dict]) -> VerifyResult:
                 )
 
     # A lineup with no captain is a specific, expensive failure worth naming rather than
-    # leaving the reader to infer it from a list of field diffs.
-    if not any(p.get("is_captain") for p in actual):
+    # leaving the reader to infer it from a list of field diffs — on platforms that HAVE
+    # captains. ESPN does not.
+    if platform in HAS_CAPTAIN and not any(p.get("is_captain") for p in actual):
         mismatches.append("NO CAPTAIN is set — this costs the captain's doubled points")
 
-    # Only meaningful on a complete FPL squad. On a partial pick list — a lineup write
-    # that touches a few slots — an XI count proves nothing, and asserting it anyway
-    # would make the verifier cry wolf, which is the failure mode that gets a real
-    # mismatch ignored later.
-    if len(actual) == SQUAD_SIZE:
+    # FPL only, and only on a COMPLETE squad. On a partial pick list an XI count proves
+    # nothing, and asserting it anyway makes the verifier cry wolf — the failure mode
+    # that gets a real mismatch ignored later. ESPN's slot map is per sport AND per
+    # league, so its league settings are the authority, never a constant in this file.
+    if platform == "fpl" and len(actual) == SQUAD_SIZE:
         starters = [p for p in actual if int(p.get("position", 99)) <= XI_SIZE]
         if len(starters) != XI_SIZE:
             mismatches.append(f"{len(starters)} players in the XI, expected {XI_SIZE}")
 
     if mismatches:
-        return VerifyResult(False, mismatches, "the lineup FPL reports differs from the one sent")
+        return VerifyResult(False, mismatches, "the lineup the platform reports differs from the one sent")
     return VerifyResult(True, [], f"lineup confirmed — {len(actual)} picks match what was sent")
 
 
+def _moves(intended: list[dict]) -> tuple[set[int], set[int]]:
+    """(coming in, going out) from either platform's move vocabulary.
+
+    FPL sends {element_in, element_out}; ESPN sends items typed ADD or DROP against a
+    playerId. Normalising here means one verifier, not two — and one place to be wrong.
+    """
+    ins: set[int] = set()
+    outs: set[int] = set()
+    for t in intended:
+        if (v := t.get("element_in")) is not None:
+            ins.add(int(v))
+        if (v := t.get("element_out")) is not None:
+            outs.add(int(v))
+        kind = str(t.get("type") or "").upper()
+        if (pid := t.get("playerId")) is not None:
+            if kind == "ADD":
+                ins.add(int(pid))
+            elif kind == "DROP":
+                outs.add(int(pid))
+    return ins, outs
+
+
 def verify_transfers(
-    intended: list[dict], squad_before: list[dict], squad_after: list[dict]
+    intended: list[dict], squad_before: list[dict], squad_after: list[dict], *,
+    platform: str = "fpl",
 ) -> VerifyResult:
     """Confirm each intended transfer actually moved.
 
@@ -100,18 +133,17 @@ def verify_transfers(
     """
     before, after = {int(p["element"]) for p in squad_before}, {int(p["element"]) for p in squad_after}
     mismatches: list[str] = []
+    expected_in, expected_out = _moves(intended)
 
-    for t in intended:
-        in_, out_ = t.get("element_in"), t.get("element_out")
-        if in_ is not None and int(in_) not in after:
-            mismatches.append(f"element {in_} was supposed to come IN and is not in the squad")
-        if out_ is not None and int(out_) in after:
-            mismatches.append(f"element {out_} was supposed to go OUT and is still in the squad")
+    for pid in sorted(expected_in):
+        if pid not in after:
+            mismatches.append(f"player {pid} was supposed to come IN and is not in the squad")
+    for pid in sorted(expected_out):
+        if pid in after:
+            mismatches.append(f"player {pid} was supposed to go OUT and is still in the squad")
 
     # Anything that moved which nobody asked for is the scariest outcome — it means the
     # write did something other than what was approved.
-    expected_in = {int(t["element_in"]) for t in intended if t.get("element_in") is not None}
-    expected_out = {int(t["element_out"]) for t in intended if t.get("element_out") is not None}
     unexpected_in = (after - before) - expected_in
     unexpected_out = (before - after) - expected_out
     if unexpected_in:
@@ -119,8 +151,17 @@ def verify_transfers(
     if unexpected_out:
         mismatches.append(f"players left that were NOT requested: {sorted(unexpected_out)}")
 
-    if len(after) != len(before):
+    # FPL swaps are always one-for-one, so a size change is a red flag. ESPN adds and
+    # drops need not pair (a roster with a spare slot takes an ADD alone), so the size
+    # legitimately moves and only the NET is checkable.
+    if platform == "fpl" and len(after) != len(before):
         mismatches.append(f"squad size changed from {len(before)} to {len(after)}")
+    else:
+        net = len(expected_in) - len(expected_out)
+        if len(after) - len(before) != net:
+            mismatches.append(
+                f"roster went from {len(before)} to {len(after)}; the requested moves "
+                f"account for {net:+d}")
 
     if mismatches:
         return VerifyResult(False, mismatches, "the squad after the transfer is not what was requested")
