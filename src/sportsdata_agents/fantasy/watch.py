@@ -32,6 +32,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
+from .errors import flatten_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,27 +101,6 @@ class Watch:
 
 
 # ─── is the credential actually usable? ─────────────────────────────────
-
-
-def flatten_error(e: BaseException, _depth: int = 0) -> str:
-    """Every message in an exception tree, joined.
-
-    Load-bearing, and found the hard way. The MCP client runs inside an anyio task
-    group, so a clean `403 Authentication credentials were not provided` arrives
-    wrapped as `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)`.
-    Matching on `str(e)` alone therefore classified a plainly-expired cookie as UNKNOWN
-    — and UNKNOWN never pages. The alarm would have stayed silent for exactly the
-    failure it exists to catch.
-    """
-    if _depth > 6:  # cyclic __context__ chains exist; bound the walk
-        return ""
-    parts = [str(e)]
-    for sub in getattr(e, "exceptions", ()) or ():
-        parts.append(flatten_error(sub, _depth + 1))
-    for chained in (e.__cause__, e.__context__):
-        if chained is not None and chained is not e:
-            parts.append(flatten_error(chained, _depth + 1))
-    return " | ".join(p for p in parts if p)
 
 
 def classify_error(text: str) -> tuple[Credential, str] | None:
@@ -307,6 +288,10 @@ class TickResult:
 #: plenty, and the usual cause of not knowing is the credential itself.
 UNKNOWN_HORIZON_HOURS = 12.0
 
+#: Which agent manages which platform. Also the definition of "watchable": a team is
+#: watched when there is something that could act on it.
+AGENTS = {"fpl": "fpl_manager", "espn": "espn_manager"}
+
 #: Don't re-check the credential on every tick — it is an authenticated upstream call.
 #: Far from a deadline a daily check is plenty; close to one it is checked every tick,
 #: because that is when a stale answer is the expensive one.
@@ -316,7 +301,7 @@ CHECK_INTERVAL_HOURS = 12.0
 async def tick(*, now: datetime | None = None, base: Path | None = None,
                run_agent: bool = True) -> TickResult:
     """One pass: verify credentials, alert if needed, wake the agent if it is due."""
-    from .policy import load_policies
+    from .policy import LeaguePolicy, load_policies
 
     now = now or datetime.now(tz=UTC)
     result = TickResult()
@@ -328,9 +313,27 @@ async def tick(*, now: datetime | None = None, base: Path | None = None,
     watch = Watch.load(base)
     result.say(f"{len(policies)} team(s) watched")
 
+    # Anything approved out-of-band — from a phone, another shell — is carried out here.
+    # `agents fantasy approve` also executes immediately, so this is the safety net
+    # rather than the main path; an approval queue that only drains on one code path is
+    # one that silently stops draining.
+    if run_agent:
+        try:
+            from .runner import drain_approved
+
+            for prop, outcome in await drain_approved():
+                result.runs += 1
+                result.say(f"approved {prop.id[:8]} → {outcome.status}: {outcome.detail}")
+        except Exception as e:
+            result.say(f"could not execute approved proposals: {type(e).__name__}: {e}")
+
     for key, policy in policies.items():
-        if policy.platform not in ("fpl", "espn"):
-            continue  # no write plane for this platform yet
+        if policy.platform not in AGENTS:
+            # Derived, not a third hardcoded list: a platform is watchable exactly when
+            # it has a manager agent to wake. Adding one should not mean remembering to
+            # edit a tuple over here as well.
+            result.say(f"{key}: no manager agent for {policy.platform} — not watched")
+            continue
         st = watch.for_key(key)
         result.checked += 1
 
@@ -354,7 +357,8 @@ async def tick(*, now: datetime | None = None, base: Path | None = None,
                        f"({type(e).__name__}: {flatten_error(e)[:120]}) — checking the "
                        "credential anyway, which is usually the cause")
 
-        if _due_for_check(st, now, hours_left):
+        if _due_for_check(st, now, hours_left,
+                          policy.platform in LeaguePolicy.HARD_DEADLINE):
             state, detail = await check_credential(policy.entry, policy)
             st.last_checked_at = now.isoformat(timespec="seconds")
             should, priority = alert_plan(
@@ -419,8 +423,15 @@ async def _horizon(policy) -> tuple[int, datetime]:
     return await _next_gameweek()
 
 
-def _due_for_check(st: WatchState, now: datetime, hours_left: float) -> bool:
-    if hours_left <= 24:
+def _due_for_check(st: WatchState, now: datetime, hours_left: float,
+                   hard_deadline: bool = True) -> bool:
+    """Whether to spend an authenticated call verifying the credential this tick.
+
+    `hard_deadline` matters: a platform without one has a horizon of `now + N`, so
+    "hours_left <= 24" is permanently true and the throttle never applies — ESPN was
+    being checked every 30 minutes, forever. There the ordinary interval governs.
+    """
+    if hard_deadline and hours_left <= 24:
         return True
     if not st.last_checked_at:
         return True
@@ -436,10 +447,6 @@ async def _page(text: str, priority: str) -> bool:
     if channel == "ntfy" or channel.startswith("ntfy:"):
         return await post_ntfy(ntfy_url_for(channel) or "", text, priority=priority)
     return await push_to_channel(channel, text)
-
-
-#: Which agent manages which platform.
-AGENTS = {"fpl": "fpl_manager", "espn": "espn_manager"}
 
 
 def _prompt_for(policy, event: int, deadline: datetime) -> str:

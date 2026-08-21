@@ -2352,6 +2352,8 @@ def fantasy_show(proposal_id: str = typer.Argument(..., help="Id or unique prefi
 def fantasy_approve(proposal_id: str = typer.Argument(..., help="Id or unique prefix.")) -> None:
     """Approve a proposal. Approval does not execute it — the next agent run does, and
     only while the proposal is still inside its deadline."""
+    import asyncio
+
     from sportsdata_agents.fantasy.approvals import Store
 
     store = Store.load()
@@ -2360,6 +2362,18 @@ def fantasy_approve(proposal_id: str = typer.Argument(..., help="Id or unique pr
         typer.echo(f"not approved: {msg}", err=True)
         raise typer.Exit(1)
     typer.echo(f"✓ {msg}: {p.summary}")
+
+    # Approving is the owner saying "do it", so it is done now rather than queued for a
+    # run that might come after the deadline. The scheduler still sweeps anything
+    # approved out-of-band, but nobody should have to know that to get their change made.
+    from sportsdata_agents.fantasy.runner import drain_approved
+
+    typer.echo("  executing…")
+    for _prop, outcome in asyncio.run(drain_approved(only=p.id)):
+        typer.echo(f"  {outcome.status}: {outcome.detail}")
+        if outcome.verification is not None and not outcome.verification.ok:
+            for m in outcome.verification.mismatches:
+                typer.echo(f"    ⚠ {m}")
 
 
 @fantasy_app.command(name="reject")

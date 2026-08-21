@@ -17,12 +17,14 @@ been re-read and matched against the intent.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
 from .adapters import adapter_for
 from .approvals import Proposal, State, Store, new_proposal, notify
+from .errors import best_message
 from .policy import Decision, Verdict
 from .verify import VerifyResult, escalate, verify_lineup, verify_transfers
 
@@ -84,7 +86,7 @@ async def run_intent(
             platform=intent.platform, entry=intent.entry, action=intent.action,
             summary=intent.summary, diff=intent.diff, payload=intent.payload,
             expires_at=intent.deadline, reason=decision.reason,
-            cost_points=intent.cost_points,
+            cost_points=intent.cost_points, context=intent.context,
         ))
         await notify(p)
         return Outcome("proposed", f"awaiting approval ({decision.reason})", proposal=p)
@@ -112,10 +114,12 @@ async def _write_and_verify(
         else:
             return Outcome("skipped", f"no write path for action {intent.action!r}")
         await call(tool, **args)
-    except Exception as e:
+    except BaseException as e:
         # NOT retried. A transfer that timed out may still have been applied; sending it
         # again is how you pay a second points hit — or, on ESPN, a second waiver bid.
-        detail = f"{type(e).__name__}: {e}"
+        # The flattened message, not the task-group wrapper: the owner needs the
+        # sentence that says what to do, not a detail of how MCP is plumbed.
+        detail = f"{type(e).__name__}: {best_message(e)}"
         if proposal:
             store.record_outcome(proposal.id, ok=False, detail=detail)
         return Outcome("failed", f"the write raised and was NOT retried — {detail}")
@@ -153,3 +157,56 @@ async def _read_squad(call: ToolCaller, intent: Intent, adapter, ctx: dict) -> l
     except Exception:
         return []
     return adapter.picks_from(body, ctx)
+
+
+# ─── carrying out what the owner approved ───────────────────────────────
+
+
+def intent_from(proposal: Proposal) -> Intent:
+    """Rebuild the intent a proposal described, so it can be carried out later.
+
+    The proposal is the record of what was AGREED — so the write is rebuilt from it
+    rather than from anything recomputed since. If the world has moved on, the expiry is
+    what catches that, not a quiet substitution of different picks.
+    """
+    from datetime import datetime as _dt
+
+    return Intent(
+        action=proposal.action,
+        entry=proposal.entry,
+        summary=proposal.summary,
+        diff=list(proposal.diff),
+        payload=dict(proposal.payload),
+        deadline=_dt.fromisoformat(proposal.expires_at),
+        cost_points=proposal.cost_points,
+        platform=proposal.platform,
+        context=dict(proposal.context),
+    )
+
+
+async def execute_approved(
+    *, call_for: Callable[[str], ToolCaller], store: Store | None = None,
+    csrf_for: Callable[[str], str] | None = None, only: str | None = None,
+) -> list[tuple[Proposal, Outcome]]:
+    """Carry out every approved proposal that is still inside its window.
+
+    THIS IS THE STEP THAT WAS MISSING. `agents fantasy approve` marked a proposal
+    APPROVED and nothing ever read that state — the owner said yes, the agent proposed
+    again next run, and the approval sat there until it expired. An approval queue that
+    never drains is worse than no queue: it looks like consent was honoured.
+
+    `call_for` maps a platform to something that can call its tools, so this module still
+    knows nothing about MCP.
+    """
+    store = store or Store.load()
+    done: list[tuple[Proposal, Outcome]] = []
+    for proposal in store.approved():
+        if only and not proposal.id.startswith(only):
+            continue
+        csrf = csrf_for(proposal.platform) if csrf_for else ""
+        outcome = await _write_and_verify(
+            intent_from(proposal), call=call_for(proposal.platform), csrf=csrf,
+            store=store, proposal=proposal,
+        )
+        done.append((proposal, outcome))
+    return done

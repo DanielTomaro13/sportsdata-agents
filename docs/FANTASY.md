@@ -64,8 +64,20 @@ in" means nothing three hours after the gameweek locked, and acting on a stale a
 worse than not acting at all. Expiry is applied when proposals are *listed* as well as when
 they are approved, so one that lapsed while nobody was looking cannot be revived.
 
-Approval does not execute anything. The next agent run does, and only while the proposal is
-still inside its window.
+**Approving executes it.** Not "queues it for the next run" — that was the original
+design and it was a dead end: nothing ever read the APPROVED state, so the owner said
+yes, the agent proposed the same thing again next run, and the approval sat there until
+it expired. An approval queue that never drains is worse than no queue, because it looks
+like consent was honoured.
+
+`agents fantasy approve` therefore carries the change out immediately and prints the
+result, and the scheduler tick sweeps anything approved out-of-band (from a phone, from
+another shell). Expiry is re-checked at the last moment: an approval that sat unexecuted
+past its deadline is never honoured late.
+
+The write is rebuilt from the proposal — the record of what was *agreed* — rather than
+recomputed. If the world has moved on, the expiry catches it; the agent does not quietly
+substitute different picks under an old approval.
 
 ## 3. Read-back — because a 200 is not proof
 

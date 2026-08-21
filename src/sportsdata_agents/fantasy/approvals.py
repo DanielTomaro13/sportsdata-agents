@@ -49,6 +49,11 @@ class Proposal:
     expires_at: str                # normally the gameweek deadline
     reason: str = ""               # why the policy asked rather than acted
     cost_points: int = 0
+    #: Everything the platform needs to identify the team beyond `entry`. Stored on the
+    #: PROPOSAL, not just the intent, because a proposal is executed later — possibly in
+    #: another process — and an ESPN proposal without its league, season and game cannot
+    #: be carried out at all.
+    context: dict = field(default_factory=dict)
     state: State = State.PENDING
     outcome: str = ""
 
@@ -138,6 +143,28 @@ class Store:
             self.save()
         return out
 
+    def approved(self) -> list[Proposal]:
+        """Approved and still inside their window, oldest first.
+
+        Expiry is re-applied here too: an approval that sat unexecuted past its deadline
+        must not be carried out late. That is the same rule as `pending`, and it matters
+        more here — this list is what actually gets written.
+        """
+        now = datetime.now(tz=UTC)
+        live, changed = [], False
+        for p in self.proposals.values():
+            if p.state is not State.APPROVED:
+                continue
+            if p.is_expired(now):
+                p.state = State.EXPIRED
+                p.outcome = "approved, but expired before it was executed"
+                changed = True
+                continue
+            live.append(p)
+        if changed:
+            self.save()
+        return sorted(live, key=lambda p: p.created_at)
+
     def approve(self, prefix: str, now: datetime | None = None) -> tuple[Proposal | None, str]:
         p = self.find(prefix)
         if p is None:
@@ -174,6 +201,7 @@ class Store:
 def new_proposal(
     *, platform: str, entry: int, action: str, summary: str, diff: list[str],
     payload: dict, expires_at: datetime, reason: str = "", cost_points: int = 0,
+    context: dict | None = None,
 ) -> Proposal:
     return Proposal(
         id=uuid.uuid4().hex,
@@ -187,6 +215,7 @@ def new_proposal(
         expires_at=expires_at.isoformat(timespec="seconds"),
         reason=reason,
         cost_points=cost_points,
+        context=dict(context or {}),
     )
 
 

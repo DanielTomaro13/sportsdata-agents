@@ -300,3 +300,24 @@ def test_espn_has_no_hard_deadline_so_the_too_early_rule_does_not_apply():
     # FPL keeps it: 12h out is still too early there.
     f = LeaguePolicy(platform="fpl", entry=1, lineup="auto", quiet_hours=None)
     assert f.for_lineup(now=NOW, deadline=NOW + timedelta(hours=12)).verdict is Verdict.SKIP
+
+
+def test_the_platform_registries_agree():
+    """Three lists used to say which platforms are supported — adapters, manager agents,
+    and a tuple in the tick. A platform present in one and missing from another fails
+    silently and late, so the tick now derives its list from the agents map."""
+    from sportsdata_agents.fantasy.adapters import ADAPTERS
+    from sportsdata_agents.fantasy.watch import AGENTS
+
+    assert sorted(AGENTS) == sorted(ADAPTERS)
+
+
+def test_every_manager_agent_named_actually_exists():
+    from pathlib import Path
+
+    import sportsdata_agents
+    from sportsdata_agents.fantasy.watch import AGENTS
+
+    specs = Path(sportsdata_agents.__file__).parent / "specs"
+    for platform, agent in AGENTS.items():
+        assert (specs / f"{agent}.yaml").is_file(), f"{platform} names a missing agent {agent}"

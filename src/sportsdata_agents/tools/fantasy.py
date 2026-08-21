@@ -208,16 +208,23 @@ async def _call_adapter(tool: str, **kwargs: Any) -> Any:
     return await _mcp_call(tool, kwargs)
 
 
-def _csrf() -> str:
-    """FPL's CSRF token, from the environment or the connect-written config.
+def csrf_from_cookie(cookie: str) -> str:
+    """Pull `csrftoken` out of a Cookie header.
 
-    Empty is not an error here — the write will fail with a 403 and be reported as a
-    failure, which is more useful than refusing before the policy has even been consulted.
+    THIS IS THE BRIDGE THAT WAS MISSING. `connect fpl` collects three cookies —
+    pl_profile, sessionid AND csrftoken — and stores them as one Cookie header in
+    FPL_SESSION_COOKIE. Nothing ever wrote a separate FPL_CSRF_TOKEN, so the lookup for
+    one always came back empty, every write sent an empty X-CSRFToken, and FPL answered
+    403. The token was sitting in the string the whole time.
     """
-    import os
+    for part in cookie.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == "csrftoken":
+            return value.strip()
+    return ""
 
-    if token := os.environ.get("FPL_CSRF_TOKEN"):
-        return token
+
+def _stored_secrets() -> dict:
     try:
         from pathlib import Path
 
@@ -225,11 +232,25 @@ def _csrf() -> str:
 
         path = Path.home() / ".config" / "sportsdata-mcp" / "config.yaml"
         if path.exists():
-            secrets = (yaml.safe_load(path.read_text()) or {}).get("secrets") or {}
-            return str(secrets.get("FPL_CSRF_TOKEN") or "")
+            return (yaml.safe_load(path.read_text()) or {}).get("secrets") or {}
     except (OSError, ValueError):
         pass
-    return ""
+    return {}
+
+
+def _csrf() -> str:
+    """FPL's CSRF token: an explicit override, else extracted from the session cookie.
+
+    Empty is not an error here — the write fails with a 403 and is reported as a failure,
+    which is more useful than refusing before the policy has even been consulted.
+    """
+    import os
+
+    secrets = _stored_secrets()
+    if token := (os.environ.get("FPL_CSRF_TOKEN") or secrets.get("FPL_CSRF_TOKEN")):
+        return str(token)
+    cookie = os.environ.get("FPL_SESSION_COOKIE") or secrets.get("FPL_SESSION_COOKIE") or ""
+    return csrf_from_cookie(str(cookie))
 
 
 def _report(outcome: Any, decision: Any, event: int, deadline: datetime) -> dict[str, Any]:
