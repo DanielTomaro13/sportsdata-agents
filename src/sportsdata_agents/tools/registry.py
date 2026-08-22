@@ -13,6 +13,7 @@ from sportsdata_agents.agents.harness import ToolDef
 from sportsdata_agents.tools.desk import DESK_TOOLS
 from sportsdata_agents.tools.espn_fantasy import ESPN_FANTASY_TOOLS
 from sportsdata_agents.tools.fantasy import FANTASY_TOOLS
+from sportsdata_agents.tools.mfl_fantasy import MFL_TOOLS
 from sportsdata_agents.tools.skillsmith import SKILLSMITH_TOOLS
 
 
@@ -560,6 +561,7 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
     # spec, because a gate the model can call around is not a gate.
     **FANTASY_TOOLS,
     **ESPN_FANTASY_TOOLS,
+    **MFL_TOOLS,
 }
 
 

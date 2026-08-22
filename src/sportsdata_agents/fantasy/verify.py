@@ -28,6 +28,19 @@ XI_SIZE = 11
 #: teaches people to ignore it.
 HAS_CAPTAIN = frozenset({"fpl"})
 
+#: Platforms whose roster read does NOT report who is starting.
+#:
+#: MyFantasyLeague has no lineup EXPORT — `lineup` is an import-only type — so after
+#: setting a lineup there is nothing to read back that says who starts. A full comparison
+#: is therefore impossible, and both easy answers are wrong: asserting equality reports a
+#: failure on every correct write, and skipping the check reports success without looking.
+#:
+#: So the check is narrowed to what the roster read CAN prove — that every intended
+#: starter is actually on the roster, which still catches a mistyped id or a player who
+#: is not yours — and the result SAYS the slots were not verified. A partial check
+#: described as partial is worth more than a total one that is a fiction.
+PARTIAL_LINEUP_READBACK = frozenset({"mfl"})
+
 
 @dataclass
 class VerifyResult:
@@ -45,8 +58,20 @@ class VerifyResult:
         return "\n".join(lines)
 
 
-def _by_element(picks: list[dict]) -> dict[int, dict]:
-    return {int(p["element"]): p for p in picks}
+def _id(value: object) -> str:
+    """A player id as an opaque string.
+
+    FPL numbers its players, ESPN numbers its players, and MFL uses numeric-looking
+    STRINGS — coercing with int() worked for all three right up until a platform used a
+    non-numeric id, at which point the verifier would crash rather than report. Ids here
+    are identifiers, not quantities, so they are compared as text and only ever against
+    each other.
+    """
+    return str(value).strip()
+
+
+def _by_element(picks: list[dict]) -> dict[str, dict]:
+    return {_id(p["element"]): p for p in picks}
 
 
 def verify_lineup(intended: list[dict], actual: list[dict], *,
@@ -66,6 +91,20 @@ def verify_lineup(intended: list[dict], actual: list[dict], *,
     missing = sorted(set(want) - set(got))
     if missing:
         mismatches.append(f"players missing from the squad afterwards: {missing}")
+
+    if platform in PARTIAL_LINEUP_READBACK:
+        # Everything below compares slots, which this platform does not report. Stop
+        # here and say so rather than inventing a verdict either way.
+        if mismatches:
+            return VerifyResult(
+                False, mismatches,
+                "players named in the lineup are not on the roster")
+        return VerifyResult(
+            True, [],
+            f"all {len(want)} named starters are on the roster — but this platform does "
+            "not report starting slots, so the lineup ITSELF was not verified. Check it "
+            "before kickoff.")
+
     extra = sorted(set(got) - set(want))
     if extra:
         mismatches.append(f"unexpected players in the squad: {extra}")
@@ -100,25 +139,25 @@ def verify_lineup(intended: list[dict], actual: list[dict], *,
     return VerifyResult(True, [], f"lineup confirmed — {len(actual)} picks match what was sent")
 
 
-def _moves(intended: list[dict]) -> tuple[set[int], set[int]]:
+def _moves(intended: list[dict]) -> tuple[set[str], set[str]]:
     """(coming in, going out) from either platform's move vocabulary.
 
     FPL sends {element_in, element_out}; ESPN sends items typed ADD or DROP against a
     playerId. Normalising here means one verifier, not two — and one place to be wrong.
     """
-    ins: set[int] = set()
-    outs: set[int] = set()
+    ins: set[str] = set()
+    outs: set[str] = set()
     for t in intended:
         if (v := t.get("element_in")) is not None:
-            ins.add(int(v))
+            ins.add(_id(v))
         if (v := t.get("element_out")) is not None:
-            outs.add(int(v))
+            outs.add(_id(v))
         kind = str(t.get("type") or "").upper()
         if (pid := t.get("playerId")) is not None:
             if kind == "ADD":
-                ins.add(int(pid))
+                ins.add(_id(pid))
             elif kind == "DROP":
-                outs.add(int(pid))
+                outs.add(_id(pid))
     return ins, outs
 
 
@@ -131,7 +170,8 @@ def verify_transfers(
     Checked against the squad rather than the response body, because the response is
     undocumented and the squad is the thing the owner cares about.
     """
-    before, after = {int(p["element"]) for p in squad_before}, {int(p["element"]) for p in squad_after}
+    before = {_id(p["element"]) for p in squad_before}
+    after = {_id(p["element"]) for p in squad_after}
     mismatches: list[str] = []
     expected_in, expected_out = _moves(intended)
 

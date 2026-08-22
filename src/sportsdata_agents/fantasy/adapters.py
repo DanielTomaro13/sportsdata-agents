@@ -128,9 +128,92 @@ class ESPNAdapter:
         ]
 
 
+@dataclass
+class MFLAdapter:
+    """MyFantasyLeague. A team is (year, league, franchise) — and unlike the others, the
+    lineup write is a FULL REPLACEMENT expressed as a flat list of starter ids."""
+
+    platform: str = "mfl"
+    needs: tuple[str, ...] = ("leagueId", "year")
+
+    def _base(self, ctx: dict) -> dict:
+        missing = [k for k in self.needs if not ctx.get(k)]
+        if missing:
+            raise ValueError(
+                f"MFL needs {', '.join(missing)} to identify the team — these come from "
+                "the league URL and are stored with the policy, not guessed."
+            )
+        return {"year": int(ctx["year"]), "L": str(ctx["leagueId"])}
+
+    def lineup_call(self, entry: int, payload: dict, ctx: dict) -> tuple[str, dict]:
+        args = {**self._base(ctx), "W": ctx.get("week"), **payload}
+        # FRANCHISE_ID means "act as another franchise" and is commissioner-only. It is
+        # never sent from here: an agent acting on its owner's team is acting as itself,
+        # and the one way to accidentally rewrite a stranger's lineup is to pass this.
+        args.pop("FRANCHISE_ID", None)
+        return "mfl_set_lineup", args
+
+    def roster_call(self, entry: int, payload: dict, ctx: dict) -> tuple[str, dict]:
+        tool = payload.pop("_tool", "mfl_add_drop")
+        args = {**self._base(ctx), **payload}
+        args.pop("FRANCHISE_ID", None)
+        return tool, args
+
+    def read_squad_call(self, entry: int, ctx: dict) -> tuple[str, dict]:
+        return "mfl_rosters", {**self._base(ctx), "FRANCHISE": _franchise(entry)}
+
+    def picks_from(self, body: Any, ctx: dict) -> list[dict]:
+        """Our franchise's roster, normalised to {element, position}.
+
+        `position` carries MFL's roster STATUS (ROSTER / INJURED_RESERVE / TAXI_SQUAD)
+        rather than a lineup slot, because that is what MFL's roster read actually
+        reports and what an IR move changes. Starters are not visible here at all —
+        which is why a lineup write is verified against the league's own lineup read,
+        not this one.
+        """
+        if not isinstance(body, dict):
+            return []
+        franchises = _as_list((body.get("rosters") or {}).get("franchise"))
+        want = _franchise(ctx.get("teamId", ""))
+        for fr in franchises:
+            if str(fr.get("id")) != want:
+                continue
+            return [
+                {"element": str(p["id"]), "position": p.get("status", "ROSTER"),
+                 "is_captain": False, "is_vice_captain": False, "multiplier": 1}
+                for p in _as_list(fr.get("player")) if p.get("id") is not None
+            ]
+        return []
+
+    def intended_picks(self, payload: dict) -> list[dict]:
+        """The starters we asked for, as bare ids.
+
+        No `position` is set, because MFL's lineup write says nothing about roster status
+        and its roster read says nothing about starting slots — the two do not share a
+        field to compare. The verifier handles this by checking membership only (see
+        PARTIAL_LINEUP_READBACK) and reporting that the slots went unverified.
+        """
+        return [{"element": str(pid)} for pid in (payload.get("STARTERS") or [])]
+
+
+def _franchise(entry: int | str) -> str:
+    """MFL franchise ids are four-digit strings: 1 -> '0001'. Passing the int silently
+    matches nothing, which reads as "you are not in this league"."""
+    return str(entry).zfill(4)
+
+
+def _as_list(value: Any) -> list:
+    """MFL returns one row as an object and many as a list. Everything that walks a
+    response has to normalise, so it is done in one place."""
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
 ADAPTERS: dict[str, Adapter] = {
     "fpl": FPLAdapter(),
     "espn": ESPNAdapter(),
+    "mfl": MFLAdapter(),
 }
 
 

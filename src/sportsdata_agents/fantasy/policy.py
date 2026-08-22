@@ -60,6 +60,7 @@ class LeaguePolicy:
     #: that could never execute cannot be saved in the first place.
     REQUIRED_CONTEXT: ClassVar[dict[str, tuple[str, ...]]] = {
         "espn": ("leagueId", "seasonId", "game"),
+        "mfl": ("leagueId", "year"),
     }
 
     #: Platforms with ONE hard lock for the whole team. FPL has a gameweek deadline: a

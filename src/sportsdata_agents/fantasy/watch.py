@@ -290,7 +290,7 @@ UNKNOWN_HORIZON_HOURS = 12.0
 
 #: Which agent manages which platform. Also the definition of "watchable": a team is
 #: watched when there is something that could act on it.
-AGENTS = {"fpl": "fpl_manager", "espn": "espn_manager"}
+AGENTS = {"fpl": "fpl_manager", "espn": "espn_manager", "mfl": "mfl_manager"}
 
 #: Don't re-check the credential on every tick — it is an authenticated upstream call.
 #: Far from a deadline a daily check is plenty; close to one it is checked every tick,
@@ -418,6 +418,10 @@ async def _horizon(policy) -> tuple[int, datetime]:
         from ..tools.espn_fantasy import _scoring_period
 
         return await _scoring_period(policy.context)
+    if policy.platform == "mfl":
+        from ..tools.mfl_fantasy import _week_and_horizon
+
+        return await _week_and_horizon(policy.context)
     from ..tools.fantasy import _next_gameweek
 
     return await _next_gameweek()

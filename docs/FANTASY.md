@@ -218,3 +218,72 @@ builder, the item shapes and the transaction envelope, quoted in `espnfantasy.ya
 carry `shapes_verified: false` and say so in their tool descriptions, because no live 200
 has been seen yet. The 27 read tools are unaffected: `shapes_verified` is now per
 endpoint, so being honest about 2 tools does not slap a warning on 27 good ones.
+
+---
+
+## MyFantasyLeague
+
+The third platform, and the first whose write contract is **documented by the vendor**.
+FPL's and ESPN's came out of minified JavaScript; MFL publishes 79 request types with
+named, described arguments. That does not make the writes verified — our transcription
+still has to be proved against a live call — but it does mean the contract itself is
+knowable rather than inferred.
+
+### Setting a team up
+
+```bash
+sportsdata-mcp connect mfl
+agents fantasy policy 1 --platform mfl \
+  --set context.leagueId=12345 --set context.year=2026 \
+  --set lineup=auto --set transfers=auto --set max_hit=20
+```
+
+`entry` is your franchise **number** (1 for franchise `0001`); the adapter zero-pads it,
+because passing `1` to MFL matches nothing and reads as "you are not in this league".
+
+### Three defaults that are dangerous, and what the code does about them
+
+**A lineup write is a full replacement.** `STARTERS` is the entire starting lineup —
+anyone omitted is benched, and MFL accepts that silently. `mfl_propose_lineup` therefore
+refuses a lineup whose size does not match the league's own declared `starters` count,
+read from `mfl_league` rather than assumed. MFL leagues are the most customisable in
+fantasy football (superflex, two-QB, IDP, no kicker), so a remembered formation would be
+wrong more often than right. Where a league declares a *range* (`"8-9"`), the count check
+is skipped rather than guessed at.
+
+**Waiver claims append by default.** Omit `REPLACE` and your claims are added to whatever
+is already queued for that round — which is how a scheduled job that runs twice submits
+the same claim twice and bids for it twice. The blind-bid tool always sends `REPLACE`
+explicitly.
+
+**`FRANCHISE_ID` means "act as another franchise"** and is commissioner-only. It is not in
+any tool's schema, and the adapter strips it on the way out even if it appears — passing it
+is the one way to rewrite a stranger's roster by accident.
+
+### Lineup verification is partial, and says so
+
+MFL has no lineup *export* — `lineup` is an import-only type — so after setting a lineup
+there is nothing to read back that reports who starts. Both easy answers are wrong:
+asserting equality fails every correct write, and skipping the check reports success
+without looking.
+
+So the check is narrowed to what the roster read can prove — that every named starter is
+actually on the roster, which still catches a mistyped id or a player who isn't yours —
+and the result states plainly that the starting slots were **not** verified. A partial
+check described as partial is worth more than a total one that is a fiction.
+
+### The engine grew XML for this
+
+MFL's `/export` honours `JSON=1`; its `/import` answers XML regardless, and answers HTTP
+200 whether the write succeeded or failed. Without a decoder an ordinary rejection surfaced
+as "the body did not parse" — and a success looked identical to it. `response_format: xml`
+decodes to the same shape MFL's own JSON mode produces, so one `error_signals` rule covers
+both. Repeated tags always collapse to a list, so a one-row document and a many-row
+document never differ in shape.
+
+### A correction worth recording
+
+MFL looked, from the outside, like the platform with an API key and no cookie chore. It is
+not. The vendor states plainly that `APIKEY` "does not work for import requests", so writes
+need a login-derived cookie exactly like FPL and ESPN. `APIKEY` is offered on the read
+tools only and is absent from every write tool by design.
