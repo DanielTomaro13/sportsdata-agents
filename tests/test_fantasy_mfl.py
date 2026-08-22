@@ -7,6 +7,7 @@ a waiver claim appends by default, and an add/drop cannot be undone.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -133,16 +134,32 @@ def test_a_flexible_starter_count_disables_the_check_rather_than_guessing():
 
 
 class FakeMCP:
-    def __init__(self, *, starters_count="2", week=3, roster=None):
+    """Mirrors the shapes verified against a live MFL league and the live NFL schedule —
+    including the fact that the league export carries NO current week."""
+
+    def __init__(self, *, starters_count="2", week=3, roster=None, kickoffs=None):
         self.starters_count, self.week = starters_count, week
         self.roster = roster if roster is not None else [
             {"id": "13593", "status": "ROSTER"}, {"id": "14208", "status": "ROSTER"}]
+        now = datetime.now(tz=UTC)
+        # Inside the default 6h act window, so the policy's too-early rule does not fire
+        # in tests that are about something else.
+        self.kickoffs = kickoffs if kickoffs is not None else [
+            now + timedelta(hours=5), now + timedelta(hours=80)]
         self.calls: list[tuple[str, dict]] = []
 
     async def __call__(self, name, args):
         self.calls.append((name, args))
+        if name == "mfl_nfl_schedule":
+            return {"nflSchedule": {
+                "week": str(self.week),
+                "matchup": [{"kickoff": str(int(k.timestamp()))} for k in self.kickoffs],
+            }}
         if name == "mfl_league":
-            return {"league": {"currentWeek": self.week,
+            # NOTE: no `currentWeek` — the real league export has none, which is the bug
+            # this shape exists to keep caught.
+            return {"league": {"startWeek": "1", "endWeek": "17",
+                               "partialLineupAllowed": "NO",
                                "starters": {"count": self.starters_count,
                                             "position": [{"name": "QB", "limit": "1"}]}}}
         if name == "mfl_rosters":
@@ -249,10 +266,157 @@ async def test_an_add_drop_warns_that_it_cannot_be_undone(mfl, tmp_path):
 async def test_no_week_refuses_rather_than_guessing(mfl, monkeypatch, tmp_path):
     save_policy(LeaguePolicy(platform="mfl", entry=TEAM, context=CTX), tmp_path)
 
-    async def no_league(name, args):
-        return {}
+    async def no_schedule(name, args):
+        return {"nflSchedule": {}}
 
-    monkeypatch.setattr(mf, "_mcp_call", no_league)
-    with pytest.raises(RuntimeError, match="league settings"):
+    monkeypatch.setattr(mf, "_mcp_call", no_schedule)
+    with pytest.raises(RuntimeError, match="no week"):
         await mf.mfl_propose_lineup({"entry": TEAM, "leagueId": LEAGUE,
                                      "starters": ["1"], "summary": "x"})
+
+
+# ─── the autonomy path: four bugs that made "unattended" a fiction ──────
+
+
+async def test_the_week_comes_from_the_schedule_not_the_league(mfl, tmp_path):
+    """THE WORST OF THE FOUR. MFL's league export has no `currentWeek` — verified against
+    a real league — so reading the week from there fell through to `startWeek` and the
+    agent would have written a WEEK 1 lineup every week of the season, silently."""
+    save_policy(LeaguePolicy(platform="mfl", entry=TEAM, context=CTX,
+                             lineup="auto", quiet_hours=None), tmp_path)
+    mfl.week = 11
+    out = await mf.mfl_propose_lineup({"entry": TEAM, "leagueId": LEAGUE,
+                                       "starters": ["13593", "14208"], "summary": "x"})
+    assert out["week"] == 11
+    _t, args = next(c for c in mfl.calls if c[0] == "mfl_set_lineup")
+    assert args["W"] == 11, "the write must target the CURRENT week, not week 1"
+
+
+async def test_the_horizon_is_the_next_real_kickoff(mfl, tmp_path):
+    """NFL has no single lock: each player freezes at his own kickoff. The honest
+    deadline is the next one still in the future — and it advances through the week by
+    itself, so it never goes stale and never goes negative."""
+    now = datetime.now(tz=UTC)
+    mfl.kickoffs = [now - timedelta(hours=2), now + timedelta(hours=5),
+                    now + timedelta(hours=70)]
+    _week, horizon = await mf._week_and_horizon(CTX)
+    assert 4.5 < (horizon - now).total_seconds() / 3600 < 5.5, "the PAST kickoff must be ignored"
+
+
+async def test_when_every_game_has_started_the_horizon_is_not_in_the_past(mfl):
+    """A negative countdown reads as "the deadline passed", which would stop the agent
+    acting on next week's roster for the rest of the season."""
+    now = datetime.now(tz=UTC)
+    mfl.kickoffs = [now - timedelta(hours=5), now - timedelta(hours=2)]
+    _week, horizon = await mf._week_and_horizon(CTX)
+    assert horizon > now
+
+
+async def test_the_credential_check_asks_MFL_not_FPL(monkeypatch, tmp_path):
+    """It fell through to the FPL branch, so an MFL team with a perfectly good MFL cookie
+    was told "no FPL session cookie is configured" — and then refused to run, because a
+    bad credential stops the agent. MFL could never have run unattended."""
+    import sportsdata_agents.fantasy.watch as w
+    from sportsdata_agents.fantasy.watch import Credential, check_credential
+
+    called = []
+
+    async def fake(name, args):
+        called.append(name)
+        return {"leagues": {"league": [{"league_id": LEAGUE}]}}
+
+    monkeypatch.setattr("sportsdata_agents.tools.mfl_fantasy._mcp_call", fake)
+    policy = LeaguePolicy(platform="mfl", entry=TEAM, context=CTX)
+    state, _detail = await check_credential(TEAM, policy)
+
+    assert called == ["mfl_my_leagues"], "must not ask FPL about an MFL team"
+    assert state is Credential.OK
+    assert w is not None
+
+
+async def test_an_empty_league_list_is_read_as_signed_out(monkeypatch):
+    """MFL's third way of saying no: 200, no error field, just {"leagues": {}}."""
+    from sportsdata_agents.fantasy.watch import Credential, check_credential
+
+    async def signed_out(name, args):
+        return {"leagues": {}}
+
+    monkeypatch.setattr("sportsdata_agents.tools.mfl_fantasy._mcp_call", signed_out)
+    state, detail = await check_credential(
+        TEAM, LeaguePolicy(platform="mfl", entry=TEAM, context=CTX))
+    assert state is Credential.EXPIRED
+    assert "signed out" in detail
+
+
+async def test_a_cookie_that_cannot_see_this_league_is_caught(monkeypatch):
+    from sportsdata_agents.fantasy.watch import Credential, check_credential
+
+    async def other_league(name, args):
+        return {"leagues": {"league": [{"league_id": "99999"}]}}
+
+    monkeypatch.setattr("sportsdata_agents.tools.mfl_fantasy._mcp_call", other_league)
+    state, detail = await check_credential(
+        TEAM, LeaguePolicy(platform="mfl", entry=TEAM, context=CTX))
+    assert state is Credential.EXPIRED
+    assert "not among" in detail
+
+
+def test_the_wake_prompt_names_MFLs_own_tools():
+    """It got the FPL prompt — told to call fpl_propose_lineup and pick a captain, neither
+    of which exists on this platform."""
+    from sportsdata_agents.fantasy.watch import _prompt_for
+
+    prompt = _prompt_for(
+        LeaguePolicy(platform="mfl", entry=TEAM, context=CTX), 7,
+        datetime.now(tz=UTC) + timedelta(hours=5))
+    assert "mfl_propose_lineup" in prompt
+    assert "FULL REPLACEMENT" in prompt
+    assert "fpl_propose" not in prompt
+    assert "captain" not in prompt.lower()
+
+
+def test_every_platform_gets_its_own_prompt():
+    """A prompt that silently defaults to another platform's tools is worse than a
+    missing one — the agent tries, fails, and reports confusion."""
+    from sportsdata_agents.fantasy.watch import AGENTS, _prompt_for
+
+    contexts = {
+        "fpl": {},
+        "espn": {"leagueId": 1, "seasonId": 2026, "game": "ffl"},
+        "mfl": CTX,
+    }
+    when = datetime.now(tz=UTC) + timedelta(hours=5)
+    for platform in AGENTS:
+        policy = LeaguePolicy(platform=platform, entry=1, context=contexts[platform])
+        prompt = _prompt_for(policy, 1, when)
+        assert f"{platform}_propose" in prompt, f"{platform} got another platform's prompt"
+
+
+async def test_mfl_will_not_act_days_before_the_next_kickoff(mfl, tmp_path):
+    """MFL's next-kickoff horizon is a REAL countdown, so the too-early rule applies —
+    unlike ESPN, where a rolling `now + N` made it a constant. Acting on Tuesday locks in
+    a lineup before the week's injury news exists."""
+    save_policy(LeaguePolicy(platform="mfl", entry=TEAM, context=CTX,
+                             lineup="auto", quiet_hours=None), tmp_path)
+    mfl.kickoffs = [datetime.now(tz=UTC) + timedelta(hours=80)]
+    out = await mf.mfl_propose_lineup({"entry": TEAM, "leagueId": LEAGUE,
+                                       "starters": ["13593", "14208"], "summary": "x"})
+    assert out["status"] == "skipped"
+    assert "too early" in out["policy"]
+    assert "mfl_set_lineup" not in mfl.tools
+
+
+def test_the_two_timing_gates_agree():
+    """The run trigger and the policy must open at the same moment. They disagreed: the
+    trigger waited for the window while the policy would have acted 80 hours out, so any
+    path other than the scheduler bypassed the wait."""
+    from sportsdata_agents.fantasy.policy import Verdict
+    from sportsdata_agents.fantasy.watch import run_due
+
+    now = datetime.now(tz=UTC)
+    p = LeaguePolicy(platform="mfl", entry=TEAM, context=CTX,
+                     lineup="auto", quiet_hours=None)
+    for hours in (80, 5):
+        acts = p.for_lineup(now=now, deadline=now + timedelta(hours=hours)).verdict is Verdict.ACT
+        due, _ = run_due(policy=p, event=3, hours_left=hours, last_run_event=0, now=now)
+        assert acts == due, f"at {hours}h the gates disagree: policy={acts} trigger={due}"

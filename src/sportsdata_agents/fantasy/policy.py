@@ -63,15 +63,20 @@ class LeaguePolicy:
         "mfl": ("leagueId", "year"),
     }
 
-    #: Platforms with ONE hard lock for the whole team. FPL has a gameweek deadline: a
-    #: real instant, and "act within N hours of it" means waiting for team news.
+    #: Platforms whose horizon is a REAL instant that counts down, so "act within N hours
+    #: of it" describes a window rather than a constant.
     #:
-    #: ESPN has no such moment — a fantasy week rolls over and each player locks at his
-    #: own kickoff. Its horizon is therefore a rolling `now + N`, which never counts
-    #: down, so the too-early rule would be a constant: permanently open or permanently
-    #: shut, never a window. On those platforms the rule is skipped and the real bound is
-    #: the once-per-period run trigger.
-    HARD_DEADLINE: ClassVar[frozenset[str]] = frozenset({"fpl"})
+    #: FPL has a gameweek deadline outright. MFL earns its place differently: NFL has no
+    #: single lock, but the NEXT KICKOFF still in the future is a real moment, it counts
+    #: down, and it advances by itself through the week — so the rule is meaningful there
+    #: and can never wedge.
+    #:
+    #: ESPN is excluded because its horizon is a rolling `now + N` with no real instant
+    #: behind it. Hours-left never decreases, so the too-early rule would be permanently
+    #: open or permanently shut — and it was permanently shut, which blocked the ESPN
+    #: agent entirely until this set was introduced. Where the rule is skipped, the
+    #: once-per-period run trigger is the only bound.
+    HARD_DEADLINE: ClassVar[frozenset[str]] = frozenset({"fpl", "mfl"})
 
     platform: str
     entry: int

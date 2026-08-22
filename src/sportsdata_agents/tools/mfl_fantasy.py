@@ -64,18 +64,63 @@ def _policy_for(entry: int, league_id: str):
 
 
 async def _week_and_horizon(ctx: dict) -> tuple[int, datetime]:
-    """(week, the moment decisions must beat) — from MFL, never from the model."""
-    league = await _mcp_call("mfl_league", {"year": int(ctx["year"]), "L": str(ctx["leagueId"])})
-    block = (league or {}).get("league") if isinstance(league, dict) else None
-    if not isinstance(block, dict):
+    """(week, the moment decisions must beat) — from MFL, never from the model.
+
+    BOTH VALUES COME FROM `nflSchedule`, and the reason is a bug worth remembering. The
+    league export has no `currentWeek` field — it carries `startWeek` and `endWeek` only
+    — so reading the week from there fell through to `startWeek` and the agent would have
+    written a WEEK 1 lineup every week of the season, silently, forever. `nflSchedule`
+    with no week argument is documented to return the current one, and it is the only
+    endpoint that does.
+
+    The horizon is the NEXT KICKOFF still in the future. NFL has no single lock: each
+    player freezes when his own game starts, so the honest deadline is the moment the
+    first of them does. It also advances by itself through the week — Thursday night,
+    then Sunday early, then Sunday late — so it never goes stale and never goes negative,
+    which a fixed weekly deadline would do every Friday.
+    """
+    now = datetime.now(tz=UTC)
+    try:
+        schedule = await _mcp_call("mfl_nfl_schedule", {"year": int(ctx["year"])})
+    except Exception as e:
         raise RuntimeError(
-            "MFL did not return league settings, so there is no week to write against "
-            "and no lineup rules to check. Nothing was sent."
+            f"MFL did not return an NFL schedule, so there is no week to write against "
+            f"and no kickoff to act before. Nothing was sent. ({type(e).__name__})"
+        ) from e
+
+    block = (schedule or {}).get("nflSchedule") if isinstance(schedule, dict) else None
+    if not isinstance(block, dict) or block.get("week") is None:
+        raise RuntimeError(
+            "MFL's NFL schedule carried no week — refusing to guess which week to set. "
+            "Writing the wrong week is accepted silently and does nothing."
         )
-    week = ctx.get("week") or block.get("currentWeek") or block.get("startWeek")
-    if week is None:
-        raise RuntimeError("MFL did not report a week — refusing to guess which one to set.")
-    return int(week), datetime.now(tz=UTC) + timedelta(hours=DEFAULT_HORIZON_HOURS)
+    week = int(ctx.get("week") or block["week"])
+
+    kickoffs = sorted(
+        k for k in (_kickoff(m) for m in _as_list(block.get("matchup"))) if k and k > now
+    )
+    if kickoffs:
+        return week, kickoffs[0]
+    # Every game this week has started. There is no lock left to beat, so fall back to a
+    # short horizon rather than a past one — a negative countdown reads as "the deadline
+    # passed", which would stop the agent acting on next week's roster.
+    return week, now + timedelta(hours=DEFAULT_HORIZON_HOURS)
+
+
+def _kickoff(matchup: object) -> datetime | None:
+    if not isinstance(matchup, dict):
+        return None
+    try:
+        return datetime.fromtimestamp(int(matchup["kickoff"]), tz=UTC)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _as_list(value: object) -> list:
+    """MFL returns one row as an object and many as a list."""
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
 
 
 def starter_requirements(league: dict) -> tuple[int | None, list[str]]:
@@ -85,6 +130,11 @@ def starter_requirements(league: dict) -> tuple[int | None, list[str]]:
     A hardcoded formation would be wrong more often than right, so the check below reads
     what the league itself says.
     """
+    # A league that allows a partial lineup has no required count — enforcing one would
+    # refuse a legal lineup. Verified present on a real league: partialLineupAllowed is
+    # "NO" there, and the count is exact.
+    if str((league or {}).get("partialLineupAllowed", "NO")).upper() in ("YES", "1", "TRUE"):
+        return None, []
     starters = (league or {}).get("starters") or {}
     count = starters.get("count")
     rules = []

@@ -287,3 +287,33 @@ MFL looked, from the outside, like the platform with an API key and no cookie ch
 not. The vendor states plainly that `APIKEY` "does not work for import requests", so writes
 need a login-derived cookie exactly like FPL and ESPN. `APIKEY` is offered on the read
 tools only and is absent from every write tool by design.
+
+### Running unattended — and four bugs that made that a fiction
+
+The MFL agent shipped able to propose and write, and unable to run on its own. A review
+of the autonomous path found four faults, three of them silent:
+
+**The week came from the wrong endpoint.** MFL's league export has no `currentWeek` —
+verified against a real league — so the lookup fell through to `startWeek` and the agent
+would have written a **week 1 lineup every week of the season**. The week now comes from
+`nflSchedule`, which is documented to return the current one and is the only endpoint
+that does.
+
+**The credential check asked the wrong provider.** MFL fell through to the FPL branch, so
+a team with a perfectly good MFL cookie was told "no FPL session cookie is configured" —
+and a bad credential stops the run. MFL could never have run unattended, not once.
+
+**The wake prompt was FPL's.** `mfl_manager` was told to call `fpl_propose_lineup` and
+pick a captain, neither of which exists on this platform. A test now asserts every
+platform gets a prompt naming its own tools.
+
+**The horizon was invented.** It was `now + 12h`, which never counts down. It is now the
+**next kickoff still in the future**, read from the live schedule — a real instant that
+advances by itself through the week (Thursday night, then Sunday early, then Sunday
+late), so it never goes stale and never goes negative. That also makes proposal expiry
+mean something: a proposal now expires when the players start locking.
+
+With a real countdown, MFL joins FPL in `HARD_DEADLINE`, so the "don't act days early"
+rule applies honestly. It had to: the run trigger was waiting for the act window while
+the policy would have acted 451 hours out, so any path other than the scheduler bypassed
+the wait. A test now asserts the two gates open at the same moment.

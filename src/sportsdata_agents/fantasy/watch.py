@@ -126,6 +126,8 @@ async def check_credential(entry: int, policy=None) -> tuple[Credential, str]:
     platform = getattr(policy, "platform", "fpl")
     if platform == "espn":
         return await _check_espn(entry, policy)
+    if platform == "mfl":
+        return await _check_mfl(entry, policy)
 
     from ..tools.fantasy import _mcp_call
 
@@ -179,6 +181,46 @@ async def _check_espn(entry: int, policy) -> tuple[Credential, str]:
             "may have been removed from the league"
         )
     return Credential.OK, f"cookie valid — {len(teams)} teams readable"
+
+
+async def _check_mfl(entry: int, policy) -> tuple[Credential, str]:
+    """MyFantasyLeague's cookie, verified the way MFL itself proves identity.
+
+    `myleagues` is the call that answers "who are you" — and MFL's THIRD way of saying no
+    lives here: a bad or missing cookie returns {"leagues": {}} with HTTP 200 and no error
+    field at all. Treating that as success is how a dead credential gets reported healthy,
+    so an empty league list is read as signed out.
+    """
+    from ..tools.mfl_fantasy import _mcp_call
+
+    ctx = getattr(policy, "context", {}) or {}
+    if not ctx.get("year"):
+        return Credential.UNKNOWN, "policy is missing `year` — cannot check"
+    try:
+        body = await _mcp_call("mfl_my_leagues", {"year": int(ctx["year"])})
+    except BaseException as e:
+        text = flatten_error(e)
+        if "MFL_COOKIE" in text or "needs an API key" in text:
+            return Credential.MISSING, "no MFL cookie is configured"
+        if "error" in text.lower() and ("cookie" in text.lower() or "login" in text.lower()):
+            return Credential.EXPIRED, "MFL rejected the cookie"
+        return Credential.UNKNOWN, f"could not check: {type(e).__name__}: {text[:160]}"
+
+    leagues = ((body or {}).get("leagues") or {}).get("league") if isinstance(body, dict) else None
+    rows = leagues if isinstance(leagues, list) else ([leagues] if leagues else [])
+    if not rows:
+        return Credential.EXPIRED, (
+            "signed out — MFL returned no leagues for this cookie (it answers 200 with an "
+            "empty list rather than an error). Log in at myfantasyleague.com and re-run "
+            "`sportsdata-mcp connect mfl`"
+        )
+    want = str(ctx.get("leagueId", ""))
+    if want and not any(str(r.get("league_id")) == want for r in rows if isinstance(r, dict)):
+        return Credential.EXPIRED, (
+            f"cookie works but league {want} is not among the {len(rows)} it can see — "
+            "check the league id, or you may have been removed"
+        )
+    return Credential.OK, f"cookie valid — {len(rows)} league(s) visible"
 
 
 def classify_espn_error(text: str) -> tuple[Credential, str] | None:
@@ -465,6 +507,19 @@ def _prompt_for(policy, event: int, deadline: datetime) -> str:
             f"any add/drop clearly worth it. Use espn_propose_lineup and "
             f"espn_propose_add_drop — report exactly what the policy did with each, and "
             f"never claim a change unless team_changed came back true."
+        )
+    if policy.platform == "mfl":
+        ctx = policy.context
+        return (
+            f"Week {event} in MyFantasyLeague league {ctx.get('leagueId')} "
+            f"({ctx.get('year')}), and the next kickoff is {deadline.isoformat()} — after "
+            f"that those players lock. Manage franchise {policy.entry}: read mfl_league "
+            f"for THIS league's starter rules, then the roster, the projections and the "
+            f"free agents, and set the best legal lineup you can justify. Remember the "
+            f"lineup is a FULL REPLACEMENT — send every starter. Use mfl_propose_lineup, "
+            f"mfl_propose_add_drop and mfl_propose_blind_bid, report exactly what the "
+            f"policy did with each, and never claim a change unless team_changed came "
+            f"back true."
         )
     return (
         f"The GW{event} deadline is {deadline.isoformat()} — that is soon, which is why "
