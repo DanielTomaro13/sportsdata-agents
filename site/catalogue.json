@@ -4285,8 +4285,80 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 27,
+   "count": 29,
    "tools": [
+    {
+     "name": "espnfantasy_add_drop",
+     "desc": "ADD AND/OR DROP players \u2014 free agency or a waiver claim. CHANGES YOUR REAL TEAM and may spend waiver budget.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "teamId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "type",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "executionType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "items",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "bidAmount",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "memberId",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "relatedTransactionId",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "isLeagueManager",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "isActingAsTeamOwner",
+       "t": "boolean",
+       "r": false
+      }
+     ],
+     "example": "HTTP 200 with the transaction on success; a WAIVER comes back PENDING and is processed on the league's waiver run, so the roster does NOT change immediately. Failures: TRAN_ROSTER_LIMIT_EXCEEDED (add without a matching drop), insufficient FAAB, or the player already owned.\n\nNOT RETRIED on a 5xx \u2014 a replayed waiver claim would bid twice. Verify with espnfantasy_rosters (free agency) or espnfantasy_"
+    },
     {
      "name": "espnfantasy_boxscore",
      "desc": "Week box scores \u2014 each matchup with both lineups, per-player actual and projected points. The start/sit post-mortem view.",
@@ -4931,6 +5003,68 @@
       }
      ],
      "example": "{abbrev:'FFL 2025', id:2025, gameId, name, active, display, startDate, endDate, currentScoringPeriod:{id}}"
+    },
+    {
+     "name": "espnfantasy_set_lineup",
+     "desc": "SET YOUR LINEUP \u2014 move players between starting slots and the bench. CHANGES YOUR REAL TEAM.",
+     "args": [
+      {
+       "n": "game",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "seasonId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "leagueId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "teamId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "type",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "executionType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "scoringPeriodId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "items",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "memberId",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "isLeagueManager",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "isActingAsTeamOwner",
+       "t": "boolean",
+       "r": false
+      }
+     ],
+     "example": "HTTP 200 with the created transaction on success. Failures name the rule broken: TRAN_ROSTER_SLOT_LIMIT_EXCEEDED (too many in a slot), TRAN_ROSTER_POSITION_LIMIT_EXCEEDED (player not eligible there), TRAN_ROSTER_LIMIT_EXCEEDED (roster full). A locked player (game started) is also refused.\n\nVERIFY AFTERWARDS with espnfantasy_rosters and compare lineupSlotId per player. This endpoint is undocumented"
     },
     {
      "name": "espnfantasy_standings",
@@ -5610,7 +5744,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 16,
+   "count": 18,
    "tools": [
     {
      "name": "fpl_classic_league",
@@ -5761,7 +5895,7 @@
        "r": true
       }
      ],
-     "example": "{picks:[{element, position, selling_price, purchase_price, multiplier, is_captain, is_vice_captain}], chips:[{status_for_entry:'available'|'played'|'unavailable', name, number, start_event, stop_event, chip_type}], transfers:{cost, status, limit, made, bank, value}}  \u2014 the ONE place `selling_price` and `purchase_price` appear: FPL sells a risen player back at half the gain, so selling_price is oft"
+     "example": "{picks:[{element, position:1-15, multiplier:0|1|2|3, is_captain, is_vice_captain, element_type:1-4, selling_price, purchase_price}], picks_last_updated, chips:[{id, status_for_entry:'available'|'played'|'unavailable', played_by_entry:[], name:'bboost'|'3xc'|'wildcard'|'freehit', number, start_event, stop_event, chip_type:'team'|'transfer', is_pending}], transfers:{cost, status:'unlimited'|'limited"
     },
     {
      "name": "fpl_player_detail",
@@ -5782,6 +5916,33 @@
      "example": "{elements:[{id, web_name:'Salah', team:11, element_type:3, now_cost:145, total_points, points_per_game:'6.2', form:'5.4', selected_by_percent:'42.1', status:'a'|'i'|'d'|'s'|'u', news:'Knock - 75% chance of playing', chance_of_playing_next_round, minutes, goals_scored, assists, clean_sheets, bonus, expected_goals:'0.54', expected_assists, defensive_contribution, ict_index, ep_next:'6.1'}]}  \u2014 `now_"
     },
     {
+     "name": "fpl_set_lineup",
+     "desc": "SET YOUR LINEUP \u2014 starting XI, bench order, captain and vice-captain. CHANGES YOUR REAL TEAM.",
+     "args": [
+      {
+       "n": "managerId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "csrf",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "picks",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "chip",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "HTTP 200 with an empty or confirmation body on success. Errors come back with a description: an illegal formation (needs exactly 1 GK, 3+ DEF, 1+ FWD across positions 1-11), a captain who is also vice, or a locked gameweek.\n\nVERIFY AFTERWARDS: call fpl_my_team and compare. This endpoint is undocumented and a 200 does not prove the lineup is what you intended. If the deadline has passed the write i"
+    },
+    {
      "name": "fpl_set_piece_notes",
      "desc": "Official set-piece taker notes per club \u2014 who takes penalties, corners and free kicks.",
      "args": [],
@@ -5792,6 +5953,38 @@
      "desc": "The 20 Premier League clubs with FPL's attack/defence strength ratings.",
      "args": [],
      "example": "{teams:[{id:1-20, name:'Arsenal', short_name:'ARS', code, strength:1-5, strength_overall_home, strength_overall_away, strength_attack_home, strength_attack_away, strength_defence_home, strength_defence_away, played, win, draw, loss, points, position, form}]}  \u2014 `id` is FPL's own alphabetical 1-20, NOT the Premier League's official team id; join to the `premierleague` provider by name. The strength"
+    },
+    {
+     "name": "fpl_transfers",
+     "desc": "MAKE TRANSFERS, or play a wildcard/free hit. CHANGES YOUR REAL TEAM and may cost points.",
+     "args": [
+      {
+       "n": "csrf",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "entry",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "event",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "transfers",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "chip",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "HTTP 200 on success. Errors describe the cause: insufficient funds (check bank plus selling_price, not now_cost), more than 3 players from one club, a squad that is not 15, or a passed deadline.\n\nCOST: outside the pre-season window each transfer beyond your free ones costs 4 points. Read fpl_my_team's `transfers` first \u2014 when `status` is 'unlimited' changes are FREE and unlimited, and `limit` is n"
     }
    ]
   },
@@ -8534,6 +8727,848 @@
       }
      ],
      "example": "{classification:[{position, points, rider:{id, full_name, number, country}, team:{name}, constructor:{name}}], file}"
+    }
+   ]
+  },
+  {
+   "id": "myfantasyleague",
+   "name": "MyFantasyLeague",
+   "kind": "sport",
+   "tag": "sport",
+   "byo": false,
+   "proxied": false,
+   "verified": true,
+   "count": 20,
+   "tools": [
+    {
+     "name": "mfl_add_drop",
+     "desc": "ADD and/or DROP players IMMEDIATELY (first-come-first-served). CHANGES YOUR REAL TEAM.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "ADD",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "DROP",
+       "t": "string_csv",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE_ID",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "`<status>OK</status>` on success. Failures name the cause: a full roster with no matching drop, a player already owned, or a locked player.\n\nThis happens IMMEDIATELY \u2014 unlike a waiver claim there is no window to cancel it. Verify with mfl_rosters."
+    },
+    {
+     "name": "mfl_blind_bid",
+     "desc": "Submit BLIND-BID (FAAB) waiver claims. SPENDS REAL BUDGET if a claim wins.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "PICKS",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "ROUND",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "REPLACE",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE_ID",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "`<status>OK</status>` on success. Bids are BLIND \u2014 nobody sees them until the round processes, and a winning bid spends the money for real. Nothing changes on the roster until then, so an unchanged roster straight afterwards is NOT a failure.\n\nTO VERIFY: re-read the queued bids before the deadline, then confirm with mfl_transactions (TRANS_TYPE=BBID_WAIVER) and check the remaining budget once the"
+    },
+    {
+     "name": "mfl_free_agents",
+     "desc": "Players not on any roster in this league \u2014 the pool an add or a waiver claim draws from.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "POSITION",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{freeAgents:{leagueUnit:{unit, player:[{id, contractYear, salary}]}}}  \u2014 ids only; join to mfl_players for names and to mfl_player_scores for form."
+    },
+    {
+     "name": "mfl_injured_reserve",
+     "desc": "Move players to or from INJURED RESERVE. CHANGES YOUR REAL TEAM.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "ACTIVATE",
+       "t": "string_csv",
+       "r": false
+      },
+      {
+       "n": "DEACTIVATE",
+       "t": "string_csv",
+       "r": false
+      },
+      {
+       "n": "DROP",
+       "t": "string_csv",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE_ID",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "`<status>OK</status>` on success. Activating without a free roster slot fails; so does deactivating a player the league does not consider IR-eligible. Verify with mfl_rosters and check each player's `status`."
+    },
+    {
+     "name": "mfl_injuries",
+     "desc": "The NFL injury report by player id \u2014 status and body part, updated daily in season.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{injuries:{week, timestamp, injury:[{id, status:'Questionable'|'Out'|'IR'|'Inactive'|\u2026, details:'Hamstring', exp_return}]}}"
+    },
+    {
+     "name": "mfl_league",
+     "desc": "League setup: name, roster size, starting-lineup requirements, franchises, divisions, IR and taxi-squad sizes. Read this FIRST \u2014 it defines what a legal lineup is.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{league:{id, name, rosterSize, injuredReserve, taxiSquad, startWeek, endWeek, franchises:{franchise:[{id:'0001', name, owner_name}]}, starters:{count, position:[{name:'QB', limit:'1'}]}, \u2026}}\n\nTHE THING YOU NEED: `starters` defines the legal formation and `franchises[].id` is the four-digit franchise id every write uses. Roster limits differ per league \u2014 never assume a standard shape."
+    },
+    {
+     "name": "mfl_league_standings",
+     "desc": "Current standings \u2014 record, points for and against, and the league's own standings columns.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "COLUMN_NAMES",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{leagueStandings:{franchise:[{id, h2hw, h2hl, h2ht, pf, pa, vp, \u2026}]}}  \u2014 the columns vary by league configuration; COLUMN_NAMES=1 tells you what each key means."
+    },
+    {
+     "name": "mfl_live_scoring",
+     "desc": "Live matchup state \u2014 each franchise's score, game seconds remaining, and who has yet to play.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "DETAILS",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{liveScoring:{franchise:[{id, score, gameSecondsRemaining, playersYetToPlay, playersCurrentlyPlaying}]}}  \u2014 `playersYetToPlay` is the honest read on whether a matchup is still live."
+    },
+    {
+     "name": "mfl_my_leagues",
+     "desc": "Every league YOU are in, with your franchise id in each. Needs your cookie. The way to find the ids every other tool wants.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE_NAMES",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{leagues:{league:[{league_id, franchise_id, name, url}]}}  \u2014 `franchise_id` is YOUR four-digit id in that league, which every write needs. Returns nothing useful without MFL_COOKIE."
+    },
+    {
+     "name": "mfl_nfl_schedule",
+     "desc": "The NFL schedule for one week \u2014 kickoff times and both teams. Which is what tells you when a player locks.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{nflSchedule:{week, matchup:[{kickoff (unix seconds), team:[{id, isHome, score, spread}]}]}}  \u2014 `kickoff` is the lock time for that game's players. Does NOT update live during games."
+    },
+    {
+     "name": "mfl_pending_trades",
+     "desc": "Trades offered to you, and trades you have offered. Needs your cookie.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "FRANCHISE_ID",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{pendingTrades:{pendingTrade:[{trade_id, offeringteam, willGiveUp, willReceive, expires}]}}  \u2014 `trade_id` is what a response quotes. Draft picks appear as DP_/FP_ tokens and blind-bid dollars as BB_."
+    },
+    {
+     "name": "mfl_player_scores",
+     "desc": "Fantasy points under THIS league's scoring rules \u2014 for a week, year-to-date, or a weekly average. Rostered players and free agents alike.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "W",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "PLAYERS",
+       "t": "string_csv",
+       "r": false
+      },
+      {
+       "n": "POSITION",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "RULES",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "COUNT",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{playerScores:{playerScore:[{id, score, isAvailable}]}}  \u2014 `score` is in THIS league's scoring, so it is comparable across your own players and the free-agent pool, and not comparable to any other league."
+    },
+    {
+     "name": "mfl_players",
+     "desc": "Every player MFL knows: id, name, position, NFL team. The id translation table every other MFL tool depends on. LARGE.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "DETAILS",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "SINCE",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "PLAYERS",
+       "t": "string_csv",
+       "r": false
+      }
+     ],
+     "example": "{players:{timestamp, player:[{id, name:'Last, First', position, team}]}}  \u2014 `id` is MFL's own player id and is what every roster, lineup and waiver call speaks. `name` is 'Surname, Firstname'. VERIFIED live 2026.\n\nThe full table is thousands of players; prefer PLAYERS= or SINCE= once you have ids."
+    },
+    {
+     "name": "mfl_projected_scores",
+     "desc": "Projected fantasy points for named players under this league's rules \u2014 the forward-looking number a lineup decision needs.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "PLAYERS",
+       "t": "string_csv",
+       "r": true
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "COUNT",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{projectedScores:{playerScore:[{id, score}]}}  \u2014 projections come from a third party (fantasysharks) run through the league's scoring. They are an input, not a forecast to quote as fact."
+    },
+    {
+     "name": "mfl_rosters",
+     "desc": "Every franchise's roster, with each player's status (active / IR / taxi) and salary or contract if the league uses them.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "FRANCHISE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{rosters:{franchise:[{id:'0001', player:[{id, status:'ROSTER'|'INJURED_RESERVE'|'TAXI_SQUAD', salary, contractYear}]}]}}  \u2014 `status` is what an IR or taxi move changes. Join `id` to mfl_players for names."
+    },
+    {
+     "name": "mfl_schedule",
+     "desc": "The fantasy schedule \u2014 who you play, and the score for weeks already played.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "F",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{schedule:{weeklySchedule:[{week, matchup:[{franchise:[{id, score, result, isHome}]}]}]}}"
+    },
+    {
+     "name": "mfl_set_lineup",
+     "desc": "SET YOUR STARTING LINEUP for a week. CHANGES YOUR REAL TEAM.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "STARTERS",
+       "t": "string_csv",
+       "r": true
+      },
+      {
+       "n": "COMMENTS",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "TIEBREAKERS",
+       "t": "string_csv",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE_ID",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "`<status>OK</status>` on success, decoded to {status: 'OK'}. A failure is `<error>\u2026</error>`, which the engine raises rather than returning \u2014 illegal formation, a locked player whose game has started, or an unknown player id.\n\nVERIFY AFTERWARDS with mfl_rosters: this is a full replacement, so a typo silently benches someone."
+    },
+    {
+     "name": "mfl_trade_response",
+     "desc": "Accept, reject or revoke a PENDING TRADE. Accepting CHANGES BOTH TEAMS immediately.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "TRADE_ID",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "RESPONSE",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "COMMENTS",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE_ID",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "`<status>OK</status>` on success. Accepting is IRREVERSIBLE and moves players on two rosters at once \u2014 a trade is an agreement with another person, not a roster tweak. Verify with mfl_rosters for both franchises."
+    },
+    {
+     "name": "mfl_transactions",
+     "desc": "Completed league transactions \u2014 adds, drops, trades, waivers. Filter it: unfiltered is very large.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "TRANS_TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "DAYS",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "COUNT",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "W",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "APIKEY",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{transactions:{transaction:[{type, timestamp, franchise, transaction}]}}  \u2014 the `transaction` field is a packed, comma/pipe-delimited string whose meaning depends on `type`."
+    },
+    {
+     "name": "mfl_waiver_claim",
+     "desc": "Submit a round of WAIVER claims in priority order. Queued, not immediate. CHANGES YOUR REAL TEAM when the round processes.",
+     "args": [
+      {
+       "n": "year",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "TYPE",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "L",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "ROUND",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "PICKS",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "REPLACE",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "FRANCHISE_ID",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "JSON",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "`<status>OK</status>` on success. The roster does NOT change now \u2014 claims process when the round runs, so a read-back straight afterwards correctly shows no change and that is NOT a failure.\n\nTO VERIFY: re-read this round's queue before the deadline, then confirm the outcome with mfl_transactions (TRANS_TYPE=WAIVER) once the round has processed."
     }
    ]
   },
@@ -12395,7 +13430,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 14,
+   "count": 15,
    "tools": [
     {
      "name": "sleeper_draft",
@@ -12485,6 +13520,18 @@
       }
      ],
      "example": "[{roster_id, matchup_id, points, custom_points, starters:[player_id], starters_points:[float], players:[player_id], players_points:{player_id: float}}]  \u2014 rosters sharing a matchup_id played each other; there is no home/away"
+    },
+    {
+     "name": "sleeper_players",
+     "desc": "THE player id \u2192 name table. Every other Sleeper tool speaks in player ids and nothing else; this is the only thing that resolves them. HUGE \u2014 read the caching note before calling it.",
+     "args": [
+      {
+       "n": "sport",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{player_id: {full_name, team, position, status}}  \u2014 an OBJECT keyed by player id, not an array. `team` is null for a free agent, which is how you tell one.\n\nCALL THIS AT MOST ONCE A DAY AND CACHE IT. Sleeper says so explicitly, and it is 14.6 MB before projection \u2014 12,221 players including every retired and practice-squad name they have ever held. Projected here to four fields, it is still far too"
     },
     {
      "name": "sleeper_playoff_bracket",
