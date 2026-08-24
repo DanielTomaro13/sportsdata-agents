@@ -15,6 +15,7 @@ from sportsdata_agents.tools.espn_fantasy import ESPN_FANTASY_TOOLS
 from sportsdata_agents.tools.fantasy import FANTASY_TOOLS
 from sportsdata_agents.tools.mfl_fantasy import MFL_TOOLS
 from sportsdata_agents.tools.skillsmith import SKILLSMITH_TOOLS
+from sportsdata_agents.tools.sleeper import SLEEPER_TOOLS
 
 
 def _implied_probability(odds: float) -> float:
@@ -562,6 +563,8 @@ NATIVE_TOOLS: dict[str, ToolDef] = {
     **FANTASY_TOOLS,
     **ESPN_FANTASY_TOOLS,
     **MFL_TOOLS,
+    # Sleeper is read-only forever, so these resolve ids rather than change anything.
+    **SLEEPER_TOOLS,
 }
 
 

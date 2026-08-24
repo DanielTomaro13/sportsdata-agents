@@ -317,3 +317,56 @@ With a real countdown, MFL joins FPL in `HARD_DEADLINE`, so the "don't act days 
 rule applies honestly. It had to: the run trigger was waiting for the act window while
 the policy would have acted 451 hours out, so any path other than the scheduler bypassed
 the wait. A test now asserts the two gates open at the same moment.
+
+---
+
+## Sleeper — an advisor, permanently
+
+The fourth platform, and the only one with no policy plane, no approvals and no
+read-back — because it never writes.
+
+Sleeper has no public write API. Lineups, waivers and trades go through a private
+GraphQL endpoint the app talks to, and reverse-engineering that would mean shipping
+something that breaks without notice on someone's real team. The plan called this
+"L0 advice, perfect", which is the right reading: the **reads** are the best of any
+platform here — every league, roster, matchup, transaction and draft, **with no
+credential at all** — and the writes are simply off the table.
+
+```bash
+agents run --agent sleeper_manager "review my Sleeper team, username danieltomaro"
+```
+
+No cookie, no policy, no setup. A username is a public identifier.
+
+### The problem that had to be solved first
+
+**Every Sleeper tool speaks in opaque player ids and nothing else.** A roster is
+`["4046", "6794"]`. The waiver signal is `[{player_id: "13602", count: 148925}]`. The
+only thing that resolves them is a **14.6 MB file of 12,221 players**, which Sleeper asks
+callers to fetch at most once a day.
+
+That file had been deliberately excluded, on the grounds that "draft picks and trending
+players cover player identity instead". Draft picks do carry names — but a roster and the
+trending list, the two things an agent reads every week, are bare ids. So the agent could
+see that 148,925 leagues added player 13602 and had no way to say who that was.
+
+It is now exposed behind three fences:
+
+1. **Projection** — 53 fields cut to 4, with `response_map` because the body is keyed by
+   player id and every *value* is a row. Without that flag the projection is a silent
+   no-op. With it: **14.6 MB → 1.1 MB**.
+2. **A daily cache** — written to disk by the agent side, refreshed at most every 24
+   hours, which is exactly what Sleeper asks for.
+3. **The bulk never reaches a model** — `sleeper_resolve_players` returns only the ids
+   asked about, and `sleeper_find_players` does the reverse lookup by name.
+
+`team: "FA"` from the resolver means free agent, spelled out rather than left as a null —
+it is the difference between a waiver claim and a trade. An id that cannot be resolved is
+reported by name rather than dropped, because a model that does not notice a missing id
+will quietly omit a player from a lineup.
+
+### What it deliberately cannot do
+
+It cannot act, and it cannot see projections or injury news — Sleeper's read API carries
+neither. The prompt tells it to say what it is missing rather than invent it, and to end
+a recommendation with what to tap in the app rather than a claim that anything was done.
