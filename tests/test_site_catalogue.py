@@ -20,9 +20,19 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GEN = ROOT / "scripts" / "gen-catalogue.py"
+#: The generator reads the MCP provider specs, which live in a sibling repo. CI for THIS
+#: repo does not check that one out, so the staleness check can only run where the
+#: catalogue is actually generated and published — the operator machine. That is the
+#: right place for it: this fails for whoever adds a provider, at the moment they add it.
+MCP_SPECS = ROOT.parent / "sportsdata-mcp" / "src"
+
+needs_mcp = pytest.mark.skipif(
+    not (GEN.exists() and MCP_SPECS.exists()),
+    reason="needs the sportsdata-mcp specs checked out beside this repo",
+)
 
 
-@pytest.mark.skipif(not GEN.exists(), reason="generator not present")
+@needs_mcp
 def test_the_published_catalogue_matches_the_specs():
     result = subprocess.run(
         [sys.executable, str(GEN), "--check"],
@@ -34,7 +44,6 @@ def test_the_published_catalogue_matches_the_specs():
     )
 
 
-@pytest.mark.skipif(not GEN.exists(), reason="generator not present")
 def test_the_fantasy_platforms_are_all_advertised():
     """Four fantasy platforms shipped; each one has been missing from this file at some
     point, because adding a provider and republishing are separate acts."""
