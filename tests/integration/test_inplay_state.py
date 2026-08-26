@@ -186,3 +186,117 @@ async def test_the_inplay_watch_does_not_scan_when_nothing_is_live(session, monk
     sub = Subscription(name="t", kind="inplay_arb", params={}, active=True)
     assert await monitoring._watch_inplay_arb(session, sub, pusher=None, now=now) == 0
     assert not called
+
+
+# ── capture: what gets polled, and what gets kept ─────────────────────
+
+def _fixture(session, name: str, sport: str, *, starts_minutes_ago: float, now: dt.datetime):
+    from sportsdata_agents.data.models import Fixture
+
+    f = Fixture(sport=sport, external_id=name, name=name,
+                start_time=now - dt.timedelta(minutes=starts_minutes_ago))
+    session.add(f)
+    return f
+
+
+async def test_only_matches_that_could_be_running_are_polled(session) -> None:
+    """The poll budget IS this query. Without it a capture pass costs whatever the
+    catalogue happens to be; with it, it costs the number of matches actually on."""
+    from sportsdata_agents.operations.ingestion.inplay import candidate_fixtures
+
+    now = dt.datetime.now(dt.UTC)
+    _fixture(session, "running_now", "afl", starts_minutes_ago=40, now=now)
+    _fixture(session, "finished_last_week", "afl", starts_minutes_ago=60 * 24 * 7, now=now)
+    _fixture(session, "starts_tomorrow", "afl", starts_minutes_ago=-60 * 24, now=now)
+    await session.flush()
+
+    names = {f.external_id for f in await candidate_fixtures(session, now=now)}
+    assert names == {"running_now"}
+
+
+async def test_the_window_follows_the_sport_not_one_global_guess(session) -> None:
+    """A race is over in minutes and a tennis match can run five sets. One duration for
+    both means either polling a finished race for hours, or going blind in a fifth set —
+    and the fifth set is exactly when in-play prices matter."""
+    from sportsdata_agents.operations.ingestion.inplay import candidate_fixtures
+
+    now = dt.datetime.now(dt.UTC)
+    _fixture(session, "race_long_over", "racing", starts_minutes_ago=90, now=now)
+    _fixture(session, "tennis_fifth_set", "tennis", starts_minutes_ago=90, now=now)
+    await session.flush()
+
+    names = {f.external_id for f in await candidate_fixtures(session, now=now)}
+    assert names == {"tennis_fifth_set"}
+
+
+async def test_a_fixture_with_no_start_time_is_not_assumed_live(session) -> None:
+    """Guessing wrong here means polling a book about a match that finished last week,
+    every cycle, forever."""
+    from sportsdata_agents.data.models import Fixture
+    from sportsdata_agents.operations.ingestion.inplay import candidate_fixtures
+
+    now = dt.datetime.now(dt.UTC)
+    session.add(Fixture(sport="afl", external_id="unknown_start", name="unknown", start_time=None))
+    await session.flush()
+
+    assert await candidate_fixtures(session, now=now) == []
+
+
+async def test_a_busy_saturday_is_truncated_rather_than_hammering_a_book(session) -> None:
+    """More simultaneous matches than a sane request rate covers is the normal case, not
+    the edge one. Seeing most live matches every cycle beats seeing all of them once and
+    being rate-limited."""
+    from sportsdata_agents.operations.ingestion.inplay import candidate_fixtures
+
+    now = dt.datetime.now(dt.UTC)
+    for i in range(60):
+        _fixture(session, f"m{i}", "afl", starts_minutes_ago=30 + i * 0.1, now=now)
+    await session.flush()
+
+    assert len(await candidate_fixtures(session, now=now, max_events=40)) == 40
+
+
+async def test_an_unchanged_score_writes_no_row(session) -> None:
+    """Change-point shaped like `prices`: a row per poll would grow without bound while
+    saying nothing."""
+    from sportsdata_agents.operations.ingestion.inplay import LiveState, record_states
+
+    now = dt.datetime.now(dt.UTC)
+    obs = [LiveState("sportsbet", "afl", "e1", "live", 12, 7, "Q1 08:00")]
+
+    first = await record_states(session, obs, captured_at=now)
+    again = await record_states(session, obs, captured_at=now + dt.timedelta(seconds=30))
+    assert (first, again) == (1, 0)
+
+    moved = [LiveState("sportsbet", "afl", "e1", "live", 18, 7, "Q1 05:12")]
+    assert await record_states(session, moved, captured_at=now + dt.timedelta(minutes=1)) == 1
+
+
+async def test_a_status_change_is_recorded_even_when_the_score_has_not_moved(session) -> None:
+    """Suspension is the case: the score is identical and the meaning is not. Missing it
+    is how an in-play watch trusts a frozen leg."""
+    from sportsdata_agents.operations.ingestion.inplay import LiveState, record_states
+
+    now = dt.datetime.now(dt.UTC)
+    await record_states(session, [LiveState("sportsbet", "afl", "e2", "live", 3, 3)], captured_at=now)
+    written = await record_states(
+        session, [LiveState("sportsbet", "afl", "e2", "suspended", 3, 3)],
+        captured_at=now + dt.timedelta(seconds=20))
+    assert written == 1
+
+
+async def test_a_capture_pass_with_nothing_on_asks_the_provider_for_nothing(session) -> None:
+    """No live matches means no provider call at all — the cheapest possible cycle, and
+    the common one outside a match window."""
+    from sportsdata_agents.operations.ingestion.inplay import capture_once
+
+    called = False
+
+    async def _fetch(fixtures):
+        nonlocal called
+        called = True
+        return []
+
+    report = await capture_once(session, _fetch, now=dt.datetime.now(dt.UTC))
+    assert report == {"candidates": 0, "observed": 0, "recorded": 0}
+    assert not called, "a provider must not be polled when nothing is running"
