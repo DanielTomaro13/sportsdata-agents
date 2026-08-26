@@ -121,6 +121,13 @@ class LocalEngineBackend:
             raise EngineUnavailable(
                 "engine backend 'local' selected but the engines package is not installed"
             ) from exc
+        # The seam's entry point, so a too-old engines surfaces HERE rather than several
+        # calls later inside a board price. Warns, never fails: the two repos version
+        # independently and pricing degrades to unavailable on its own.
+        from sportsdata_agents.quant.engines_contract import check_version
+
+        check_version()
+
         self._dispatch: Callable[[str, str, dict[str, Any]], list[Any]] | None
         try:
             from sportsdata_engines.service.pricing import SPORTS, price_board_any

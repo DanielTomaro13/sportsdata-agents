@@ -42,6 +42,34 @@ live it reports unavailable rather than erroring.
   with correlated-exposure annotation). Advisory only — the platform never
   places bets.
 
+## The seam's guard rails
+
+`sportsdata-engines` is private, optional, and versions independently of this repo, and
+the coupling is **not a published API**: 22 internal symbols across four modules, most of
+them bypassing the `price_board_any` seam built to avoid exactly that. Nothing here
+imports engines in CI, so an engines refactor that moves one of them surfaces as an
+ImportError deep inside a pricing call, in front of a user.
+
+Two things bound that, both in [`quant/engines_contract.py`](../src/sportsdata_agents/quant/engines_contract.py):
+
+- **A version handshake** at the seam's entry point, mirroring `MIN_MCP_VERSION` on the
+  MCP side. An engines older than the call sites assume warns at backend selection, not
+  mid-price, and the warning says what to do about it. Absence stays silent — running
+  without an engine is normal and supported.
+- **A declared import inventory** (`EXPECTED_SYMBOLS`), guarded by a test. It does not
+  prevent a break; it makes the coupling visible, so adding a 22nd is a deliberate act
+  that updates the list. The inventory caught one on its first run that hand-reading had
+  missed.
+
+The 21 call sites were deliberately **not** refactored to route through one module. That
+code is correct, engines is not installed here or in CI, and a large refactor nothing can
+exercise trades a visible risk for an invisible one.
+
+`scripts/capability-audit.py` also prints an **engines/data coverage ledger** — engine
+sports with no matched feed (darts, rugby union, snooker) and feeds with no engine (chess,
+F1, esports and others). Nothing published that join before, which is why both roadmaps
+could advance without either seeing the other.
+
 ## Coverage note
 
 The derivative comparison joins on exact (market, selection, line) keys, so

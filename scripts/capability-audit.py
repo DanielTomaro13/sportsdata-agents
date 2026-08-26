@@ -157,6 +157,48 @@ def wired_capabilities() -> tuple[dict[str, list[str]], set[str]]:
     return granted, groups
 
 
+#: The engines' 15 sports, mapped to the data-plane providers that could feed each. The
+#: mapping is by hand because nothing publishes it: engines names sports, the data plane
+#: names providers, and no shared vocabulary joins them. That absence IS the finding — the
+#: two roadmaps advance without either being able to see where the other has got to.
+ENGINE_SPORTS: dict[str, tuple[str, ...]] = {
+    "afl": ("afl", "squiggle"),
+    "baseball": ("mlb",),
+    "basketball": ("nba", "balldontlie", "euroleague", "nbl", "ncaa"),
+    "cricket": ("cricketaustralia", "cricketdata", "entitysport"),
+    "darts": (),
+    "golf": ("datagolf", "golfcourseapi"),
+    "ice_hockey": ("nhl",),
+    "mma": ("ufc",),
+    "nfl": ("cfbd",),
+    "racing": ("tab", "betr", "pointsbet", "sportsbet"),
+    "rugby_league": ("nrl",),
+    "rugby_union": (),
+    "snooker": (),
+    "soccer": ("premierleague", "laliga", "fpl", "footballdatauk", "seriea", "openligadb"),
+    "tennis": ("apitennis", "wta"),
+}
+
+
+def coverage_ledger(providers: set[str]) -> tuple[list[str], list[str]]:
+    """(engine sports with no matched feed, feed-only sports with no engine).
+
+    Engines can price a sport nobody carries data for, and the data plane can carry a
+    sport nothing can price. Neither repo can see the other, so both drift unnoticed —
+    this prints the divergence rather than leaving it to be discovered.
+    """
+    unfed = [s for s, provs in ENGINE_SPORTS.items() if not (set(provs) & providers)]
+    mapped = {p for provs in ENGINE_SPORTS.values() for p in provs}
+    #: Providers whose sport no engine covers. Restricted to feeds that are clearly a
+    #: SPORT (not a book or an aggregator, which serve every sport they price).
+    unpriced = sorted(
+        p for p in providers - mapped
+        if p in {"chesscom", "lichess", "opendota", "openf1", "jolpicaf1", "formulae",
+                 "nascar", "motogp", "ncaa", "apisports", "sportmonks"}
+    )
+    return sorted(unfed), unpriced
+
+
 def load_waivers() -> dict[str, dict]:
     if not WAIVERS.exists():
         return {}
@@ -244,9 +286,11 @@ def audit() -> dict:
         via_groups |= by_group.get(group, set())
     reachable |= via_groups
 
+    providers = {t.split("_", 1)[0] for tools in by_cap.values() for t in tools}
     return {
         "source": catalogue_source(),
         "skew": skew(),
+        "ledger": coverage_ledger(providers),
         "declared": declared,
         "by_cap": by_cap,
         "granted": granted,
@@ -291,6 +335,14 @@ def render(a: dict) -> None:
                 print(f"  {cap:30} {n:3} prov  [{entry.get('status', '?')}] {entry.get('reason', '')[:58]}")
             else:
                 print(f"  {cap:30} {n:3} prov  ** NO WAIVER **")
+    unfed, unpriced = a["ledger"]
+    if unfed or unpriced:
+        print()
+        print("ENGINES / DATA COVERAGE")
+        if unfed:
+            print(f"  engine sports with no matched feed : {', '.join(unfed)}")
+        if unpriced:
+            print(f"  feeds with no engine               : {', '.join(unpriced)}")
     if a["undeclared"]:
         print()
         print("REFERENCED BUT NOT DECLARED UPSTREAM (rename or removal):")
