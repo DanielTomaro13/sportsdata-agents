@@ -126,3 +126,63 @@ def test_the_inplay_watch_defaults_to_a_far_shorter_freshness_window() -> None:
     assert 'sub.params.get("max_age_minutes", 20.0)' in pre_game, (
         "if the pre-game default changed, revisit whether the in-play one still differs"
     )
+
+
+async def test_the_inplay_watch_asks_the_scanner_for_started_events(session, monkeypatch) -> None:
+    """THE BUG THIS EXISTS FOR. `scan_arbs` defaults `min_lead_minutes` to +15 and skips
+    any fixture starting inside that window — correct for the pre-game watch, fatal here.
+    Shipped without the override, this function filtered FOR live events and then called a
+    scanner that filtered them straight back out, so it could never fire.
+
+    The first version of these tests checked `live_event_ids` and the kind registration —
+    the parts — and both passed while the watch was dead. This checks the contract
+    between them instead.
+    """
+    from sportsdata_agents.data.models import Subscription
+    from sportsdata_agents.operations import monitoring
+
+    now = dt.datetime.now(dt.UTC)
+    _state(session, "live_one", "live", minutes_ago=1, now=now, home=1, away=0)
+    await session.flush()
+
+    seen: dict[str, object] = {}
+
+    async def _fake_scan(_session, **kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr("sportsdata_agents.quant.arbitrage.scan_arbs", _fake_scan)
+    sub = Subscription(name="t", kind="inplay_arb", params={}, active=True)
+    await monitoring._watch_inplay_arb(session, sub, pusher=None, now=now)
+
+    assert seen, "the scanner was never called — the watch returned before scanning"
+    assert seen["min_lead_minutes"] < 0, (
+        "min_lead_minutes must be negative or scan_arbs skips every started event, "
+        f"which is every event this watch is for (got {seen['min_lead_minutes']})"
+    )
+    assert seen["max_age_minutes"] <= 5, (
+        "in-play legs must be minutes old at most: the age window doubles as the maximum "
+        f"gap between legs, and a wide one straddles kick-off (got {seen['max_age_minutes']})"
+    )
+
+
+async def test_the_inplay_watch_does_not_scan_when_nothing_is_live(session, monkeypatch) -> None:
+    """Cheap and correct: no live events means no reason to touch the price history."""
+    from sportsdata_agents.data.models import Subscription
+    from sportsdata_agents.operations import monitoring
+
+    now = dt.datetime.now(dt.UTC)
+    _state(session, "finished", "ended", minutes_ago=1, now=now)
+    await session.flush()
+
+    called = False
+
+    async def _fake_scan(_session, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr("sportsdata_agents.quant.arbitrage.scan_arbs", _fake_scan)
+    sub = Subscription(name="t", kind="inplay_arb", params={}, active=True)
+    assert await monitoring._watch_inplay_arb(session, sub, pusher=None, now=now) == 0
+    assert not called

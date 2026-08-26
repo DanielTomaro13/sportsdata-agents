@@ -2086,16 +2086,28 @@ async def _watch_inplay_arb(
     """Cross-book arbitrage restricted to matches that are actually running.
 
     The same maths as `arb` — deliberately, since re-deriving it would give two
-    definitions of an arb that could disagree. What differs is what it will act on:
+    definitions of an arb that could disagree. Three parameters differ, and all three
+    are load-bearing.
 
-    - only events `match_state` says are LIVE right now, and
-    - a much shorter freshness window. Pre-game a twenty-minute-old price is usually
-      still true; in-play it is fiction, and a cross-book sum built from one stale leg is
-      the most convincing fake arb there is.
+    `min_lead_minutes` MUST be negative. `scan_arbs` defaults it to +15 and skips any
+    fixture starting within that window, which is correct for the pre-game watch and
+    fatal here: without the override this function filters FOR live events and then calls
+    a scanner that filters them straight back out, so it can never fire. (It shipped that
+    way in 6683fa8 — the tests covered the parts and not the behaviour.)
 
-    Suspension is the trap this exists to avoid. When one book suspends a market mid-match
-    its last price freezes while the others move, and the frozen leg makes the book look
-    generous. `max_age_minutes` is what keeps that leg out.
+    That exclusion exists for a real reason, though, and turning it off reintroduces the
+    hazard it guards: "one pre-game leg plus one in-play leg fakes a monster margin that
+    no one can take". `max_age_minutes` is what replaces it, and does the same job by a
+    different route — every leg must have been seen within the window, so the window IS
+    the maximum gap between legs. At the pre-game default of 20 minutes that gap is wide
+    enough to straddle a kick-off; at 2 it is not. Pre-game a twenty-minute-old price is
+    usually still true, and in-play it is fiction, so the number has to come down for
+    both reasons at once.
+
+    Suspension is the other trap. When a book suspends a market mid-match its last price
+    freezes while the others move, and the frozen leg makes it look generous —
+    `max_age_minutes` is what keeps that leg out, and `match_state` tracks `suspended`
+    separately from `live` so the event itself can be excluded too.
     """
     live = await live_event_ids(
         session, now=now or dt.datetime.now(dt.UTC),
@@ -2115,6 +2127,9 @@ async def _watch_inplay_arb(
         min_matched=float(sub.params.get("min_matched", 1000.0)),
         # Minutes, not the pre-game default of 20: see above.
         max_age_minutes=float(sub.params.get("max_age_minutes", 2.0)),
+        # Negative: include events that have already started. Without this the scan
+        # excludes every event this watch exists for.
+        min_lead_minutes=float(sub.params.get("min_lead_minutes", -600.0)),
         exclude_books=tuple(str(b) for b in sub.params.get(
             "exclude_books", ["FanDuel", "Kalshi", "Polymarket", "Pinnacle"])),
         limit=cap * 3, now=now)
