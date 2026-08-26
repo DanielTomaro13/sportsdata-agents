@@ -8,7 +8,7 @@
   const SHARP = new Set(["Kalshi", "Polymarket", "Betfair", "Pinnacle"]);
 
   const state = { games: [], selected: null, detail: null, sportFilter: "ALL", search: "", expanded: {}, mode: "live" };
-  const sgm = { legs: [], result: null };
+  const sgm = { legs: [], result: null, book: "fair", books: null };
 
   // live warehouse API, or a captured static REPLAY the page animates (the
   // GitHub Pages demo). Replay = an array of frames [{games, details}, …] the
@@ -99,6 +99,7 @@
     renderGames();
     $("detail").innerHTML = '<div class="empty"><div class="big">◪</div>loading…</div>';
     await refreshDetail(true);
+    loadSgmBooks(id);  // deliberately not awaited — chips fill in when known
   }
   async function refreshDetail(fresh) {
     if (!state.selected) return;
@@ -222,10 +223,20 @@
     let res = `<span class="flatc">click + SGM on any market, then generate</span>`;
     if (r) {
       if (r.warning) res = `<span class="down">${esc(r.warning)}</span>`;
+      else if (r.unavailable) res = `<span class="down">${esc(r.unavailable)}</span>${(r.unmatched || []).map((u) => `<div class="sgmnote">${esc(u)}</div>`).join("")}`;
+      else if (r.book_odds) res = `<b class="up">$${r.book_odds.toFixed(2)}</b> ${esc(r.priced_by)} <span class="flatc">(${esc(r.fractional || "")})</span> · <span class="flatc">bookable quote</span>`;
       else res = `<b class="up">$${(r.fair_odds || 0).toFixed(2)}</b> ${r.priced_by === "engine" ? "engine" : "independent"} · <span class="flatc">${((r.fair_probability || 0) * 100).toFixed(2)}%</span>${r.correlation_lift && r.correlation_lift !== 1 ? ` · corr ×${r.correlation_lift.toFixed(2)}` : ""}`;
     }
+    // pricer selector: fair (our model-free floor) + whichever books can quote
+    const bk = sgm.book || "fair";
+    const bchip = (id, label, avail, why) =>
+      `<button class="sgmbook ${bk === id ? "on" : ""} ${avail ? "" : "off"}" data-bk="${id}"
+        ${avail ? "" : `disabled title="${esc(why || "unavailable")}"`}>${label}</button>`;
+    let chipsBk = bchip("fair", "FAIR", true);
+    for (const [id, st] of Object.entries(sgm.books || {}))
+      chipsBk += bchip(id, id.toUpperCase(), !!st.available, st.reason);
     return `<div class="sgm">
-      <div class="sgmhead">SAME-GAME MULTI <span class="sub">engine correlated price, else independent</span><span class="sgmprev">${preview}</span></div>
+      <div class="sgmhead">SAME-GAME MULTI <span class="sub">book quotes are real, bookable prices</span><span class="sgmbooks">${chipsBk}</span><span class="sgmprev">${preview}</span></div>
       <div class="sgmchips">${chips || '<span class="flatc">no legs — click <b>+ SGM</b> on the markets above</span>'}</div>
       <div class="sgmrow">
         <button class="sgmgen" id="sgmgen">⚡ Generate price</button>
@@ -262,6 +273,7 @@
     root.querySelectorAll(".mexp").forEach((e) => e.onclick = () => { state.expanded[e.dataset.exp] = !state.expanded[e.dataset.exp]; renderDetail(); });
     root.querySelectorAll(".sgmchip").forEach((c) => c.onclick = () => { sgm.legs.splice(+c.dataset.rm, 1); sgm.result = null; renderDetail(); });
     const gen = $("sgmgen"); if (gen) gen.onclick = generate;
+    root.querySelectorAll(".sgmbook").forEach((b) => b.onclick = () => { sgm.book = b.dataset.bk; sgm.result = null; renderDetail(); });
     const clr = $("sgmclear"); if (clr) clr.onclick = () => { sgm.legs = []; sgm.result = null; renderDetail(); };
     const ms = $("mktsearch"); if (ms) ms.oninput = (e) => { state._mq = e.target.value; const p = ms.selectionStart; renderDetail(); const n = $("mktsearch"); if (n) { n.focus(); n.setSelectionRange(p, p); } };
   }
@@ -318,13 +330,27 @@
     const d = state.detail;
     if (sgm.legs.length < 2) { sgm.result = { warning: "add at least 2 legs" }; return renderDetail(); }
     if (isReplay()) { sgm.result = independentSgm(sgm.legs); return renderDetail(); }
+    const body = { sport: d.sport, fixture_id: d.fixture_id,
+                   quotes: engineQuotes(d, sgm.legs), legs: sgm.legs };
+    if (sgm.book && sgm.book !== "fair") body.bookmaker = sgm.book;
     try {
       sgm.result = await (await fetch(apiBase.replace(/^ws/, "http") + "/api/sgm", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sport: d.sport, fixture_id: d.fixture_id,
-                               quotes: engineQuotes(d, sgm.legs), legs: sgm.legs }),
+        body: JSON.stringify(body),
       })).json();
     } catch { sgm.result = independentSgm(sgm.legs); }
+    renderDetail();
+  }
+
+  // Which books can quote this fixture — refreshed when a detail panel opens.
+  async function loadSgmBooks(fixtureId) {
+    sgm.books = null;
+    if (isReplay()) return;
+    try {
+      const r = await (await fetch(apiBase.replace(/^ws/, "http")
+        + "/api/sgm/books?fixture_id=" + encodeURIComponent(fixtureId))).json();
+      sgm.books = r.books || null;
+    } catch { sgm.books = null; }
     renderDetail();
   }
 

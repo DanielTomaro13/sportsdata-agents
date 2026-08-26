@@ -113,3 +113,8 @@ table.ladder{width:100%;border-collapse:collapse;margin:2px 0}
 .banner.show{display:flex}
 .banner span:first-child{font-weight:800;letter-spacing:1px;color:var(--blue)}
 .banner code{color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,transparent);padding:1px 5px;border-radius:4px;font-size:10px}
+
+.sgmbooks{display:inline-flex;gap:4px;margin-left:10px}
+.sgmbook{font-family:var(--mono);font-size:10px;letter-spacing:.06em;border-radius:3px;padding:2px 8px;cursor:pointer;border:1px solid var(--line2);background:var(--panel3);color:var(--ink)}
+.sgmbook.on{background:var(--up);color:#06210f;border-color:var(--up);font-weight:700}
+.sgmbook.off{opacity:.45;cursor:not-allowed}

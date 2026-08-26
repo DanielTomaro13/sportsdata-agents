@@ -70,17 +70,41 @@ async def api_game(fixture_id: str) -> JSONResponse:
     return JSONResponse(detail)
 
 
+@app.get("/api/sgm/books")
+async def api_sgm_books(fixture_id: str) -> JSONResponse:
+    """Which bookmakers can quote an SGM for this fixture (and why not, else)."""
+    from sportsdata_agents.interfaces.sportsboard import live, sgm_books
+
+    async with _sessionmaker()() as session:
+        books = await sgm_books.available_books(session, fixture_id, live.current_manager)
+    return JSONResponse({"books": books})
+
+
 @app.post("/api/sgm")
 async def api_sgm(body: dict) -> JSONResponse:
     """Generate a same-game-multi price. Body: {"sport", "fixture_id",
-    "legs": [{"label", "prob", ...}]}. Uses the connected engine's correlated
-    sgm_quote when available, else the independent product (flagged)."""
+    "legs": [{"label", "prob", ...}], "bookmaker": optional}.
+
+    With a bookmaker: the BOOK prices the combination via sportsdata-mcp —
+    a real, bookable quote with the book's own correlation adjustment.
+    Without one: the connected engine's correlated sgm_quote when available,
+    else the independent product (flagged)."""
     from sportsdata_agents.quant.sgm import price_sgm
 
     legs = list(body.get("legs") or [])
     if len(legs) < 2:
         return JSONResponse({"warning": "a same-game multi needs at least 2 legs"},
                             status_code=400)
+
+    bookmaker = str(body.get("bookmaker") or "").strip().lower()
+    if bookmaker:
+        from sportsdata_agents.interfaces.sportsboard import live, sgm_books
+
+        async with _sessionmaker()() as session:
+            result = await sgm_books.quote(session, live.current_manager, bookmaker,
+                                           str(body.get("fixture_id", "")), legs)
+        return JSONResponse(result)
+
     result: dict[str, Any] = price_sgm(
         str(body.get("sport", "")), str(body.get("fixture_id", "")),
         dict(body.get("quotes") or {}), legs)

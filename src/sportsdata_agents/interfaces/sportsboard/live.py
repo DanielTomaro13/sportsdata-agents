@@ -24,6 +24,11 @@ logger = logging.getLogger("sportsboard.live")
 _TRUTHY = {"1", "true", "yes", "on"}
 _RESOLVE_EVERY_S = 60.0  # cross-provider fixture resolution cadence (DB-only, no MCP)
 
+# The live poller's MCP manager while it runs, None otherwise. sgm_books.py
+# borrows it for book SGM quotes; a warehouse-only server (live mode off)
+# therefore reports book quoting as unavailable rather than spawning its own.
+current_manager = None
+
 
 def live_enabled() -> bool:
     """Whether the in-process live poller should run (SPORTSBOARD_LIVE)."""
@@ -69,7 +74,10 @@ async def run_poller() -> None:
     if not feeds:
         logger.warning("live mode: no enabled feeds — nothing to poll")
         return
-    groups = sorted({g for f in feeds for g in f.mcp_groups})
+    groups = sorted({g for f in feeds for g in f.mcp_groups}
+                    # sgm_books.py prices same-game multis through the books;
+                    # the pricers live in groups no ingestion feed mounts.
+                    | {"sportsbet.cross"})
 
     engine = make_engine(settings.database_url)
     try:
@@ -83,6 +91,10 @@ async def run_poller() -> None:
             command=settings.mcp_command,
             extra_env={"SPORTSDATA_MCP_MAX_BYTES": str(INGEST_MAX_BYTES)},
         ) as manager:
+            # Published for /api/sgm's book-quote path (sgm_books.py): a quote
+            # is one or two tool calls, not worth a second data-plane process.
+            global current_manager
+            current_manager = manager
             # prime: one capture, then link each provider's events into fixtures so
             # the board can blend the sharp line across books for a single game.
             logger.info("live mode: priming %d feeds …", len(feeds))
@@ -94,4 +106,5 @@ async def run_poller() -> None:
     except Exception:  # a live-poll failure must never take the server down
         logger.exception("live poller stopped")
     finally:
+        current_manager = None
         await engine.dispose()
