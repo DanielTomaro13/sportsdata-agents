@@ -11483,7 +11483,7 @@
        "r": true
       }
      ],
-     "example": "[{key, matchupId, period, cutoffAt, limits:[{amount, type}], prices:[{designation, points, price}]}]  (top-level array; price is American odds)"
+     "example": "Same shape as pinnacle_matchup_markets: [{key, type, period, prices:[{designation, price}], limits, status, cutoffAt}]. Prices are AMERICAN odds.\n\n\u26a0 VERIFIED 2026-08-30: this returns data IDENTICAL to pinnacle_matchup_markets \u2014 same markets, same prices, same limits, byte-for-byte on every matchup tested. Pinnacle does NOT apply a correlation adjustment to parlays, so a combination's price is simp"
     },
     {
      "name": "pinnacle_matchup_related",
