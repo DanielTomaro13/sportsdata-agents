@@ -1,7 +1,17 @@
-"""Guard the data-plane leverage: agents must keep using a broad slice of the MCP
-capability catalogue, and the racing / prediction-market surfaces stay covered."""
+"""Guard the data-plane leverage: every capability the data plane publishes is either
+granted to an agent or waived with a written reason, and the labels file matches upstream.
+
+This replaced a `>= 30` floor. That floor passed while 31 of 68 capabilities were dark,
+because it counted against `capability_labels.json` — a hand-maintained copy that had
+itself fallen five entries behind, making the guard blind to exactly the tags that
+mattered. A count cannot notice what it does not know exists, so the assertion is now
+set equality against the live catalogue rather than a threshold.
+"""
 
 from __future__ import annotations
+
+import importlib.util
+import pathlib
 
 import pytest
 
@@ -9,6 +19,34 @@ from sportsdata_agents.agents.loader import load_builtin_specs
 from sportsdata_agents.tools.builder import capability_labels
 
 pytestmark = pytest.mark.unit
+
+_AUDIT = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "capability-audit.py"
+
+
+def _audit_module():
+    """Load scripts/capability-audit.py (a script, not an importable package)."""
+    spec = importlib.util.spec_from_file_location("capability_audit", _AUDIT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def audit():
+    """The live audit, or a skip when the data plane is not available to read.
+
+    `sportsdata-mcp` ships its specs inside its wheel, so an installed copy is enough
+    and CI (which installs it as a dev extra) runs this for real. A dev box with
+    neither an install nor a sibling checkout skips rather than failing on setup.
+    """
+    if not _AUDIT.exists():
+        pytest.skip("capability-audit.py not present")
+    module = _audit_module()
+    try:
+        return module.audit()
+    except module.CatalogueUnavailable as exc:
+        pytest.skip(str(exc))
 
 
 def _used_capabilities() -> set[str]:
@@ -24,11 +62,45 @@ def test_racing_and_prediction_surfaces_are_leveraged() -> None:
     assert {c for c in used if c.startswith("prediction.")}, "no agent uses any prediction.* capability"
 
 
-def test_broad_catalogue_coverage() -> None:
-    catalogue = set(capability_labels())
-    used = _used_capabilities() & catalogue
-    # regression guard: we deliberately leverage a broad slice of the data plane.
-    assert len(used) >= 30, f"only {len(used)}/{len(catalogue)} capabilities used — leverage regressed"
+def test_every_capability_is_wired_or_waived(audit) -> None:
+    """The ledger must be complete. Silence is what let 31 capabilities go dark."""
+    assert not audit["unwaived"], (
+        f"{len(audit['unwaived'])} capability tag(s) neither granted to an agent nor waived: "
+        f"{', '.join(audit['unwaived'])}. Grant them, or record why not in "
+        f"docs/capability-waivers.yaml."
+    )
+
+
+def test_no_agent_references_a_capability_the_data_plane_dropped(audit) -> None:
+    """A renamed or removed tag upstream currently surfaces as a runtime
+    CapabilityResolutionError for whoever runs that agent. Fail the build instead."""
+    assert not audit["undeclared"], (
+        f"agent specs reference capability tag(s) the data plane no longer publishes: "
+        f"{', '.join(audit['undeclared'])}"
+    )
+
+
+def test_capability_labels_match_the_data_plane(audit) -> None:
+    """The labels file is generated. If it drifts, the guard above goes blind again."""
+    assert not audit["labels_stale"], (
+        "src/sportsdata_agents/agents/capability_labels.json no longer matches the data "
+        "plane — run `python3 scripts/capability-audit.py --regenerate`"
+    )
+
+
+def test_every_offered_capability_has_a_display_label(audit) -> None:
+    """`capability_labels.json` drives the agent-builder's picker; a blank label there
+    is a blank row in front of a user."""
+    assert not audit["unlabelled"], (
+        f"no display label for: {', '.join(audit['unlabelled'])} — add one by hand "
+        f"(the description comes from upstream, the label is ours)"
+    )
+
+
+def test_labels_offer_no_capability_that_resolves_to_nothing() -> None:
+    """Upstream declares `sport.example` as a schema sample exposed by no tool. Offering
+    it in the picker would be offering a dead end."""
+    assert "sport.example" not in capability_labels()
 
 
 def test_new_specialists_load_and_are_pro_only() -> None:

@@ -25,6 +25,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Capability audit (every capability wired or waived)
+        # The two gaps this guards against — capabilities nobody granted, and a stale
+        # local copy of the catalogue — both grew silently because nothing checked.
+        run: python3 scripts/capability-audit.py --check
+
       - name: Ruff
         run: ruff check .
 

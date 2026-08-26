@@ -59,6 +59,12 @@ analysis = [
   "matplotlib>=3.8",
 ]
 dev = [
+  # Dev-only, never a runtime dep: the data plane is spawned as a SUBPROCESS, and that
+  # decoupling is deliberate. But its specs ship inside its wheel, so an installed copy
+  # lets the capability audit read the real catalogue in CI instead of only on a box
+  # with both repos checked out. Floated, not pinned: agents should notice upstream
+  # capability changes on the next release, which is the whole point of the guard.
+  "sportsdata-mcp>=0.27",
   "pandas>=2.0",
   "matplotlib>=3.8",
   "ruff>=0.6",

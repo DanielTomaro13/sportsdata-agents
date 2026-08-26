@@ -1,0 +1,171 @@
+# Why a published capability is not wired to any agent.
+#
+# `scripts/capability-audit.py --check` fails when a capability the data plane publishes
+# is neither granted by an agent nor listed here. That is the whole point: 31 of 68
+# capabilities went dark because nothing ever forced anyone to notice them, and a
+# backfill without this file would simply restart the drift.
+#
+# status:
+#   planned    — we intend to wire it; `phase` says when. Not an excuse, a queue.
+#   redundant  — another wired capability already returns a superset of this data.
+#   niche      — real, but not worth an agent's context budget. The honest end state
+#                for some of these; a waiver with a reason beats a grant nobody uses.
+#   upstream   — declared by the data plane but exposed by no tool there.
+#
+# Deleting an entry is how you promote it: the audit then demands it be wired.
+
+waivers:
+  # ── planned: the live plane (phase 3) ────────────────────────────────
+  sport.in_play:
+    status: planned
+    phase: 3
+    reason: >-
+      The single largest gap — 20 providers, no agent. The whole live desk depends on
+      it, and the engines' footy/inplay.py already exists with nothing feeding it.
+  sport.match_score:
+    status: planned
+    phase: 3
+    reason: >-
+      36 providers, the best-supported capability after fixtures. Live scores are the
+      spine of in-play; wiring it without poll budgets is how a user gets IP-banned.
+  sport.commentary:
+    status: planned
+    phase: 3
+    reason: Ball-by-ball text feeds the live desk's momentum reads. Wire with the rest of phase 3.
+
+  # ── planned: fantasy through the capability layer (phase 4) ──────────
+  fantasy.rosters:
+    status: planned
+    phase: 4
+    reason: >-
+      Four fantasy managers exist and none uses this — they take the mcp_groups door
+      instead, hand-wired per platform. Granting the fantasy.* tags is what makes a
+      fifth platform a spec file rather than an agent build.
+  fantasy.league_settings:
+    status: planned
+    phase: 4
+    reason: Scoring and roster rules per league; same rationale as fantasy.rosters.
+  fantasy.matchups:
+    status: planned
+    phase: 4
+    reason: Head-to-head weekly matchups; same rationale as fantasy.rosters.
+  fantasy.free_agents:
+    status: planned
+    phase: 4
+    reason: Waiver-wire pool; same rationale as fantasy.rosters.
+
+  # ── planned: discovery (phase 5) ─────────────────────────────────────
+  sport.competitions_list:
+    status: planned
+    phase: 5
+    reason: >-
+      33 providers. Without it the orchestrator cannot answer "what is on tonight"
+      without a hardcoded league list, which is exactly the assumption to remove.
+  ref.seasons:
+    status: planned
+    phase: 5
+    reason: Season/compseason resolution — needed to ask for "this season" without hardcoding a year.
+  ref.venues:
+    status: planned
+    phase: 5
+    reason: Venue context (ground, surface, altitude) is a real model feature, especially racing and AFL.
+  ref.coaches:
+    status: planned
+    phase: 5
+    reason: Two providers only, but coach changes are a genuine regime-shift signal for modelling.
+
+  # ── planned: player depth (phase 5) ──────────────────────────────────
+  stats.player_profile:
+    status: planned
+    phase: 5
+    reason: 18 providers. Biographical and role context that projections currently guess at.
+  stats.player_career:
+    status: planned
+    phase: 5
+    reason: Career-long form priors — the base rate a season-only view cannot see.
+  stats.player_match:
+    status: planned
+    phase: 5
+    reason: Per-match player lines; finer than player_game_log where a provider offers both.
+  stats.team_game_log:
+    status: planned
+    phase: 5
+    reason: Team form sequences for the modelling agent.
+  stats.team_match:
+    status: planned
+    phase: 5
+    reason: Per-match team lines; pairs with team_game_log.
+  sport.depth_chart:
+    status: planned
+    phase: 5
+    reason: >-
+      One provider (ESPN), but role changes drive fantasy projections more than raw form
+      does, and nothing else in the catalogue carries them.
+
+  # ── planned: roster intelligence + backtesting (phase 5) ─────────────
+  sport.transactions:
+    status: planned
+    phase: 5
+    reason: Trades and call-ups as model features; also waiver-wire timing for the fantasy desk.
+  sport.draft:
+    status: planned
+    phase: 5
+    reason: Draft capital as a prior for rookie projections.
+  stats.closing_odds:
+    status: planned
+    phase: 5
+    reason: >-
+      CLV is benchmarked against prices this platform captured itself, which is the right
+      choice but means backtests start on install day. Third-party closes turn day one
+      into years of history — provenance must be labelled, never silently mixed.
+  stats.model_predictions:
+    status: planned
+    phase: 5
+    reason: Public model baselines (Squiggle, API-Sports) to benchmark our own against.
+
+  # ── redundant ────────────────────────────────────────────────────────
+  sport.match_detail:
+    status: redundant
+    reason: >-
+      A strict subset of sport.match_boxscore, which stats_specialist already grants.
+      Wiring both would spend context on two routes to the same payload.
+  sport.rankings:
+    status: redundant
+    reason: >-
+      Ladder-shaped data already covered by stats.ladder for team sports. The individual
+      ranking sports it adds (chess, tennis, UFC) have no engine, so nothing consumes it.
+  sport.season_summary:
+    status: redundant
+    reason: Aggregates derivable from stats.team_season, which modelling and data_analysis already hold.
+
+  # ── niche: real data, not worth the context budget ───────────────────
+  broadcast.channels:
+    status: niche
+    reason: Channel catalogue. No agent question routes through it; advisory platform, not a TV guide.
+  broadcast.schedule:
+    status: niche
+    reason: As broadcast.channels. Revisit only if a user-facing "where can I watch" surface appears.
+  content.video:
+    status: niche
+    reason: Editorial video. An LLM agent cannot watch it, and the metadata adds nothing a text feed lacks.
+  content.promo:
+    status: niche
+    reason: Bookmaker marketing cards. Deliberately not surfaced — the platform is advisory, not a funnel.
+  sport.live_audio:
+    status: niche
+    reason: Audio streams; nothing in the pipeline consumes audio.
+  sport.live_video:
+    status: niche
+    reason: Video streams; as sport.live_audio.
+  stats.shot_chart:
+    status: niche
+    reason: >-
+      NBA only, and spatial data needs a consumer that does not exist. Genuine candidate
+      if a basketball-specific modelling surface is ever built.
+
+  # ── upstream placeholder ─────────────────────────────────────────────
+  sport.example:
+    status: upstream
+    reason: >-
+      Declared in the data plane's _capabilities.yaml but exposed by no tool there. It is
+      a schema example, not a real capability. Nothing to wire until upstream drops it.

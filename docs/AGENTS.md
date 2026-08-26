@@ -71,10 +71,29 @@ tool. This is the self-improvement loop: telemetry → proposal → CI → human
 
 ## Data capabilities
 
-Agents leverage 37 of the data plane's 63 capabilities (`agents/capability_labels.json`):
-all of `racing.*`, all of `prediction.*`, the priced surfaces (`sport.prices`,
-`event_markets`, `same_game_multi`), the stats surfaces (game logs, head-to-head,
-play-by-play, advanced metrics, injuries, ladders, leaders), `ref.*`, `social.*` and
-`content.news`. The unused remainder is redundant (e.g. `match_detail` ⊂
-`match_boxscore`) or niche (broadcast, live audio/video, shot charts). A coverage
-guard test (`test_capability_coverage`) keeps this from regressing.
+Agents grant **37 of the data plane's 68** capability tags: all of `racing.*`, all of
+`prediction.*`, the priced surfaces (`sport.prices`, `event_markets`, `same_game_multi`),
+the stats surfaces (game logs, head-to-head, play-by-play, advanced metrics, injuries,
+ladders, leaders), `ref.*`, `social.*` and `content.news`.
+
+The other 31 are **not** all redundant or niche, which is what this file used to claim.
+They include the entire live plane — `sport.in_play` (20 providers) and
+`sport.match_score` (36) are the two best-supported capabilities nobody grants — plus all
+four `fantasy.*` tags, cross-sport discovery, and player depth. Counting both doors
+(capability tags and `mcp_groups`), agents reach **453 of 826 tools**; the rest sit behind
+a capability nobody granted, or carry no tag at all.
+
+Every unwired capability now carries a written reason in
+[`capability-waivers.yaml`](./capability-waivers.yaml) — `planned` with a phase,
+`redundant`, `niche`, or `upstream`. Run the ledger any time:
+
+```
+python3 scripts/capability-audit.py            # the full picture
+python3 scripts/capability-audit.py --check    # what CI runs
+```
+
+`capability_labels.json` is **generated**, not hand-edited (`--regenerate`). It was
+hand-maintained and fell five entries behind the data plane, which is what blinded the
+old coverage guard: it asserted a floor of 30 *intersected against that stale copy*, so
+it could not see the tags it was missing. The guard now asserts that every published
+capability is wired or waived, and that the labels still match upstream.

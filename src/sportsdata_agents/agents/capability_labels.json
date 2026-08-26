@@ -19,29 +19,45 @@
     "description": "Editorial video content (highlights, replays, press conferences).",
     "label": "Video"
   },
+  "fantasy.free_agents": {
+    "description": "Players available in a fantasy league (free agents / waivers) with ownership and ratings.",
+    "label": "Free agents"
+  },
+  "fantasy.league_settings": {
+    "description": "A fantasy league's configuration: scoring rules, roster slots, schedule, waivers, keepers.",
+    "label": "League settings"
+  },
+  "fantasy.matchups": {
+    "description": "Fantasy head-to-head matchups for a scoring period, with each side's points.",
+    "label": "Fantasy matchups"
+  },
+  "fantasy.rosters": {
+    "description": "Fantasy team rosters / weekly lineups (which players a fantasy manager holds and starts).",
+    "label": "Fantasy rosters"
+  },
   "prediction.events_list": {
-    "label": "Prediction events",
-    "description": "Prediction-market events/series grouping related markets."
+    "description": "Prediction-market events/series grouping related markets.",
+    "label": "Prediction events"
   },
   "prediction.market_detail": {
-    "label": "Market detail",
-    "description": "One prediction market's full detail — question, rules, quotes, volume, expiry."
+    "description": "One prediction market's full detail \u2014 question, rules, quotes, volume, expiry.",
+    "label": "Market detail"
   },
   "prediction.market_prices": {
-    "label": "Market quotes",
-    "description": "Order book / best bid-ask quotes for one prediction market."
+    "description": "Order book / best bid-ask quotes for one prediction market.",
+    "label": "Market quotes"
   },
   "prediction.markets_list": {
-    "label": "Prediction markets",
-    "description": "Catalogue of prediction markets (binary/event contracts) with current quotes."
+    "description": "Catalogue of prediction markets (binary/event contracts) with current quotes.",
+    "label": "Prediction markets"
   },
   "prediction.price_history": {
-    "label": "Price history",
-    "description": "Historical price series for one prediction market."
+    "description": "Historical price series (trades-derived candles or ticks) for one prediction market.",
+    "label": "Price history"
   },
   "prediction.trades": {
-    "label": "Market trades",
-    "description": "Recent public trades on a prediction market."
+    "description": "Recent public trades on a prediction market.",
+    "label": "Market trades"
   },
   "racing.futures": {
     "description": "Long-running futures markets (Cup outrights, season-long props).",
@@ -88,24 +104,24 @@
     "label": "Venues"
   },
   "social.post_detail": {
-    "label": "Post detail",
-    "description": "One or more social posts by id, with engagement metrics."
+    "description": "One or more social posts by id, with engagement metrics.",
+    "label": "Post detail"
   },
   "social.post_search": {
-    "label": "Post search",
-    "description": "Search public social posts by query (teams, players, breaking news)."
+    "description": "Search public social posts by query (teams, players, breaking news).",
+    "label": "Post search"
   },
   "social.trends": {
-    "label": "Trends",
-    "description": "Trending topics by location."
+    "description": "Trending topics by location.",
+    "label": "Trends"
   },
   "social.user_profile": {
-    "label": "Social profile",
-    "description": "A social account's public profile and follower metrics."
+    "description": "A social account's public profile and follower metrics.",
+    "label": "Social profile"
   },
   "social.user_timeline": {
-    "label": "User timeline",
-    "description": "A social account's recent posts (club news, insider feeds)."
+    "description": "A social account's recent posts (club news, insider feeds).",
+    "label": "User timeline"
   },
   "sport.commentary": {
     "description": "Text or play-by-play commentary for a match.",
@@ -130,10 +146,6 @@
   "sport.event_markets": {
     "description": "All markets + selections + prices for one event.",
     "label": "Every market for a match"
-  },
-  "sport.example": {
-    "description": "Placeholder capability for the template spec and tests; not a real question.",
-    "label": "Example"
   },
   "sport.fixtures_by_date": {
     "description": "All scheduled fixtures / games on a given date across one league.",
@@ -191,6 +203,10 @@
     "description": "Advanced / synergy / tracking stats not in basic box scores (PER, true shooting, xG, etc.).",
     "label": "Advanced metrics"
   },
+  "stats.closing_odds": {
+    "description": "Historical closing prices per match from multiple bookmakers \u2014 the baseline for CLV and backtesting.",
+    "label": "Closing odds"
+  },
   "stats.fantasy_projections": {
     "description": "Fantasy-points projections / DFS pricing.",
     "label": "Fantasy projections"
@@ -206,6 +222,10 @@
   "stats.leaders_season": {
     "description": "Season leaders per stat (Coleman, Brownlow, top scorers, MVP, etc.).",
     "label": "Leaders season"
+  },
+  "stats.model_predictions": {
+    "description": "Third-party forecasting-model output: tipped winner, predicted margin, confidence, simulated finishing positions.",
+    "label": "Public model predictions"
   },
   "stats.play_by_play": {
     "description": "Event-level play-by-play log of a game.",
