@@ -133,6 +133,45 @@ def load_waivers() -> dict[str, dict]:
     return raw.get("waivers", {}) or {}
 
 
+def _version_tuple(text: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for chunk in text.split("."):
+        digits = "".join(c for c in chunk if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def skew() -> str | None:
+    """Non-None when this repo is AHEAD of the installed (released) data plane.
+
+    Capabilities land in sportsdata-mcp before it is published, and agents CI installs
+    the released wheel. A tag that exists locally but not in that wheel is therefore not
+    drift — it is a normal, self-resolving lag between two repos that version
+    independently. Conflating the two would make every capability addition red the build
+    until an unrelated release happened, which teaches people to ignore the gate.
+    """
+    if not WAIVERS.exists():
+        return None
+    import yaml
+
+    built_against = (yaml.safe_load(WAIVERS.read_text()) or {}).get("generated_from")
+    if not built_against:
+        return None
+    try:
+        from importlib.metadata import version as _v
+
+        installed = _v("sportsdata-mcp")
+    except Exception:
+        return None
+    if _version_tuple(installed) < _version_tuple(str(built_against)):
+        return (
+            f"this repo was built against sportsdata-mcp {built_against}, but "
+            f"{installed} is installed — capabilities added upstream and not yet "
+            f"published are reported, not failed"
+        )
+    return None
+
+
 def merged_labels(declared: dict[str, str], by_cap: dict[str, set[str]]) -> dict[str, dict[str, str]]:
     """Upstream ids + descriptions, with this repo's hand-written labels preserved.
 
@@ -177,6 +216,7 @@ def audit() -> dict:
 
     return {
         "source": catalogue_source(),
+        "skew": skew(),
         "declared": declared,
         "by_cap": by_cap,
         "granted": granted,
@@ -202,6 +242,8 @@ def audit() -> dict:
 def render(a: dict) -> None:
     d, w = a["declared"], a["waivers"]
     print(f"data plane              {a['source']}")
+    if a["skew"]:
+        print(f"  version skew          {a['skew']}")
     print(f"capabilities declared   {len(d)}")
     print(f"  wired                 {len(a['wired'])}")
     print(f"  unwired               {len(a['unwired'])}  ({len(a['unwired']) - len(a['unwaived'])} waived)")
@@ -252,7 +294,13 @@ def main() -> int:
         return 0
 
     problems: list[str] = []
-    if a["undeclared"]:
+    # Under skew the installed catalogue is a SUBSET of what this repo was built for, so
+    # "missing upstream" and "labels do not match" are both expected. Only the ledger
+    # check — is every capability accounted for — still means anything.
+    if a["skew"]:
+        print()
+        print(f"SKEW: {a['skew']}", file=sys.stderr)
+    if a["undeclared"] and not a["skew"]:
         problems.append(
             f"{len(a['undeclared'])} capability tag(s) referenced by agent specs are not "
             f"published by {a['source']}: {', '.join(a['undeclared'])}. Either upstream renamed "
@@ -265,7 +313,7 @@ def main() -> int:
             f"{', '.join(a['unwaived'])} — grant them to an agent, or record why not in "
             f"{WAIVERS.relative_to(ROOT)}"
         )
-    if a["labels_stale"]:
+    if a["labels_stale"] and not a["skew"]:
         problems.append(
             f"{LABELS.relative_to(ROOT)} no longer matches the data plane — "
             f"run `python3 scripts/capability-audit.py --regenerate`"

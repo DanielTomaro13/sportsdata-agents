@@ -13,6 +13,15 @@
 #   upstream   — declared by the data plane but exposed by no tool there.
 #
 # Deleting an entry is how you promote it: the audit then demands it be wired.
+#
+# `generated_from` is the data-plane version this file and capability_labels.json were
+# built against. It exists to separate two things the audit would otherwise confuse:
+#   DRIFT — upstream renamed or dropped a tag an agent depends on. A real failure.
+#   SKEW  — this repo is ahead of the RELEASED data plane, because a capability was
+#           added to sportsdata-mcp and not published yet. Temporary and expected: the
+#           two repos version independently and CI installs the released wheel.
+# Skew is reported, never failed. It resolves itself the moment the data plane ships.
+generated_from: "0.29.0"
 
 waivers:
   # ── planned: the live plane (phase 3) ────────────────────────────────
