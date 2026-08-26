@@ -3744,7 +3744,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 16,
+   "count": 17,
    "tools": [
     {
      "name": "entain_cms_entries",
@@ -3939,6 +3939,18 @@
       }
      ],
      "example": "{facets:{barrier:{buckets}, country:{buckets}, jockey:{buckets}, trainer:{buckets}}}"
+    },
+    {
+     "name": "entain_sgm_price",
+     "desc": "PRICE A SAME GAME MULTI you choose \u2014 give it selections from one Entain (Ladbrokes/Neds) event, get the correlation-adjusted combined price. Prices combinations the book has not pre-built (for those, see entain_graphql_call SportingEventPopularSameGameMultis). Several events can be priced in one call.",
+     "args": [
+      {
+       "n": "same_game_multies",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "{prices:{<eventId>:{available: true, odds:{numerator: 27, denominator: 10}}}}  \u2014 keyed by event id, one entry per event you asked about. VERIFIED live 2026-08-27 against AFL Melbourne v Carlton (event eccdc4f5-e01e-4aca-afab-570869b53702), unauthenticated.\n\nODDS ARE FRACTIONAL AND DECIMAL = numerator/denominator + 1. `27/10` is 3.70 \u2014 not 2.7, and not 27. Confirmed against the site's own displayed"
     },
     {
      "name": "entain_sport_event_card",
