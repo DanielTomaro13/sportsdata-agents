@@ -133,7 +133,13 @@ def catalogue_source() -> str:
 
 
 def wired_capabilities() -> tuple[dict[str, list[str]], set[str]]:
-    """(capability -> granting agents, granted group ids). Specs read as data."""
+    """(capability -> granting agents, granted group ids). Specs read as data.
+
+    `mcp_discover` counts as wired. It is a different DELIVERY — found at turn time
+    rather than carried in every request — but the agent reaches the same tools, and an
+    audit that ignored it would report a capability as dark the moment someone made it
+    cheaper to reach, which is precisely backwards.
+    """
     import yaml
 
     granted: dict[str, list[str]] = {}
@@ -145,6 +151,8 @@ def wired_capabilities() -> tuple[dict[str, list[str]], set[str]]:
         tools = agent.get("tools", {}) or {}
         for cap in tools.get("mcp_capabilities") or []:
             granted.setdefault(cap, []).append(agent.get("id", path.stem))
+        for cap in tools.get("mcp_discover") or []:
+            granted.setdefault(cap, []).append(f"{agent.get('id', path.stem)} (discover)")
         groups.update(tools.get("mcp_groups") or [])
     return granted, groups
 

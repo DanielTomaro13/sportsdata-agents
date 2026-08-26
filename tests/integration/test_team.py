@@ -54,9 +54,20 @@ async def test_specialist_capabilities_resolve_against_real_catalogue() -> None:
     ) as rt:
         assert rt.harness is not None
         names = set(rt.harness.tools)
-        assert "mlb_teams" in names  # ref.teams
-        assert "mlb_boxscore" in names  # sport.match_boxscore
+        assert "mlb_boxscore" in names  # sport.match_boxscore — carried
         assert not any("betting" in n or n.startswith("datagolf_outrights") for n in names)
+
+        # stats_specialist is the phase-2 pilot: its reference layer (ref.teams,
+        # ref.players, ladder, fixtures — 207 tools) moved to `mcp_discover`, so those
+        # are REACHABLE but not CARRIED. `mlb_teams` used to be asserted here; it is now
+        # behind find_data_tools, which is the whole point of the change.
+        assert {"find_data_tools", "call_data_tool"} <= names
+        assert "mlb_teams" not in names
+
+        found = await rt.harness.tools["find_data_tools"].execute({"query": "team catalogue"})
+        assert "mlb_teams" in [m["tool"] for m in found["matches"]], (
+            f"the reference layer must still be findable: {found}"
+        )
 
 
 async def test_team_shares_one_subprocess_for_identical_scopes() -> None:

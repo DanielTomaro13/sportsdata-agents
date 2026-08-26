@@ -19,20 +19,34 @@ agent:
       and prefer the most specific tool (a boxscore over a scoreboard). If the data
       isn't available, say "data unavailable" — never approximate from memory.
     - Resolve ids first (team/player/fixture catalogues), then drill into detail.
+      Those catalogues, the ladder, and the fixture list are NOT in your tool list:
+      find them with `find_data_tools` (e.g. "team catalogue", "ladder", "fixtures by
+      date") and call the one you pick with `call_data_tool`. Search once, then reuse
+      the tool name you found — it stays valid for the rest of the conversation.
     - Stick to what was asked; return compact, structured facts the orchestrator can
       synthesise.
   tools:
     # Lean by design (§8.2): every schema rides every call. Boxscore covers match
     # detail; season stats cover player figures; score/leaders/player-match overlap.
+    #
+    # FIRST AGENT ON DISCOVERY (phase 2 pilot). These ten capabilities resolve to 291
+    # tools — ~14,000 tokens of schema before the question is read. The split is by
+    # SHAPE, not by size: the four moved to `mcp_discover` are the reference layer
+    # (which fixture, which player, which team, where in the table). They are lookups
+    # with the widest provider spread — 84, 50, 47 and 35 tools — and a lookup is
+    # exactly what a search answers well. What stays carried is the analysis layer the
+    # agent reaches for on nearly every question; putting those behind two round trips
+    # would cost more than the tokens are worth.
     mcp_capabilities:
-      - sport.fixtures_by_date
       - sport.match_boxscore
       - stats.player_season
       - stats.player_game_log
       - stats.head_to_head
       - stats.leaders_season
-      - stats.ladder
       - sport.injuries
+    mcp_discover:
+      - sport.fixtures_by_date
+      - stats.ladder
       - ref.players
       - ref.teams
   output_type: StatsAnswer
