@@ -300,3 +300,172 @@ async def test_a_capture_pass_with_nothing_on_asks_the_provider_for_nothing(sess
     report = await capture_once(session, _fetch, now=dt.datetime.now(dt.UTC))
     assert report == {"candidates": 0, "observed": 0, "recorded": 0}
     assert not called, "a provider must not be polled when nothing is running"
+
+
+# ── the id-dialect contract, and the shipped fetcher ─────────────────
+
+async def test_live_event_ids_answers_in_the_fixture_uuid_dialect(session) -> None:
+    """THE SECOND WAY THE WATCH WAS DEAD. `scan_arbs` results carry only the warehouse
+    fixture UUID; match_state rows carried only the provider's event id. The watch
+    compared one against a set of the other, so even with capture running it could
+    never match. The set now answers in both dialects."""
+    import uuid as _uuid
+
+    from sportsdata_agents.data.models import MatchState
+    from sportsdata_agents.operations.monitoring import live_event_ids
+
+    fid = _uuid.uuid4()
+    now = dt.datetime.now(dt.UTC)
+    session.add(MatchState(captured_at=now - dt.timedelta(minutes=1), provider="sportsbet",
+                           sport="afl", event_external_id="6543210", fixture_id=fid, status="live"))
+    await session.flush()
+
+    live = await live_event_ids(session, now=now)
+    assert "6543210" in live, "the provider's own dialect must still work"
+    assert str(fid) in live, "the fixture-UUID dialect is what scan_arbs speaks"
+
+
+async def test_the_watch_matches_an_arb_by_fixture_uuid_end_to_end(session, monkeypatch) -> None:
+    """The full contract: a captured live state and a scanned arb meet on the fixture
+    UUID and the alert fires. Tests the join itself, which is where both previous
+    dead-watch bugs lived."""
+    import uuid as _uuid
+
+    from sportsdata_agents.data.models import MatchState, Subscription
+    from sportsdata_agents.operations import monitoring
+
+    fid = _uuid.uuid4()
+    now = dt.datetime.now(dt.UTC)
+    session.add(MatchState(captured_at=now - dt.timedelta(minutes=1), provider="sportsbet",
+                           sport="afl", event_external_id="777", fixture_id=fid, status="live"))
+    await session.flush()
+
+    arb = {
+        "fixture_id": fid, "fixture": "Bulldogs v Tigers", "sport": "afl",
+        "market": "h2h", "line": "", "margin_pct": 2.1, "sum_inverse": 0.979,
+        "legs": [
+            {"outcome": "Bulldogs", "book": "Sportsbet", "odds": 2.10, "stake_share": 0.49},
+            {"outcome": "Tigers", "book": "TAB", "odds": 2.05, "stake_share": 0.51},
+        ],
+    }
+
+    async def _fake_scan(_session, **kwargs):
+        return [arb]
+
+    fired: list[dict] = []
+
+    async def _fake_fire(_session, _sub, *, kind, key, message, payload, pusher):
+        fired.append({"kind": kind, "key": key})
+        return True
+
+    monkeypatch.setattr("sportsdata_agents.quant.arbitrage.scan_arbs", _fake_scan)
+    monkeypatch.setattr(monitoring, "_fire", _fake_fire)
+    sub = Subscription(name="t", kind="inplay_arb", params={}, active=True)
+    count = await monitoring._watch_inplay_arb(session, sub, pusher=None, now=now)
+    assert count == 1 and fired[0]["kind"] == "inplay_arb"
+
+
+def test_sportsbet_status_precedence_ended_beats_suspended_beats_live() -> None:
+    """A settled event can carry a lingering suspended flag, and a suspended one is
+    usually still inPlay. Each earlier state makes the later flags meaningless — and
+    mapping suspended to live is specifically how a watch trusts a frozen leg."""
+    from sportsdata_agents.operations.ingestion.inplay import _status_from_sportsbet
+
+    assert _status_from_sportsbet({"status": "SETTLED", "inPlay": True, "suspended": True}) == "ended"
+    assert _status_from_sportsbet({"status": "", "inPlay": True, "suspended": True}) == "suspended"
+    assert _status_from_sportsbet({"status": "", "inPlay": True, "suspended": False}) == "live"
+    assert _status_from_sportsbet({"status": "", "inPlay": False, "suspended": False}) == "pre"
+    assert _status_from_sportsbet(["not", "a", "dict"]) is None
+    assert _status_from_sportsbet(None) is None
+
+
+class _StatusManager:
+    """The data plane, reduced to one status endpoint. Records what was asked."""
+
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.calls: list[tuple[str, dict]] = []
+
+    async def call_tool(self, name: str, args: dict) -> dict:
+        self.calls.append((name, args))
+        return dict(self.payload)
+
+
+async def _mapped_live_fixture(sessionmaker, *, now, event_id="12345", provider="sportsbet"):
+    from sportsdata_agents.data.models import Event, Fixture
+
+    async with sessionmaker() as s:
+        fixture = Fixture(sport="afl", external_id="afl-1", name="Bulldogs v Tigers",
+                          start_time=now - dt.timedelta(minutes=40))
+        s.add(fixture)
+        await s.flush()
+        s.add(Event(provider=provider, external_id=event_id, fixture_id=fixture.id))
+        fid = fixture.id
+        await s.commit()
+    return fid
+
+
+async def test_inplay_pass_captures_a_mapped_live_match(db_sessionmaker) -> None:
+    """End to end: candidate fixture → its sportsbet event mapping → one status call →
+    a match_state row the arb watch can actually join on."""
+    from sportsdata_agents.operations.ingestion.inplay import inplay_pass
+    from sportsdata_agents.operations.monitoring import live_event_ids
+
+    now = dt.datetime.now(dt.UTC)
+    fid = await _mapped_live_fixture(db_sessionmaker, now=now)
+    manager = _StatusManager({"eventId": 12345, "status": "", "inPlay": True, "suspended": False})
+
+    report = await inplay_pass(manager, db_sessionmaker, now=now)
+    assert report == {"ok": True, "candidates": 1, "observed": 1, "recorded": 1}
+    assert manager.calls == [("sportsbet_event_status", {"eventId": 12345})], (
+        "eventId must be the INTEGER sportsbet id, exactly once per mapped event"
+    )
+    async with db_sessionmaker() as s:
+        live = await live_event_ids(s, now=now)
+    assert str(fid) in live, "the captured state must be joinable by fixture UUID"
+
+
+async def test_inplay_pass_respects_the_off_switch(db_sessionmaker, monkeypatch) -> None:
+    """SPORTSDATA_AGENTS_INPLAY=0 stops the pass before any provider traffic — the
+    operator's cold stop, checked first so it costs nothing to be off."""
+    from sportsdata_agents.operations.ingestion.inplay import inplay_pass
+
+    now = dt.datetime.now(dt.UTC)
+    await _mapped_live_fixture(db_sessionmaker, now=now, event_id="999")
+    manager = _StatusManager({"inPlay": True})
+    monkeypatch.setenv("SPORTSDATA_AGENTS_INPLAY", "0")
+
+    assert await inplay_pass(manager, db_sessionmaker, now=now) == {"ok": True, "disabled": True}
+    assert manager.calls == []
+
+
+async def test_inplay_pass_only_calls_about_this_books_own_events(db_sessionmaker) -> None:
+    """An espn mapping is not a sportsbet event id, and a non-integer external id is not
+    one either. Calling the status endpoint with a foreign id is a wasted request
+    against a budget measured in bans."""
+    from sportsdata_agents.operations.ingestion.inplay import inplay_pass
+
+    now = dt.datetime.now(dt.UTC)
+    await _mapped_live_fixture(db_sessionmaker, now=now, event_id="401234", provider="espn")
+    manager = _StatusManager({"inPlay": True})
+
+    report = await inplay_pass(manager, db_sessionmaker, now=now)
+    assert report["candidates"] == 1 and report["observed"] == 0
+    assert manager.calls == []
+
+
+async def test_ingest_once_dispatches_a_run_feed_around_the_price_path(db_sessionmaker) -> None:
+    """Feed.run is the escape hatch for feeds that are not price-shaped; the price
+    pipeline (fetch → normalize → record_points) must never execute for one."""
+    from sportsdata_agents.operations.ingestion.worker import Feed, ingest_once
+
+    def _must_not_normalize(_payload):
+        raise AssertionError("the price path ran for a run-feed")
+
+    async def _pass(manager, session_factory):
+        return {"ok": True, "marker": "ran"}
+
+    feed = Feed(name="state_probe", tool="unused", mcp_groups=(), provider="probe",
+                normalizer=_must_not_normalize, run=_pass)
+    report = await ingest_once(_StatusManager({}), db_sessionmaker, [feed])
+    assert report == {"state_probe": {"ok": True, "marker": "ran"}}

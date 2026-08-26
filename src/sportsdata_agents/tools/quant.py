@@ -13,11 +13,11 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sportsdata_agents.agents.harness import ToolDef
-from sportsdata_agents.data.models import EventResult, ModelArtifact, Prediction
+from sportsdata_agents.data.models import EventResult, MatchState, ModelArtifact, Prediction
 from sportsdata_agents.data.repository import TenantScope
 from sportsdata_agents.operations.ingestion.store import line_movement
 
@@ -30,6 +30,7 @@ QUANT_TOOL_NAMES = {
     "save_model",
     "record_predictions",
     "list_models",
+    "live_match_state",
     "query_line_movement",
     "run_backtest",
     "record_result",
@@ -505,6 +506,62 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
             await session.commit()
         return {"recorded": event_id, "winner": args["winning_selection"]}
 
+    async def live_match_state(args: dict[str, Any]) -> Any:
+        """{fixture_id? | event_external_id?} → latest captured in-play state per provider: status, score, clock, age.
+
+        The FREE first stop for "what is happening right now": reading the warehouse
+        costs no provider call and none of the run's poll budget, and the capture pass
+        refreshes it every ~90s while anything is on. Go to a provider's own live tools
+        only when this comes back missing or stale — and treat a missing row as "not
+        captured", never as "not happening".
+        """
+        fixture_raw = str(args.get("fixture_id") or "").strip()
+        event_raw = str(args.get("event_external_id") or "").strip()
+        if not fixture_raw and not event_raw:
+            return {"error": "pass fixture_id or event_external_id"}
+        conditions = []
+        if fixture_raw:
+            try:
+                conditions.append(MatchState.fixture_id == uuid.UUID(fixture_raw))
+            except ValueError:
+                return {"error": f"fixture_id {fixture_raw!r} is not a UUID — "
+                                 f"maybe you meant event_external_id?"}
+        if event_raw:
+            conditions.append(MatchState.event_external_id == event_raw)
+        async with session_factory() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(MatchState)
+                        .where(or_(*conditions))
+                        .order_by(MatchState.captured_at.desc())
+                        .limit(50)
+                    )
+                ).scalars()
+            )
+        latest: dict[tuple[str, str], Any] = {}
+        for row in reversed(rows):  # query is newest-first; ascending replay → last write wins
+            latest[(row.provider, row.event_external_id)] = row
+        now = dt.datetime.now(dt.UTC)
+        states = [
+            {
+                "provider": row.provider,
+                "event_external_id": row.event_external_id,
+                "status": row.status,
+                "home_score": row.home_score,
+                "away_score": row.away_score,
+                "clock": row.clock,
+                "age_seconds": int((now - row.captured_at).total_seconds()),
+            }
+            for row in latest.values()
+        ]
+        if not states:
+            return {"states": [], "note": "no captured state for this match — capture may not "
+                                          "cover it; absence is not evidence nothing is on"}
+        return {"states": states,
+                "note": "captured state, not a live query — check age_seconds: in-play, "
+                        "a minutes-old row is history, not news"}
+
     async def query_line_movement(args: dict[str, Any]) -> Any:
         """{event_external_id, market?, selection?, book?} → change-point price series
         from the odds warehouse (M2.1)."""
@@ -803,6 +860,15 @@ def quant_tools(session_factory: async_sessionmaker[AsyncSession], scope: Tenant
                                               "(lets home/away results settle other books)"},
             },
             ["event_external_id", "winning_selection"],
+        ),
+        _tool(
+            "live_match_state",
+            live_match_state,
+            {
+                "fixture_id": {"type": "string", "description": "Warehouse fixture UUID"},
+                "event_external_id": {"type": "string", "description": "A provider's own event id"},
+            },
+            [],
         ),
         _tool(
             "query_line_movement",

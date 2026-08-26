@@ -29,8 +29,11 @@ agent:
 
     Method:
     - Establish the live state FIRST: the score, the clock, and whether the match is
-      actually in play. A price without a scoreline is unreadable in-play, and a stale
-      score is worse than none — always report the fetch time with the state.
+      actually in play. Start with `live_match_state` — the warehouse's captured state,
+      refreshed every ~90s while anything is on, at zero provider cost and zero poll
+      budget. Only if it is missing or stale, fetch from a provider's own live tools.
+      A price without a scoreline is unreadable in-play, and a stale score is worse
+      than none — always report the observation's age with the state.
     - The live feeds are not in your tool list. Find them with `find_data_tools`
       ("live score", "in play", "match commentary"), then call with `call_data_tool`.
       Search once per match and reuse the tool name — it stays valid for the
@@ -71,6 +74,7 @@ agent:
       # and the rest of the desk still works. Single-provider capabilities belong here.
       - sport.cash_out
     native:
+      - live_match_state
       - best_price
       - implied_probability
       - vig_removal

@@ -217,8 +217,15 @@ def test_feed_registry_is_discovery_driven() -> None:
     futures = {"tab_racing_futures", "sportsbet_racing_futures",
                "pointsbet_racing_futures", "unibet_racing_futures"}
     prediction = {"kalshi_all", "polymarket_all"}
-    assert set(FEEDS) == hot | books | racing | futures | prediction
+    # Not price-shaped: the in-play capture pass rides the scheduler through Feed.run
+    # (worker.py) — it writes match_state, not prices, so it is exempt from the
+    # fetch-is-set rule below by construction.
+    state = {"inplay_state"}
+    assert set(FEEDS) == hot | books | racing | futures | prediction | state
     assert all(FEEDS[n].fetch is not None for n in hot | books | racing | futures | prediction)
+    assert FEEDS["inplay_state"].run is not None and FEEDS["inplay_state"].fetch is None
+    # The arb watch trusts a state row for 5 minutes; a slower cadence starves it.
+    assert FEEDS["inplay_state"].interval_s <= 120
     assert all(FEEDS[n].interval_s == 3600 for n in books)
     assert all(FEEDS[n].interval_s <= 300 for n in racing)  # racing moves near post
     assert all(FEEDS[n].interval_s == 3600 for n in futures)  # ante-post moves slowly

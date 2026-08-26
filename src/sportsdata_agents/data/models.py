@@ -376,6 +376,13 @@ class MatchState(Base):
     provider: Mapped[str] = mapped_column(String(64))
     sport: Mapped[str] = mapped_column(String(32))
     event_external_id: Mapped[str] = mapped_column(String(128), index=True)
+    #: The warehouse fixture this event resolved to, when known. The join the arb watch
+    #: needs: `scan_arbs` speaks fixture UUIDs and providers speak their own event ids,
+    #: and a membership test must not care which dialect the caller learned. Nullable —
+    #: a state can be captured before resolution has mapped the event. Plain column, no
+    #: FK: SQLite cannot ADD COLUMN with a constraint, and batch-rebuilding a hypertable
+    #: candidate for referential niceness is a bad trade.
+    fixture_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     #: pre | live | suspended | ended. `live` is the only one an in-play watch acts on;
     #: `suspended` matters as much, because a book suspending a market mid-match is the
     #: moment a stale cross-book sum looks most like free money and is not.

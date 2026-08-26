@@ -17,7 +17,10 @@ they save:
    sensible request rate covers. Truncating is correct: a watch that sees most live
    matches every 90 seconds is useful, and one that sees all of them and gets the user
    rate-limited is not.
-3. **Default off.** Nothing polls until an operator turns it on.
+3. **An off-switch, on by default.** SPORTSDATA_AGENTS_INPLAY=0 stops the pass cold.
+   On by default because the bounds above ARE the budget — outside match windows a
+   pass costs zero provider calls, so "on" is only expensive while matches are on,
+   which is when it is earning its keep.
 
 Deliberately NOT here: retry, backoff and per-provider rate limiting inside a cycle. The
 caller supplies the fetch, so those belong to whatever drives it — inventing a second
@@ -29,6 +32,8 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -36,7 +41,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sportsdata_agents.data.models import Fixture, MatchState
+from sportsdata_agents.data.models import Event, Fixture, MatchState
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +86,10 @@ class LiveState:
     home_score: int | None = None
     away_score: int | None = None
     clock: str | None = None
+    #: The warehouse fixture, when the observation came from one (the shipped fetcher
+    #: starts FROM fixtures, so it always knows). This is what lets the arb watch match
+    #: on the id dialect scan_arbs actually speaks.
+    fixture_id: uuid.UUID | None = None
 
 
 def _window(sport: str) -> int:
@@ -163,6 +172,7 @@ async def record_states(
                 provider=state.provider,
                 sport=state.sport,
                 event_external_id=state.event_external_id,
+                fixture_id=state.fixture_id,
                 status=state.status,
                 home_score=state.home_score,
                 away_score=state.away_score,
@@ -172,6 +182,102 @@ async def record_states(
         written += 1
     await session.flush()
     return written
+
+
+def _status_from_sportsbet(payload: Any) -> str | None:
+    """`sportsbet_event_status` → our status vocabulary, or None on a shape we don't
+    recognise (spec response_hint: {eventId, status, inPlay, suspended}).
+
+    Precedence is the point, not a detail. A settled event may still carry a lingering
+    suspended flag, and a suspended one is usually also inPlay — so ended beats
+    suspended beats live, because each earlier state makes the later flags meaningless.
+    Mapping suspended to live is specifically how a watch comes to trust a frozen leg.
+    """
+    if not isinstance(payload, dict):
+        return None
+    text = str(payload.get("status", "")).lower()
+    if any(word in text for word in ("settl", "result", "end", "final", "complet")):
+        return "ended"
+    if payload.get("suspended"):
+        return "suspended"
+    if payload.get("inPlay"):
+        return "live"
+    return "pre"
+
+
+async def inplay_pass(
+    manager: Any,
+    session_factory: Any,
+    *,
+    now: dt.datetime | None = None,
+    max_events: int = DEFAULT_MAX_EVENTS,
+) -> dict[str, Any]:
+    """One scheduled capture pass — the `Feed.run` entry the worker drives.
+
+    Sportsbet first, and not arbitrarily: its event ids are ALREADY mapped to fixtures
+    in the `events` table by the resolver, so there is no fuzzy name-matching between a
+    provider's idea of a match and ours — the join that makes live-score capture from a
+    fresh provider genuinely hard. `sportsbet_event_status` returns status flags only
+    (no scores); status is the piece the arb watch needs, and scores can layer on from a
+    score-bearing provider without touching any of this.
+
+    Off-switch: SPORTSDATA_AGENTS_INPLAY=0. ON by default — the bounds above (candidates
+    only, per-sport windows, hard cap) are the budget, and outside match windows a pass
+    costs zero provider calls anyway.
+    """
+    if os.environ.get("SPORTSDATA_AGENTS_INPLAY", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return {"ok": True, "disabled": True}
+    now = now or dt.datetime.now(dt.UTC)
+    async with session_factory() as session:
+        candidates = await candidate_fixtures(session, now=now, max_events=max_events)
+        if not candidates:
+            return {"ok": True, "candidates": 0, "observed": 0, "recorded": 0}
+        by_fixture = {f.id: f for f in candidates}
+        events = list(
+            (
+                await session.execute(
+                    select(Event)
+                    .where(Event.provider == "sportsbet")
+                    .where(Event.fixture_id.in_(by_fixture))
+                )
+            ).scalars()
+        )
+        states: list[LiveState] = []
+        errors = 0
+        for event in events:
+            fixture = by_fixture.get(event.fixture_id)
+            if fixture is None:
+                continue
+            try:
+                event_id = int(str(event.external_id))
+            except ValueError:
+                continue  # sportsbet event ids are integers; anything else is not this book's event
+            try:
+                payload = await manager.call_tool("sportsbet_event_status", {"eventId": event_id})
+            except Exception as exc:  # one bad event must not sink the pass
+                errors += 1
+                log.warning("in-play status for event %s failed: %s", event.external_id, exc)
+                continue
+            status = _status_from_sportsbet(payload)
+            if status is None:
+                continue  # unrecognised shape: skip loudly-typed, silently-shaped data
+            states.append(
+                LiveState(
+                    provider="sportsbet",
+                    sport=fixture.sport,
+                    event_external_id=str(event.external_id),
+                    status=status,
+                    fixture_id=fixture.id,
+                )
+            )
+        recorded = await record_states(session, states, captured_at=now)
+        await session.commit()
+    report: dict[str, Any] = {
+        "ok": True, "candidates": len(candidates), "observed": len(states), "recorded": recorded,
+    }
+    if errors:
+        report["errors"] = errors
+    return report
 
 
 async def capture_once(

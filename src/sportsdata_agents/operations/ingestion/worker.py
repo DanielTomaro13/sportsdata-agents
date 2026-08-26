@@ -49,6 +49,7 @@ from sportsdata_agents.operations.ingestion.fetchers import (
     fetch_unibet_races,
     fetch_unibet_racing_futures,
 )
+from sportsdata_agents.operations.ingestion.inplay import inplay_pass
 from sportsdata_agents.operations.ingestion.normalizers import (
     PricePoint,
     normalize_betfair_all,
@@ -99,6 +100,18 @@ class Feed:
     # Multi-call providers (Pinnacle, PointsBet, Betfair): a fetcher composes the
     # discovery + price calls and returns the one payload the normalizer reads.
     fetch: Callable[[Any], Awaitable[Any]] | None = None
+    # The escape hatch for feeds that are not price-shaped. `fetch`/`normalizer` is a
+    # PricePoint pipeline end to end; in-play state capture needs the session factory
+    # and writes its own table, so contorting it through that contract would mean a
+    # normalizer that lies. A `run` feed owns its whole pass and returns its report;
+    # it still gets scheduling (interval_s) and manager scoping (mcp_groups) for free.
+    run: Callable[[Any, async_sessionmaker[AsyncSession]], Awaitable[dict[str, Any]]] | None = None
+
+
+def _no_points(_payload: Any) -> list[PricePoint]:
+    """Normalizer for `run` feeds — the price path never executes for them, and a
+    signature that admits it beats a lambda that pretends."""
+    return []
 
 
 # The shipped feeds: ONE discovery-driven feed per provider — each walks the
@@ -106,6 +119,20 @@ class Feed:
 # currently prices (all sports), not a hand-curated id list. Cadence and rotation
 # caps reflect each book's payload economics (see fetchers.py).
 FEEDS: dict[str, Feed] = {
+    # State, not prices: the in-play capture pass (inplay.py — candidates only,
+    # per-sport windows, hard cap; SPORTSDATA_AGENTS_INPLAY=0 to disable).
+    "inplay_state": Feed(
+        name="inplay_state",
+        provider="sportsbet",
+        tool="sportsbet_event_status",  # label; the pass drives its own per-event calls
+        mcp_groups=("sportsbet.sports",),
+        normalizer=_no_points,
+        # The arb watch trusts a state row for five minutes (state_age_minutes); capture
+        # has to run well inside that or "live" goes stale between passes and the watch
+        # correctly refuses to act — a cadence that starves its own consumer.
+        interval_s=90,
+        run=inplay_pass,
+    ),
     "sportsbet_all": Feed(
         name="sportsbet_all",
         provider="sportsbet",
@@ -511,6 +538,14 @@ async def ingest_once(
     async def _run(feed: Feed) -> None:
         try:
             import time as _time
+
+            if feed.run is not None:
+                # Self-contained pass (see Feed.run). Under the fetch gate: its calls
+                # are provider traffic like any fetch, and the gate is what bounds a
+                # tick's parallelism against the books.
+                async with fetch_gate:
+                    report[feed.name] = await feed.run(manager, session_factory)
+                return
 
             fetch_started = _time.monotonic()
             async with fetch_gate:

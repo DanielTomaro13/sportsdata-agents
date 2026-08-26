@@ -2059,8 +2059,14 @@ async def live_event_ids(
 
     Freshness is the whole point. A `live` row from twenty minutes ago is not evidence a
     match is live — it is evidence it WAS. Acting on that is how an in-play watch fires
-    on a finished match, so the window is deliberately short and the LATEST row per event
-    decides, not any row.
+    on a finished match, so the window is deliberately short and the LATEST row per
+    (provider, event) decides, not any row.
+
+    The set answers in BOTH id dialects — the provider's event id and the warehouse
+    fixture UUID — because the callers do not share one. `scan_arbs` results carry only
+    `fixture_id`; a provider's own feed speaks its event ids. The first shipped version
+    returned event ids alone, which left the arb watch comparing UUIDs against a set
+    that could never contain them: the second way that watch was dead on arrival.
     """
     from sportsdata_agents.data.models import MatchState
 
@@ -2074,10 +2080,16 @@ async def live_event_ids(
             )
         ).scalars()
     )
-    latest: dict[str, str] = {}
-    for row in rows:  # ordered ascending, so the last write per event wins
-        latest[row.event_external_id] = row.status
-    return {event for event, status in latest.items() if status == "live"}
+    latest: dict[tuple[str, str], Any] = {}
+    for row in rows:  # ordered ascending, so the last write per (provider, event) wins
+        latest[(row.provider, row.event_external_id)] = row
+    live: set[str] = set()
+    for row in latest.values():
+        if row.status == "live":
+            live.add(row.event_external_id)
+            if row.fixture_id is not None:
+                live.add(str(row.fixture_id))
+    return live
 
 
 async def _watch_inplay_arb(
