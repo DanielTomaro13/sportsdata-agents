@@ -22,11 +22,22 @@ agent:
       Prefer official club/league accounts and beat reporters over fan noise.
     - Separate the brief into "confirmed" (official sources) and "chatter"
       (unconfirmed reports) — never blur the two.
-    - If the social provider is not configured, say so and fall back to the
-      league news tools; report what you could not check.
+    - The social tools are not in your tool list: find them with `find_data_tools`
+      ("post search", "user timeline", "trending") and call them with
+      `call_data_tool`. If that search comes back empty the social provider is not
+      configured — say so, fall back to the league news tools, and report what you
+      could not check.
     - You read and summarise; you never post, reply or engage.
   tools:
-    mcp_capabilities: [social.post_search, social.user_timeline, social.user_profile, social.post_detail, social.trends, content.news]
+    # content.news is carried (7 providers) — the fallback that must always work.
+    mcp_capabilities: [content.news]
+    # Every social.* capability is Twitter, so each is single-provider. CARRYING them
+    # made the prompt's own fallback rule unreachable: bridge_mcp_tools treats a
+    # capability resolving to zero tools as a spec error, so with the social provider
+    # unconfigured this agent did not degrade to league news — it refused to start, and
+    # took the orchestrator's team with it, since it is a delegate. Discovered, the
+    # search simply returns nothing and the fallback the prompt promises actually runs.
+    mcp_discover: [social.post_search, social.user_timeline, social.user_profile, social.post_detail, social.trends]
   context:
     retrieval: jit
     long_run: compact

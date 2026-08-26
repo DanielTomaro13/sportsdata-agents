@@ -101,6 +101,11 @@ class Limits(BaseModel):
     max_tokens: int = Field(default=120_000, gt=0)
     timeout_seconds: int = Field(default=300, gt=0)
     cost_ceiling_usd: float = Field(default=0.50, gt=0)
+    #: Calls to ONE provider per run. The failure this bounds is concentrated, not
+    #: aggregate: forty calls across forty books is ordinary; forty to one book is what
+    #: gets a user rate-limited or banned — from their own IP, for reasons they cannot
+    #: see. Live agents should set this low.
+    max_calls_per_provider: int = Field(default=12, gt=0)
 
 
 class AgentSpec(BaseModel):

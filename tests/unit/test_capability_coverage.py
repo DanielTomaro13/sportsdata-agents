@@ -164,16 +164,10 @@ def test_a_single_provider_capability_is_never_carried() -> None:
         "social.post_detail", "social.user_profile", "social.user_timeline",
         "social.trends",
     }
-    # news_scout is the one deliberate exception: every capability it holds is Twitter,
-    # so it is a single-provider agent by construction. With Twitter off it has no
-    # function at all, and failing loudly beats pretending to cover the news. Worth
-    # revisiting — one disabled provider stopping an agent that the orchestrator lists
-    # as a delegate is a sharper edge than it looks.
-    exempt = {"news_scout"}
     offenders = [
         f"{agent_id}: {sorted(set(spec.tools.mcp_capabilities) & single_provider)}"
         for agent_id, spec in load_builtin_specs().items()
-        if agent_id not in exempt and set(spec.tools.mcp_capabilities) & single_provider
+        if set(spec.tools.mcp_capabilities) & single_provider
     ]
     assert not offenders, (
         "single-provider capabilities must be discovered, not carried — a disabled "

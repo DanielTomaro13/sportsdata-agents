@@ -302,6 +302,15 @@ class Harness:
         run_id = uuid.uuid4()
         parent_run_id = CURRENT_RUN_ID.get()
         spent_before = budget.spent_usd
+        # Per-provider poll budget, set alongside the cost budget and inherited by
+        # delegated sub-runs the same way — a team must share one, not get one each.
+        from sportsdata_agents.mcp.manager import CURRENT_POLL_BUDGET, PollBudget
+
+        poll_token = None
+        if CURRENT_POLL_BUDGET.get() is None:
+            poll_token = CURRENT_POLL_BUDGET.set(
+                PollBudget(self.spec.limits.max_calls_per_provider)
+            )
         budget_token = CURRENT_RUN_BUDGET.set(budget)
         run_token = CURRENT_RUN_ID.set(run_id)
         recorder_token = CURRENT_RUN_RECORDER.set(recorder) if recorder is not None else None
@@ -328,6 +337,8 @@ class Harness:
             raise
         finally:
             CURRENT_RUN_BUDGET.reset(budget_token)
+            if poll_token is not None:
+                CURRENT_POLL_BUDGET.reset(poll_token)
             CURRENT_RUN_ID.reset(run_token)
             if recorder_token is not None:
                 CURRENT_RUN_RECORDER.reset(recorder_token)

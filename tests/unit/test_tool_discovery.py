@@ -158,3 +158,86 @@ def test_ranking_prefers_the_name_then_the_provider_then_the_summary() -> None:
         _entry("prices_tool", "beta", "unrelated text"),
     ]
     assert score_tools("prices", tools, 5)[0]["tool"] == "prices_tool"
+
+
+# ── poll budget ───────────────────────────────────────────────────────
+
+def test_the_poll_budget_counts_per_provider_not_in_total() -> None:
+    """The failure it bounds is concentrated. Forty calls across forty books is ordinary
+    work; forty to ONE book is what gets a user rate-limited — from their own IP, for
+    reasons they cannot see."""
+    from sportsdata_agents.mcp.manager import PollBudget, PollBudgetExceeded
+
+    budget = PollBudget(per_provider=2)
+    budget.charge("pinnacle_matchup_markets")
+    budget.charge("pinnacle_sport_matchups")
+    budget.charge("betfair_market_prices")   # a different book is unaffected
+    budget.charge("betfair_event_details")
+
+    with pytest.raises(PollBudgetExceeded) as exc:
+        budget.charge("pinnacle_status")
+    assert exc.value.provider == "pinnacle"
+    assert budget.spent() == {"pinnacle": 2, "betfair": 2}
+
+
+def test_the_budget_message_tells_the_model_what_to_do_instead() -> None:
+    """A bare limit error invites a retry loop, which is the behaviour being prevented."""
+    from sportsdata_agents.mcp.manager import PollBudget, PollBudgetExceeded
+
+    budget = PollBudget(per_provider=1)
+    budget.charge("tab_racing_race")
+    with pytest.raises(PollBudgetExceeded) as exc:
+        budget.charge("tab_racing_meetings")
+    assert "set a watch" in str(exc.value)
+
+
+async def test_the_real_call_path_charges_the_budget() -> None:
+    """Exercises MCPManager.call_tool itself, not a stand-in.
+
+    Worth the setup: a fake manager that charges the budget in its own code would pass
+    whether or not the shipped chokepoint does, and this test exists precisely to prove
+    the chokepoint is real. Only the transport is stubbed.
+    """
+    from sportsdata_agents.mcp.manager import (
+        CURRENT_POLL_BUDGET,
+        MCPManager,
+        PollBudget,
+        PollBudgetExceeded,
+    )
+
+    class _Result:
+        isError = False
+
+        def __init__(self) -> None:
+            self.structuredContent = {"ok": True}
+
+    class _Session:
+        async def call_tool(self, name, arguments, read_timeout_seconds=None):
+            return _Result()
+
+    manager = MCPManager.__new__(MCPManager)      # no subprocess; only the session matters
+    manager._session = _Session()                 # type: ignore[attr-defined]
+
+    token = CURRENT_POLL_BUDGET.set(PollBudget(per_provider=2))
+    try:
+        await manager.call_tool("pinnacle_matchup_markets", {})
+        await manager.call_tool("pinnacle_status", {})
+        budget = CURRENT_POLL_BUDGET.get()
+        assert budget is not None and budget.spent() == {"pinnacle": 2}
+        with pytest.raises(PollBudgetExceeded):
+            await manager.call_tool("pinnacle_carousel", {})
+        # a different book is untouched by another's exhausted budget
+        await manager.call_tool("betfair_market_prices", {})
+    finally:
+        CURRENT_POLL_BUDGET.reset(token)
+
+
+def test_the_live_desk_polls_a_book_fewer_times_than_a_research_agent() -> None:
+    """In-play is where a loop actually costs someone something, so the live agent runs
+    a tighter cap than the default."""
+    from sportsdata_agents.agents.loader import load_builtin_specs
+
+    specs = load_builtin_specs()
+    live = specs["live_desk"].limits.max_calls_per_provider
+    stats = specs["stats_specialist"].limits.max_calls_per_provider
+    assert live < stats, f"live_desk ({live}) must be tighter than stats ({stats})"

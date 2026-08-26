@@ -84,6 +84,10 @@ agent:
     verify: true
   limits:
     max_tool_calls: 30
+    # Deliberately tight. In-play tempts a fetch-look-fetch loop, and that request rate
+    # lands on the user's own IP. Six calls is enough to read a match — state, prices
+    # across books, a cash-out quote — and not enough to look like a scraper.
+    max_calls_per_provider: 6
     max_steps: 30
     max_tokens: 120000
     timeout_seconds: 300

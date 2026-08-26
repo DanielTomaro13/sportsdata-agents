@@ -16,6 +16,7 @@ The Pydantic AI toolset adapter over this manager lands at M0.6 with the agent r
 
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 import json
 import logging
@@ -87,6 +88,62 @@ class ForbiddenToolError(PermissionError):
     def __init__(self, tool: str) -> None:
         super().__init__(f"tool {tool!r} is forbidden by the no-money invariant (§13); refusing to expose or call it")
         self.tool = tool
+
+
+class PollBudgetExceeded(RuntimeError):
+    """One provider was called too many times in a single run."""
+
+    def __init__(self, provider: str, cap: int) -> None:
+        super().__init__(
+            f"poll budget spent: {provider!r} has been called {cap} times in this run. "
+            f"Do not keep polling it — use the data already fetched, or set a watch so "
+            f"the monitor tracks it on its own cadence."
+        )
+        self.provider = provider
+        self.cap = cap
+
+
+class PollBudget:
+    """Per-provider call cap for one run (§13).
+
+    IN-PLAY IS WHY THIS EXISTS. Pre-game, an agent asks a book for a price once and
+    moves on. Live, the tempting shape is a loop — fetch, look, fetch again — and the
+    request rate that produces comes off the USER'S OWN IP. A bookmaker rate-limits or
+    bans the user, not us, and they would have no idea why. `live_desk`'s prompt says
+    not to loop, but a prompt is guidance; this is the limit.
+
+    Counted per provider rather than in total because the failure is concentrated: forty
+    calls spread over forty books is ordinary work, and forty calls to one book is the
+    thing that gets noticed.
+    """
+
+    def __init__(self, per_provider: int) -> None:
+        self.per_provider = per_provider
+        self._spent: dict[str, int] = {}
+
+    @staticmethod
+    def provider_of(tool_name: str) -> str:
+        # MCP tool names are "<provider>_<op>" and provider ids never contain "_" —
+        # the same assumption CURRENT_MCP_DENY relies on.
+        return tool_name.split("_", 1)[0]
+
+    def charge(self, tool_name: str) -> None:
+        provider = self.provider_of(tool_name)
+        spent = self._spent.get(provider, 0)
+        if spent >= self.per_provider:
+            raise PollBudgetExceeded(provider, self.per_provider)
+        self._spent[provider] = spent + 1
+
+    def spent(self) -> dict[str, int]:
+        return dict(self._spent)
+
+
+#: The poll budget of the currently-executing run, async-safe and inherited by delegated
+#: sub-runs — same pattern as the cost budget, and for the same reason: without it a
+#: team run would get one full budget per agent, which is not a budget.
+CURRENT_POLL_BUDGET: contextvars.ContextVar[PollBudget | None] = contextvars.ContextVar(
+    "current_poll_budget", default=None
+)
 
 
 def is_denied(tool_name: str) -> bool:
@@ -223,6 +280,11 @@ class MCPManager:
         """
         if is_denied(name):
             raise ForbiddenToolError(name)
+        # Charged here, the one chokepoint every route reaches — a directly attached
+        # tool, a discovered one via call_data_tool, or a delegated sub-agent's call.
+        budget = CURRENT_POLL_BUDGET.get()
+        if budget is not None:
+            budget.charge(name)
         result = await self.session.call_tool(
             name, arguments or {}, read_timeout_seconds=dt.timedelta(seconds=timeout_seconds)
         )
