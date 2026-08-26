@@ -11579,7 +11579,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 24,
+   "count": 25,
    "tools": [
     {
      "name": "pointsbet_competition_events",
@@ -11625,7 +11625,7 @@
        "r": true
       }
      ],
-     "example": "{key, name, competitionName, startsAt, fixedOddsMarkets:[{name, outcomes:[{name, price}]}], prePricedSgm:{}, homeTeamStats:{}}"
+     "example": "{key, name, competitionName, startsAt, sgmStatus, fixedOddsMarkets:[{key, name, eventClass, enableCorrelatedMulti, outcomes:[{key, name, price, isOpenForBetting}]}], sgmCollisionGroups:[], prePricedSgm:{}, homeTeamStats:{}}  \u2014 82 markets and ~4MB on a verified AFL fixture, so ask for the markets you need rather than the whole event where you can.\n\nTHIS IS WHERE SGM LEG IDS COME FROM: `fixedOddsMar"
     },
     {
      "name": "pointsbet_event_search",
@@ -11861,6 +11861,23 @@
       }
      ],
      "example": "[{date, racingType, venue:{name, stateCode}, tips:[{tipster:{name}, links}]}]"
+    },
+    {
+     "name": "pointsbet_sgm_price",
+     "desc": "PRICE A SAME GAME MULTI you choose \u2014 give it selections from one PointsBet event, get the correlation-adjusted combined price. Prices combinations PointsBet has not pre-built (for the ones it has, see pointsbet_preprice_multis).",
+     "args": [
+      {
+       "n": "eventKey",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "selectedOutcomes",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "{success: true, price: 3.6, message: null, invalidSelections: null}"
     },
     {
      "name": "pointsbet_sport_competitions",
