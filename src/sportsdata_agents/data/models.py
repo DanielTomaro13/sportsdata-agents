@@ -348,6 +348,46 @@ class Price(Base):
     prev_odds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)  # None = first sighting
 
 
+class MatchState(Base):
+    """Live state for one event: is it running, what is the score, how far in.
+
+    THE GAP THIS FILLS. Everything upstream of it is pre-game or post-game. `prices`
+    records change-points beautifully but says nothing about the MATCH — nothing
+    distinguishes a live market from a pre-game one, and no scoreline is stored anywhere.
+    Three things wanted this and none could have it: an in-play arbitrage watch (which
+    must know an event is running before it trusts a cross-book sum), the engines' fair
+    cash-out (which prices against a scoreline it was never given, so it values the
+    pre-game position), and any honest answer to "what is happening right now".
+
+    A change-point series like `prices`, for the same reason: a score that has not moved
+    is not news, and a row per poll would grow without bound while saying nothing. The
+    unique index makes a re-poll at the same instant idempotent.
+    """
+
+    __tablename__ = "match_state"
+    __table_args__ = (
+        Index("uq_match_state_change", "provider", "event_external_id", "captured_at", unique=True),
+        # Watches scan "what is live now" across events — an event-leading index keeps
+        # that bounded to the events asked about rather than the provider's history.
+        Index("ix_match_state_event", "event_external_id", "captured_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    captured_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    sport: Mapped[str] = mapped_column(String(32))
+    event_external_id: Mapped[str] = mapped_column(String(128), index=True)
+    #: pre | live | suspended | ended. `live` is the only one an in-play watch acts on;
+    #: `suspended` matters as much, because a book suspending a market mid-match is the
+    #: moment a stale cross-book sum looks most like free money and is not.
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    home_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    away_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Provider-shaped ("Q3 04:21", "78'", "Set 2"). Deliberately not parsed into a
+    #: number: every sport counts time differently and a wrong normalisation is worse
+    #: than the raw string a model can read.
+    clock: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
 class RaceForm(Base):
     """Official form for one race (GLOBAL) — barriers, weights, jockeys and past
     performances from TAB's authenticated form guide. The racing ratings' REAL

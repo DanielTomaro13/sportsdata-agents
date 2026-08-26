@@ -2052,6 +2052,103 @@ async def _watch_arb(
     return fired
 
 
+async def live_event_ids(
+    session: AsyncSession, *, now: dt.datetime, max_age_minutes: float = 5.0
+) -> set[str]:
+    """Events whose most recent captured state says they are running.
+
+    Freshness is the whole point. A `live` row from twenty minutes ago is not evidence a
+    match is live — it is evidence it WAS. Acting on that is how an in-play watch fires
+    on a finished match, so the window is deliberately short and the LATEST row per event
+    decides, not any row.
+    """
+    from sportsdata_agents.data.models import MatchState
+
+    floor = now - dt.timedelta(minutes=max_age_minutes)
+    rows = list(
+        (
+            await session.execute(
+                select(MatchState)
+                .where(MatchState.captured_at > floor)
+                .order_by(MatchState.captured_at)
+            )
+        ).scalars()
+    )
+    latest: dict[str, str] = {}
+    for row in rows:  # ordered ascending, so the last write per event wins
+        latest[row.event_external_id] = row.status
+    return {event for event, status in latest.items() if status == "live"}
+
+
+async def _watch_inplay_arb(
+    session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
+) -> int:
+    """Cross-book arbitrage restricted to matches that are actually running.
+
+    The same maths as `arb` — deliberately, since re-deriving it would give two
+    definitions of an arb that could disagree. What differs is what it will act on:
+
+    - only events `match_state` says are LIVE right now, and
+    - a much shorter freshness window. Pre-game a twenty-minute-old price is usually
+      still true; in-play it is fiction, and a cross-book sum built from one stale leg is
+      the most convincing fake arb there is.
+
+    Suspension is the trap this exists to avoid. When one book suspends a market mid-match
+    its last price freezes while the others move, and the frozen leg makes the book look
+    generous. `max_age_minutes` is what keeps that leg out.
+    """
+    live = await live_event_ids(
+        session, now=now or dt.datetime.now(dt.UTC),
+        max_age_minutes=float(sub.params.get("state_age_minutes", 5.0)),
+    )
+    if not live:
+        return 0  # nothing running: not an error, just nothing to say
+
+    from sportsdata_agents.quant.arbitrage import scan_arbs
+
+    cap = int(sub.params.get("max_alerts_per_cycle", 5))
+    bankroll = float(sub.params.get("bankroll", 100.0))
+    arbs = await scan_arbs(
+        session,
+        hours=float(sub.params.get("hours", 1.0)),
+        threshold_pct=float(sub.params.get("threshold_pct", 1.0)),
+        min_matched=float(sub.params.get("min_matched", 1000.0)),
+        # Minutes, not the pre-game default of 20: see above.
+        max_age_minutes=float(sub.params.get("max_age_minutes", 2.0)),
+        exclude_books=tuple(str(b) for b in sub.params.get(
+            "exclude_books", ["FanDuel", "Kalshi", "Polymarket", "Pinnacle"])),
+        limit=cap * 3, now=now)
+
+    fired = 0
+    for arb in arbs:
+        if fired >= cap:
+            break
+        if str(arb.get("event_external_id") or arb.get("fixture_id")) not in live:
+            continue
+        profit = bankroll * (1.0 / arb["sum_inverse"] - 1.0)
+        legs_text = "\n".join(
+            f"• {leg['outcome']}: {leg['book']} {leg['odds']:.2f} — "
+            f"stake ${leg['stake_share'] * bankroll:.2f}"
+            + _age_label(leg.get("seen"), now or dt.datetime.now(dt.UTC))
+            for leg in arb["legs"]
+        )
+        message = (
+            f":rotating_light: IN-PLAY arbitrage — {_sport_label(arb['sport'])} — {arb['fixture']}\n"
+            f"Market: {arb['market']} · Gross margin {arb['margin_pct']:.2f} percent\n"
+            f"On a {_fmt_money(bankroll)} bankroll the locked profit is ${profit:.2f}:\n"
+            f"{legs_text}\n"
+            f"_In-play prices move in seconds and a suspended leg looks generous — "
+            f"verify every leg is still open before acting_"
+        )
+        books = ",".join(sorted({leg["book"] for leg in arb["legs"]}))
+        bucket = int(arb["margin_pct"] / 0.5)
+        key = f"inplay_arb:{arb['fixture_id']}:{arb['market']}:{arb['line']}:{books}:{bucket}"
+        if await _fire(session, sub, kind="inplay_arb", key=key, message=message,
+                       payload=arb, pusher=pusher):
+            fired += 1
+    return fired
+
+
 async def _watch_exchange_value(
     session: AsyncSession, sub: Subscription, pusher: Pusher, *, now: dt.datetime | None = None
 ) -> int:
@@ -3093,6 +3190,8 @@ async def _run_watches_locked(
                 fired = await _watch_prediction_value(session, sub, push, now=now)
             elif sub.kind == "bsp_value":
                 fired = await _watch_bsp_value(session, sub, push, now=now)
+            elif sub.kind == "inplay_arb":
+                fired = await _watch_inplay_arb(session, sub, push, now=now)
             elif sub.kind == "back_lay":
                 fired = await _watch_back_lay(session, sub, push, now=now)
             elif sub.kind == "stat_value":

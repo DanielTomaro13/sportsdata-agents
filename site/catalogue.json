@@ -16578,7 +16578,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 4,
+   "count": 5,
    "tools": [
     {
      "name": "unibet_kambi_call",
@@ -16651,6 +16651,38 @@
       }
      ],
      "example": ""
+    },
+    {
+     "name": "unibet_sgm_price",
+     "desc": "PRICE A SAME GAME MULTI you choose \u2014 give it two or more outcome ids from one Unibet/Kambi event and get the correlation-adjusted Bet Builder price, plus the list of outcomes eligible to join it. Prices combinations Unibet has not pre-built (for those, see unibet_kambi_call operation='event_prepack').",
+     "args": [
+      {
+       "n": "eventId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "outcomeIds",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "lang",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "market",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "channel_id",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{eventId, selectedOutcomeIds:[\u2026], selectedOdds:{decimal: 3400, american, fractional}, combinableOutcomeIds:[\u2026]}"
     }
    ]
   },
