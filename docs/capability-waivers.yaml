@@ -24,27 +24,6 @@
 generated_from: "0.29.0"
 
 waivers:
-  # ── planned: fantasy through the capability layer (phase 4) ──────────
-  fantasy.rosters:
-    status: planned
-    phase: 4
-    reason: >-
-      Four fantasy managers exist and none uses this — they take the mcp_groups door
-      instead, hand-wired per platform. Granting the fantasy.* tags is what makes a
-      fifth platform a spec file rather than an agent build.
-  fantasy.league_settings:
-    status: planned
-    phase: 4
-    reason: Scoring and roster rules per league; same rationale as fantasy.rosters.
-  fantasy.matchups:
-    status: planned
-    phase: 4
-    reason: Head-to-head weekly matchups; same rationale as fantasy.rosters.
-  fantasy.free_agents:
-    status: planned
-    phase: 4
-    reason: Waiver-wire pool; same rationale as fantasy.rosters.
-
   # ── planned: discovery (phase 5) ─────────────────────────────────────
   sport.competitions_list:
     status: planned
@@ -86,22 +65,8 @@ waivers:
     status: planned
     phase: 5
     reason: Per-match team lines; pairs with team_game_log.
-  sport.depth_chart:
-    status: planned
-    phase: 5
-    reason: >-
-      One provider (ESPN), but role changes drive fantasy projections more than raw form
-      does, and nothing else in the catalogue carries them.
 
   # ── planned: roster intelligence + backtesting (phase 5) ─────────────
-  sport.transactions:
-    status: planned
-    phase: 5
-    reason: Trades and call-ups as model features; also waiver-wire timing for the fantasy desk.
-  sport.draft:
-    status: planned
-    phase: 5
-    reason: Draft capital as a prior for rookie projections.
   stats.closing_odds:
     status: planned
     phase: 5

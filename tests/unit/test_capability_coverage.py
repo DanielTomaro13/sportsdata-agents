@@ -173,3 +173,39 @@ def test_a_single_provider_capability_is_never_carried() -> None:
         "single-provider capabilities must be discovered, not carried — a disabled "
         f"provider would stop these agents starting: {offenders}"
     )
+
+
+def test_a_group_only_agent_scopes_narrowly() -> None:
+    """`runtime` passes `mcp_capabilities or None` to the bridge, and None means NO
+    FILTER — so an agent granting `mcp_groups` with no capabilities receives every tool
+    in those groups, whatever they contain.
+
+    That is safe today only because the four fantasy managers name tight, specific groups
+    (`fpl.players`, `sleeper.draft`). It stops being safe the moment someone grants a
+    wildcard or a whole provider, which would silently hand an agent the entire scope.
+    The behaviour is deliberate and documented; this pins the assumption it rests on.
+    """
+    offenders: list[str] = []
+    for agent_id, spec in load_builtin_specs().items():
+        if spec.tools.mcp_capabilities or not spec.tools.mcp_groups:
+            continue  # a capability list makes the bridge filter again
+        for group in spec.tools.mcp_groups:
+            # A group id is "<provider>.<area>". A bare provider or a wildcard is the
+            # whole book, and unfiltered is far too much of it.
+            if "*" in group or "." not in group:
+                offenders.append(f"{agent_id}: {group!r}")
+    assert not offenders, (
+        "these agents grant broad groups with no capability filter, so they receive the "
+        f"entire scope unfiltered: {offenders}"
+    )
+
+
+def test_fantasy_is_reachable_across_every_platform_not_just_the_ones_with_agents() -> None:
+    """The point of phase 4. `fantasy.*` spans ESPN, FPL, MyFantasyLeague, Sleeper,
+    Yahoo and SuperCoach — the last two have no manager agent, and before this nothing
+    could read them at all: the four managers take the mcp_groups door, which is
+    per-platform by construction.
+    """
+    advisor = load_builtin_specs()["fantasy_advisor"]
+    reach = set(advisor.tools.mcp_capabilities) | set(advisor.tools.mcp_discover)
+    assert {"fantasy.rosters", "fantasy.league_settings"} <= reach

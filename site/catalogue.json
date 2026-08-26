@@ -2074,7 +2074,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 19,
+   "count": 20,
    "tools": [
     {
      "name": "betr_all_promotions",
@@ -2260,6 +2260,23 @@
       }
      ],
      "example": "{RaceFormV2:{RaceNo, RaceName, NumberOfRunners, Distance, Course, RaceComment, Runners:[...]}}"
+    },
+    {
+     "name": "betr_sgm_price",
+     "desc": "PRICE A SAME GAME MULTI you choose \u2014 give it two or more selections from one BetR match, get the correlation-adjusted combined price. Prices combinations BetR has not pre-built (for the ones it has, see betr_pop_sgm_bet_data).",
+     "args": [
+      {
+       "n": "Markets",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "MasterEventID",
+       "t": "integer",
+       "r": false
+      }
+     ],
+     "example": "{Price: 2.2, ErrorNo: 0}  \u2014 that is the WHOLE body on success; there is no echo of the legs. VERIFIED live 2026-08-27 against AFL Western Bulldogs v Collingwood (MasterEventId 2255977), unauthenticated.\n\nTHE PRICE IS NOT THE PRODUCT OF THE LEGS. Measured on that fixture, BetR's adjustment ran from -9.7% to +4.9% and went BOTH ways: Bulldogs (1.95) with Under 139.5 (6.25) priced 11.00 against a nai"
     },
     {
      "name": "betr_sports_category",

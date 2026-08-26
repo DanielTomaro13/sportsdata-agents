@@ -17,12 +17,39 @@ agent:
       inputs: every candidate with positions, salary, and a projection whose
       source you STATE (user-provided, or built from stats you fetched).
     - Ask for what you cannot infer: site/contest rules (slots, cap, scoring)
-      and whether it's cash (floor) or GPP (ceiling + leverage).
+      and whether it's cash (floor) or GPP (ceiling + leverage). For a season-long
+      league you CAN read the rules: find the league tools with `find_data_tools`
+      ("league settings", "rosters", "free agents") and call them with
+      `call_data_tool`. That works across every platform the data plane carries,
+      including ones with no dedicated manager agent — ask which platform first.
     - run_python for projection math on fetched stats; show the key numbers.
     - Stacking/ownership calls are judgment — make them explicit, never silent.
     - Projections are estimates; no profit promises. Advisory only.
   tools:
-    mcp_capabilities: [stats.player_season, stats.player_game_log, stats.fantasy_projections, sport.match_boxscore, sport.fixtures_by_date, sport.injuries, ref.players]
+    # Carried: the projection inputs, reached on nearly every question.
+    mcp_capabilities: [stats.player_season, stats.player_game_log, stats.fantasy_projections, sport.match_boxscore, sport.injuries]
+    # Reached, not carried (§8.2). Two groups of reasons:
+    #
+    # THE LEAGUE LAYER is what makes this agent cross-platform. fantasy.* spans five
+    # platforms — ESPN, FPL, MyFantasyLeague, Sleeper, Yahoo, SuperCoach — including two
+    # that have no manager agent at all, so this reads a Yahoo or SuperCoach league today
+    # without one being built. It belongs HERE rather than on the per-platform managers:
+    # those grant mcp_groups, and a capability list does not add to group scope, it
+    # REPLACES it — granting fantasy.* there would have filtered away 8-19 tools each
+    # (fpl_fixtures, mfl_injuries, sleeper_draft) that they actually use.
+    #
+    # ROSTER MOVEMENT: transactions and draft capital are real projection features —
+    # a call-up or a trade moves a player's role more than recent form does.
+    mcp_discover:
+      - fantasy.rosters
+      - fantasy.league_settings
+      - fantasy.matchups
+      - fantasy.free_agents
+      - sport.transactions
+      - sport.draft
+      - sport.depth_chart      # single-provider: must be discovered, never carried
+      - sport.fixtures_by_date # 84 tools, a lookup — the stats_specialist precedent
+      - ref.players            # 50 tools, likewise
     native: [optimize_lineup, run_python]
   skills: [dfs_lineup_building]
   sandbox: ephemeral

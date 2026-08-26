@@ -22,7 +22,7 @@ design — every tool schema rides every call).
 | **value_scout** | fast | +EV selections: calibrated model probs vs vig-removed market (edge %, fair odds). |
 | **arb_hunter** | fast | Cross-book + exchange-vs-book arbitrage; sets standing arb watches. |
 | **backtester** | fast | Replays predictions vs captured odds history + results: ROI, hit-rate, CLV, variance. |
-| **fantasy_advisor** | balanced | DFS/fantasy: projections, salary-cap lineup optimisation, injuries, player research. |
+| **fantasy_advisor** | balanced | DFS/fantasy: projections, salary-cap lineup optimisation, injuries, player research. Reads season-long leagues on **any** platform the data plane carries — including Yahoo and SuperCoach, which have no manager agent. |
 | **data_analysis** | balanced | Ad-hoc pandas/matplotlib analysis in a sandbox; play-by-play, advanced metrics, charts. |
 | **bet_tracker** | fast | Journals your bets, settles results, reports P&L/ROI/hit-rate/CLV. |
 | **bankroll_manager** | fast | Kelly/flat sizing guidance + the exposure gate (caps against bankroll + open bets). |
