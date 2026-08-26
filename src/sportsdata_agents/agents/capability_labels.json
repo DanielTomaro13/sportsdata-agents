@@ -11,6 +11,10 @@
     "description": "Text articles, news index.",
     "label": "News"
   },
+  "content.photo": {
+    "description": "Editorial photo and image content items.",
+    "label": "Photos"
+  },
   "content.promo": {
     "description": "Promo / marketing cards from CMS.",
     "label": "Promo"
@@ -59,6 +63,10 @@
     "description": "Recent public trades on a prediction market.",
     "label": "Market trades"
   },
+  "racing.form_guide": {
+    "description": "Per-runner form history for one race \u2014 past runs, ratings and comments.",
+    "label": "Form guide"
+  },
   "racing.futures": {
     "description": "Long-running futures markets (Cup outrights, season-long props).",
     "label": "Racing futures (Cup outrights)"
@@ -70,6 +78,14 @@
   "racing.next_to_jump": {
     "description": "Next races about to start, sorted by start time.",
     "label": "Next races to jump"
+  },
+  "racing.pools": {
+    "description": "Tote pool sizes, jackpots and carryovers.",
+    "label": "Tote pools & jackpots"
+  },
+  "racing.price_history": {
+    "description": "Fixed-odds fluctuation history per runner (price movements over time).",
+    "label": "Price fluctuations"
   },
   "racing.race_card": {
     "description": "Full racecard for one race: runners, prices, jockeys, scratchings.",
@@ -83,13 +99,25 @@
     "description": "Same Race Multi (SRM) suggestions or popular combinations.",
     "label": "Same race multi"
   },
+  "racing.track_conditions": {
+    "description": "Track report for a meeting \u2014 going, rail position and weather.",
+    "label": "Track conditions"
+  },
   "ref.coaches": {
     "description": "Coach catalogue / coaching records.",
     "label": "Coaches"
   },
+  "ref.officials": {
+    "description": "Match officials \u2014 umpires, referees, assistants and official scorers.",
+    "label": "Match officials"
+  },
   "ref.players": {
     "description": "Player catalogue (id, name, dob, draft info).",
     "label": "Player profiles"
+  },
+  "ref.rounds": {
+    "description": "Round / matchweek / session structure within a season, and which one is current.",
+    "label": "Rounds & matchweeks"
   },
   "ref.seasons": {
     "description": "Season / competition-season catalogue.",
@@ -122,6 +150,14 @@
   "social.user_timeline": {
     "description": "A social account's recent posts (club news, insider feeds).",
     "label": "User timeline"
+  },
+  "sport.awards": {
+    "description": "Award and honour recipients (player of the month, MVP, hall of fame).",
+    "label": "Awards & honours"
+  },
+  "sport.cash_out": {
+    "description": "Cash-out availability and valuation for open positions.",
+    "label": "Cash out"
   },
   "sport.commentary": {
     "description": "Text or play-by-play commentary for a match.",
@@ -158,6 +194,10 @@
   "sport.injuries": {
     "description": "Injury report / inactive list for a team or league.",
     "label": "Injuries"
+  },
+  "sport.lineups": {
+    "description": "Confirmed or projected starting lineups for a fixture, with formation and bench.",
+    "label": "Team lineups"
   },
   "sport.live_audio": {
     "description": "Live audio stream URLs.",

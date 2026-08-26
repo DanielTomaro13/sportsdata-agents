@@ -13825,7 +13825,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 44,
+   "count": 45,
    "tools": [
     {
      "name": "sportsbet_bet_live",
@@ -14322,6 +14322,33 @@
      "desc": "Current safer-gambling message block for the site.",
      "args": [],
      "example": "{message:{title, body}}"
+    },
+    {
+     "name": "sportsbet_sgm_price",
+     "desc": "PRICE A SAME GAME MULTI you choose \u2014 give it legs from one event, get the combined price back. The only tool here that prices a combination the book has not already built.",
+     "args": [
+      {
+       "n": "classExternalId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "competitionExternalId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "eventExternalId",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "outcomesExternalIds",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "{price:{quoteId, numerator, denominator}}"
     },
     {
      "name": "sportsbet_sport_card_legacy",

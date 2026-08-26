@@ -163,6 +163,40 @@ waivers:
       NBA only, and spatial data needs a consumer that does not exist. Genuine candidate
       if a basketball-specific modelling surface is ever built.
 
+  # ── added by Phase 1 (tagging the orphans), not yet wired ────────────
+  ref.rounds:
+    status: planned
+    phase: 5
+    reason: >-
+      Round/matchweek structure across 6 providers. Part of the discovery surface —
+      "this round" should not need a hardcoded number any more than "this season" does.
+  ref.officials:
+    status: planned
+    phase: 5
+    reason: >-
+      Referee and umpire assignments. A real modelling feature (officiating tendencies
+      move totals and card markets), so it belongs with the player-depth work.
+  sport.lineups:
+    status: planned
+    phase: 5
+    reason: >-
+      Confirmed XI and formation, three providers. Team news is the highest-value
+      pre-game signal the platform still cannot see; pairs with sport.injuries.
+  sport.cash_out:
+    status: planned
+    phase: 3
+    reason: >-
+      Belongs with the live desk — the engines already compute a fair cash-out number,
+      and this is the book's own quote to compare it against.
+  sport.awards:
+    status: niche
+    reason: >-
+      Award winners are trivia here. No model consumes them and no market prices them
+      on the two providers that carry it.
+  content.photo:
+    status: niche
+    reason: Photo assets. As content.video — an LLM agent cannot use the image.
+
   # ── upstream placeholder ─────────────────────────────────────────────
   sport.example:
     status: upstream

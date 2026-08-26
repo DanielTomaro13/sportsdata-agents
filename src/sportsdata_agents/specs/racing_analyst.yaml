@@ -38,6 +38,12 @@ agent:
       - racing.race_results
       - racing.futures
       - racing.same_race_multi
+      # Phase 1 added these upstream; a racing analyst that reads a card without the
+      # form guide or the going is reading half of it.
+      - racing.form_guide
+      - racing.track_conditions
+      - racing.pools
+      - racing.price_history
       - sport.prices
     native: [best_price, implied_probability, vig_removal, lookup_book_ids, export_csv]
   skills: [reading_a_racecard, vig_removal, book_navigation]
