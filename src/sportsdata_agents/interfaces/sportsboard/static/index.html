@@ -28,7 +28,9 @@
   <main>
     <div class="col left">
       <section class="panel">
-        <header><h2>GAMES</h2><span class="sub">sharp line vs the books</span><span class="count" id="games-count"></span></header>
+        <header><h2 id="list-title">GAMES</h2><span class="sub" id="list-sub">sharp line vs the books</span>
+          <span class="mode" id="mode"><button class="mchip on" data-m="games">GAMES</button><button class="mchip" data-m="specials">SPECIALS</button></span>
+          <span class="count" id="games-count"></span></header>
         <div class="gfilters"><input type="search" id="gsearch" placeholder="filter teams / league…" autocomplete="off" /></div>
         <div class="gsports" id="gsports"></div>
         <div id="games" class="games scroll"><div class="note">loading…</div></div>

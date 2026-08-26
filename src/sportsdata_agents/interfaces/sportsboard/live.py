@@ -71,6 +71,15 @@ async def run_poller() -> None:
     only = {n.strip() for n in os.environ.get("SPORTSBOARD_LIVE_FEEDS", "").split(",") if n.strip()}
     if only:
         feeds = [f for f in feeds if f.name in only]
+    # optional exclude patterns (SPORTSBOARD_LIVE_FEEDS_EXCLUDE="*_racing*"):
+    # keeps the every-feed default (new books ship automatically) while carving
+    # out families another process owns — e.g. a co-located racing board doing
+    # its own TAB polling, which these feeds would double up against the same
+    # rate-limited upstream.
+    import fnmatch
+    exclude = [p.strip() for p in os.environ.get("SPORTSBOARD_LIVE_FEEDS_EXCLUDE", "").split(",") if p.strip()]
+    if exclude:
+        feeds = [f for f in feeds if not any(fnmatch.fnmatch(f.name, p) for p in exclude)]
     if not feeds:
         logger.warning("live mode: no enabled feeds — nothing to poll")
         return

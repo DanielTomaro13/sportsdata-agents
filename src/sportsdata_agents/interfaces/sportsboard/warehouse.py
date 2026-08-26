@@ -14,7 +14,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sportsdata_agents.data.models import (
@@ -319,3 +319,80 @@ async def game_detail(session: AsyncSession, fixture_id: str,
         "bf_money": money, "engine_rating": rating,
         "flow": flow,               # sharp line + Betfair money over time
     }
+
+
+async def list_specials(
+    session: AsyncSession, *, days: float = 90.0, limit: int = 80,
+    now: dt.datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Novelty and outright markets — elections, entertainment, economics,
+    crypto, sports futures: every fixture list_games' two-sided gate drops.
+
+    Presentation is deliberately simpler than the games board: no sharp-line
+    blending (a one-sided market has no home/away to de-vig against), just the
+    latest price per selection per book, favourites first. The `no <side>`
+    complements prediction markets emit are folded away — the affirmative side
+    carries the same information."""
+    from sportsdata_agents.operations.resolution.resolver import split_sides
+
+    now = now or dt.datetime.now(dt.UTC)
+    # Prediction-market events only. Books also emit one-sided names, but those
+    # are player props and derivative sub-markets of GAMES ("Total Hits
+    # Allowed"), which would flood this list — they belong on the game detail,
+    # not here. Kalshi/Polymarket events are novelty by construction: politics,
+    # entertainment, economics, crypto, and sports outrights.
+    fixture_ids = {
+        row[0] for row in (await session.execute(
+            select(Event.fixture_id).where(Event.provider.in_(("kalshi", "polymarket")),
+                                           Event.fixture_id.is_not(None)))).all()
+    }
+    fixtures = [
+        f for f in (await session.execute(
+            select(Fixture).where(Fixture.id.in_(fixture_ids),
+                                  Fixture.start_time >= now - dt.timedelta(hours=6),
+                                  Fixture.start_time <= now + dt.timedelta(days=days))
+            .order_by(Fixture.start_time))
+        ).scalars()
+        if f.sport not in RACING_SPORTS and split_sides(f.name or "") is None
+    ][:limit]
+    if not fixtures:
+        return []
+    events = await _fixture_events(session, {f.id for f in fixtures})
+
+    out: list[dict[str, Any]] = []
+    for f in fixtures:
+        fx_events = events.get(f.id, [])
+        if not fx_events:
+            continue
+        keys = [(e.provider, e.external_id) for e in fx_events]
+        rows = (await session.execute(
+            select(OddsSnapshot)
+            .where(tuple_(OddsSnapshot.provider, OddsSnapshot.event_external_id).in_(keys),
+                   OddsSnapshot.captured_at >= now - dt.timedelta(hours=48))
+            .order_by(OddsSnapshot.captured_at))).scalars().all()
+        latest: dict[tuple[str, str], Any] = {}
+        for r in rows:  # ordered ascending, so the last write per key wins
+            latest[(r.book, r.selection)] = r
+        sels: dict[str, dict[str, float]] = {}
+        for (book, sel), r in latest.items():
+            if sel.startswith("no "):
+                continue  # the affirmative side carries the same information
+            try:
+                odds = float(r.odds)
+            except (TypeError, ValueError):
+                continue
+            if odds > 1.0:
+                sels.setdefault(sel, {})[book] = odds
+        if not sels:
+            continue
+        best = sorted(
+            ({"selection": sel, "best_odds": min(b.values()), "books": len(b)}
+             for sel, b in sels.items()),
+            key=lambda x: x["best_odds"])
+        out.append({
+            "fixture_id": str(f.id), "name": f.name, "category": f.sport,
+            "start_time": f.start_time.isoformat() if f.start_time else None,
+            "selections": best[:6], "n_selections": len(best),
+            "sources": sorted({b for s in sels.values() for b in s}),
+        })
+    return out

@@ -118,3 +118,10 @@ table.ladder{width:100%;border-collapse:collapse;margin:2px 0}
 .sgmbook{font-family:var(--mono);font-size:10px;letter-spacing:.06em;border-radius:3px;padding:2px 8px;cursor:pointer;border:1px solid var(--line2);background:var(--panel3);color:var(--ink)}
 .sgmbook.on{background:var(--up);color:#06210f;border-color:var(--up);font-weight:700}
 .sgmbook.off{opacity:.45;cursor:not-allowed}
+
+.mode{display:inline-flex;gap:4px;margin-left:12px}
+.mchip{font-family:var(--mono);font-size:10px;letter-spacing:.08em;border-radius:3px;padding:2px 9px;cursor:pointer;border:1px solid var(--line2);background:var(--panel3);color:var(--ink)}
+.mchip.on{background:var(--blue);color:#04101f;border-color:var(--blue);font-weight:700}
+.sprow{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border-bottom:1px solid var(--line);cursor:default}
+.sprow .spsels{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:2px}
+.spcat{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--blue)}

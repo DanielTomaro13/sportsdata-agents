@@ -7,8 +7,9 @@
   const SIDE = { home: "HOME", away: "AWAY", draw: "DRAW" };
   const SHARP = new Set(["Kalshi", "Polymarket", "Betfair", "Pinnacle"]);
 
-  const state = { games: [], selected: null, detail: null, sportFilter: "ALL", search: "", expanded: {}, mode: "live" };
+  const state = { games: [], selected: null, detail: null, sportFilter: "ALL", search: "", expanded: {}, mode: "live", list: "games", specials: [] };
   const sgm = { legs: [], result: null, book: "fair", books: null };
+  // list mode: "games" (two-sided, sharp-line) or "specials" (novelty/outrights)
 
   // live warehouse API, or a captured static REPLAY the page animates (the
   // GitHub Pages demo). Replay = an array of frames [{games, details}, …] the
@@ -50,6 +51,15 @@
   const teamOf = (d, s) => s === "home" ? d.home : s === "away" ? d.away : "Draw";
 
   // ---------- games list ----------
+  async function loadSpecials() {
+    if (isReplay()) { state.specials = []; renderList(); return; }
+    try {
+      const j = await api("/api/specials");
+      state.specials = j.specials || [];
+    } catch { state.specials = state.specials || []; }
+    renderList();
+  }
+
   async function loadGames() {
     let d;
     if (isReplay()) { await ensureFrames(); d = { games: curFrame().games || [] }; }
@@ -61,7 +71,7 @@
     state.games = d.games || [];
     $("s-games").textContent = state.games.length;
     renderSportFilters();
-    renderGames();
+    renderList();  // respects the GAMES/SPECIALS toggle — a poll tick must not stomp specials
     if (state.selected && state.detail) refreshDetail();
     if (!state.selected && state.games.length) select(state.games[0].fixture_id);
   }
@@ -71,6 +81,29 @@
     $("gsports").innerHTML = ["ALL", ...sports].map((s) =>
       `<button class="schip ${state.sportFilter === s ? "on" : ""}" data-s="${esc(s)}">${s === "ALL" ? "ALL" : s.toUpperCase()}</button>`).join("");
     $("gsports").querySelectorAll(".schip").forEach((b) => b.onclick = () => { state.sportFilter = b.dataset.s; renderSportFilters(); renderGames(); });
+  }
+
+  function renderList() { state.list === "specials" ? renderSpecials() : renderGames(); }
+
+  function renderSpecials() {
+    const el = $("games");
+    const q = state.search.trim().toLowerCase();
+    const rows = (state.specials || [])
+      .filter((x) => !q || (x.name + " " + x.category).toLowerCase().includes(q));
+    $("games-count").textContent = rows.length || "";
+    if (!rows.length) { el.innerHTML = `<div class="note">${q ? "no specials match" : "no novelty markets in the window yet — the ingest fills this live"}</div>`; return; }
+    el.innerHTML = rows.map((x) => {
+      const t = ttj(x.start_time);
+      const sels = (x.selections || []).slice(0, 3)
+        .map((s) => `${esc(s.selection)} $${s.best_odds.toFixed(2)}`).join(" · ");
+      const more = x.n_selections > 3 ? ` · +${x.n_selections - 3} more` : "";
+      return `<div class="sprow">
+        <div><span class="spcat">${esc((x.category || "").toUpperCase())}</span>
+        <div class="gname">${esc(x.name)}</div>
+        <div class="spsels">${sels}${more} · <span class="gsrc">${(x.sources || []).join(", ")}</span></div></div>
+        <div class="ttj ${t.c}">${t.t}</div>
+      </div>`;
+    }).join("");
   }
 
   function renderGames() {
@@ -96,7 +129,7 @@
   // ---------- detail ----------
   async function select(id) {
     state.selected = id; sgm.legs = []; sgm.result = null; state.expanded = {};
-    renderGames();
+    renderList();
     $("detail").innerHTML = '<div class="empty"><div class="big">◪</div>loading…</div>';
     await refreshDetail(true);
     loadSgmBooks(id);  // deliberately not awaited — chips fill in when known
@@ -360,7 +393,15 @@
     dot.className = "dot" + (ok ? " on" : ""); l.textContent = ok ? "LIVE" : "OFFLINE";
   }
 
-  $("gsearch").addEventListener("input", (e) => { state.search = e.target.value; renderGames(); });
+  $("gsearch").addEventListener("input", (e) => { state.search = e.target.value; renderList(); });
+  $("mode").querySelectorAll(".mchip").forEach((b) => b.onclick = () => {
+    state.list = b.dataset.m;
+    $("mode").querySelectorAll(".mchip").forEach((c) => c.classList.toggle("on", c === b));
+    $("list-title").textContent = state.list === "specials" ? "SPECIALS" : "GAMES";
+    $("list-sub").textContent = state.list === "specials" ? "elections · futures · novelty" : "sharp line vs the books";
+    $("gsports").style.display = state.list === "specials" ? "none" : "";
+    if (state.list === "specials") loadSpecials(); else renderList();
+  });
   const th = localStorage.getItem("sb-theme"); if (th) document.documentElement.setAttribute("data-theme", th);
   $("theme").onclick = () => {
     const c = document.documentElement.getAttribute("data-theme") === "light" ? "" : "light";
