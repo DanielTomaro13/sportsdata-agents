@@ -1,0 +1,1580 @@
+{
+ "_comment": "recall@N for the data-plane search in mcp/discovery.py. Deterministic by design: the catalogue is snapshotted here, so the score moves only when the RANKING changes \u2014 no MCP subprocess, no network, no model key. This is the gate Phase 2 needed and the offline suite could not otherwise provide: its other six scores measure maths and would not move at all if tool selection regressed. `expect` may list several tools: more than one provider legitimately answers most questions, which is what capability tags are for.",
+ "limit": 8,
+ "tools": [
+  {
+   "tool": "afl_competitions_list",
+   "provider": "afl",
+   "summary": "List all AFL competitions (AFL, AFLW, VFL, SANFL, \u2026).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "afl_competition_get",
+   "provider": "afl",
+   "summary": "Get a single competition by integer id.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "afl_match_get",
+   "provider": "afl",
+   "summary": "Get a single match by integer id (teams, venue, time, score when started).",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "afl_statspro_call",
+   "provider": "afl",
+   "summary": "Call any of the AFL StatsPro operations (api.afl.com.au/statspro/...).\nRequires the anonymous x-media-mis-token (minted automatically). Path params\nuse provider",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "apisports_football_leagues",
+   "provider": "apisports",
+   "summary": "Football leagues and cups worldwide, with the seasons available on your plan.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "apisports_football_fixtures",
+   "provider": "apisports",
+   "summary": "Football fixtures and results by date, league or team. Give at least one filter.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_football_players",
+   "provider": "apisports",
+   "summary": "Player season statistics for a team or league. `season` is required.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "apisports_football_odds",
+   "provider": "apisports",
+   "summary": "Pre-match odds from many bookmakers for a fixture or league.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "apisports_basketball_games",
+   "provider": "apisports",
+   "summary": "Basketball games worldwide (NBA, EuroLeague, NBL and many more) by date or league.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_baseball_games",
+   "provider": "apisports",
+   "summary": "Baseball games (MLB, NPB, KBO and others) by date or league.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_hockey_games",
+   "provider": "apisports",
+   "summary": "Ice-hockey games (NHL, KHL, SHL and others) by date or league.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_nfl_games",
+   "provider": "apisports",
+   "summary": "American-football games (NFL, NCAA) by date, season or team.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_rugby_games",
+   "provider": "apisports",
+   "summary": "Rugby games (Six Nations, Super Rugby, NRL, Premiership) by date or league. The catalogue's only rugby-union coverage.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_formula1_races",
+   "provider": "apisports",
+   "summary": "Formula 1 races and sessions for a season.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_mma_fights",
+   "provider": "apisports",
+   "summary": "MMA fights (UFC and others) by date or season.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_handball_games",
+   "provider": "apisports",
+   "summary": "Handball games (EHF Champions League, Bundesliga, LNH and others) by date or league.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apisports_volleyball_games",
+   "provider": "apisports",
+   "summary": "Volleyball games (Italian SuperLega, Polish PlusLiga, CEV and others) by date or league.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apitennis_events",
+   "provider": "apitennis",
+   "summary": "Event types the API covers (ATP singles, WTA doubles, ITF, \u2026).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "apitennis_tournaments",
+   "provider": "apitennis",
+   "summary": "Tournaments, optionally for one event type.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "apitennis_fixtures",
+   "provider": "apitennis",
+   "summary": "Matches in a date range, with scores and set-by-set detail once played.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "apitennis_livescore",
+   "provider": "apitennis",
+   "summary": "Matches in progress right now, with live scores.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "balldontlie_nba_games",
+   "provider": "balldontlie",
+   "summary": "NBA games by date, season or team.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "balldontlie_nba_season_averages",
+   "provider": "balldontlie",
+   "summary": "Season averages for specific NBA players.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "balldontlie_nfl_games",
+   "provider": "balldontlie",
+   "summary": "NFL games by season, week or team.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "balldontlie_mlb_games",
+   "provider": "balldontlie",
+   "summary": "MLB games by date, season or team. (For MLB alone, the keyless official `mlb` provider is far deeper.)",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "balldontlie_epl_games",
+   "provider": "balldontlie",
+   "summary": "Premier League fixtures and results.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "betfair_market_prices",
+   "provider": "betfair",
+   "summary": "Exchange back/lay prices + state for one or more markets (the core odds feed).",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "betfair_navigation",
+   "provider": "betfair",
+   "summary": "Navigation graph by node \u2014 traverse sport \u2192 group \u2192 event \u2192 market. Feed market ids into betfair_market_prices.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "betfair_scores",
+   "provider": "betfair",
+   "summary": "Live scores for one or more in-play events (per-sport score detail).",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "betfair_event_details",
+   "provider": "betfair",
+   "summary": "In-play event details (event name, competition, primary market, runners, start time) for one or more events.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "betfair_event_timeline",
+   "provider": "betfair",
+   "summary": "Live timeline + running score/state for one in-play event.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "betfair_event_timelines",
+   "provider": "betfair",
+   "summary": "Live timelines + running scores for several in-play events at once (batch).",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "betfair_scores_broadcast",
+   "provider": "betfair",
+   "summary": "Live scores plus broadcast/streaming availability for one or more events.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "betr_race_form",
+   "provider": "betr",
+   "summary": "Detailed form guide for one race (runner history, comments, ratings).",
+   "args_required": [],
+   "capability": "racing.form_guide"
+  },
+  {
+   "tool": "betr_event_types",
+   "provider": "betr",
+   "summary": "All event types (sports + racing) with event counts and SGM availability.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "cfbd_games",
+   "provider": "cfbd",
+   "summary": "Games for a season with scores, venue and attendance. `year` is required.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "cfbd_betting_lines",
+   "provider": "cfbd",
+   "summary": "Historical betting lines per game from multiple books \u2014 spread, over/under and moneyline. The college-football backtesting dataset.",
+   "args_required": [],
+   "capability": "stats.closing_odds"
+  },
+  {
+   "tool": "chesscom_player_stats",
+   "provider": "chesscom",
+   "summary": "A player's ratings and records per game type \u2014 blitz, bullet, rapid, daily, plus tactics and puzzle rush.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "cricketaustralia_competitions",
+   "provider": "cricketaustralia",
+   "summary": "Competition catalogue \u2014 series / tournaments with id, name, dates and artwork.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "cricketaustralia_tours",
+   "provider": "cricketaustralia",
+   "summary": "Tours / series with status flags \u2014 each tour groups its competitions and is flagged upcoming / in-progress / completed. The feed behind the site's series naviga",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "cricketdata_current_matches",
+   "provider": "cricketdata",
+   "summary": "Matches in progress or starting soon, with live scores.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "cricketdata_series",
+   "provider": "cricketdata",
+   "summary": "Series (tours and tournaments) with their match counts and dates.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "dabble_active_competitions",
+   "provider": "dabble",
+   "summary": "Every currently-bettable competition across all sports (~318) \u2014 the discovery entry point. Pick any one's `id` and pass it to dabble_competition_fixtures. Each ",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "dabble_competitions",
+   "provider": "dabble",
+   "summary": "Look up competitions by EXACT name (`name`, case-sensitive; e.g. 'NRL', 'Premier League', 'AFL Matches' \u2014 note 'AFL' alone returns nothing) OR list EVERY compet",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "dabble_sports",
+   "provider": "dabble",
+   "summary": "The 24 sports Dabble offers (Rugby League, Australian Rules, Football, Basketball, Cricket, Tennis, Horse Racing, \u2026), each with id + name. Join sportId from a c",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "dabble_competition_fixtures",
+   "provider": "dabble",
+   "summary": "All fixtures for ONE competition, each embedding its markets + prices (decimal odds) + selections + teams. Get the competitionId from dabble_active_competitions",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "dabble_fixture_details",
+   "provider": "dabble",
+   "summary": "The FULL book for one fixture \u2014 every market (hundreds), all selections + prices, the marketGroups (SGM grouping) and the Pick'em playerProps product. LARGE (~1",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "datagolf_in_play",
+   "provider": "datagolf",
+   "summary": "Live (in-play) model predictions during a tournament \u2014 current position/score + updated win probabilities.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "datagolf_live_strokes_gained",
+   "provider": "datagolf",
+   "summary": "Live strokes-gained breakdown for every player during PGA Tour events (raw, or relative to the model's pre-round expectations).",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "datagolf_outrights",
+   "provider": "datagolf",
+   "summary": "Outright (win / top-N / make-cut) odds for the current event across ~13 sportsbooks, plus Data Golf's model line.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "datagolf_matchups",
+   "provider": "datagolf",
+   "summary": "Tournament / round / 3-ball matchup odds across sportsbooks, plus Data Golf's model line.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "datagolf_matchups_all_pairings",
+   "provider": "datagolf",
+   "summary": "All possible tournament matchup pairings for the current event with Data Golf's model odds (every player-vs-player price).",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "datagolf_hist_outrights",
+   "provider": "datagolf",
+   "summary": "Historical opening/closing outright odds for a past event from one sportsbook.",
+   "args_required": [],
+   "capability": "stats.closing_odds"
+  },
+  {
+   "tool": "datagolf_hist_matchups",
+   "provider": "datagolf",
+   "summary": "Historical matchup / 3-ball odds for a past event from one sportsbook.",
+   "args_required": [],
+   "capability": "stats.closing_odds"
+  },
+  {
+   "tool": "entain_graphql_call",
+   "provider": "entain",
+   "summary": "Call any of Entain's 127 persisted GraphQL operations against\napi.ladbrokes.com.au/gql/router by name + variables. Hashes are managed\nserver-side; a PERSISTED_Q",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "entitysport_matches",
+   "provider": "entitysport",
+   "summary": "Cricket matches \u2014 live, upcoming and completed.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "entitysport_competitions",
+   "provider": "entitysport",
+   "summary": "Competitions and tours.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "espn_scoreboard",
+   "provider": "espn",
+   "summary": "Scoreboard for one league: today's (or a given date's) games with status,\nclock, live scores and event ids. The fastest way to get the `event` ids that\nespn_gam",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "espn_core_call",
+   "provider": "espn",
+   "summary": "Gateway to the ESPN core data model (sports.core.api.espn.com). The deepest,\nmost canonical surface: athletes + statistics + career logs, per-event odds /\nwin-p",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "espn_web_call",
+   "provider": "espn",
+   "summary": "Gateway to the ESPN web API (site.web.api.espn.com): site-wide search across\nteams/athletes/leagues, plus the common/v3 athlete views (overview, stats,\ngamelog,",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "espn_cdn_call",
+   "provider": "espn",
+   "summary": "Gateway to the ESPN CDN core live feed (cdn.espn.com). Fast, lightly-cached\nscoreboard/game/boxscore/playbyplay JSON. The path slug is the LEAGUE, not the\nsport",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "espnfantasy_rosters",
+   "provider": "espnfantasy",
+   "summary": "Every fantasy team's roster \u2014 who each manager holds, their lineup slot, acquisition type and player stats. LARGE (hundreds of KB).",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "espnfantasy_scoreboard",
+   "provider": "espnfantasy",
+   "summary": "Scoreboard for a scoring period \u2014 matchup totals plus the pro-game state behind each fantasy team.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "espnfantasy_live_scoring",
+   "provider": "espnfantasy",
+   "summary": "Live in-progress scoring for the current period \u2014 points so far and how many roster spots have yet to play.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "espnfantasy_player_card",
+   "provider": "espnfantasy",
+   "summary": "Deep card for specific players \u2014 full season + per-period stat splits and projections, as the site's player popup shows.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "espnfantasy_set_lineup",
+   "provider": "espnfantasy",
+   "summary": "SET YOUR LINEUP \u2014 move players between starting slots and the bench. CHANGES YOUR REAL TEAM.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "euroleague_games",
+   "provider": "euroleague",
+   "summary": "Games in a season with scores, venue and officials. Unpaged this is ~800 KB \u2014 pass a limit or filter by round.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "fanduel_sb_live_score",
+   "provider": "fanduel",
+   "summary": "Live score + period state for one sportsbook event (NJ).",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "fanduel_sb_call",
+   "provider": "fanduel",
+   "summary": "Fetch a FanDuel Sportsbook (US, NJ) REST resource by operation name. Carries\nthe static public `_ak` web key + the sportsbook Origin/region headers, so the\ncall",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "footballdataorg_competitions",
+   "provider": "footballdataorg",
+   "summary": "Every competition the API covers, with its code and current season. VERIFIED live \u2014 works without a key.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "footballdataorg_areas",
+   "provider": "footballdataorg",
+   "summary": "Countries and regions, used to filter competitions. VERIFIED live \u2014 works without a key.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "footballdataorg_matches",
+   "provider": "footballdataorg",
+   "summary": "Matches across every competition your key can see, for a date range. VERIFIED live \u2014 the envelope works without a key (though a keyless call sees no competition",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "footballdataorg_competition_matches",
+   "provider": "footballdataorg",
+   "summary": "All matches in one competition. NEEDS A KEY (403 without).",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "footballdatauk_season",
+   "provider": "footballdatauk",
+   "summary": "One league season: every match with full/half-time score, shots, cards, and CLOSING ODDS from ~10 bookmakers. The backtesting dataset.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "fpl_players",
+   "provider": "fpl",
+   "summary": "Every FPL player with price, form, ownership, expected goals and availability. LARGE \u2014 ~65k tokens for all 581 players; use fpl_player_detail for one player's d",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "fpl_fixtures",
+   "provider": "fpl",
+   "summary": "Fixtures with FPL difficulty ratings, and goal/assist/bonus breakdowns once played.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "fpl_live_gameweek",
+   "provider": "fpl",
+   "summary": "Live per-player scoring for a gameweek \u2014 points as they are being earned.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "fpl_manager_picks",
+   "provider": "fpl",
+   "summary": "The exact XI, bench order, captain and chip a manager used in a gameweek.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "fpl_my_team",
+   "provider": "fpl",
+   "summary": "YOUR current squad including picks not yet visible to others, plus bank, free transfers and chip availability. Needs your FPL session cookie.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "fpl_set_lineup",
+   "provider": "fpl",
+   "summary": "SET YOUR LINEUP \u2014 starting XI, bench order, captain and vice-captain. CHANGES YOUR REAL TEAM.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "highlightly_soccer_matches",
+   "provider": "highlightly",
+   "summary": "Football matches, to find the matchId a highlight lookup needs.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "highlightly_soccer_leagues",
+   "provider": "highlightly",
+   "summary": "Football competitions covered, with the leagueId filters.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "isportsapi_football_competitions",
+   "provider": "isportsapi",
+   "summary": "Football competitions with their ids.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "isportsapi_football_schedule",
+   "provider": "isportsapi",
+   "summary": "Football fixtures and results by date.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "isportsapi_football_odds_asian",
+   "provider": "isportsapi",
+   "summary": "Asian-handicap odds across companies \u2014 the reason to use this provider.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "isportsapi_football_live",
+   "provider": "isportsapi",
+   "summary": "Football matches in play now.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "isportsapi_basketball_schedule",
+   "provider": "isportsapi",
+   "summary": "Basketball fixtures and results by date.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "laliga_competitions",
+   "provider": "laliga",
+   "summary": "All LaLiga competitions (men's/women's, primera/segunda, across history), each with slug, opta_id, name.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "laliga_competition",
+   "provider": "laliga",
+   "summary": "One competition by SLUG (e.g. primera-division). Numeric id 404s \u2014 use the slug.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "laliga_players_stats",
+   "provider": "laliga",
+   "summary": "EVERY player in a season (\u2248749) with full Opta stats[] (name/stat pairs) + position + team + opta_id. Page with limit (max 100) + offset.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "laliga_player_stats",
+   "provider": "laliga",
+   "summary": "One player's Opta stats[] by SLUG.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "mlb_sports",
+   "provider": "mlb",
+   "summary": "Sport catalogue \u2014 the sportId lookup (1 = Major League Baseball; others are MiLB levels, college, international).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "mlb_leagues",
+   "provider": "mlb",
+   "summary": "League catalogue \u2014 e.g. American League (103) and National League (104). Pass sportId=1 for MLB.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "mlb_divisions",
+   "provider": "mlb",
+   "summary": "Division catalogue (AL/NL East, Central, West) with their league + sport links.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "mlb_linescore",
+   "provider": "mlb",
+   "summary": "Game linescore \u2014 runs per inning, R/H/E totals, current inning + state, and on-base/defense for live games.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "mlb_stats",
+   "provider": "mlb",
+   "summary": "Season stats query across players \u2014 by group (hitting/pitching/fielding) and type (season, career, byDateRange, ...). Sort + limit for top-N tables.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "mlb_player_stats",
+   "provider": "mlb",
+   "summary": "One player's stats \u2014 by type (season / career / yearByYear / gameLog) and group (hitting/pitching/fielding).",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "mlb_conferences",
+   "provider": "mlb",
+   "summary": "Conference catalogue (used by some leagues / amateur levels).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "mlb_jobs",
+   "provider": "mlb",
+   "summary": "People holding a job type for a season \u2014 jobType e.g. UMPR (umpires), SCORER, DATACASTER, BROADCASTER, COACH.",
+   "args_required": [],
+   "capability": "ref.officials"
+  },
+  {
+   "tool": "mlb_umpires",
+   "provider": "mlb",
+   "summary": "Current umpire crew list.",
+   "args_required": [],
+   "capability": "ref.officials"
+  },
+  {
+   "tool": "mlb_datacasters",
+   "provider": "mlb",
+   "summary": "Datacaster (official scorer-adjacent stringer) assignments.",
+   "args_required": [],
+   "capability": "ref.officials"
+  },
+  {
+   "tool": "mlb_official_scorers",
+   "provider": "mlb",
+   "summary": "Official scorer assignments.",
+   "args_required": [],
+   "capability": "ref.officials"
+  },
+  {
+   "tool": "motogp_categories",
+   "provider": "motogp",
+   "summary": "The classes running at one event \u2014 MotoGP, Moto2, Moto3, MotoE.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "mfl_rosters",
+   "provider": "myfantasyleague",
+   "summary": "Every franchise's roster, with each player's status (active / IR / taxi) and salary or contract if the league uses them.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "mfl_free_agents",
+   "provider": "myfantasyleague",
+   "summary": "Players not on any roster in this league \u2014 the pool an add or a waiver claim draws from.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "mfl_player_scores",
+   "provider": "myfantasyleague",
+   "summary": "Fantasy points under THIS league's scoring rules \u2014 for a week, year-to-date, or a weekly average. Rostered players and free agents alike.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "mfl_projected_scores",
+   "provider": "myfantasyleague",
+   "summary": "Projected fantasy points for named players under this league's rules \u2014 the forward-looking number a lineup decision needs.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "mfl_live_scoring",
+   "provider": "myfantasyleague",
+   "summary": "Live matchup state \u2014 each franchise's score, game seconds remaining, and who has yet to play.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "mfl_my_leagues",
+   "provider": "myfantasyleague",
+   "summary": "Every league YOU are in, with your franchise id in each. Needs your cookie. The way to find the ids every other tool wants.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "mfl_set_lineup",
+   "provider": "myfantasyleague",
+   "summary": "SET YOUR STARTING LINEUP for a week. CHANGES YOUR REAL TEAM.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "mfl_injured_reserve",
+   "provider": "myfantasyleague",
+   "summary": "Move players to or from INJURED RESERVE. CHANGES YOUR REAL TEAM.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "mysportsfeeds_games",
+   "provider": "mysportsfeeds",
+   "summary": "Games for a season in one league, with scores and venue.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nba_scoreboard_today",
+   "provider": "nba",
+   "summary": "Today's games from the live CDN scoreboard: matchups, period/clock state, live\nscores and game ids. The fastest way to get today's gameId values for nba_boxscor",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nba_boxscore",
+   "provider": "nba",
+   "summary": "Live/final box score for one game from the CDN: per-player and per-team stat\nlines, by period. gameId comes from nba_scoreboard_today or nba_schedule.\n",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nba_odds_today",
+   "provider": "nba",
+   "summary": "Sportsbook odds for today's games from the live CDN odds feed (spread, money\nline, total per game and book).\n",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "nba_stats_call",
+   "provider": "nba",
+   "summary": "Gateway to the stats.nba.com /stats/ analytics API (138 operations). Supply an\n`operation` (the /stats/ path segment, e.g. \"leaguedashplayerstats\",\n\"shotchartde",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "nbl_schedule",
+   "provider": "nbl",
+   "summary": "Every match for one season \u2014 each with start_time, round, match_status (complete/upcoming/live), home/away scores, attendance, match_slug/title, a play_by_play ",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nbl_match_outcomes",
+   "provider": "nbl",
+   "summary": "Per-team match outcomes (results) for a season \u2014 win/loss rows by team, for head-to-head and form analysis.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nbl_player_stats",
+   "provider": "nbl",
+   "summary": "Season statistics for one player \u2014 points/rebounds/assists/blocks/steals/turnovers and their per-game averages, shooting splits (field goals / three-pointers / ",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "ncaa_scoreboard",
+   "provider": "ncaa",
+   "summary": "Current scoreboard for one college sport and division \u2014 games with scores, state and clock.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nhl_player",
+   "provider": "nhl",
+   "summary": "One player's landing page: bio, draft details, current season splits, career totals and awards.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "nhl_scores",
+   "provider": "nhl",
+   "summary": "Live scoreboard: every game on a date with current score, clock and period.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nrl_competitions",
+   "provider": "nrl",
+   "summary": "Global Champion Data competition catalogue. Returns every competition id\n(NRL, State of Origin, plus other Champion Data sports) with its season and\nround count",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "nrl_application_settings",
+   "provider": "nrl",
+   "summary": "NRL match-centre application config: the current-season competition list\n(competitionList), stat-grid column layouts (dataGrids), UI components and\nteam/competi",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "nrl_fixture",
+   "provider": "nrl",
+   "summary": "Full fixture + results for one competition. One entry per match with round,\nstatus, kickoff times (local + UTC), home/away squad ids/names/scores and venue.\nUse",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "nrl_match",
+   "provider": "nrl",
+   "summary": "Full match file: per-player match statistics (tries, tackles, runMetres,\nlineBreaks, tryAssists, offloads, handlingErrors, metresGained, \u2026), per-period\nplayer s",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "oddsapiio_sports",
+   "provider": "oddsapiio",
+   "summary": "The 34 sports covered, with the slug every other tool needs. VERIFIED live \u2014 works without a key.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "oddsapiio_leagues",
+   "provider": "oddsapiio",
+   "summary": "Leagues within a sport. NEEDS A KEY.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "oddsapiio_odds",
+   "provider": "oddsapiio",
+   "summary": "Odds for one event across the indexed bookmakers. NEEDS A KEY.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "opendota_leagues",
+   "provider": "opendota",
+   "summary": "Every Dota 2 league/tournament OpenDota knows. LARGE (~1 MB) \u2014 includes years of historical events.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "opendota_pro_matches",
+   "provider": "opendota",
+   "summary": "Recent professional matches with teams, league, duration and result.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "opendota_public_matches",
+   "provider": "opendota",
+   "summary": "A sample of recent public (non-professional) matches \u2014 the ladder meta rather than the pro scene.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "opendota_player_winloss",
+   "provider": "opendota",
+   "summary": "A player's win/loss totals, with the same filters as their match list.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "openf1_intervals",
+   "provider": "openf1",
+   "summary": "Live gap data during a race \u2014 each driver's gap to the leader and interval to the car ahead, sampled over time.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "openf1_position",
+   "provider": "openf1",
+   "summary": "Driver track position over time \u2014 position changes throughout a session.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "openligadb_leagues",
+   "provider": "openligadb",
+   "summary": "Every competition + season OpenLigaDB carries \u2014 call this to find the league shortcut and season year the other tools need.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "openligadb_season_matches",
+   "provider": "openligadb",
+   "summary": "Every match in a league season with results. LARGE (~550 KB for a Bundesliga season) \u2014 prefer the matchday tool.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "openligadb_matchday_matches",
+   "provider": "openligadb",
+   "summary": "One matchday's fixtures and results \u2014 the everyday call.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "pandascore_videogames",
+   "provider": "pandascore",
+   "summary": "The titles PandaScore covers, with the slug every other tool needs. Call this first rather than guessing a slug.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pandascore_matches",
+   "provider": "pandascore",
+   "summary": "Matches across every title, or one \u2014 upcoming, running or past.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "pandascore_match_odds",
+   "provider": "pandascore",
+   "summary": "Betting markets and prices for one esports match \u2014 the part `opendota` cannot give you.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "pandascore_tournaments",
+   "provider": "pandascore",
+   "summary": "Tournaments \u2014 upcoming, running or past \u2014 optionally for one title.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pandascore_leagues",
+   "provider": "pandascore",
+   "summary": "Leagues (the recurring competitions tournaments belong to).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pandascore_series",
+   "provider": "pandascore",
+   "summary": "Series \u2014 a league's seasonal editions (e.g. 'LEC Summer 2025').",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pinnacle_sports",
+   "provider": "pinnacle",
+   "summary": "All sports with their matchup counts and primary market type.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pinnacle_sports_live",
+   "provider": "pinnacle",
+   "summary": "Sports that currently have live (in-play) matchups.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "pinnacle_sport_leagues",
+   "provider": "pinnacle",
+   "summary": "Leagues (competitions) for one sport, with feature/group info.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pinnacle_league_matchups_live",
+   "provider": "pinnacle",
+   "summary": "Live (in-play) matchups for one league (competition).",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "pinnacle_sport_matchups_live",
+   "provider": "pinnacle",
+   "summary": "Live (in-play) matchups for one sport.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "pinnacle_matchup_markets",
+   "provider": "pinnacle",
+   "summary": "All straight (non-parlay) markets + American-odds prices for one matchup and its related markets.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "pointsbet_sports_inplay",
+   "provider": "pointsbet",
+   "summary": "Sports currently in-play, with a live event count per sport.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "pointsbet_inplay_streaming",
+   "provider": "pointsbet",
+   "summary": "In-play events that carry a live video stream, grouped by sport.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "pointsbet_sports_list",
+   "provider": "pointsbet",
+   "summary": "Full catalogue of sports and their competitions (every code, featured flags).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pointsbet_sport_competitions",
+   "provider": "pointsbet",
+   "summary": "Competitions for one sport, grouped by locale (Featured / country buckets).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pointsbet_racing_form",
+   "provider": "pointsbet",
+   "summary": "Detailed form guide for one race: tips, predicted order and per-runner history.",
+   "args_required": [],
+   "capability": "racing.form_guide"
+  },
+  {
+   "tool": "polymarket_sports",
+   "provider": "polymarket",
+   "summary": "Sports metadata catalogue \u2014 each sport with its tag ids, league/resolution links and series, the entry point for sports markets (feed tag_id into polymarket_mar",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pl_competitions",
+   "provider": "premierleague",
+   "summary": "All competitions on the platform (Premier League = id 8). Paginated.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pl_competition",
+   "provider": "premierleague",
+   "summary": "One competition by id (8 = Premier League).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "pl_match_lineups",
+   "provider": "premierleague",
+   "summary": "Match lineups \u2014 home_team/away_team players[] with formation and subs.",
+   "args_required": [],
+   "capability": "sport.lineups"
+  },
+  {
+   "tool": "pl_match_officials",
+   "provider": "premierleague",
+   "summary": "Match officials \u2014 referee, assistants, fourth official, VAR.",
+   "args_required": [],
+   "capability": "ref.officials"
+  },
+  {
+   "tool": "pl_player_season_stats",
+   "provider": "premierleague",
+   "summary": "A player's stats for one season.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "seriea_competitions",
+   "provider": "seriea",
+   "summary": "All Lega Serie A competitions (Serie A, Coppa Italia, Super Cup, Primavera, \u2026), each with its SDP competitionId.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "seriea_players",
+   "provider": "seriea",
+   "summary": "Every player in a season with identity AND full Opta stats[] (~279 {statsId, statsValue} pairs) \u2014 no separate squad call needed. Paginated 30/page (pagination.t",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "seriea_match_lineups",
+   "provider": "seriea",
+   "summary": "Lineups for one match \u2014 per side: tacticalFormation, the fielded XI (with average pitch positions, captain/GK flags, per-player events), the bench, and staff. D",
+   "args_required": [],
+   "capability": "sport.lineups"
+  },
+  {
+   "tool": "sleeper_league_rosters",
+   "provider": "sleeper",
+   "summary": "Every roster in a league: the player ids each manager holds, their starters, and season record.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "sleeper_league_users",
+   "provider": "sleeper",
+   "summary": "The people in a league \u2014 display names and team names, keyed by user_id.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "sportmonks_leagues",
+   "provider": "sportmonks",
+   "summary": "Leagues your plan can see. On the free tier this is the Danish Superliga and Scottish Premiership.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "sportmonks_fixtures_by_date",
+   "provider": "sportmonks",
+   "summary": "Fixtures on one date. Add `include=participants;scores` or you will get ids without teams or a score.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportmonks_players",
+   "provider": "sportmonks",
+   "summary": "Players, with season statistics when included.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "sportmonks_livescores",
+   "provider": "sportmonks",
+   "summary": "Fixtures in progress now.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "sportsbet_sports_classes",
+   "provider": "sportsbet",
+   "summary": "Sport classes (sports) with their competitions for a date window.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "sportsbet_bet_live",
+   "provider": "sportsbet",
+   "summary": "BetLive feed \u2014 events currently in-play and bettable live.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "sportsbet_event_commentary",
+   "provider": "sportsbet",
+   "summary": "Live score + text commentary for one or more sport events.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportsbet_event_markets",
+   "provider": "sportsbet",
+   "summary": "All markets + selections + live prices for one sport event.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "sportsbet_event_results",
+   "provider": "sportsbet",
+   "summary": "Results for a finished sport event (final score + settled markets).",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportsbet_sport_resulted_events",
+   "provider": "sportsbet",
+   "summary": "Resulted (finished) events for a sport competition + class + date.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportsbet_results_classes",
+   "provider": "sportsbet",
+   "summary": "Sport classes that have results available for a date.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "sportsbet_results_competitions",
+   "provider": "sportsbet",
+   "summary": "Competitions with results for a sport class on a date.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "sportsbet_event_status",
+   "provider": "sportsbet",
+   "summary": "Live status flags for a sport event (suspended, in-play, settled).",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "sportsbet_sgm_price",
+   "provider": "sportsbet",
+   "summary": "PRICE A SAME GAME MULTI you choose \u2014 give it legs from one event, get the combined price back. The only tool here that prices a combination the book has not alr",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "sportsdataio_nfl_scores",
+   "provider": "sportsdataio",
+   "summary": "NFL scores for one season and week.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportsdataio_nba_games_by_date",
+   "provider": "sportsdataio",
+   "summary": "NBA games on a date, with the closing spread and total.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportsdataio_mlb_games_by_date",
+   "provider": "sportsdataio",
+   "summary": "MLB games on a date, with probable pitchers and the line.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportsdataio_nhl_games_by_date",
+   "provider": "sportsdataio",
+   "summary": "NHL games on a date, with the line.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "sportsgameodds_sports",
+   "provider": "sportsgameodds",
+   "summary": "Sports covered, with the sportID other tools filter on.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "sportsgameodds_leagues",
+   "provider": "sportsgameodds",
+   "summary": "Leagues, with the leagueID other tools filter on (NFL, NBA, MLB, NHL, EPL, NCAAF\u2026).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "sportsgameodds_events",
+   "provider": "sportsgameodds",
+   "summary": "Events with their odds attached, including player props. The main tool here.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "squiggle_games",
+   "provider": "squiggle",
+   "summary": "AFL fixture + results: each game with scores by goals/behinds, venue, and completion state.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "supercoach_players",
+   "provider": "supercoach",
+   "summary": "THE feed \u2014 every player's full snapshot for one round: price + price_change, avg/avg3/avg5, the ppts1 projection, owned %, positions, availability, dated news a",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "supercoach_real_fixture",
+   "provider": "supercoach",
+   "summary": "Fixtures for one game+season \u2014 each carries kickoff, both teams, venue/location, final scores (team1_score/team2_score + verbose), live match_status/period, AND",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "tab_racing_race_form",
+   "provider": "tab",
+   "summary": "Detailed form guide for one race (past performances, ratings, comments per runner).",
+   "args_required": [],
+   "capability": "racing.form_guide"
+  },
+  {
+   "tool": "tab_sports",
+   "provider": "tab",
+   "summary": "All sports offered, each linking to its competitions (HATEOAS root for the sports tree).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "tab_sport",
+   "provider": "tab",
+   "summary": "One sport by name with its competitions. Also fronts the racing-adjacent pseudo-sports (Jockey Challenge, Racing Extras).",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "tab_match_markets",
+   "provider": "tab",
+   "summary": "Just the markets + selections + prices for one match (leaner than the full match object).",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "tab_sports_results",
+   "provider": "tab",
+   "summary": "Recently resulted sport events with final scores / settled markets.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "tab_sgm_price",
+   "provider": "tab",
+   "summary": "PRICE A SAME GAME MULTI you choose \u2014 give it propositions from one match, get the combined price and a validation matrix back. Prices combinations TAB has not p",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "tab_live_events_summary",
+   "provider": "tab",
+   "summary": "Summary of events currently in-play / live across sports.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "theoddsapi_sports",
+   "provider": "theoddsapi",
+   "summary": "Every sport/competition with its key. FREE \u2014 this call costs no quota. Start here to get the sport_key the other tools need.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "theoddsapi_odds",
+   "provider": "theoddsapi",
+   "summary": "Odds for a competition across many bookmakers. QUOTA COSTS markets \u00d7 regions per call \u2014 keep both narrow.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "theoddsapi_event_odds",
+   "provider": "theoddsapi",
+   "summary": "Odds for ONE event, including player props and other markets not available on the competition-wide call.",
+   "args_required": [],
+   "capability": "sport.prices"
+  },
+  {
+   "tool": "theoddsapi_scores",
+   "provider": "theoddsapi",
+   "summary": "Live and recently-completed scores for a competition.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "theoddsapi_historical_odds",
+   "provider": "theoddsapi",
+   "summary": "Odds as they stood at a past timestamp \u2014 the paid-tier time machine for CLV work.",
+   "args_required": [],
+   "capability": "stats.closing_odds"
+  },
+  {
+   "tool": "ufc_events",
+   "provider": "ufc",
+   "summary": "UFC events \u2014 past and upcoming \u2014 with per-segment card times, venue and location.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "ufc_fights",
+   "provider": "ufc",
+   "summary": "Individual bouts \u2014 both corners and the winner \u2014 back to UFC 1.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "unibet_kambi_live_stats",
+   "provider": "unibet",
+   "summary": "Live in-event statistics (scores, match summary) for one Kambi event.",
+   "args_required": [],
+   "capability": "sport.in_play"
+  },
+  {
+   "tool": "unibet_kambi_call",
+   "provider": "unibet",
+   "summary": "Fetch a Unibet/Kambi sportsbook resource by operation name (market AU). The\nlang/market/channel_id defaults are carried, so the caller supplies only the\nvariabl",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "wta_tournaments",
+   "provider": "wta",
+   "summary": "The WTA tournament calendar \u2014 {pageInfo, content:[{tournamentGroup:{id, name, level}, year, title, startDate, endDate, surface, inOutdoor, city, country, single",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "wta_tournament_matches",
+   "provider": "wta",
+   "summary": "All matches/results for one tournament edition (group id + year) \u2014 e.g. AO 2025 returns ~302 matches with court, draw level/type, entrant types, match state and",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "yahoo_my_games",
+   "provider": "yahoo",
+   "summary": "Which fantasy games the authenticated user plays. START HERE \u2014 everything else needs a game_key from this.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "yahoo_my_leagues",
+   "provider": "yahoo",
+   "summary": "The authenticated user's leagues for one or more games \u2014 where you get league_key.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "yahoo_game",
+   "provider": "yahoo",
+   "summary": "Game metadata for a sport-season: season year, whether it is over, and the game_key other calls need.",
+   "args_required": [],
+   "capability": "sport.competitions_list"
+  },
+  {
+   "tool": "yahoo_league_scoreboard",
+   "provider": "yahoo",
+   "summary": "One week's matchups with both teams' points \u2014 live during a week, final after.",
+   "args_required": [],
+   "capability": "sport.match_score"
+  },
+  {
+   "tool": "yahoo_team_roster",
+   "provider": "yahoo",
+   "summary": "A team's roster for a week \u2014 who is started, benched, and in which slot. The read that precedes every lineup write.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  },
+  {
+   "tool": "yahoo_player_stats",
+   "provider": "yahoo",
+   "summary": "One or more players' stats for a season or week.",
+   "args_required": [],
+   "capability": "stats.player_season"
+  },
+  {
+   "tool": "yahoo_set_lineup",
+   "provider": "yahoo",
+   "summary": "SET A LINEUP \u2014 assign each player a starting slot or bench for a week. WRITES TO YOUR TEAM.",
+   "args_required": [],
+   "capability": "fantasy.rosters"
+  }
+ ],
+ "cases": [
+  {
+   "query": "what odds is betfair showing on this market",
+   "expect": "betfair_market_prices"
+  },
+  {
+   "query": "current score in the tennis match",
+   "expect": "apitennis_livescore"
+  },
+  {
+   "query": "which cricket games are being played right now",
+   "expect": "cricketdata_current_matches"
+  },
+  {
+   "query": "closing line for a college football game",
+   "expect": "cfbd_betting_lines"
+  },
+  {
+   "query": "what did the book pay before the tournament started",
+   "expect": [
+    "datagolf_hist_outrights",
+    "theoddsapi_historical_odds"
+   ]
+  },
+  {
+   "query": "who is starting for the premier league match",
+   "expect": "pl_match_lineups"
+  },
+  {
+   "query": "team sheet and formation in serie a",
+   "expect": "seriea_match_lineups"
+  },
+  {
+   "query": "past runs and ratings for each runner",
+   "expect": "tab_racing_race_form"
+  },
+  {
+   "query": "my fantasy premier league squad selection",
+   "expect": "fpl_manager_picks"
+  },
+  {
+   "query": "who is on my espn fantasy roster",
+   "expect": "espnfantasy_rosters"
+  },
+  {
+   "query": "which umpires are officiating",
+   "expect": "mlb_umpires"
+  },
+  {
+   "query": "what competitions does afl run",
+   "expect": "afl_competitions_list"
+  },
+  {
+   "query": "season averages for an nba player",
+   "expect": "balldontlie_nba_season_averages"
+  },
+  {
+   "query": "scoreline of the afl game",
+   "expect": "afl_match_get"
+  },
+  {
+   "query": "pinnacle markets for this matchup",
+   "expect": "pinnacle_matchup_markets"
+  },
+  {
+   "query": "live in-play state of a betfair event",
+   "expect": "betfair_event_details"
+  }
+ ]
+}

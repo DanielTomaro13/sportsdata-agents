@@ -96,6 +96,47 @@ async def eval_clv_backtest() -> EvalScore:
     )
 
 
+def eval_retrieval() -> EvalScore:
+    """recall@N for the data-plane search — does the right tool make the shortlist?
+
+    Phase 2 lets agents REACH tools without carrying their schemas, which introduces a
+    failure mode attachment never had: if search does not surface the right tool, the
+    model cannot choose it, and no amount of model quality recovers. That is a retrieval
+    problem with a standard metric, and — unlike answer quality — it is measurable
+    without a model, a key or a network call. The catalogue is snapshotted in the golden
+    file, so this score moves only when the RANKING changes.
+
+    It does not measure whether the model then CHOOSES well from the shortlist. Nothing
+    keyless can. That risk is carried by shipping discovery per-agent behind
+    `mcp_discover`, so it can be reverted one spec at a time.
+    """
+    from sportsdata_agents.mcp.discovery import score_tools
+
+    golden = _golden("retrieval.json")
+    limit = int(golden.get("limit", 8))
+    tools = golden["tools"]
+    hits, misses = 0, []
+    for case in golden["cases"]:
+        ranked = score_tools(case["query"], tools, limit)
+        names = [t["tool"] for t in ranked]
+        # `expect` may name several tools. Multiple providers answering one question is
+        # the whole premise of capabilities, so scoring a single "correct" tool would
+        # mark a genuinely good result wrong and bake that mistake into the baseline.
+        expected = case["expect"]
+        acceptable = [expected] if isinstance(expected, str) else list(expected)
+        if any(name in names for name in acceptable):
+            hits += 1
+        else:
+            misses.append({"query": case["query"], "expected": acceptable,
+                           "got": names[:3]})
+    total = len(golden["cases"])
+    return EvalScore(
+        name="retrieval",
+        score=hits / total if total else 0.0,
+        details={"cases": total, "hits": hits, "limit": limit, "misses": misses},
+    )
+
+
 def eval_grounding() -> EvalScore:
     """Fraction of golden (answer, evidence, expected) cases the verifier judges
     correctly — catches both fabrication misses AND false-positive 'grounded' badges."""
@@ -229,7 +270,7 @@ def eval_scheduler() -> EvalScore:
 
 
 async def run_offline_evals() -> list[EvalScore]:
-    return [eval_calibration(), await eval_clv_backtest(), eval_grounding(),
+    return [eval_calibration(), await eval_clv_backtest(), eval_grounding(), eval_retrieval(),
             await eval_resolution(), eval_arbitrage(), eval_scheduler()]
 
 

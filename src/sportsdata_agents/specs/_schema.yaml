@@ -28,7 +28,8 @@ agent:
 
   # Least-privilege toolset (§13). Prefer capabilities — cross-provider by design.
   tools:
-    mcp_capabilities: [sport.prices]      # capability tags (the cross-provider unit)
+    mcp_capabilities: [sport.prices]      # capability tags CARRIED (schemas ride every call)
+    mcp_discover: []                      # capability tags REACHABLE via find_data_tools
     mcp_groups: []                        # explicit MCP groups (subprocess scope)
     native: [vig_removal]                 # deterministic in-process helpers (M0.10)
 

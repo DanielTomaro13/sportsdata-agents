@@ -182,7 +182,9 @@ class AgentRuntime:
                             f"{sorted(set(NATIVE_TOOLS) | set(self._extra_tools))}"
                         )
 
-            needs_mcp = bool(self.spec.tools.mcp_capabilities or self.spec.tools.mcp_groups)
+            _caps = list(self.spec.tools.mcp_capabilities)
+            _discover = list(self.spec.tools.mcp_discover)
+            needs_mcp = bool(_caps or _discover or self.spec.tools.mcp_groups)
             if needs_mcp:
                 # Subprocess scope: the spec's groups, else the workspace ceiling (§13).
                 groups = list(self.spec.tools.mcp_groups) or list(self.workspace.mcp_groups)
@@ -208,7 +210,17 @@ class AgentRuntime:
                     )
                     await self._manager.__aenter__()
                     self._owns_manager = True
-                tools.extend(await bridge_mcp_tools(self._manager, self.spec.tools.mcp_capabilities or None))
+                # Carried tools: schemas ride every call. Only bridge when something was
+                # actually granted — `capabilities=None` means NO FILTER, so a
+                # discover-only agent must not reach this with an empty list or it would
+                # be handed the whole scoped catalogue, which is the opposite of the point.
+                if _caps or self.spec.tools.mcp_groups:
+                    tools.extend(await bridge_mcp_tools(self._manager, _caps or None))
+                # Reachable tools: two schemas, however far the capabilities fan out (§8.2).
+                if _discover:
+                    from sportsdata_agents.mcp.discovery import discovery_tools
+
+                    tools.extend(discovery_tools(self._manager, _discover))
 
             for sub in self._delegates:
                 tools.append(delegate_tool(sub))

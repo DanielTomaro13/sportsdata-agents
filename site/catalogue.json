@@ -15167,7 +15167,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 24,
+   "count": 25,
    "tools": [
     {
      "name": "tab_cms_call",
@@ -15589,6 +15589,33 @@
       }
      ],
      "example": "{id, name, displayName, competitions:[{id, name, hasMarkets, _links}], _links}"
+    },
+    {
+     "name": "tab_sgm_price",
+     "desc": "PRICE A SAME GAME MULTI you choose \u2014 give it propositions from one match, get the combined price and a validation matrix back. Prices combinations TAB has not pre-built.",
+     "args": [
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "channel",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "bets",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "returnValidationMatrix",
+       "t": "boolean",
+       "r": false
+      }
+     ],
+     "example": "{bets:[{status:'ok', legs:[{odds:{decimal:'15.00'}, propositions:[\u2026], redundantPropositions:[{propositionId, status:'redundant'|'valid'}]}]}]}"
     },
     {
      "name": "tab_sport",

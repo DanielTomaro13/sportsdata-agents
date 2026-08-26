@@ -52,6 +52,11 @@ class ToolsSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mcp_capabilities: list[str] = Field(default_factory=list)
+    #: Capabilities the agent may REACH but does not carry. Their tools are found at turn
+    #: time via find_data_tools and invoked via call_data_tool, so the agent pays two tool
+    #: schemas instead of however many the capabilities fan out to. Least privilege still
+    #: holds: nothing outside this list is reachable. See mcp/discovery.py.
+    mcp_discover: list[str] = Field(default_factory=list)
     mcp_groups: list[str] = Field(default_factory=list)
     native: list[str] = Field(default_factory=list)
 
@@ -59,6 +64,11 @@ class ToolsSpec(BaseModel):
     @classmethod
     def _caps_shape(cls, v: list[str]) -> list[str]:
         return _validate_names("mcp capability", v, DOTTED_PATTERN)
+
+    @field_validator("mcp_discover")
+    @classmethod
+    def _discover_shape(cls, v: list[str]) -> list[str]:
+        return _validate_names("mcp discover capability", v, DOTTED_PATTERN)
 
     @field_validator("mcp_groups")
     @classmethod
