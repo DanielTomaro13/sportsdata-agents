@@ -73,7 +73,14 @@ def test_every_capability_is_wired_or_waived(audit) -> None:
 
 def test_no_agent_references_a_capability_the_data_plane_dropped(audit) -> None:
     """A renamed or removed tag upstream currently surfaces as a runtime
-    CapabilityResolutionError for whoever runs that agent. Fail the build instead."""
+    CapabilityResolutionError for whoever runs that agent. Fail the build instead.
+
+    Skipped under version skew: when the INSTALLED data plane is older than the one this
+    repo was built against, a tag missing from it has not been dropped — it has not been
+    published yet. Same distinction the audit CLI makes; see docs/capability-waivers.yaml.
+    """
+    if audit["skew"]:
+        pytest.skip(f"version skew — {audit['skew']}")
     assert not audit["undeclared"], (
         f"agent specs reference capability tag(s) the data plane no longer publishes: "
         f"{', '.join(audit['undeclared'])}"
@@ -81,7 +88,13 @@ def test_no_agent_references_a_capability_the_data_plane_dropped(audit) -> None:
 
 
 def test_capability_labels_match_the_data_plane(audit) -> None:
-    """The labels file is generated. If it drifts, the guard above goes blind again."""
+    """The labels file is generated. If it drifts, the guard above goes blind again.
+
+    Skipped under skew for the same reason: the labels were generated from a newer
+    catalogue than the one installed here, so a mismatch is the lag, not drift.
+    """
+    if audit["skew"]:
+        pytest.skip(f"version skew — {audit['skew']}")
     assert not audit["labels_stale"], (
         "src/sportsdata_agents/agents/capability_labels.json no longer matches the data "
         "plane — run `python3 scripts/capability-audit.py --regenerate`"

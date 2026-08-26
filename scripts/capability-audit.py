@@ -83,6 +83,31 @@ def load_catalogue() -> tuple[dict[str, str], dict[str, set[str]], dict[str, set
     return declared, by_cap, by_group, total, untagged
 
 
+def data_plane_version() -> str | None:
+    """The version of whichever data plane was read — installed wheel OR sibling checkout.
+
+    Reading only installed metadata was a bug: on a dev box the catalogue comes from the
+    checkout, whose version lives in its pyproject, and skew went undetected exactly
+    where two checkouts drift apart most.
+    """
+    try:
+        from importlib.metadata import version as _v
+
+        import sportsdata_mcp
+
+        path = pathlib.Path(sportsdata_mcp.__file__).resolve()
+        if MCP_REPO not in path.parents:
+            return _v("sportsdata-mcp")
+    except Exception:
+        pass
+    pyproject = MCP_REPO.parent / "pyproject.toml"
+    if pyproject.exists():
+        for line in pyproject.read_text().splitlines():
+            if line.startswith("version"):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
+
+
 def catalogue_source() -> str:
     """Which data plane this run read — an installed wheel or a sibling checkout.
 
@@ -157,16 +182,13 @@ def skew() -> str | None:
     built_against = (yaml.safe_load(WAIVERS.read_text()) or {}).get("generated_from")
     if not built_against:
         return None
-    try:
-        from importlib.metadata import version as _v
-
-        installed = _v("sportsdata-mcp")
-    except Exception:
+    found = data_plane_version()
+    if found is None:
         return None
-    if _version_tuple(installed) < _version_tuple(str(built_against)):
+    if _version_tuple(found) < _version_tuple(str(built_against)):
         return (
-            f"this repo was built against sportsdata-mcp {built_against}, but "
-            f"{installed} is installed — capabilities added upstream and not yet "
+            f"this repo was built against sportsdata-mcp {built_against}, but the data "
+            f"plane available here is {found} — capabilities added upstream and not yet "
             f"published are reported, not failed"
         )
     return None
