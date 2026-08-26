@@ -15,6 +15,7 @@ design — every tool schema rides every call).
 | **orchestrator** | balanced | Routes, delegates, synthesises. Holds no data tools of its own. |
 | **odds_specialist** | balanced | Cross-book prices: implied probability, fair price, best price, same-game-multi. |
 | **stats_specialist** | fast | Fixtures, results, boxscores, game logs, head-to-head, season leaders, ladders, injuries. |
+| **live_desk** | balanced | **In-play**: live scores, in-play prices, momentum, and a fair cash-out valuation beside the book's own quote. |
 | **racing_analyst** | balanced | Racing: meetings, racecards, next-to-jump, results & dividends, futures, SRM, cross-book win/place. |
 | **prediction_market_analyst** | balanced | Kalshi/Polymarket contracts + the exchange-vs-book edge (contract prob vs vig-removed book prob). |
 | **modelling** | balanced | Builds & calibrates probability models in the sandbox; persists versions + predictions. |
@@ -91,6 +92,23 @@ Every unwired capability now carries a written reason in
 python3 scripts/capability-audit.py            # the full picture
 python3 scripts/capability-audit.py --check    # what CI runs
 ```
+
+### Carried vs reached
+
+A spec grants capabilities two ways. `mcp_capabilities` are **carried** — their tool
+schemas ride every model call. `mcp_discover` are **reached**: found at turn time with
+`find_data_tools` and invoked with `call_data_tool`, costing two schemas however far the
+capabilities fan out. Same reach, different price.
+
+Carry what the agent uses on nearly every question; discover the rest. Two rules:
+
+- **Wide lookups belong in discover.** `stats_specialist` moved its reference layer
+  (fixtures, players, teams, ladder — 207 tools) and dropped from 261 carried tools to
+  66, about 12,500 tokens to 3,200.
+- **Single-provider capabilities must never be carried.** `bridge_mcp_tools` treats a
+  capability resolving to zero tools as a spec error, so a carried one stops the agent
+  starting whenever that provider is toggled off. Discovery just returns nothing.
+  Guarded by `test_a_single_provider_capability_is_never_carried`.
 
 `capability_labels.json` is **generated**, not hand-edited (`--regenerate`). It was
 hand-maintained and fell five entries behind the data plane, which is what blinded the

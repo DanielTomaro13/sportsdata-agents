@@ -135,3 +135,47 @@ def test_orchestrator_can_reach_the_new_specialists() -> None:
     orch = load_builtin_specs()["orchestrator"]
     assert "racing_analyst" in orch.can_delegate_to
     assert "prediction_market_analyst" in orch.can_delegate_to
+
+
+def test_the_live_plane_is_wired() -> None:
+    """The platform's largest blind spot, closed. Everything else here is pre-game or
+    post-game; `sport.in_play` (20 providers) and `sport.match_score` (36) were granted
+    by no agent at all, so between the first whistle and the last the desk saw nothing.
+    """
+    specs = load_builtin_specs()
+    assert "live_desk" in specs, "the live desk spec did not load"
+    live = specs["live_desk"]
+    reach = set(live.tools.mcp_capabilities) | set(live.tools.mcp_discover)
+    assert {"sport.in_play", "sport.match_score"} <= reach
+
+
+def test_a_single_provider_capability_is_never_carried() -> None:
+    """Carrying one is a startup landmine: `bridge_mcp_tools` treats a capability that
+    resolves to zero tools as a spec error, so if that provider is disabled — a toggle
+    any operator can flip — the agent refuses to start. Discovery degrades instead, so
+    single-provider capabilities belong in `mcp_discover`.
+
+    Guards the specific bug this caught: live_desk carried `sport.cash_out`, whose only
+    tool is betfair_cashout, and would not start with Betfair off.
+    """
+    single_provider = {
+        "sport.cash_out", "sport.depth_chart", "stats.shot_chart", "content.photo",
+        "racing.price_history", "racing.track_conditions", "social.post_search",
+        "social.post_detail", "social.user_profile", "social.user_timeline",
+        "social.trends",
+    }
+    # news_scout is the one deliberate exception: every capability it holds is Twitter,
+    # so it is a single-provider agent by construction. With Twitter off it has no
+    # function at all, and failing loudly beats pretending to cover the news. Worth
+    # revisiting — one disabled provider stopping an agent that the orchestrator lists
+    # as a delegate is a sharper edge than it looks.
+    exempt = {"news_scout"}
+    offenders = [
+        f"{agent_id}: {sorted(set(spec.tools.mcp_capabilities) & single_provider)}"
+        for agent_id, spec in load_builtin_specs().items()
+        if agent_id not in exempt and set(spec.tools.mcp_capabilities) & single_provider
+    ]
+    assert not offenders, (
+        "single-provider capabilities must be discovered, not carried — a disabled "
+        f"provider would stop these agents starting: {offenders}"
+    )

@@ -24,24 +24,6 @@
 generated_from: "0.29.0"
 
 waivers:
-  # ── planned: the live plane (phase 3) ────────────────────────────────
-  sport.in_play:
-    status: planned
-    phase: 3
-    reason: >-
-      The single largest gap — 20 providers, no agent. The whole live desk depends on
-      it, and the engines' footy/inplay.py already exists with nothing feeding it.
-  sport.match_score:
-    status: planned
-    phase: 3
-    reason: >-
-      36 providers, the best-supported capability after fixtures. Live scores are the
-      spine of in-play; wiring it without poll budgets is how a user gets IP-banned.
-  sport.commentary:
-    status: planned
-    phase: 3
-    reason: Ball-by-ball text feeds the live desk's momentum reads. Wire with the rest of phase 3.
-
   # ── planned: fantasy through the capability layer (phase 4) ──────────
   fantasy.rosters:
     status: planned
@@ -191,12 +173,6 @@ waivers:
     reason: >-
       Confirmed XI and formation, three providers. Team news is the highest-value
       pre-game signal the platform still cannot see; pairs with sport.injuries.
-  sport.cash_out:
-    status: planned
-    phase: 3
-    reason: >-
-      Belongs with the live desk — the engines already compute a fair cash-out number,
-      and this is the book's own quote to compare it against.
   sport.awards:
     status: niche
     reason: >-

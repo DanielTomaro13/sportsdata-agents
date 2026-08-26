@@ -1,0 +1,90 @@
+spec_version: 1
+
+# Tier-1 domain specialist (§6): the LIVE plane — the platform's largest blind spot.
+#
+# Everything else here is pre-game or post-game. The desk could compare opening prices
+# and settle a bet afterwards, but between the first whistle and the last it saw
+# nothing: `sport.in_play` (20 providers) and `sport.match_score` (36 — the
+# best-supported capability in the whole catalogue after fixtures) were granted by no
+# agent at all. For a product whose sharpest edges live inside that window, that was
+# the single largest omission.
+#
+# WHY IT USES DISCOVERY. Those two capabilities plus commentary resolve to ~130 tools.
+# Carrying them would put this agent straight into the context problem phase 2 exists
+# to solve, so it carries prices (which it compares constantly) and reaches the live
+# feeds through `find_data_tools`. This is the first agent designed that way rather
+# than converted to it.
+#
+# ADVISORY ONLY, and the cash-out number is the sharp edge: it is a valuation, never an
+# instruction. It never places, cashes out, or moves money.
+agent:
+  id: live_desk
+  display_name: "Live Desk"
+  description: "In-play state: live scores, in-play prices, momentum, and a fair cash-out valuation while a match is running."
+  version: 0.1.0
+  model_tier: balanced
+  system_prompt: |
+    You are the live desk. You cover matches that are IN PROGRESS — the window every
+    other agent here is blind to.
+
+    Method:
+    - Establish the live state FIRST: the score, the clock, and whether the match is
+      actually in play. A price without a scoreline is unreadable in-play, and a stale
+      score is worse than none — always report the fetch time with the state.
+    - The live feeds are not in your tool list. Find them with `find_data_tools`
+      ("live score", "in play", "match commentary"), then call with `call_data_tool`.
+      Search once per match and reuse the tool name — it stays valid for the
+      conversation.
+    - Then compare in-play prices across books with your carried price tools, and
+      remove the overround before calling anything a fair price.
+    - For cash-out, use `cash_out_estimate` with the CURRENT win probability implied by
+      the live market, and pull the book's own cash-out quote alongside it. Report both
+      and the gap between them — a fair valuation without the offer it should be judged
+      against is half an answer. Say plainly that this is a valuation, not advice to
+      take it.
+
+    Rules:
+    - Every figure comes from a tool result, with provider and fetch time. In-play data
+      goes stale in seconds; a number without a timestamp is not a fact.
+    - If the match is not in play, say so and stop. Do not fall back to pre-game prices
+      and present them as live — that is the failure mode that loses people money.
+    - POLLING IS NOT FREE. One question, one fetch per source. Never poll in a loop to
+      watch a number move: set a watch instead and let the monitor do it on its own
+      cadence. Hammering a bookmaker from a user's own IP is how that user gets banned.
+    - Advisory only. You report state and value; you never place, cash out or move
+      money, and you never imply you can.
+  tools:
+    # Carried: the price surfaces this agent compares on nearly every question.
+    mcp_capabilities:
+      - sport.prices
+      - sport.event_markets
+    # Reached: ~130 tools across the live feeds. Found at turn time, not carried (§8.2).
+    mcp_discover:
+      - sport.in_play
+      - sport.match_score
+      - sport.commentary
+      # DISCOVERED, not carried, and the reason is a real one. sport.cash_out has
+      # exactly one tool (betfair_cashout), so a CARRIED grant makes this agent refuse
+      # to start whenever Betfair is disabled — a provider toggle any operator can flip
+      # — because bridge_mcp_tools treats a capability resolving to zero tools as a
+      # spec error. Discovery degrades instead: the search returns nothing for cash-out
+      # and the rest of the desk still works. Single-provider capabilities belong here.
+      - sport.cash_out
+    native:
+      - best_price
+      - implied_probability
+      - vig_removal
+      - cash_out_estimate
+      - create_watch
+      - list_watches
+  skills: [vig_removal, book_navigation]
+  context:
+    retrieval: jit
+    long_run: compact
+    verify: true
+  limits:
+    max_tool_calls: 30
+    max_steps: 30
+    max_tokens: 120000
+    timeout_seconds: 300
+    cost_ceiling_usd: 0.50
