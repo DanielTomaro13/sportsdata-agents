@@ -147,7 +147,8 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
     if not isinstance(markets, list) or not markets:
         return {"unavailable": "Sportsbet returned no markets for this event"}
 
-    outcomes, misses = [], []
+    outcomes: list[Any] = []
+    misses: list[Any] = []
     for leg in legs:
         hit = _match_sportsbet_leg(leg, markets, home, away)
         (outcomes if isinstance(hit, dict) else misses).append(hit)

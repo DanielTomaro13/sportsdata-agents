@@ -101,9 +101,10 @@ async def api_sgm(body: dict) -> JSONResponse:
         from sportsdata_agents.interfaces.sportsboard import live, sgm_books
 
         async with _sessionmaker()() as session:
-            result = await sgm_books.quote(session, live.current_manager, bookmaker,
-                                           str(body.get("fixture_id", "")), legs)
-        return JSONResponse(result)
+            quoted: dict[str, Any] = await sgm_books.quote(
+                session, live.current_manager, bookmaker,
+                str(body.get("fixture_id", "")), legs)
+        return JSONResponse(quoted)
 
     result: dict[str, Any] = price_sgm(
         str(body.get("sport", "")), str(body.get("fixture_id", "")),
