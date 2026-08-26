@@ -37,7 +37,9 @@ agent:
     # unconfigured this agent did not degrade to league news — it refused to start, and
     # took the orchestrator's team with it, since it is a delegate. Discovered, the
     # search simply returns nothing and the fallback the prompt promises actually runs.
-    mcp_discover: [social.post_search, social.user_timeline, social.user_profile, social.post_detail, social.trends]
+    # sport.lineups is the confirmed XI — what every "team news" question is really
+    # asking about, and until now the only source for it was someone tweeting it.
+    mcp_discover: [social.post_search, social.user_timeline, social.user_profile, social.post_detail, social.trends, sport.lineups]
   context:
     retrieval: jit
     long_run: compact

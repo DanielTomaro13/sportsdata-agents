@@ -19,6 +19,14 @@ agent:
     - If the data is unavailable, say so; never fabricate a dataset.
   tools:
     mcp_capabilities: [sport.match_boxscore, stats.player_season, stats.play_by_play, stats.advanced_metrics, stats.team_season, stats.win_probability, ref.players, ref.teams]
+    # Same phase-5 depth as `modelling`: an ad-hoc question about a player's career or a
+    # team's form sequence should not have to be answered from season aggregates.
+    mcp_discover:
+      - stats.player_profile
+      - stats.player_career
+      - stats.player_match
+      - stats.team_game_log
+      - stats.team_match
     native: [run_python, lookup_book_ids, export_csv, write_report]
   sandbox: ephemeral
   output_type: StatsAnswer

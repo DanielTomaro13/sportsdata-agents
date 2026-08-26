@@ -25,59 +25,20 @@ generated_from: "0.29.0"
 
 waivers:
   # ── planned: discovery (phase 5) ─────────────────────────────────────
-  sport.competitions_list:
-    status: planned
-    phase: 5
-    reason: >-
-      33 providers. Without it the orchestrator cannot answer "what is on tonight"
-      without a hardcoded league list, which is exactly the assumption to remove.
-  ref.seasons:
-    status: planned
-    phase: 5
-    reason: Season/compseason resolution — needed to ask for "this season" without hardcoding a year.
-  ref.venues:
-    status: planned
-    phase: 5
-    reason: Venue context (ground, surface, altitude) is a real model feature, especially racing and AFL.
-  ref.coaches:
-    status: planned
-    phase: 5
-    reason: Two providers only, but coach changes are a genuine regime-shift signal for modelling.
 
   # ── planned: player depth (phase 5) ──────────────────────────────────
-  stats.player_profile:
-    status: planned
-    phase: 5
-    reason: 18 providers. Biographical and role context that projections currently guess at.
-  stats.player_career:
-    status: planned
-    phase: 5
-    reason: Career-long form priors — the base rate a season-only view cannot see.
-  stats.player_match:
-    status: planned
-    phase: 5
-    reason: Per-match player lines; finer than player_game_log where a provider offers both.
-  stats.team_game_log:
-    status: planned
-    phase: 5
-    reason: Team form sequences for the modelling agent.
-  stats.team_match:
-    status: planned
-    phase: 5
-    reason: Per-match team lines; pairs with team_game_log.
 
   # ── planned: roster intelligence + backtesting (phase 5) ─────────────
   stats.closing_odds:
     status: planned
-    phase: 5
+    phase: 7
     reason: >-
-      CLV is benchmarked against prices this platform captured itself, which is the right
-      choice but means backtests start on install day. Third-party closes turn day one
-      into years of history — provenance must be labelled, never silently mixed.
-  stats.model_predictions:
-    status: planned
-    phase: 5
-    reason: Public model baselines (Squiggle, API-Sports) to benchmark our own against.
+      Moved out of phase 5: this is not an agent grant. CLV is benchmarked in
+      quant/backtest.py against Price rows in the WAREHOUSE, so a capability an agent can
+      call ad hoc feeds nothing — the closes have to be ingested. That makes it pipeline
+      work alongside in-play capture, not a line in a spec. Provenance must be labelled
+      when it lands: a third-party close and a self-captured one must never be silently
+      mixed in the same CLV figure.
 
   # ── redundant ────────────────────────────────────────────────────────
   sport.match_detail:
@@ -120,24 +81,6 @@ waivers:
       if a basketball-specific modelling surface is ever built.
 
   # ── added by Phase 1 (tagging the orphans), not yet wired ────────────
-  ref.rounds:
-    status: planned
-    phase: 5
-    reason: >-
-      Round/matchweek structure across 6 providers. Part of the discovery surface —
-      "this round" should not need a hardcoded number any more than "this season" does.
-  ref.officials:
-    status: planned
-    phase: 5
-    reason: >-
-      Referee and umpire assignments. A real modelling feature (officiating tendencies
-      move totals and card markets), so it belongs with the player-depth work.
-  sport.lineups:
-    status: planned
-    phase: 5
-    reason: >-
-      Confirmed XI and formation, three providers. Team news is the highest-value
-      pre-game signal the platform still cannot see; pairs with sport.injuries.
   sport.awards:
     status: niche
     reason: >-

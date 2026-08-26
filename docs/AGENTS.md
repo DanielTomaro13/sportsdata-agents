@@ -72,17 +72,14 @@ tool. This is the self-improvement loop: telemetry → proposal → CI → human
 
 ## Data capabilities
 
-Agents grant **37 of the data plane's 68** capability tags: all of `racing.*`, all of
-`prediction.*`, the priced surfaces (`sport.prices`, `event_markets`, `same_game_multi`),
-the stats surfaces (game logs, head-to-head, play-by-play, advanced metrics, injuries,
-ladders, leaders), `ref.*`, `social.*` and `content.news`.
+Agents reach **65 of the data plane's 79** capability tags — all of `racing.*`, all of
+`prediction.*`, all of `fantasy.*`, the priced surfaces, the live plane, the stats
+surfaces, `ref.*`, `social.*` and `content.news`. Counting both doors (capability tags
+and `mcp_groups`), agents reach **680 of 830 tools**.
 
-The other 31 are **not** all redundant or niche, which is what this file used to claim.
-They include the entire live plane — `sport.in_play` (20 providers) and
-`sport.match_score` (36) are the two best-supported capabilities nobody grants — plus all
-four `fantasy.*` tags, cross-sport discovery, and player depth. Counting both doors
-(capability tags and `mcp_groups`), agents reach **453 of 826 tools**; the rest sit behind
-a capability nobody granted, or carry no tag at all.
+At the time of the review that read 37 of 68, and 453 tools. The gap was not that the
+remainder was niche: it included the entire live plane, every `fantasy.*` tag, and the
+whole discovery and player-depth layer.
 
 Every unwired capability now carries a written reason in
 [`capability-waivers.yaml`](./capability-waivers.yaml) — `planned` with a phase,

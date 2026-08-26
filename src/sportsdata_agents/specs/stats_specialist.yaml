@@ -49,6 +49,14 @@ agent:
       - stats.ladder
       - ref.players
       - ref.teams
+      # Phase 5 discovery layer. All lookups, all wide (58/30/9/8 tools), and all here
+      # for the same reason: "what is on tonight", "this season" and "this round" should
+      # not need a hardcoded league list, year or round number any more than a team id
+      # should.
+      - sport.competitions_list
+      - ref.seasons
+      - ref.venues
+      - ref.rounds
   output_type: StatsAnswer
   context:
     retrieval: jit

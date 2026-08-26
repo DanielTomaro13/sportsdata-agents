@@ -209,3 +209,24 @@ def test_fantasy_is_reachable_across_every_platform_not_just_the_ones_with_agent
     advisor = load_builtin_specs()["fantasy_advisor"]
     reach = set(advisor.tools.mcp_capabilities) | set(advisor.tools.mcp_discover)
     assert {"fantasy.rosters", "fantasy.league_settings"} <= reach
+
+
+def test_nothing_is_waived_as_merely_planned_any_more() -> None:
+    """Phase 5 was the last of the planned wiring. What remains waived should be waived
+    on its merits — `niche`, `redundant`, or an `upstream` placeholder — not queued.
+
+    The one exception is stats.closing_odds, which moved to phase 7 when it turned out
+    not to be an agent grant at all: CLV is benchmarked in quant/backtest.py against
+    Price rows in the warehouse, so a capability an agent can call ad hoc feeds nothing.
+    It needs the closes INGESTED, which is pipeline work.
+    """
+    import yaml
+
+    waivers = yaml.safe_load(
+        (pathlib.Path(__file__).resolve().parents[2] / "docs" / "capability-waivers.yaml").read_text()
+    )["waivers"]
+    still_queued = sorted(
+        cap for cap, entry in waivers.items()
+        if entry.get("status") == "planned" and cap != "stats.closing_odds"
+    )
+    assert not still_queued, f"planned-but-unwired capabilities remain: {still_queued}"

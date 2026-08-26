@@ -40,6 +40,20 @@ agent:
       "locks" or guarantees.
   tools:
     mcp_capabilities: [sport.match_boxscore, stats.player_season, stats.player_game_log, stats.head_to_head, stats.advanced_metrics, stats.win_probability, ref.teams]
+    # Phase 5 depth. Season stats are a thin base for a prior: career form is the base
+    # RATE a season cannot see, and role, coach and officiating changes are regime shifts
+    # that move outcomes more than recent form does. model_predictions is the honesty
+    # check — a public baseline (Squiggle, API-Sports) to be measured against rather than
+    # only self-scored.
+    mcp_discover:
+      - stats.player_profile
+      - stats.player_career
+      - stats.player_match
+      - stats.team_game_log
+      - stats.team_match
+      - ref.coaches
+      - ref.officials
+      - stats.model_predictions
     native: [run_python, calibration_metrics, save_model, record_predictions, list_models, query_line_movement, calibration_curve, export_training_data]
   sandbox: ephemeral
   output_type: StatsAnswer
