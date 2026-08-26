@@ -137,7 +137,7 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
     if ev is None:
         return {"unavailable": "no Sportsbet event linked to this fixture"}
     f = (await session.execute(select(Fixture).where(Fixture.id == ev.fixture_id))).scalar()
-    home, away = (f.name.split(" v ", 1) + [""])[:2] if f and " v " in f.name else ("", "")
+    home, away = [*f.name.split(" v ", 1), ""][:2] if f and " v " in f.name else ("", "")
 
     try:
         markets = await mcp.call_tool("sportsbet_event_markets",
