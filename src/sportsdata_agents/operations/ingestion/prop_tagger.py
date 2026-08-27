@@ -158,8 +158,21 @@ _NOT_A_PLAYER = frozenset({
 #: 2026-08-27 on the real Bulldogs v Collingwood card.
 _MULTI_PLAYER = (" / ", " & ", " + ", " and ")
 
-#: Market phrasings that mean the same thing on the market side rather than the selection.
-_COMBINATION_MARKET = ("combined", "either player", "duos", "trios", "double", "each")
+#: Market phrasings that mean "several players" on the MARKET side rather than the
+#: selection. Matched on WORD BOUNDARIES, not as substrings.
+#:
+#: The first version was a bare substring test including "double", which untagged every
+#: tennis DOUBLE FAULTS ladder — a stat in _STAT_WORDS — across every book, silently.
+#: "each" would likewise have gated any market containing "reach". A combining word is a
+#: whole word; "double faults" and "double double" are stat names that happen to contain
+#: one, so the phrasings that actually mean a combination are spelled out in full.
+_COMBINATION_MARKET = (
+    "combined", "either player", "duos", "trios", "each player",
+    "goals double", "disposals double", "margin double", "points double",
+    "player double", "multi player", "two players", "three players",
+)
+_COMBINATION_RE = re.compile(
+    r"(?:^|\W)(?:" + "|".join(re.escape(w) for w in _COMBINATION_MARKET) + r")(?:\W|$)")
 
 
 def _is_player_name(selection: str) -> bool:
@@ -192,7 +205,7 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
     # A combination market is not a player ladder, however player-shaped its selection
     # looks — see _MULTI_PLAYER. Checked on the MARKET too because some books put the
     # combining word there and a single name in the selection.
-    if any(word in market_l for word in _COMBINATION_MARKET):
+    if _COMBINATION_RE.search(market_l):
         return meta
 
     # segment-qualified props keep their qualifier IN the stat name

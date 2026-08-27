@@ -51,11 +51,27 @@ PLACE_TOOL = {
     "unibet": "unibet_place_bet",
 }
 
+#: NOT validate_coupon for Unibet. Kambi's validate answers {status, validSession,
+#: rewardInfo} and echoes NO price, so a drift check reading it finds nothing and the
+#: executor refuses every placement. adapters.reprice_args_for and live.read_unibet_price
+#: were both retargeted at the anonymous pricer; this table was missed, which put the
+#: bug straight back under a commit message claiming it fixed. Adding a book means
+#: touching THREE places — this table, the args builder, and the reader — and a test now
+#: asserts all three agree.
+#: The book's own pre-placement check, where it has one. Runs AFTER the drift gate and
+#: BEFORE the placement, because it answers a different question: drift asks "is the
+#: price still there", validation asks "would this coupon be accepted at all, and is my
+#: credential alive". Kambi's is anonymous and free, so a dead token costs nothing to
+#: discover here instead of on the money call.
+VALIDATE_TOOL = {
+    "unibet": "unibet_validate_coupon",
+}
+
 REPRICE_TOOL = {
     "sportsbet": "sportsbet_price_slip",
     "tab": "tab_price_slip",
     "entain": "entain_sgm_price",
-    "unibet": "unibet_validate_coupon",
+    "unibet": "unibet_sgm_price",
 }
 
 
@@ -72,6 +88,9 @@ class Intent:
     payload: dict
     #: How to re-price this exact bet, as kwargs for the book's reprice tool.
     reprice_args: dict = field(default_factory=dict)
+    #: How to ask the book whether it would accept this coupon at all, where it offers
+    #: such a call. Empty for books that do not.
+    validate_args: dict = field(default_factory=dict)
     summary: str = ""
     intent_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
@@ -157,6 +176,20 @@ async def run_intent(
             return record("rejected", gate.reason, stake=stake, price=price)
         price = gate.price  # place at the book's number, never the remembered one
 
+    # 3b. The book's own go/no-go, where it offers one. A refusal here is a bet that
+    # would not have been accepted, so it never reaches the money call.
+    check_tool = VALIDATE_TOOL.get(intent.book)
+    if check_tool and intent.validate_args:
+        try:
+            verdict = await call(check_tool, **intent.validate_args)
+        except Exception as exc:
+            return record("rejected", f"pre-placement check failed, not placing: {exc}",
+                          stake=stake, price=price)
+        ok, why = _validation_of(intent.book, verdict)
+        if not ok:
+            return record("rejected", f"book would not accept this: {why}",
+                          stake=stake, price=price)
+
     # 4. Place. ONCE. No retry wrapper here, deliberately — see the module docstring.
     place_tool = PLACE_TOOL.get(intent.book)
     if not place_tool:
@@ -181,6 +214,25 @@ async def run_intent(
     if not ok:
         return record("rejected", f"book refused: {reason}", stake=stake, price=price, receipt=receipt)
     return record("placed", reason, stake=stake, price=price, receipt=receipt)
+
+
+def _validation_of(book: str, answer: Any) -> tuple[bool, str]:
+    """Did the book's pre-placement check pass?
+
+    Kambi answers {status: "SUCCESS", validSession: bool, rewardInfo: {...}} — verified
+    live 2026-08-27. `validSession` is the cheapest way to tell a dead bearer token from
+    a bad coupon, and distinguishing the two matters: one needs a new credential, the
+    other needs a different bet.
+    """
+    body = answer if isinstance(answer, dict) else {"raw": answer}
+    if book == "unibet":
+        if body.get("validSession") is False:
+            return False, "kambi reports the session is dead — the access token needs refreshing"
+        status = str(body.get("status", "")).upper()
+        if status and status != "SUCCESS":
+            return False, f"kambi status={status}: {body.get('message', '')}".strip()
+        return True, "kambi accepted the coupon"
+    return True, "no pre-placement check for this book"
 
 
 def _verdict_of(book: str, answer: Any) -> tuple[bool, str, dict]:

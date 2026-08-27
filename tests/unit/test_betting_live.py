@@ -179,3 +179,37 @@ def test_every_known_book_has_a_reader() -> None:
 def test_an_unknown_book_has_no_reader() -> None:
     with pytest.raises(PriceUnreadable, match="no re-price reader"):
         live.reader_for("someothercorp")
+
+
+# ─── the three tables that must agree ───────────────────────────────────
+
+
+def test_every_book_that_re_prices_has_args_a_tool_and_a_reader() -> None:
+    """THE cross-file guard. Retargeting Unibet's re-price from validate_coupon to the
+    anonymous pricer touched the args builder and the reader but MISSED the tool table
+    in execute.py, which put back the "refuses every Unibet placement" bug under a commit
+    message claiming it fixed. Three places have to agree; this asserts they do."""
+    from sportsdata_agents.betting import adapters
+    from sportsdata_agents.betting.execute import REPRICE_TOOL
+
+    for book in adapters.REPRICE_ARGS:
+        assert book in REPRICE_TOOL, f"{book} builds re-price args but has no tool"
+        assert book in live.READERS, f"{book} builds re-price args but has no reader"
+
+
+def test_the_reprice_tool_table_names_the_pricer_for_unibet() -> None:
+    """validate_coupon echoes no price at all, so pointing the drift gate at it makes
+    every placement refuse. Named explicitly because the table looks plausible either way."""
+    from sportsdata_agents.betting.execute import REPRICE_TOOL
+
+    assert REPRICE_TOOL["unibet"] == "unibet_sgm_price"
+
+
+def test_kambis_payout_ceiling_is_refused_as_a_price() -> None:
+    """1001.0 is where a long Kambi multi stops moving while the true price keeps
+    drifting behind it. The drift gate is one-sided, so a capped value reads as "held or
+    improved" and would place a bet at a price nobody knows."""
+    with pytest.raises(PriceUnreadable, match="ceiling"):
+        live.read_unibet_price({"selectedOdds": {"decimal": 1_001_000}})
+    # and the ordinary case still reads
+    assert live.read_unibet_price({"selectedOdds": {"decimal": 3300}}) == pytest.approx(3.3)

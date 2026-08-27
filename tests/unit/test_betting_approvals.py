@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from sportsdata_agents.betting import approvals, runner
+from sportsdata_agents.betting import approvals, live, runner
 from sportsdata_agents.betting.approvals import State, Store, new_proposal
 from sportsdata_agents.betting.ledger import Ledger
 from sportsdata_agents.betting.policy import BettingPolicy
@@ -317,3 +317,55 @@ async def test_a_scan_abandons_a_bet_whose_price_shortened(tmp_path) -> None:
     assert result.outcome.status == "rejected"
     assert "shortened" in result.outcome.reason
     assert "sportsbet_place_bet" not in calls.seen
+
+
+# ─── the pre-placement go/no-go ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_dead_token_is_caught_before_the_money_call(tmp_path) -> None:
+    """Kambi's validate is anonymous and reports `validSession`, so an expired bearer
+    costs nothing to discover there. Before this was wired, the first thing to find a
+    dead token was unibet_place_bet itself — an auth failure found on the money path."""
+    from sportsdata_agents.betting.execute import Intent, run_intent
+
+    calls = Calls(answers={
+        "unibet_sgm_price": {"selectedOdds": {"decimal": 3300}},
+        "unibet_validate_coupon": {"status": "SUCCESS", "validSession": False},
+        "unibet_place_bet": {"couponRows": [{}]},
+    })
+    intent = Intent(book="unibet", legs=[{"m": "h2h"}], odds=3.3, edge=0.2,
+                    payload={"body": {}}, reprice_args={"eventId": 1, "outcomeIds": "1,2"},
+                    validate_args={"body": {}})
+    out = await run_intent(
+        intent, policy=BettingPolicy(book_modes={"unibet": "auto"}, books=["unibet"],
+                                     allow_unverified_auto=True),
+        ledger=Ledger(tmp_path / "l.jsonl"), call=calls, now=NOON,
+        reprice=live.read_unibet_price)
+
+    assert out.status == "rejected"
+    assert "session is dead" in out.reason
+    assert "unibet_place_bet" not in calls.seen
+
+
+@pytest.mark.asyncio
+async def test_a_coupon_the_book_refuses_never_reaches_the_money_call(tmp_path) -> None:
+    from sportsdata_agents.betting.execute import Intent, run_intent
+
+    calls = Calls(answers={
+        "unibet_sgm_price": {"selectedOdds": {"decimal": 3300}},
+        "unibet_validate_coupon": {"status": "REJECTED", "message": "coupon is stale"},
+        "unibet_place_bet": {"couponRows": [{}]},
+    })
+    intent = Intent(book="unibet", legs=[{"m": "h2h"}], odds=3.3, edge=0.2,
+                    payload={"body": {}}, reprice_args={"eventId": 1, "outcomeIds": "1,2"},
+                    validate_args={"body": {}})
+    out = await run_intent(
+        intent, policy=BettingPolicy(book_modes={"unibet": "auto"}, books=["unibet"],
+                                     allow_unverified_auto=True),
+        ledger=Ledger(tmp_path / "l.jsonl"), call=calls, now=NOON,
+        reprice=live.read_unibet_price)
+
+    assert out.status == "rejected"
+    assert "REJECTED" in out.reason
+    assert "unibet_place_bet" not in calls.seen

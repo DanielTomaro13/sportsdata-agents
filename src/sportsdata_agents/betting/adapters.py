@@ -276,8 +276,17 @@ def unibet_reprice_args(candidate: Candidate, *, stake: float) -> dict[str, Any]
     """
     p = _placement(candidate)
     ids = p["outcome_ids"]
+    if not p.get("event_id"):
+        # Every other missing-identity case in this module raises by name; sending
+        # eventId=None instead produces an opaque upstream error recorded as "re-price
+        # failed", which is fail-closed but undiagnosable. Quotes and stored approvals
+        # created before quote_unibet carried event_id land here.
+        raise AdapterError(
+            "Unibet quote carries no event_id, so it cannot be re-priced — re-quote "
+            "through sgm_books before placing (a quote from before 2026-08-27 predates it)"
+        )
     return {
-        "eventId": int(p["event_id"]) if p.get("event_id") else None,
+        "eventId": int(p["event_id"]),
         "outcomeIds": ",".join(str(i) for i in ids),
     }
 
@@ -299,4 +308,32 @@ def reprice_args_for(candidate: Candidate, *, stake: float) -> dict[str, Any]:
     re-priced would silently disarm the gate.
     """
     build = REPRICE_ARGS.get(candidate.book)
+    return build(candidate, stake=stake) if build else {}
+
+
+# ─── the pre-placement go/no-go ─────────────────────────────────────────
+
+
+def unibet_validate_args(candidate: Candidate, *, stake: float) -> dict[str, Any]:
+    """The coupon WITHOUT a stake — Kambi's own betslip check.
+
+    `stake` is accepted and ignored so this matches the signature of every other
+    per-book builder in this module; the absence of a stake is what makes the body a
+    question rather than a bet.
+    """
+    return unibet_coupon(candidate, stake=None)
+
+
+#: Books offering a check that can be run BEFORE money moves. Only Unibet so far: its
+#: validate.json is anonymous, answers {status: "SUCCESS", validSession}, and so reports
+#: a dead bearer token for free. Without it the first thing to discover an expired
+#: credential is unibet_place_bet itself — an auth failure found on the money path.
+VALIDATE_ARGS = {
+    "unibet": unibet_validate_args,
+}
+
+
+def validate_args_for(candidate: Candidate, *, stake: float) -> dict[str, Any]:
+    """Args for the book's pre-placement check, or {} when it has none."""
+    build = VALIDATE_ARGS.get(candidate.book)
     return build(candidate, stake=stake) if build else {}

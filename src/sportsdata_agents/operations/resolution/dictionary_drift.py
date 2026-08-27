@@ -123,11 +123,15 @@ def packaged_aliases() -> dict[str, str]:
     that never passes gets ignored rather than fixed.
     """
     import json
+    from pathlib import Path as _Path
 
-    from sportsdata_agents.operations.datafeed import data_text
     from sportsdata_agents.operations.ingestion.normalizers import _norm_name
 
-    seed = json.loads(data_text("market_dictionary"))
+    # Read the SHIPPED FILE directly, not via data_text(): that helper prefers an applied
+    # OTA overlay, which is per-machine state. A --rebaseline on a machine with an overlay
+    # would bake overlay-only aliases into the committed baseline and fail CI everywhere
+    # else — the same failure this function exists to prevent, one layer further out.
+    seed = json.loads((_Path(__file__).with_name("market_dictionary.json")).read_text())
     # Same shape the runtime builds: family -> [aliases] inverted, names normalised the
     # way canonical_market() will normalise a book's market before looking it up.
     return {

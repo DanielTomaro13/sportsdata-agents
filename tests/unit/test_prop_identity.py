@@ -109,3 +109,28 @@ def test_an_untagged_point_never_matches_anything() -> None:
     become comparable by default."""
     assert not same_prop({}, prop())
     assert not same_prop(prop(stat_line=None), prop())
+
+
+# ─── the combination gate must not eat real stats ───────────────────────
+
+
+def test_a_stat_whose_name_contains_a_combining_word_still_tags() -> None:
+    """The first combination gate was a bare substring test including "double", which
+    silently untagged every tennis DOUBLE FAULTS ladder across every book — a stat in
+    _STAT_WORDS. "each" would likewise have gated any market containing "reach"."""
+    tagged = tag_prop("alexander zverev double faults", "over 2.5", {})
+    assert tagged["player"] == "Alexander Zverev"
+    assert tagged["stat"] == "double faults"
+    assert tagged["stat_line"] == 2.5
+
+
+@pytest.mark.parametrize("market,selection", [
+    ("most goals / most disposals double", "Nick Daicos / Ed Richards"),
+    ("to have 80+ disposals combined (trios)", "Josh Daicos"),
+    ("either player to have 35+ disposals", "Josh Daicos"),
+    ("to have 35+ disposals", "Bailey Dale / Josh Daicos"),
+])
+def test_real_combination_markets_are_still_refused(market: str, selection: str) -> None:
+    """Narrowing the gate must not reopen the hole it was cut for: a two-player bet
+    fuzzy-matches a single player, and its longer price reads as a huge fake edge."""
+    assert "player" not in tag_prop(market, selection, {})

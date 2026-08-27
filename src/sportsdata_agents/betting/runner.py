@@ -98,6 +98,10 @@ async def scan_fixture(
         # re-priced from a comparison quote yields {} and the gate is skipped for it —
         # currently only TAB, whose account-tier slip is what issues its tokens at all.
         args = reprice_args if reprice_args is not None else adapters.reprice_args_for(best, stake=stake)
+        # The book's own go/no-go, where it has one. Built here beside the payload so it
+        # is never left unwired — the last version of this step existed and nothing
+        # called it, which made a dead token discoverable only by the placement itself.
+        check_args = adapters.validate_args_for(best, stake=stake)
     except adapters.AdapterError as exc:
         return ScanResult(fixture_id, candidates, note=f"cannot build a placement for {best.book}: {exc}")
 
@@ -113,6 +117,7 @@ async def scan_fixture(
         edge=best.edge,
         payload=payload,
         reprice_args=args,
+        validate_args=check_args,
         summary=best.summary(),
     )
 
@@ -127,7 +132,7 @@ async def scan_fixture(
             # Carried so the approved bet can be RE-PRICED when it is finally placed.
             # Without this the drift gate has nothing to fetch and an approval would
             # silently become the bypass this plane exists to avoid.
-            context={"reprice_args": i.reprice_args},
+            context={"reprice_args": i.reprice_args, "validate_args": i.validate_args},
         )
         store.add(proposal)
         result.proposal_id = proposal.id
@@ -171,6 +176,7 @@ async def place_approved(
             # The whole reason `context` exists: an approved bet is re-priced and
             # drift-checked exactly like an automatic one. See the module docstring.
             reprice_args=proposal.context.get("reprice_args") or {},
+            validate_args=proposal.context.get("validate_args") or {},
             summary=proposal.summary,
             intent_id=proposal.id[:12],
         )

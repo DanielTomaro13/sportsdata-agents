@@ -178,3 +178,36 @@ def test_alternate_lines_and_player_props_stay_book_local() -> None:
 
     for name in ("spread alt", "total alt", "to get disposals"):
         assert canonical_market(name) == name, f"{name} must not have been merged"
+
+
+def test_the_baseline_source_ignores_machine_state_entirely(monkeypatch) -> None:
+    """packaged_aliases must read the SHIPPED FILE, never the OTA overlay.
+
+    `data_text()` prefers an applied overlay, which is per-machine state. A --rebaseline
+    on an overlay machine would bake overlay-only aliases into the committed baseline and
+    fail CI everywhere else — the same failure as the market_dictionary.local.json
+    contamination, one layer further out. Two local sources, one lesson.
+
+    Tested by behaviour rather than by reading the source: an earlier version of this
+    test grepped for "data_text" and tripped over the comment explaining why not to use
+    it. Poison the overlay reader; the answer must not move."""
+    import sportsdata_agents.operations.datafeed as datafeed
+
+    before = dd.packaged_aliases()
+    monkeypatch.setattr(
+        datafeed, "data_text",
+        lambda *_a, **_k: '{"markets": {"nonsense": ["from an overlay"]}}')
+    assert dd.packaged_aliases() == before
+    assert "from an overlay" not in dd.packaged_aliases()
+
+
+def test_rebaseline_records_the_packaged_dictionary() -> None:
+    """The CLI's --rebaseline wrote current_aliases() even after the guard was fixed to
+    compare packaged-vs-packaged, so the next rebaseline would have put the local
+    overrides straight back."""
+    from pathlib import Path as _P
+
+    cli = _P("src/sportsdata_agents/interfaces/cli/__main__.py").read_text()
+    block = cli[cli.index('data["aliases"]') - 400: cli.index('data["aliases"]') + 120]
+    assert "packaged_aliases()" in block
+    assert "current_aliases()" not in block.split('data["aliases"]')[1]

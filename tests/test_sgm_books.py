@@ -549,3 +549,29 @@ def test_exact_wins_over_a_loose_match() -> None:
     outs = [{"participant": "Adelaide"}, {"participant": "Adelaide Crows"}]
     hit = unique_team_match(outs, "Adelaide", lambda o: o["participant"])
     assert hit["participant"] == "Adelaide"
+
+
+def test_a_three_letter_prefix_matches_and_why_that_is_survivable() -> None:
+    """A CHANGE OF BEHAVIOUR, recorded rather than left implicit.
+
+    The deleted sgm_books matcher asserted `not _team_matches("Newcastle United", "New")`.
+    The shared resolver matcher returns True: `_token_match` accepts a >=3-char prefix,
+    which is what lets "wst" find "western" and "gws" find Greater Western Sydney. The
+    same rule cannot tell a deliberate abbreviation from a truncated label.
+
+    That is tolerable ONLY because callers go through `unique_team_match`, which accepts
+    a match only when exactly one candidate lands. Two Newcastle sides on one board
+    return None rather than a guess. If a caller ever uses `team_names_match` directly on
+    a multi-candidate list, this is the hazard to remember."""
+    from sportsdata_agents.operations.resolution.resolver import (
+        team_names_match,
+        unique_team_match,
+    )
+
+    assert team_names_match("Newcastle United", "New")          # the prefix rule
+
+    both = [{"n": "Newcastle United"}, {"n": "Newcastle Jets"}]
+    assert unique_team_match(both, "New", lambda o: o["n"]) is None      # ambiguous -> refuse
+
+    one = [{"n": "Newcastle United"}, {"n": "Manchester City"}]
+    assert unique_team_match(one, "New", lambda o: o["n"])["n"] == "Newcastle United"

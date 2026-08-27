@@ -123,6 +123,15 @@ def read_unibet_price(quote: Any) -> float:
     if not isinstance(quote, dict):
         raise PriceUnreadable("unibet_sgm_price returned no object")
     odds = (quote.get("selectedOdds") or {}).get("decimal")
+    if isinstance(odds, int | float) and odds >= 1_001_000:
+        # 1001.0 is Kambi's payout CEILING, not a quote. Long multis stop moving there
+        # while the true price keeps drifting behind it, and the drift gate is one-sided:
+        # a capped value reads as "held or improved" and would place a bet at a price
+        # nobody knows. The scanner already refuses it; the re-price reader must too.
+        raise PriceUnreadable(
+            "unibet_sgm_price returned the 1001.0 payout ceiling, which is a cap and not "
+            "a price — the real quote is longer and unknown, so this cannot be drift-checked"
+        )
     if isinstance(odds, int | float) and odds > 1000:
         return float(odds) / 1000.0
     if quote.get("selectedOdds") is None and quote.get("combinableOutcomeIds") is not None:
