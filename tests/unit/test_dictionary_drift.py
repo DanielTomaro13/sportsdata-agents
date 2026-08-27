@@ -102,7 +102,7 @@ def test_a_high_volume_new_unmapped_name_is_reported() -> None:
 def test_a_name_we_have_already_judged_book_local_stays_quiet(baseline) -> None:
     """`known_unmapped` is the list of names a human looked at and decided are genuinely
     book-local — Kalshi product tickers, alternate lines that must not merge into base
-    families. Without it every run reports the same 389 names and nobody reads it."""
+    families. Without it every run reports the same ~390 names and nobody reads it."""
     known = baseline.get("known_unmapped") or []
     assert known, "baseline carries no known_unmapped — every run would be noise"
     report = dd.CoverageReport(
@@ -116,11 +116,45 @@ def test_a_name_we_have_already_judged_book_local_stays_quiet(baseline) -> None:
 
 
 def test_the_baseline_is_real_measurement_not_a_guess(baseline) -> None:
-    """Generated from the live warehouse on 2026-08-27, not hand-written. It records a
-    POOR state deliberately — coverage as low as 3% on some books — because a regression
-    guard freezes wherever you are, and improving it is separate work."""
+    """Generated from the live warehouse on 2026-08-27, not hand-written. Re-baselined
+    after the racing families landed: overall market-row coverage went 10% → 21%, and
+    Betfair 6% → 68%, on four aliases."""
     assert baseline["coverage"], "no per-book coverage recorded"
     assert baseline["rows"], "no row counts recorded"
     # every book with a coverage figure has the row count that produced it
     assert set(baseline["coverage"]) == set(baseline["rows"])
     assert len(baseline["aliases"]) >= 79
+
+
+# ─── the racing families ────────────────────────────────────────────────
+
+
+def test_racing_win_and_place_have_families() -> None:
+    """`_BASE_FAMILIES` in tools/dictionary.py named `win` and `place` from the start,
+    but the seed never DEFINED them — so every racing win/place row on every book flowed
+    through book-named and joined nothing. ~147k rows, the largest mappable tail there
+    was, and the reason overall coverage sat at 10%."""
+    from sportsdata_agents.operations.ingestion.normalizers import canonical_market
+
+    assert canonical_market("win") == "win"
+    assert canonical_market("place") == "place"
+
+
+def test_the_unibet_h2h_prefixes_map_to_h2h() -> None:
+    """Unibet prefixes its match-winner markets. Both are plain match winners:
+    "h2h - win" appears only on 2-outcome sports, and "regular time" is soccer's STANDARD
+    h2h scope rather than a qualifier carve-out."""
+    from sportsdata_agents.operations.ingestion.normalizers import canonical_market
+
+    assert canonical_market("h2h - win") == "h2h"
+    assert canonical_market("h2h - match (regular time)") == "h2h"
+
+
+def test_alternate_lines_and_player_props_stay_book_local() -> None:
+    """The rule that makes the additions above safe. An alternate line settles against a
+    different number than the base market, and a player prop is not a market family at
+    all — merging either would produce comparisons between different bets."""
+    from sportsdata_agents.operations.ingestion.normalizers import canonical_market
+
+    for name in ("spread alt", "total alt", "to get disposals"):
+        assert canonical_market(name) == name, f"{name} must not have been merged"
