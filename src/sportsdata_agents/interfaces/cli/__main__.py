@@ -2743,6 +2743,65 @@ def bet_ledger(limit: int = typer.Option(20, help="how many rows"),
     typer.echo(f"\n{len(rows)} rows; ${staked:.2f} actually staked")
 
 
+@app.command("dictionary-drift")
+def dictionary_drift(
+    rebaseline: bool = typer.Option(False, "--rebaseline",
+                                    help="Record today's coverage as the new baseline."),
+) -> None:
+    """Is the market dictionary still mapping what the books are sending?
+
+    The half that needs real captured rows. A book renaming a market does not error —
+    its rows simply stop mapping and drop out of every cross-book comparison, which
+    looks like a thin board rather than a regression. Run it nightly.
+
+    The other half (an alias WE lost) is a unit test and gates every commit.
+    """
+    import asyncio
+
+    async def go() -> None:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.operations.resolution import dictionary_drift as dd
+
+        engine = make_engine(get_settings().database_url)
+        async with make_sessionmaker(engine)() as session:
+            report = await dd.measure_coverage(session)
+
+        baseline = dd.load_baseline()
+        if rebaseline:
+            data = report.to_baseline()
+            data["aliases"] = dd.current_aliases()
+            data["known_unmapped"] = sorted({m for (_b, m) in report.unmapped})
+            dd.save_baseline(data)
+            typer.echo(f"baselined {len(data['coverage'])} books, "
+                       f"{len(data['aliases'])} aliases, "
+                       f"{len(data['known_unmapped'])} accepted book-local names")
+            return
+
+        typer.echo("coverage by book (mapped rows / total):")
+        for book, cov in sorted(report.books.items(), key=lambda kv: -kv[1].coverage):
+            was = (baseline.get("coverage") or {}).get(book)
+            trend = f"  (was {was:.0%})" if was is not None else "  (new)"
+            typer.echo(f"   {book:14} {cov.coverage:>4.0%}  {cov.total:>8} rows{trend}")
+
+        findings = dd.compare_coverage(report, baseline)
+        alias_findings = dd.check_dictionary_regression(baseline.get("aliases") or {})
+        findings = alias_findings + findings
+        if not findings:
+            typer.echo("\nno drift.")
+            return
+        typer.echo(f"\n{len(findings)} finding(s):")
+        for f in findings:
+            typer.echo(f"   {f}")
+        raise typer.Exit(1)
+
+    asyncio.run(go())
+
+
 # Must stay LAST: `python -m sportsdata_agents.interfaces.cli` executes the module top to
 # bottom, so anything below this line would not be registered before app() runs.
 if __name__ == "__main__":  # pragma: no cover
