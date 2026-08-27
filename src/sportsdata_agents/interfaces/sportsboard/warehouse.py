@@ -82,6 +82,17 @@ async def _markets_by_source(
             OddsSnapshot.captured_at >= floor,
             OddsSnapshot.captured_at <= now,  # freshest snapshot AS OF `now` (no-op live; rewinds for replay capture)
         ).order_by(OddsSnapshot.captured_at.desc()))).scalars().all()
+    return _classify_snaps(snaps)
+
+
+def _classify_snaps(snaps: list[OddsSnapshot]) -> tuple[
+        dict[tuple[str, float | None], dict[str, dict[str, float]]], dict[str, Any],
+        dict[str, dict[str, dict[str, float]]]]:
+    """Pure grouping of freshest-first snapshot rows — split from the fetch so
+    list_games can classify hundreds of fixtures from ONE bulk query instead
+    of one query each (500 fixtures was 500 round-trips per board poll)."""
+    from sportsdata_agents.operations.monitoring import _market_family, _split_selection
+
     markets: dict[tuple[str, float | None], dict[str, dict[str, float]]] = {}
     seen: set[tuple[str, str, float | None, str]] = set()
     money: dict[str, Any] = {}
@@ -274,18 +285,33 @@ async def list_games(
         f for f in (await session.execute(
             select(Fixture).where(Fixture.start_time >= now,
                                   Fixture.start_time <= now + dt.timedelta(hours=hours))
-            # every future event is welcome, but the per-fixture market
-            # assembly below is the cost — bound the scan, soonest first
-            .order_by(Fixture.start_time).limit(500))
+            # every future event is welcome; classification is in-memory off
+            # one bulk query, so the bound is generous (starving out Thursday
+            # AFL behind 1200 same-day table-tennis fixtures was the bug)
+            .order_by(Fixture.start_time).limit(5000))
         ).scalars()
         # real two-sided matches only — drops player props / novelty specials
         # ("Trea Turner (Home Runs)", "Correct Score") that resolve to h2h noise
         if f.sport not in RACING_SPORTS and split_sides(f.name or "") is not None
     ]
     events = await _fixture_events(session, {f.id for f in fixtures})
+    # ONE bulk odds fetch for every fixture's events, grouped in memory —
+    # per-fixture queries made anything past a few hundred fixtures unservable.
+    all_ext = {e.external_id for evs in events.values() for e in evs}
+    floor = now - dt.timedelta(minutes=20)
+    snaps_by_ext: dict[str, list[OddsSnapshot]] = {}
+    if all_ext:
+        for snap in (await session.execute(
+                select(OddsSnapshot).where(
+                    OddsSnapshot.event_external_id.in_(all_ext),
+                    OddsSnapshot.captured_at >= floor,
+                    OddsSnapshot.captured_at <= now,
+                ).order_by(OddsSnapshot.captured_at.desc()))).scalars():
+            snaps_by_ext.setdefault(snap.event_external_id, []).append(snap)
     out: list[dict[str, Any]] = []
     for f in fixtures:
-        markets, money, extras = await _markets_by_source(session, events.get(f.id, []), now=now)
+        fx_snaps = [r for e in events.get(f.id, []) for r in snaps_by_ext.get(e.external_id, [])]
+        markets, money, extras = _classify_snaps(fx_snaps)
         priced = _priced_markets(markets)
         h2h = next((m for m in priced if m["family"] == "h2h"), None)
         if h2h is None:
