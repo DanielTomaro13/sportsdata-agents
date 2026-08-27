@@ -658,6 +658,28 @@ def _thin_exchange(sub: Subscription, ctx: dict[str, Any]) -> bool:
         return False
 
 
+_SHARP_BOOKS = frozenset({"Betfair", "Pinnacle", "Kalshi", "Polymarket"})
+
+
+def _coverage_gate(sub: Subscription, moving_book: str,
+                   quotes: dict[str, float]) -> bool:
+    """True = SKIP: not enough cross-book context to be a market story.
+
+    ``min_books``: the moving book plus its cross-book siblings must reach
+    this count — a price wandering on ONE book is that book's problem, not a
+    signal. ``require_sharp``: at least one of Betfair/Pinnacle/Kalshi/
+    Polymarket must be on the board — retail books drifting together without
+    a sharp is promo repricing as often as information. Both default OFF so
+    existing watches are unchanged; opt in per subscription."""
+    min_books = int(sub.params.get("min_books", 0) or 0)
+    books = set(quotes) | {moving_book}
+    if min_books and len(books) < min_books:
+        return True
+    if bool(sub.params.get("require_sharp", False)) and not (books & _SHARP_BOOKS):
+        return True
+    return False
+
+
 def _exchange_alone(sub: Subscription, ctx: dict[str, Any],
                     quotes: dict[str, float]) -> bool:
     """True = suppress: an EXCHANGE price moving on a race where every book is
@@ -849,6 +871,8 @@ async def _watch_line_move(
                                                start=ctx.get("start_time"))
         if _exchange_alone(sub, ctx, quotes):
             continue
+        if _coverage_gate(sub, str(row.book), quotes):
+            continue
         if _engine_veto(sub, float(row.odds), engine_fair, quotes):
             continue
         if _lacks_clear_ev(sub, float(row.odds), engine_fair, quotes):
@@ -969,6 +993,8 @@ async def _watch_steam(
                                                start=ctx.get("start_time"))
         current = float(series[-1].odds)
         if _exchange_alone(sub, ctx, quotes):
+            continue
+        if _coverage_gate(sub, str(series[-1].book), quotes):
             continue
         if _engine_veto(sub, current, engine_fair, quotes):
             continue
