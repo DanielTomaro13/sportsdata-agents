@@ -136,3 +136,25 @@ table.ladder{width:100%;border-collapse:collapse;margin:2px 0}
 .spline{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline;padding:3px 0;font-family:var(--mono);font-size:11.5px}
 .spname{min-width:180px;color:var(--ink)}
 .spprice label{color:var(--dim);font-size:9.5px;margin-right:4px;letter-spacing:.05em}
+
+/* ---- odds-first readability pass ---------------------------------------- */
+.mkts td{font-variant-numeric:tabular-nums;padding:7px 12px;font-size:13px}
+.mkts td.best{font-size:14px;font-weight:700;color:var(--ink)}
+.mkts td.best .bk{font-weight:500}
+.mkts td.sharp{font-size:13.5px}
+.mkts tbody tr:hover td{background:color-mix(in srgb,var(--blue) 7%,transparent)}
+.mkts td.val.pos{color:var(--up);font-weight:700}
+.mkts td.val.neg{color:var(--muted)}
+.mkts thead th{position:sticky;top:0;background:var(--panel);z-index:1}
+.grow:hover{background:color-mix(in srgb,var(--blue) 7%,transparent)}
+.gname{font-size:13.5px}
+.bk{font-size:9.5px;letter-spacing:.04em;color:var(--muted);text-transform:uppercase}
+.sprow:hover{background:color-mix(in srgb,var(--blue) 6%,transparent)}
+
+.sxrow{border-bottom:1px solid var(--line);padding:10px 4px}
+.sxhead{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.sxname{font-weight:650;font-size:13.5px}
+.sxprices{display:inline-flex;gap:12px;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+.sxspark{margin-top:6px;display:flex;align-items:center;gap:10px}
+.spark{width:240px;height:44px;background:var(--panel2);border:1px solid var(--line);border-radius:3px}
+.sprange{font-family:var(--mono);font-size:10.5px;color:var(--muted)}

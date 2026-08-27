@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .live import live_enabled, run_poller
-from .warehouse import game_detail, list_games, list_specials
+from .warehouse import game_detail, list_games, list_specials, special_detail
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -66,6 +66,15 @@ async def api_specials(days: float = 90.0) -> JSONResponse:
     """Novelty/outright markets — everything the two-sided games gate drops."""
     async with _sessionmaker()() as s:
         return JSONResponse({"specials": await list_specials(s, days=days)})
+
+
+@app.get("/api/special/{fixture_id}")
+async def api_special(fixture_id: str) -> JSONResponse:
+    """One novelty market: per-book prices and the hourly best-price series."""
+    async with _sessionmaker()() as s:
+        d = await special_detail(s, fixture_id)
+    return JSONResponse(d or {"error": "unknown special"},
+                        status_code=200 if d else 404)
 
 
 @app.get("/api/game/{fixture_id}")

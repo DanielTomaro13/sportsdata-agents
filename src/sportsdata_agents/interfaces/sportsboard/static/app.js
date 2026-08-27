@@ -115,9 +115,46 @@
         ${table}
       </div>`;
     }).join("");
-    el.querySelectorAll(".sprow").forEach((r) => r.onclick = () => {
-      state.spOpen = state.spOpen === r.dataset.sp ? null : r.dataset.sp; renderList();
-    });
+    el.querySelectorAll(".sprow").forEach((r) => r.onclick = () => selectSpecial(r.dataset.sp));
+  }
+
+  async function selectSpecial(fid) {
+    state.spOpen = fid; renderList();
+    $("detail").innerHTML = '<div class="empty"><div class="big">◪</div>loading…</div>';
+    let d;
+    try { d = await api("/api/special/" + encodeURIComponent(fid)); } catch { d = null; }
+    if (!d || d.error) { $("detail").innerHTML = '<div class="empty"><div class="big">◪</div>NO DATA</div>'; return; }
+    renderSpecialDetail(d);
+  }
+
+  function spark(series) {
+    if (!series || series.length < 2) return '<span class="flatc">not enough history yet</span>';
+    const vals = series.map((p) => p[1]);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const W = 240, H = 44, pad = 3;
+    const x = (i) => pad + (i / (series.length - 1)) * (W - 2 * pad);
+    const y = (v) => max === min ? H / 2 : pad + (1 - (v - min) / (max - min)) * (H - 2 * pad);
+    const pts = series.map((p, i) => `${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
+    const up = vals[vals.length - 1] >= vals[0];
+    return `<svg viewBox="0 0 ${W} ${H}" class="spark" preserveAspectRatio="none">
+      <polyline points="${pts}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="1.6"/>
+      <circle cx="${x(series.length - 1).toFixed(1)}" cy="${y(vals[vals.length - 1]).toFixed(1)}" r="2.4" fill="${up ? "var(--up)" : "var(--down)"}"/>
+    </svg><span class="sprange">$${min.toFixed(2)}–$${max.toFixed(2)}</span>`;
+  }
+
+  function renderSpecialDetail(d) {
+    const t = ttj(d.start_time);
+    const rows = (d.selections || []).map((s2) => `
+      <div class="sxrow">
+        <div class="sxhead"><span class="sxname">${esc(s2.selection)}</span>
+          <span class="sxprices">${Object.entries(s2.prices || {}).map(([b, o]) => `<span class="spprice"><label>${esc(b)}</label>$${o.toFixed(2)}</span>`).join("")}</span></div>
+        <div class="sxspark">${spark(s2.series)}</div>
+      </div>`).join("");
+    $("detail").innerHTML = `
+      <div class="dhead"><span class="sport">${esc((d.category || "").toUpperCase())}</span><h2>${esc(d.name)}</h2>
+        <span class="ttj">${d.is_resolution_time ? "resolves " : ""}${t.t}</span></div>
+      <div class="legend" style="margin:4px 0 10px">best available price over the last 14 days · ${(d.sources || []).join(" · ")}</div>
+      ${rows || '<div class="empty">no priced selections</div>'}`;
   }
 
   function renderGames() {

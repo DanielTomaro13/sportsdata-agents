@@ -473,3 +473,65 @@ async def list_specials(
             "sources": sorted({b for s in sels.values() for b in s}),
         })
     return out
+
+
+async def special_detail(
+    session: AsyncSession, fixture_id: str, *, history_days: float = 14.0,
+    now: dt.datetime | None = None,
+) -> dict[str, Any] | None:
+    """One novelty market in depth: current price per book per selection, and
+    an hourly best-price series so the panel can show how the market has moved
+    — for a prediction market, price movement IS the story."""
+    import uuid as _uuid
+
+    try:
+        fid = _uuid.UUID(fixture_id)
+    except ValueError:
+        return None
+    f = (await session.execute(select(Fixture).where(Fixture.id == fid))).scalar()
+    if f is None:
+        return None
+    now = now or dt.datetime.now(dt.UTC)
+    events = (await session.execute(
+        select(Event).where(Event.fixture_id == f.id))).scalars().all()
+    keys = [(e.provider, e.external_id) for e in events]
+    if not keys:
+        return None
+    snaps = (await session.execute(
+        select(OddsSnapshot)
+        .where(tuple_(OddsSnapshot.provider, OddsSnapshot.event_external_id).in_(keys),
+               OddsSnapshot.captured_at >= now - dt.timedelta(days=history_days))
+        .order_by(OddsSnapshot.captured_at))).scalars().all()
+
+    current: dict[str, dict[str, float]] = {}
+    hourly: dict[str, dict[str, float]] = {}   # selection -> bucket_iso -> best odds
+    for r in snaps:
+        sel = str(r.selection)
+        if sel.startswith("no "):
+            continue
+        try:
+            odds = float(r.odds)
+        except (TypeError, ValueError):
+            continue
+        if odds <= 1.0:
+            continue
+        current.setdefault(sel, {})[r.book] = odds   # ascending order: last write wins
+        bucket = r.captured_at.replace(minute=0, second=0, microsecond=0).isoformat()
+        buckets = hourly.setdefault(sel, {})
+        buckets[bucket] = max(buckets.get(bucket, 0.0), odds)
+
+    sels = sorted(
+        ({"selection": sel,
+          "prices": dict(sorted(books.items(), key=lambda kv: kv[1])),
+          "best_odds": min(books.values()),
+          "series": sorted(hourly.get(sel, {}).items())}
+         for sel, books in current.items()),
+        key=lambda x: x["best_odds"])
+    resolves = f.start_time or f.end_time
+    return {
+        "fixture_id": str(f.id), "name": f.name, "category": f.sport,
+        "start_time": resolves.isoformat() if resolves else None,
+        "is_resolution_time": f.start_time is None,
+        "selections": sels[:24],
+        "sources": sorted({b for v in current.values() for b in v}),
+    }
