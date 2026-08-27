@@ -16,6 +16,7 @@ import datetime as dt
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import func, select
@@ -143,6 +144,39 @@ def _side_ok(x: frozenset[str], y: frozenset[str]) -> bool:
         if len(token) == len(long_) and "".join(sorted(u[0] for u in long_)) == "".join(sorted(token)):
             return True
     return bool(short) and all(any(_token_match(t, u) for u in long_) for t in short)
+
+
+def team_names_match(a: str, b: str) -> bool:
+    """Do these two strings name the same team? THE shared answer.
+
+    Public because there was a second, weaker copy of this logic in the SGM comparator,
+    and it had already drifted: it compared names with `==`, so Kambi's "TCU Horned
+    Frogs" never matched a fixture's "TCU" and the leg reported "no open head-to-head
+    selection" — a naming mismatch wearing a suspended-market error. Worse, the
+    replacement written for it did plain containment and carried no variant rule, so it
+    would have matched a Women's side against the men's: the exact failure that once
+    fixture-merged a Super Rugby Women's game with the men's and manufactured a 74% arb.
+
+    One implementation, so a lesson learned in one place is not missing in the other.
+    Callers wanting "the one candidate that matches" want `unique_team_match`, because
+    this returns True for BOTH "Sydney Swans" and "Sydney FC" against "Sydney".
+    """
+    return _side_ok(_tokens(_clean_side(a)), _tokens(_clean_side(b)))
+
+
+def unique_team_match[T](candidates: list[T], team: str, key: Callable[[T], str]) -> T | None:
+    """The one candidate naming `team`, or None if zero or several do.
+
+    Ambiguity returns None deliberately. Two plausible teams means the caller does not
+    know which price it is looking at, and a wrong leg is a wrong bet at a right-looking
+    price. An exact hit beats a fuzzy one, so "Adelaide" prefers "Adelaide" over
+    "Adelaide Crows" when both are on offer.
+    """
+    exact = [c for c in candidates if _tokens(key(c)) == _tokens(team)]
+    if len(exact) == 1:
+        return exact[0]
+    loose = [c for c in candidates if team_names_match(key(c), team)]
+    return loose[0] if len(loose) == 1 else None
 
 
 def _sides_score(a: tuple[frozenset[str], frozenset[str]], b: tuple[frozenset[str], frozenset[str]]) -> float:

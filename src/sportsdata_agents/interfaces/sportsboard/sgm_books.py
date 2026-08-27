@@ -34,13 +34,21 @@ import contextlib
 import contextvars
 import re
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sportsdata_agents.data.models import Event, Fixture
+
+# ONE team matcher for the whole codebase. This module used to carry its own — it
+# compared names with `==`, which is why Kambi's "TCU Horned Frogs" never matched a
+# fixture's "TCU", and the replacement written for it had no variant rule and would
+# have matched a Women's side against the men's. The resolver's version already knew
+# about variant markers, initials and abbreviations; there was never a reason for two.
+from sportsdata_agents.operations.resolution.resolver import (
+    unique_team_match as _unique_team_match,
+)
 
 BOOKMAKERS = ("sportsbet", "pointsbet", "betr", "unibet", "entain", "tab")
 
@@ -163,48 +171,6 @@ async def available_books(session: AsyncSession, fixture_id: str, mcp: Any) -> d
         out[book] = ({"available": True} if ev is not None else
                      {"available": False, "reason": f"no {book} event linked to this fixture"})
     return out
-
-
-def _team_matches(candidate: str, team: str) -> bool:
-    """Does a book's participant name refer to the same team as the board's?
-
-    EXACT EQUALITY IS NOT ENOUGH, and assuming it was cost a live scan. Books carry the
-    full nickname where the fixture carries the short name: Kambi says "TCU Horned Frogs"
-    where the fixture says "TCU", so `_norm(a) == _norm(b)` fails and the leg reports "no
-    open head-to-head selection" — which reads as a suspended market rather than a naming
-    mismatch. (TAB has the same shape in the other direction: "Wst Bulldogs".)
-
-    So: exact first, then containment on WORD BOUNDARIES. Word boundaries matter — a bare
-    substring test makes "Sydney" match "Sydney Swans" AND "Sydney FC", and pairs the
-    wrong team's price with the right team's name.
-
-    Callers must apply this to every candidate and accept the match only when EXACTLY ONE
-    lands; see `_unique_team_match`. A helper that returns the first hit would silently
-    pick one of two plausible teams.
-    """
-    a, b = _norm(candidate), _norm(team)
-    if a == b:
-        return True
-    at, bt = a.split(), b.split()
-    if not at or not bt:
-        return False
-    # every word of the shorter name appears in the longer, in order-independent fashion
-    short, long_ = (bt, at) if len(bt) <= len(at) else (at, bt)
-    return all(w in long_ for w in short)
-
-
-def _unique_team_match[T](candidates: list[T], team: str, key: Callable[[T], str]) -> T | None:
-    """The one candidate whose name refers to `team`, or None if zero or several do.
-
-    Ambiguity returns None on purpose: two plausible teams means the resolver does not
-    know which price it is looking at, and a wrong leg is a wrong bet at a right-looking
-    price.
-    """
-    exact = [c for c in candidates if _norm(key(c)) == _norm(team)]
-    if len(exact) == 1:
-        return exact[0]
-    loose = [c for c in candidates if _team_matches(key(c), team)]
-    return loose[0] if len(loose) == 1 else None
 
 
 def _match_sportsbet_leg(leg: dict, markets: list[dict], home: str, away: str) -> dict | str:

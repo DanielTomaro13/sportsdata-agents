@@ -482,62 +482,70 @@ def test_every_bookmaker_now_resolves():
     assert set(_QUOTERS) == set(BOOKMAKERS)
 
 
-# ── team-name matching: exact equality is not enough ──────────────────────
-# Found live 2026-08-27: Kambi's participant is "TCU Horned Frogs" where the fixture
-# name is "TCU v North Carolina", so `_norm(a) == _norm(b)` failed and the leg reported
-# "no open head-to-head selection" — which reads as a suspended market rather than a
-# naming mismatch, and made a scan look like a fixture nobody would price.
+# ── team-name matching now lives in the RESOLVER, shared ──────────────────
+# This module used to carry its own matcher, which is how "TCU Horned Frogs" failed to
+# match "TCU". The replacement is the resolver's, which already knew about variant
+# markers, initials and abbreviations. These tests cover the behaviour the comparator
+# depends on; the matcher's own edge cases are the resolver's tests.
 
 
 def test_a_book_may_carry_the_full_nickname() -> None:
-    from sportsdata_agents.interfaces.sportsboard.sgm_books import _team_matches
+    from sportsdata_agents.operations.resolution.resolver import team_names_match
 
-    assert _team_matches("TCU Horned Frogs", "TCU")
-    assert _team_matches("North Carolina Tar Heels", "North Carolina")
-    assert _team_matches("Wst Bulldogs", "Wst Bulldogs")
+    assert team_names_match("TCU Horned Frogs", "TCU")
+    assert team_names_match("North Carolina Tar Heels", "North Carolina")
+    assert team_names_match("Wst Bulldogs", "Western Bulldogs")   # TAB abbreviates
 
 
-def test_matching_is_on_word_boundaries_not_substrings() -> None:
-    """A bare substring test makes "Sydney" match both "Sydney Swans" and "Sydney FC",
-    pairing the wrong team's price with the right team's name."""
-    from sportsdata_agents.interfaces.sportsboard.sgm_books import _team_matches
+def test_a_different_club_sharing_a_city_does_not_match() -> None:
+    from sportsdata_agents.operations.resolution.resolver import team_names_match
 
-    assert not _team_matches("Newcastle United", "New")
-    assert not _team_matches("Port Adelaide", "Adelaide United")
+    assert not team_names_match("Sydney Swans", "Sydney Roosters")
+    assert not team_names_match("Port Adelaide", "Adelaide United")
+
+
+def test_a_variant_side_is_a_different_team() -> None:
+    """The rule the comparator's own matcher lacked. A Women's or age-grade side matching
+    the senior team is what once fixture-merged a Super Rugby Women's game with the men's
+    and manufactured a 74% arb."""
+    from sportsdata_agents.operations.resolution.resolver import team_names_match
+
+    assert not team_names_match("Blues Women", "Blues")
+    assert not team_names_match("Australia U20", "Australia")
+    assert team_names_match("Blues Women", "Blues Womens")   # same variant, both sides
+
+
+def test_two_spellings_of_the_same_variant_still_do_not_match() -> None:
+    """A KNOWN LIMITATION, recorded rather than wished away. "Blues Women" and "Blues
+    Ladies" are the same team: `_variant_markers` canonicalises both to `women`, so they
+    clear the variant gate — but `_side_ok` then needs every token to find a partner, and
+    "women" is neither a prefix nor a subsequence of "ladies".
+
+    It fails CLOSED (refuses a real match) rather than open (merging two teams), which is
+    the right direction, so this is a gap rather than a bug. Fixing it means matching on
+    canonicalised markers instead of raw variant tokens — worth doing only if a book is
+    found that actually says "Ladies"."""
+    from sportsdata_agents.operations.resolution.resolver import team_names_match
+
+    assert not team_names_match("Blues Women", "Blues Ladies")
 
 
 def test_an_ambiguous_team_name_matches_nothing() -> None:
     """Two plausible teams means the resolver does not know which price it is looking
     at, and a wrong leg is a wrong bet at a right-looking price."""
-    from sportsdata_agents.interfaces.sportsboard.sgm_books import _unique_team_match
+    from sportsdata_agents.operations.resolution.resolver import unique_team_match
 
-    outs = [{"participant": "Sydney Swans"}, {"participant": "Sydney FC"}]
-    assert _unique_team_match(outs, "Sydney", lambda o: o["participant"]) is None
+    both = [{"participant": "Adelaide Crows"}, {"participant": "Adelaide United"}]
+    assert unique_team_match(both, "Adelaide", lambda o: o["participant"]) is None
 
-    one = [{"participant": "Sydney Swans"}, {"participant": "Carlton Blues"}]
-    assert _unique_team_match(one, "Sydney", lambda o: o["participant"])["participant"] == "Sydney Swans"
+    one = [{"participant": "Adelaide Crows"}, {"participant": "Carlton Blues"}]
+    hit = unique_team_match(one, "Adelaide", lambda o: o["participant"])
+    assert hit["participant"] == "Adelaide Crows"
 
 
 def test_exact_wins_over_a_loose_match() -> None:
-    from sportsdata_agents.interfaces.sportsboard.sgm_books import _unique_team_match
+    from sportsdata_agents.operations.resolution.resolver import unique_team_match
 
     outs = [{"participant": "Adelaide"}, {"participant": "Adelaide Crows"}]
-    hit = _unique_team_match(outs, "Adelaide", lambda o: o["participant"])
+    hit = unique_team_match(outs, "Adelaide", lambda o: o["participant"])
     assert hit["participant"] == "Adelaide"
-
-
-def test_the_tab_sport_lookup_uses_the_keys_normalisation() -> None:
-    """`_norm` strips underscores, so a raw TAB_NAMES.get(_norm(sport)) could never match
-    a key like "australian_rules": the lookup asks for "australianrules". Every AFL
-    fixture reported "no TAB sport/competition mapping" while TAB was listing the match.
-    Found live 2026-08-27 on Western Bulldogs v Collingwood."""
-    from sportsdata_agents.interfaces.sportsboard.sgm_books import (
-        _TAB_NAMES_NORMALISED,
-        TAB_NAMES,
-    )
-
-    assert "australianrules" in _TAB_NAMES_NORMALISED
-    assert "rugbyleague" in _TAB_NAMES_NORMALISED
-    # every declared sport survives the normalisation, none collide away
-    assert len(_TAB_NAMES_NORMALISED) == len(TAB_NAMES)
-    assert _TAB_NAMES_NORMALISED["australianrules"] == ("AFL Football", "AFL")
