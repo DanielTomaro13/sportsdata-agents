@@ -26,7 +26,7 @@ from sportsdata_agents.operations.ingestion.normalizers import canonical_sport
 
 logger = logging.getLogger(__name__)
 
-_SEPARATORS = (" vs ", " v ", " - ", " @ ", " At ", " at ")
+_SEPARATORS = (" vs. ", " vs ", " v ", " - ", " @ ", " At ", " at ")  # "vs." is Polymarket's
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset({"the", "fc", "afc", "club"})
 MATCH_THRESHOLD = 0.3  # rank floor; the real gate is the per-side fuzzy-subset rule
