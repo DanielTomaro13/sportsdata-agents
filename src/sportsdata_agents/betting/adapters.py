@@ -119,15 +119,22 @@ def entain_payload(candidate: Candidate, *, stake: float) -> dict[str, Any]:
     }
 
 
-def unibet_payload(candidate: Candidate, *, stake: float,
-                   allow_odds_change: bool = False) -> dict[str, Any]:
-    """A Kambi coupon: ONE couponRow whose `group.groups[]` nests the legs.
+def unibet_coupon(candidate: Candidate, *, stake: float | None) -> dict[str, Any]:
+    """A Kambi coupon. `stake=None` builds the VALIDATION body; a number builds the
+    placement one — the stake is the only difference between asking and betting.
 
-    `odds` is in THOUSANDTHS (3400 = 3.40) — the raw form the pricer returned, carried
+    Every string here was read off a live authenticated request (2026-08-27), because
+    the first version of this adapter guessed and guessed wrong:
+
+        operation  "AND"           (not "COMBINATION")
+        type       "BET_BUILDER"   (not "COMBINATION")
+
+    `odds` is in THOUSANDTHS (3300 = 3.30) — the raw form the pricer returned, carried
     through rather than re-derived from the rounded decimal.
 
-    `allow_odds_change` defaults to False: the plane has already run its own drift gate,
-    and letting the book move the price after that would make the gate pointless.
+    `allowOddsChange`, `requestId` and `channel` were also guessed and do NOT appear on
+    the verified request, so they are not sent. Drift is handled by this plane's own gate
+    before the request is built, which is the better place for it anyway.
     """
     p = _placement(candidate)
     ids = p["outcome_ids"]
@@ -137,26 +144,29 @@ def unibet_payload(candidate: Candidate, *, stake: float,
     if not isinstance(thousandths, int | float):
         raise AdapterError("Unibet quote carries no thousandths price to place at")
 
-    flag = "true" if allow_odds_change else "false"
+    bet: dict[str, Any] = {"couponRowIndexes": [0], "eachWay": False}
+    if stake is not None:
+        bet["stake"] = round(stake, 2)
     return {
         "body": {
             "couponRows": [{
                 "index": 0,
                 "odds": int(thousandths),
                 "group": {
-                    "operation": "COMBINATION",
-                    "groups": [{"operation": "COMBINATION", "outcomeIds": [oid]} for oid in ids],
+                    "operation": "AND",
+                    "groups": [{"operation": "AND", "outcomeIds": [oid]} for oid in ids],
                 },
-                "type": "COMBINATION",
+                "type": "BET_BUILDER",
             }],
-            "bets": [{"couponRowIndexes": [0], "eachWay": False, "stake": round(stake, 2)}],
-            "allowOddsChange": flag,
-            "allowOddsChangeLive": flag,
-            "allowOddsChangePreMatch": flag,
-            "requestId": uuid.uuid4().hex,
-            "channel": "Internet",
+            "bets": [bet],
+            "isUserLoggedIn": True,
         }
     }
+
+
+def unibet_payload(candidate: Candidate, *, stake: float) -> dict[str, Any]:
+    """The placement body — the coupon WITH the money on it."""
+    return unibet_coupon(candidate, stake=stake)
 
 
 def tab_payload(
@@ -252,9 +262,24 @@ def entain_reprice_args(candidate: Candidate, *, stake: float) -> dict[str, Any]
 
 
 def unibet_reprice_args(candidate: Candidate, *, stake: float) -> dict[str, Any]:
-    """`unibet_validate_coupon` takes the coupon itself — the anonymous go/no-go that
-    answered 400 rather than 401 with no session cookie."""
-    return unibet_payload(candidate, stake=stake)
+    """Unibet re-prices through `unibet_sgm_price`, NOT through `validate_coupon`.
+
+    Measured 2026-08-27: validate answers {status, validSession, rewardInfo} and echoes
+    NO price at all — no couponRows in the reply. This adapter used to point the drift
+    gate at it, which meant the reader found nothing to read and the executor refused
+    every Unibet placement. `unibet_sgm_price` is the anonymous pricer and it returns
+    `selectedOdds.decimal` in thousandths, which is what a drift check needs.
+
+    Validation is still worth calling — it is the go/no-go, and `validSession` is the
+    cheapest way to tell a dead token from a bad coupon — but it answers a different
+    question from "what is this worth now".
+    """
+    p = _placement(candidate)
+    ids = p["outcome_ids"]
+    return {
+        "eventId": int(p["event_id"]) if p.get("event_id") else None,
+        "outcomeIds": ",".join(str(i) for i in ids),
+    }
 
 
 REPRICE_ARGS = {

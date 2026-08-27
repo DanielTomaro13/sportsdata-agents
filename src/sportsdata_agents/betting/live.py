@@ -109,22 +109,27 @@ def read_entain_price(quote: Any) -> float:
 
 
 def read_unibet_price(quote: Any) -> float:
-    """`unibet_validate_coupon` → the coupon's odds, in KAMBI THOUSANDTHS.
+    """`unibet_sgm_price` → `selectedOdds.decimal`, in KAMBI THOUSANDTHS.
 
-    3400 IS 3.40. Returning the raw number would be a price a thousand times too long,
-    which is the loudest possible wrong answer and therefore the one most likely to be
-    caught — but only if someone divides.
+    3300 IS 3.30. Returning the raw number would be a price a thousand times too long,
+    which is the loudest possible wrong answer — but only caught if someone divides.
+
+    NOT `validate_coupon`. This reader used to parse `couponRows[].odds` out of the
+    validation response, and validation does not echo a price: its reply is
+    {status, validSession, rewardInfo}, with no couponRows anywhere. The reader found
+    nothing, raised, and the executor refused every Unibet placement — a drift gate that
+    was armed, wired, and structurally incapable of passing. Measured 2026-08-27.
     """
     if not isinstance(quote, dict):
-        raise PriceUnreadable("unibet_validate_coupon returned no object")
-    if "message" in quote and quote.get("status") not in (None, "", 0):
-        raise PriceUnreadable(f"kambi refused the coupon: {quote.get('status')}")
-    rows = quote.get("couponRows") or []
-    for row in rows:
-        odds = row.get("odds")
-        if isinstance(odds, int | float) and odds > 1000:
-            return float(odds) / 1000.0
-    raise PriceUnreadable("no couponRows odds in unibet_validate_coupon response")
+        raise PriceUnreadable("unibet_sgm_price returned no object")
+    odds = (quote.get("selectedOdds") or {}).get("decimal")
+    if isinstance(odds, int | float) and odds > 1000:
+        return float(odds) / 1000.0
+    if quote.get("selectedOdds") is None and quote.get("combinableOutcomeIds") is not None:
+        # A single leg returns the combinable list with NO price — a missing key here
+        # means "not priced", not zero.
+        raise PriceUnreadable("unibet_sgm_price returned no selectedOdds (single leg?)")
+    raise PriceUnreadable(f"no usable selectedOdds in unibet_sgm_price response: {sorted(quote)[:6]}")
 
 
 #: Which reader belongs to which book. The executor refuses to place without one rather

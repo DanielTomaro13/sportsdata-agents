@@ -735,6 +735,7 @@ async def quote_unibet(session: AsyncSession, mcp: Any, fixture_id: str,
         # Kambi's coupon wants the outcome ids and the price in THOUSANDTHS, which is
         # the raw form the pricer returned — carried through unrounded on purpose.
         "placement": {
+            "event_id": int(ev.external_id),
             "outcome_ids": list(r.get("selectedOutcomeIds") or ids),
             "odds_thousandths": (r.get("selectedOdds") or {}).get("decimal"),
         },

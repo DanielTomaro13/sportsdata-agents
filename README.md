@@ -25,10 +25,22 @@ Racing, Trading/Betting, and more. Nothing is privileged: a Trading module and a
 are equal citizens of the catalogue. Trading/Betting is just one module (and jurisdiction-gated),
 so a workspace without it is a pure analytics tool (bigger market, lower compliance surface).
 
-> ### Advisory only — no agent ever places a bet or moves money.
-> The platform **informs**. It surfaces recommendations, the statistics you asked for,
-> and the bets *you* may choose to place (with stakes, books, and reasoning). **You
-> always take the action.** This is a research and analytics tool, not a betting operator.
+> ### It can place bets. It does not, until you say so.
+> Until 27 August 2026 this claimed no agent could ever stake money, because money-verb
+> tools were banned by name. That ban is gone, and the platform can now place at
+> **Sportsbet, TAB, Ladbrokes/Neds and Unibet**.
+>
+> What guards it now is a policy the code checks before a request is built — not a
+> sentence in a prompt. It **defaults to `paper`**: the full pipeline runs, every
+> decision is recorded, and nothing reaches a bookmaker. Moving a book to `ask` or
+> `auto` is a deliberate, per-book act, under a minimum edge, a per-bet ceiling and a
+> daily cap you set. Approvals expire in minutes, and an approved bet is re-priced
+> before it goes — a price that has moved is not the price you agreed to.
+>
+> **Only Sportsbet and TAB have been driven end to end against a real account.** Unibet
+> and Ladbrokes/Neds have their request shape captured from browser placements, so
+> unattended betting on those two stays off unless you explicitly allow it. You are
+> responsible for what your policy authorises. 18+.
 
 ## Design
 
@@ -47,7 +59,7 @@ pros and cons of every choice.
 
 ## What's built (P0–P4 complete — a downloadable desktop app)
 
-**The agent team** (27 specs in `src/sportsdata_agents/specs/` — 20 product, 7 ops): an orchestrator that
+**The agent team** (32 specs in `src/sportsdata_agents/specs/` — 25 product, 7 ops): an orchestrator that
 routes and delegates; odds/stats specialists over the live data plane; a **racing
 analyst** (racecards, results, cross-book win/place) and a **prediction-market
 analyst** (Kalshi/Polymarket + the exchange-vs-book edge); a modelling agent

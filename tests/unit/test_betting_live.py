@@ -82,16 +82,25 @@ def test_entain_with_no_odds_refuses() -> None:
 
 
 def test_kambi_thousandths_are_divided() -> None:
-    """3400 IS 3.40. Returning the raw number is a price a thousand times too long."""
-    quote = {"couponRows": [{"odds": 3400}]}
-    assert live.read_unibet_price(quote) == pytest.approx(3.4)
+    """3300 IS 3.30. Returning the raw number is a price a thousand times too long."""
+    quote = {"selectedOdds": {"decimal": 3300}, "selectedOutcomeIds": [1, 2]}
+    assert live.read_unibet_price(quote) == pytest.approx(3.3)
 
 
-def test_kambis_rejection_envelope_is_not_a_price() -> None:
-    """{status, message} is how Kambi refuses. Reading a price out of a refusal would
-    place a bet the book already declined."""
-    with pytest.raises(PriceUnreadable, match="refused"):
-        live.read_unibet_price({"status": 400, "message": "coupon is stale"})
+def test_unibet_re_prices_through_the_pricer_not_the_validator() -> None:
+    """validate_coupon answers {status, validSession, rewardInfo} and echoes NO price.
+    This reader used to parse couponRows out of it, found nothing, raised — and the
+    executor refused every Unibet placement. A drift gate armed and unable to pass."""
+    validate_reply = {"status": "SUCCESS", "validSession": True, "rewardInfo": {}}
+    with pytest.raises(PriceUnreadable):
+        live.read_unibet_price(validate_reply)
+
+
+def test_a_single_leg_has_no_price_and_says_so() -> None:
+    """unibet_sgm_price returns the combinable list with no selectedOdds for one leg —
+    a missing key means "not priced", never zero."""
+    with pytest.raises(PriceUnreadable, match="single leg"):
+        live.read_unibet_price({"combinableOutcomeIds": [1, 2, 3]})
 
 
 def test_kambi_with_no_rows_refuses() -> None:

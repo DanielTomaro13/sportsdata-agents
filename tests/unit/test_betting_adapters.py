@@ -37,7 +37,8 @@ ENTAIN = {
                    {"market_id": "m2", "entrant_id": "x2"}],
     "odds": {"numerator": 12, "denominator": 5, "decimal": 3.4},
 }
-UNIBET = {"outcome_ids": [4306981996, 4309057043], "odds_thousandths": 3400}
+UNIBET = {"event_id": 1028856020,
+          "outcome_ids": [4306981997, 4309036845], "odds_thousandths": 3300}
 
 
 # ─── Sportsbet ──────────────────────────────────────────────────────────
@@ -102,17 +103,21 @@ def test_entain_stake_is_top_level_not_per_bet() -> None:
 
 
 def test_a_kambi_sgm_is_one_couponrow_nesting_the_legs() -> None:
+    """operation "AND", type "BET_BUILDER" — both read off a live request. The first
+    version guessed "COMBINATION" for both, which Kambi would not have recognised."""
     body = adapters.unibet_payload(candidate("unibet", UNIBET), stake=1)["body"]
     rows = body["couponRows"]
     assert len(rows) == 1
-    assert rows[0]["group"]["operation"] == "COMBINATION"
-    assert [g["outcomeIds"] for g in rows[0]["group"]["groups"]] == [[4306981996], [4309057043]]
+    assert rows[0]["type"] == "BET_BUILDER"
+    assert rows[0]["group"]["operation"] == "AND"
+    assert all(g["operation"] == "AND" for g in rows[0]["group"]["groups"])
+    assert [g["outcomeIds"] for g in rows[0]["group"]["groups"]] == [[4306981997], [4309036845]]
 
 
 def test_kambi_odds_are_sent_in_thousandths() -> None:
-    """3400 IS 3.40. Sending the decimal would be a price a thousand times too short."""
+    """3300 IS 3.30. Sending the decimal would be a price a thousand times too short."""
     body = adapters.unibet_payload(candidate("unibet", UNIBET), stake=1)["body"]
-    assert body["couponRows"][0]["odds"] == 3400
+    assert body["couponRows"][0]["odds"] == 3300
 
 
 def test_the_kambi_stake_lives_in_bets_not_on_the_row() -> None:
@@ -120,19 +125,31 @@ def test_the_kambi_stake_lives_in_bets_not_on_the_row() -> None:
     assert body["bets"] == [{"couponRowIndexes": [0], "eachWay": False, "stake": 4.5}]
 
 
-def test_odds_change_is_refused_by_default() -> None:
-    """The plane runs its own drift gate. Letting the book move the price afterwards
-    would make that gate pointless."""
+def test_the_guessed_fields_are_not_sent() -> None:
+    """allowOddsChange / requestId / channel were invented and do not appear on the
+    verified request. Drift is handled by this plane's gate before the body is built."""
     body = adapters.unibet_payload(candidate("unibet", UNIBET), stake=1)["body"]
-    assert body["allowOddsChange"] == "false"
-    assert body["allowOddsChangeLive"] == "false"
-    assert body["allowOddsChangePreMatch"] == "false"
+    for guessed in ("allowOddsChange", "allowOddsChangeLive", "allowOddsChangePreMatch",
+                    "requestId", "channel"):
+        assert guessed not in body, guessed
+    assert body["isUserLoggedIn"] is True
 
 
-def test_each_kambi_request_gets_a_fresh_request_id() -> None:
-    a = adapters.unibet_payload(candidate("unibet", UNIBET), stake=1)["body"]["requestId"]
-    b = adapters.unibet_payload(candidate("unibet", UNIBET), stake=1)["body"]["requestId"]
-    assert a != b
+def test_the_stake_is_what_separates_asking_from_betting() -> None:
+    """validate carries no stake; placement adds it. Same coupon otherwise."""
+    ask = adapters.unibet_coupon(candidate("unibet", UNIBET), stake=None)["body"]
+    bet = adapters.unibet_coupon(candidate("unibet", UNIBET), stake=2.5)["body"]
+    assert "stake" not in ask["bets"][0]
+    assert bet["bets"][0]["stake"] == 2.5
+    assert ask["couponRows"] == bet["couponRows"]
+
+
+def test_unibet_re_prices_through_the_pricer_not_the_validator() -> None:
+    """unibet_sgm_price takes an eventId and comma-joined outcome ids — not a coupon."""
+    args = adapters.reprice_args_for(candidate("unibet", UNIBET), stake=1)
+    assert args["eventId"] == 1028856020
+    assert args["outcomeIds"] == "4306981997,4309036845"
+    assert "body" not in args
 
 
 # ─── TAB: the one that cannot come from a quote ─────────────────────────
