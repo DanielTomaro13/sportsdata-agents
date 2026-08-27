@@ -304,6 +304,52 @@ def _match_unibet_leg(leg: dict, offers: list[dict], home: str, away: str) -> in
     return f"{label}: market family {fam!r} is not mapped for Unibet"
 
 
+#: competition INTERNAL id -> (classExternalId, competitionExternalId). Sportsbet's nav
+#: hierarchy is the only place the two id spaces are related, and it is a big document, so
+#: it is fetched once per process rather than per quote.
+_SPORTSBET_EXT: dict[int, tuple[int, int]] = {}
+
+
+async def _sportsbet_external_ids(mcp: Any, event_external_id: str,
+                                  markets: list[dict]) -> tuple[int, int] | str:
+    """(classExternalId, competitionExternalId) for the competition this event sits in.
+
+    The pricer takes EXTERNAL ids. `topicLink` looks like it carries them and does not —
+    it carries the internal pair, which the pricer answers with a 500.
+    """
+    tl = str((markets[0] if markets else {}).get("topicLink") or "")
+    m = re.search(r"Competitions/(\d+)", tl)
+    if not m:
+        return f"could not read the competition id from topicLink {tl!r}"
+    comp_internal = int(m.group(1))
+    if comp_internal in _SPORTSBET_EXT:
+        return _SPORTSBET_EXT[comp_internal]
+
+    try:
+        nav = await mcp.call_tool("sportsbet_nav_hierarchy", {})
+    except Exception as exc:
+        return f"sportsbet_nav_hierarchy failed: {exc}"
+
+    found: list[tuple[int, int]] = []
+
+    def walk(node: Any, class_ext: Any) -> None:
+        if isinstance(node, dict):
+            ce = node.get("classExternalId") or class_ext
+            if node.get("id") == comp_internal and node.get("competitionExternalId") and ce:
+                found.append((int(ce), int(node["competitionExternalId"])))
+            for v in node.values():
+                walk(v, ce)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, class_ext)
+
+    walk(nav, None)
+    if not found:
+        return f"competition {comp_internal} is not in sportsbet_nav_hierarchy"
+    _SPORTSBET_EXT[comp_internal] = found[0]
+    return found[0]
+
+
 async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
                           legs: list[dict]) -> dict[str, Any]:
     ev = await _linked_event(session, fixture_id, "sportsbet")
@@ -328,17 +374,21 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
     if misses:
         return {"unavailable": "could not match every leg", "unmatched": misses}
 
-    # The pricer wants the class/competition EXTERNAL ids; every market's
-    # topicLink carries them (verified live: topicLink numbers price fine).
-    tl = str(markets[0].get("topicLink") or "")
-    m = re.search(r"Sports/(\d+)/Competitions/(\d+)", tl)
-    if not m:
-        return {"unavailable": f"could not read class/competition from topicLink {tl!r}"}
+    # The pricer wants the class/competition EXTERNAL ids, and `topicLink` does NOT carry
+    # them — it carries the INTERNAL ones. On AFL the topicLink reads
+    # ".../Sports/50/Competitions/4165/..." while the pricer wants 103/17131, and feeding
+    # it the internal pair returns HTTP 500 "Error getting price from MAP API". Verified
+    # live 2026-08-27: 50/4165 fails, 103/17131 prices. Only sportsbet_nav_hierarchy
+    # relates the two, so the mapping is looked up rather than parsed out of a URL.
+    ids = await _sportsbet_external_ids(mcp, str(ev.external_id), markets)
+    if isinstance(ids, str):
+        return {"unavailable": ids}
+    class_ext, comp_ext = ids
 
     try:
         r = await mcp.call_tool("sportsbet_sgm_price", {
-            "classExternalId": int(m.group(1)),
-            "competitionExternalId": int(m.group(2)),
+            "classExternalId": class_ext,
+            "competitionExternalId": comp_ext,
             "eventExternalId": int(ev.external_id),
             "outcomesExternalIds": outcomes,
         })
@@ -820,11 +870,10 @@ def _match_tab_leg(leg: dict, markets: list[dict], home: str, away: str) -> int 
     if fam == "line":
         for m in cands:
             nm = _norm(m.get("name", ""))
-            # "line +1.5" — and NOT "1stqtrln"/"2ndqline", which are per-period and are
-            # excluded by the sameGame flag anyway.
-            if " line " not in f" {nm} " and not nm.endswith(" line"):
-                if "line" not in nm.split():
-                    continue
+            # "line +1.5" as a whole word — not "1stqtrln"/"2ndqline", which are
+            # per-period and excluded by the sameGame flag anyway.
+            if "line" not in nm.split():
+                continue
             if line is not None and str(abs(float(line))) not in str(m.get("name", "")):
                 continue
             for p in props(m):
