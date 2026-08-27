@@ -388,7 +388,9 @@ async def list_specials(
         best = sorted(
             ({"selection": sel, "best_odds": min(b.values()), "books": len(b)}
              for sel, b in sels.items()),
-            key=lambda x: x["best_odds"])
+            # float() is for mypy, not maths: the dict literal infers object values,
+            # and object is not orderable. Odds are 3dp — the cast cannot reorder them.
+            key=lambda x: float(x["best_odds"]))  # type: ignore[arg-type]
         out.append({
             "fixture_id": str(f.id), "name": f.name, "category": f.sport,
             "start_time": f.start_time.isoformat() if f.start_time else None,
