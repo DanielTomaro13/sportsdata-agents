@@ -315,23 +315,7 @@ async def list_games(
         priced = _priced_markets(markets)
         h2h = next((m for m in priced if m["family"] == "h2h"), None)
         if h2h is None:
-            # No sharp priced the h2h — but if the BOOKS did, it is still a
-            # board row (this gate silently hid whole sports, AFL included,
-            # whenever the sharps skipped a league). No fair line, just odds.
-            book_h2h = markets.get(("h2h", None)) or {}
-            if not book_h2h:
-                continue  # nobody prices it at all
-            home, away = _teams(f.name)
-            out.append({
-                "fixture_id": str(f.id), "sport": f.sport, "name": f.name,
-                "home": home, "away": away,
-                "start_time": f.start_time.isoformat() if f.start_time else None,
-                "sharp_sources": [], "no_sharp": True,
-                "market_count": len(markets) + len(extras),
-                "book_count": len(book_h2h), "bf_matched": money.get("matched"),
-                "favourite": None, "fav_prob": None,
-            })
-            continue
+            continue  # detail shows sharp-priced markets only — no sharp, no row
         fair = h2h["fair"]
         home, away = _teams(f.name)
         fav = max(fair, key=lambda s: fair[s]) if fair else None
@@ -340,7 +324,7 @@ async def list_games(
             "fixture_id": str(f.id), "sport": f.sport, "name": f.name,
             "home": home, "away": away,
             "start_time": f.start_time.isoformat() if f.start_time else None,
-            "sharp_sources": h2h["sharp_sources"], "market_count": len(priced) + len(extras),
+            "sharp_sources": h2h["sharp_sources"], "market_count": len(priced),
             "book_count": n_books, "bf_matched": money.get("matched"),
             "favourite": fav, "fav_prob": round(fair[fav], 3) if fav else None,
         })
@@ -365,25 +349,10 @@ async def game_detail(session: AsyncSession, fixture_id: str,
     fx_events = events.get(f.id, [])
     markets, money, extras = await _markets_by_source(session, fx_events, now=now)
     priced = _priced_markets(markets)
-    sharp_keys = {(m["family"], m["line"]) for m in priced}
-    # Book-only h2h/total/line rows (no sharp priced them) join the board
-    # after the sharp tier — fair stays empty, the quotes are the content.
-    for (family, line), by_source in markets.items():
-        if (family, line) in sharp_keys or not by_source:
-            continue
-        priced.append({
-            "key": _market_key(family, line), "family": family, "line": line,
-            "label": _market_label(family, line), "fair": {}, "sharp_sources": [],
-            "value": {}, "quotes": dict(by_source), "n_sharp": 0, "book_only": True,
-        })
-    # The EXTRAS: every other 2-3 way market the books price (props,
-    # disposals, novelty derivatives) — cross-book comparison, no blend.
-    extra_rows = [
-        {"key": "x:" + name, "label": name.title(), "family": "book",
-         "selections": sels, "n_books": len({b for v in sels.values() for b in v})}
-        for name, sels in extras.items() if 2 <= len(sels) <= 3
-    ]
-    extra_rows.sort(key=lambda m: (-m["n_books"], m["label"]))
+    # Sharp-priced markets ONLY, with every retail book's quotes matched onto
+    # them (the quotes grid). The book-only tier and the raw props/extras
+    # section were tried and rolled back: they flooded the panel with
+    # unstructured non-two-way markets. Revisit behind curation if wanted.
     h2h = next((m for m in priced if m["family"] == "h2h"), None)
     rating = await _engine_rating(session, f.sport, f)
     flow = await market_flow(session, fx_events, now=now)
@@ -396,8 +365,7 @@ async def game_detail(session: AsyncSession, fixture_id: str,
         "sharp_sources": h2h["sharp_sources"] if h2h else [],
         "value": h2h["value"] if h2h else {},
         "quotes": h2h["quotes"] if h2h else {},
-        "markets": priced,          # sharp tier first, then book-only rows
-        "extra_markets": extra_rows[:60],  # props & derivatives, 2-3 way
+        "markets": priced,          # sharp-priced only; book quotes matched on
         "bf_money": money, "engine_rating": rating,
         "flow": flow,               # sharp line + Betfair money over time
     }

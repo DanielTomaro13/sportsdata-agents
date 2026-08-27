@@ -328,14 +328,6 @@
       return rows + (isExp ? bookGrid(m, d) : "");
     }).join("");
 
-    const extras = (d.extra_markets || []).filter((m) => !q || m.label.toLowerCase().includes(q));
-    const extraRows = extras.map((m) => {
-      const isExp = state.expanded[m.key];
-      const first = `<tr class="mstart"><td class="mk"><span class="mexp" data-exp="${esc(m.key)}">${isExp ? "▾" : "▸"}</span>${esc(m.label)}</td><td class="sel flatc" colspan="4">${Object.keys(m.selections).length} selections · ${m.n_books} book${m.n_books > 1 ? "s" : ""}</td><td></td></tr>`;
-      if (!isExp) return first;
-      return first + Object.entries(m.selections).map(([sel, prices]) =>
-        `<tr><td></td><td class="sel">${esc(sel)}</td><td class="best" colspan="3">${Object.entries(prices).sort((a2, b2) => b2[1] - a2[1]).map(([bk, o]) => `${od(o)} <span class="bk">${esc(bk)}</span>`).join(" · ")}</td><td></td></tr>`).join("");
-    }).join("");
 
     const rating = d.engine_rating;
     $("detail").innerHTML = `
@@ -349,7 +341,6 @@
       <div class="mktbar"><input type="search" id="mktsearch" placeholder="filter markets…" value="${esc(state._mq || "")}" autocomplete="off" /><span class="flatc" style="font-family:var(--mono);font-size:10px">click ▸ for every book · + SGM to build a multi</span></div>
       <table class="mkts"><thead><tr><th>MARKET</th><th>SELECTION</th><th>SHARP</th><th>BEST BOOK</th><th>VALUE</th><th></th></tr></thead>
       <tbody>${marketRows || '<tr><td colspan="6" class="flatc" style="padding:14px">no markets match</td></tr>'}</tbody>
-      ${extraRows ? `<tbody><tr><th colspan="6" style="text-align:left;padding:10px 8px 4px;font-size:10px;letter-spacing:.1em;color:var(--dim)">MORE MARKETS — book odds only (${extras.length})</th></tr>${extraRows}</tbody>` : ""}
       </table>
       ${sgmPanel()}
       <div class="legend">sharp = de-vigged blend of ${sharps.join(" · ") || "—"} over every market · <span class="up">green</span> = best book vs sharp · money flow = sharp line movement + Betfair matched over time</div>`;
