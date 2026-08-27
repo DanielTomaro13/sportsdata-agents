@@ -35,8 +35,19 @@ ADD_MCP=""
 if [ -x "$MCP_BIN" ]; then
   ADD_MCP="--add-binary $MCP_BIN:."
   echo "  bundling data plane: $MCP_BIN"
+elif [ -n "${SPORTSDATA_REQUIRE_DATAPLANE:-}" ]; then
+  # A RELEASE build must be self-contained. Without this the warning below is the
+  # only thing between a tag push and a published app that needs an external
+  # sportsdata-mcp on PATH — which the download page's audience does not have. A
+  # comment is not a guard; this is.
+  echo "ERROR: $MCP_BIN not found and SPORTSDATA_REQUIRE_DATAPLANE is set." >&2
+  echo "  A release bundle must embed the data plane. Either point" >&2
+  echo "  SPORTSDATA_MCP_DIR at a checkout whose .venv has sportsdata-mcp installed," >&2
+  echo "  or create one: python3 -m venv <dir>/.venv && <dir>/.venv/bin/pip install sportsdata-mcp" >&2
+  exit 1
 else
   echo "  WARNING: $MCP_BIN not found — the bundle will need an external sportsdata-mcp"
+  echo "  (set SPORTSDATA_REQUIRE_DATAPLANE=1 to make this an error, as releases do)"
 fi
 
 PYI="$REPO/.venv/bin/pyinstaller"

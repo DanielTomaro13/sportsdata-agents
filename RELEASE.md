@@ -25,6 +25,22 @@ For a real release the **sportsdata-mcp** data plane is bundled in:
 (defaults to the sibling checkout) and embeds it; without it the app needs an
 external `sportsdata-mcp` on PATH.
 
+**A release build refuses to ship without it.** `SPORTSDATA_REQUIRE_DATAPLANE=1`
+turns the "not found" warning into a hard error, and the tag-triggered workflow
+sets it. This closed a real hole: CI had no sibling checkout, so every CI build
+silently produced a bundle needing an external data plane — one accidental `git
+push --tags` from publishing that to the download page. CI now builds the venv
+from PyPI instead, so a tagged release is self-contained by construction, and a
+second check refuses to attach assets if the binary is missing from `dist/`.
+
+Any machine can do the same without a checkout:
+
+```sh
+python3 -m venv ../sportsdata-mcp/.venv
+../sportsdata-mcp/.venv/bin/pip install sportsdata-mcp
+SPORTSDATA_REQUIRE_DATAPLANE=1 sh scripts/build-desktop.sh
+```
+
 ## What needs your accounts (one-time)
 
 1. **Apple Developer Program** — enrol, then in Xcode/Developer portal create a

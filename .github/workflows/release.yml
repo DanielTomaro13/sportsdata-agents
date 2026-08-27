@@ -37,10 +37,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[build]"
 
+      - name: Fetch the data plane to bundle
+        # The app must be self-contained: without an embedded sportsdata-mcp the
+        # bundle needs one on PATH, which the download page's audience does not have.
+        # This used to be impossible in CI — build-desktop.sh looks for a SIBLING
+        # CHECKOUT and none exists here — so every CI build silently shipped without
+        # it. sportsdata-mcp is on PyPI now, so the venv can just be built here.
+        #
+        # Floated, not pinned: the app should ship the current data plane, and the
+        # runtime handshake (MIN_MCP_VERSION) is what enforces compatibility.
+        run: |
+          python -m venv ../sportsdata-mcp/.venv
+          ../sportsdata-mcp/.venv/bin/pip install --upgrade pip
+          ../sportsdata-mcp/.venv/bin/pip install sportsdata-mcp
+          ../sportsdata-mcp/.venv/bin/sportsdata-mcp --version || true
+          echo "bundling $(../sportsdata-mcp/.venv/bin/pip show sportsdata-mcp | sed -n 's/^Version: //p')"
+
       - name: Build onedir bundle + .app
-        # The sibling sportsdata-mcp isn't checked out here, so build-desktop.sh
-        # warns and ships without the bundled data plane — fine for a test build.
-        # A real release bundles it (see RELEASE.md).
+        # SPORTSDATA_REQUIRE_DATAPLANE turns "warn and ship without it" into a hard
+        # failure. On a TAG that is the point: a release that quietly lacks its data
+        # plane is worse than no release, and until now only a comment stood between
+        # a tag push and exactly that. Manual runs stay lenient so the pipeline is
+        # still exercisable without the fetch above succeeding.
+        env:
+          SPORTSDATA_REQUIRE_DATAPLANE: ${{ startsWith(github.ref, 'refs/tags/') && '1' || '' }}
         run: |
           sh scripts/build-desktop.sh
           sh scripts/make-macos-app.sh
@@ -102,6 +122,19 @@ jobs:
             dist/*-unsigned.zip
             dist/data-bundle.json
           if-no-files-found: error
+
+      # Belt and braces: the build above cannot succeed on a tag without the data
+      # plane, but an artifact that reaches this step unverified would be published
+      # to every user. Cheap to check, expensive to get wrong.
+      - name: Verify the release bundle embeds the data plane
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if ! find dist -name 'sportsdata-mcp*' -print -quit | grep -q .; then
+            echo "REFUSING to publish: no sportsdata-mcp found in dist/." >&2
+            echo "The bundle would need an external data plane on the user's PATH." >&2
+            exit 1
+          fi
+          echo "data plane present in the bundle"
 
       - name: Attach to the GitHub release
         if: startsWith(github.ref, 'refs/tags/')
