@@ -40,9 +40,12 @@
     return (await fetch(apiBase.replace(/^ws/, "http") + path)).json();
   }
 
+  // Server timestamps are UTC but often naive — parse as UTC or the board
+  // shows tonight's games LIVE all morning (a browser reads naive as local).
+  const utc = (iso) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + "Z");
   function ttj(iso) {
     if (!iso) return { t: "", c: "" };
-    const m = Math.round((new Date(iso) - Date.now()) / 60000);
+    const m = Math.round((utc(iso) - Date.now()) / 60000);
     if (m <= 0) return { t: "LIVE", c: "live" };
     if (m < 60) return { t: m + "m", c: m < 10 ? "soon" : "" };
     if (m < 2880) return { t: Math.floor(m / 60) + "h" + (m % 60) + "m", c: "" };
@@ -64,7 +67,7 @@
     let d;
     if (isReplay()) { await ensureFrames(); d = { games: curFrame().games || [] }; }
     else {
-      try { d = await api("/api/games?hours=48"); }
+      try { d = await api("/api/games?hours=17520"); }  // two years = everything scheduled
       catch { if (cfg.forceReplay || cfg.replayUrl) { enterReplay(); await ensureFrames(); d = { games: curFrame().games || [] }; } else { setConn(false); return; } }
     }
     setConn(true);
@@ -99,13 +102,22 @@
       const sels = (x.selections || []).slice(0, 3)
         .map((s) => `${esc(s.selection)} $${s.best_odds.toFixed(2)}`).join(" · ");
       const more = x.n_selections > 3 ? ` · +${x.n_selections - 3} more` : "";
-      return `<div class="sprow">
-        <div><span class="spcat">${esc((x.category || "").toUpperCase())}</span>
+      const open = state.spOpen === x.fixture_id;
+      const table = !open ? "" : `<div class="spdetail">` + (x.selections || []).map((s) =>
+        `<div class="spline"><span class="spname">${esc(s.selection)}</span>` +
+        Object.entries(s.prices || {}).map(([b, o]) => `<span class="spprice"><label>${esc(b)}</label>$${o.toFixed(2)}</span>`).join("") +
+        `</div>`).join("") + `</div>`;
+      return `<div class="sprow ${open ? "open" : ""}" data-sp="${esc(x.fixture_id)}">
+        <div class="sphead"><div><span class="spcat">${esc((x.category || "").toUpperCase())}</span>
         <div class="gname">${esc(x.name)}</div>
         <div class="spsels">${sels}${more} · <span class="gsrc">${(x.sources || []).join(", ")}</span></div></div>
-        <div class="ttj ${t.c}">${x.is_resolution_time ? `<span class="gsrc">resolves</span> ` : ""}${t.t}</div>
+        <div class="ttj ${t.c}">${x.is_resolution_time ? `<span class="gsrc">resolves</span> ` : ""}${t.t}</div></div>
+        ${table}
       </div>`;
     }).join("");
+    el.querySelectorAll(".sprow").forEach((r) => r.onclick = () => {
+      state.spOpen = state.spOpen === r.dataset.sp ? null : r.dataset.sp; renderList();
+    });
   }
 
   function renderGames() {
@@ -116,14 +128,22 @@
       .filter((g) => !q || (g.name + " " + g.sport).toLowerCase().includes(q));
     $("games-count").textContent = rows.length || "";
     if (!rows.length) { el.innerHTML = `<div class="note">${q || state.sportFilter !== "ALL" ? "no games match" : "no upcoming games priced yet — the ingest fills this live"}</div>`; return; }
-    el.innerHTML = rows.map((g) => {
+    const bySport = new Map();
+    for (const g of rows) { if (!bySport.has(g.sport)) bySport.set(g.sport, []); bySport.get(g.sport).push(g); }
+    const order = [...bySport.keys()].sort((a, b) =>
+      utc(bySport.get(a)[0].start_time) - utc(bySport.get(b)[0].start_time));
+    const row = (g) => {
       const t = ttj(g.start_time);
       const favTeam = g.favourite === "home" ? g.home : g.favourite === "away" ? g.away : g.favourite;
       return `<div class="grow ${state.selected === g.fixture_id ? "sel" : ""}" data-id="${esc(g.fixture_id)}">
         <div><div class="gname">${esc(g.name)}</div>
-        <div class="gsub">${g.sport.toUpperCase()} · <span class="gsrc">${(g.sharp_sources || []).length} sharp · ${g.market_count} mkts · ${g.book_count} books</span>${g.favourite ? ` · <span class="fav">${esc(favTeam || "")} ${g.fav_prob ? (g.fav_prob * 100).toFixed(0) + "%" : ""}</span>` : ""}</div></div>
+        <div class="gsub"><span class="gsrc">${g.no_sharp ? `${g.book_count} books · no sharp line` : `${(g.sharp_sources || []).length} sharp · ${g.book_count} books`} · ${g.market_count} mkts</span>${g.favourite ? ` · <span class="fav">${esc(favTeam || "")} ${g.fav_prob ? (g.fav_prob * 100).toFixed(0) + "%" : ""}</span>` : ""}</div></div>
         <div class="ttj ${t.c}">${t.t}${g.bf_matched ? `<div class="gsrc">${money(g.bf_matched)}</div>` : ""}</div>
       </div>`;
+    };
+    el.innerHTML = order.map((sp) => {
+      const gs = bySport.get(sp);
+      return `<div class="ghead">${sp.toUpperCase().replace(/_/g, " ")} <span class="count">${gs.length}</span></div>` + gs.map(row).join("");
     }).join("");
     el.querySelectorAll(".grow").forEach((x) => x.onclick = () => select(x.dataset.id));
   }
@@ -214,19 +234,41 @@
     const selLabel = (m, sel) => m.family === "h2h" ? (teamOf(d, sel) || SIDE[sel] || sel) : sel.toUpperCase();
     const marketRows = shown.map((m, mi) => {
       const isExp = state.expanded[m.key];
-      const rows = Object.keys(m.fair).map((sel, i) => {
+      // sharp rows iterate the fair; book-only rows (no sharp priced them)
+      // iterate the union of sides the books quote — comparison IS the value
+      const sels2 = Object.keys(m.fair).length ? Object.keys(m.fair)
+        : [...new Set(Object.values(m.quotes || {}).flatMap((q2) => Object.keys(q2)))];
+      const bestOf = (sel) => {
+        let bb = null, bo = 0;
+        for (const [bk, q2] of Object.entries(m.quotes || {}))
+          if (q2[sel] > bo) { bo = q2[sel]; bb = bk; }
+        return { bo, bb };
+      };
+      const rows = sels2.map((sel, i) => {
         const v = m.value[sel] || {};
+        const hasFair = m.fair[sel] != null;
+        const b = hasFair ? null : bestOf(sel);
         const inSgm = sgm.legs.some((l) => l.key === m.key + ":" + sel);
         return `<tr class="${i === 0 ? "mstart" : ""}">
-          <td class="mk">${i === 0 ? `<span class="mexp" data-exp="${esc(m.key)}">${isExp ? "▾" : "▸"}</span>${esc(m.label)}` : ""}</td>
+          <td class="mk">${i === 0 ? `<span class="mexp" data-exp="${esc(m.key)}">${isExp ? "▾" : "▸"}</span>${esc(m.label)}${m.book_only ? ' <span class="bk">books</span>' : ""}` : ""}</td>
           <td class="sel">${esc(selLabel(m, sel))}</td>
-          <td class="sharp">${od(v.fair_odds || (m.fair[sel] ? 1 / m.fair[sel] : null))}<span class="pp">${(m.fair[sel] * 100).toFixed(0)}%</span></td>
-          <td class="best">${v.best_odds ? od(v.best_odds) : "–"}${v.best_book ? ` <span class="bk">${esc(v.best_book)}</span>` : ""}</td>
+          <td class="sharp">${hasFair ? od(v.fair_odds || (m.fair[sel] ? 1 / m.fair[sel] : null)) + `<span class="pp">${(m.fair[sel] * 100).toFixed(0)}%</span>` : "–"}</td>
+          <td class="best">${hasFair ? (v.best_odds ? od(v.best_odds) : "–") + (v.best_book ? ` <span class="bk">${esc(v.best_book)}</span>` : "")
+                                     : (b.bo ? od(b.bo) + ` <span class="bk">${esc(b.bb)}</span>` : "–")}</td>
           <td class="val ${v.value_pct > 0 ? "pos" : "neg"}">${v.value_pct != null ? (v.value_pct > 0 ? "+" : "") + v.value_pct + "%" : "·"}</td>
-          <td class="addcell"><button class="addsgm ${inSgm ? "in" : ""}" data-mkey="${esc(m.key)}" data-sel="${esc(sel)}" title="add to same-game multi">${inSgm ? "✓" : "+ SGM"}</button></td>
+          <td class="addcell">${hasFair ? `<button class="addsgm ${inSgm ? "in" : ""}" data-mkey="${esc(m.key)}" data-sel="${esc(sel)}" title="add to same-game multi">${inSgm ? "✓" : "+ SGM"}</button>` : ""}</td>
         </tr>`;
       }).join("");
       return rows + (isExp ? bookGrid(m, d) : "");
+    }).join("");
+
+    const extras = (d.extra_markets || []).filter((m) => !q || m.label.toLowerCase().includes(q));
+    const extraRows = extras.map((m) => {
+      const isExp = state.expanded[m.key];
+      const first = `<tr class="mstart"><td class="mk"><span class="mexp" data-exp="${esc(m.key)}">${isExp ? "▾" : "▸"}</span>${esc(m.label)}</td><td class="sel flatc" colspan="4">${Object.keys(m.selections).length} selections · ${m.n_books} book${m.n_books > 1 ? "s" : ""}</td><td></td></tr>`;
+      if (!isExp) return first;
+      return first + Object.entries(m.selections).map(([sel, prices]) =>
+        `<tr><td></td><td class="sel">${esc(sel)}</td><td class="best" colspan="3">${Object.entries(prices).sort((a2, b2) => b2[1] - a2[1]).map(([bk, o]) => `${od(o)} <span class="bk">${esc(bk)}</span>`).join(" · ")}</td><td></td></tr>`).join("");
     }).join("");
 
     const rating = d.engine_rating;
@@ -240,7 +282,9 @@
       </div>
       <div class="mktbar"><input type="search" id="mktsearch" placeholder="filter markets…" value="${esc(state._mq || "")}" autocomplete="off" /><span class="flatc" style="font-family:var(--mono);font-size:10px">click ▸ for every book · + SGM to build a multi</span></div>
       <table class="mkts"><thead><tr><th>MARKET</th><th>SELECTION</th><th>SHARP</th><th>BEST BOOK</th><th>VALUE</th><th></th></tr></thead>
-      <tbody>${marketRows || '<tr><td colspan="6" class="flatc" style="padding:14px">no markets match</td></tr>'}</tbody></table>
+      <tbody>${marketRows || '<tr><td colspan="6" class="flatc" style="padding:14px">no markets match</td></tr>'}</tbody>
+      ${extraRows ? `<tbody><tr><th colspan="6" style="text-align:left;padding:10px 8px 4px;font-size:10px;letter-spacing:.1em;color:var(--dim)">MORE MARKETS — book odds only (${extras.length})</th></tr>${extraRows}</tbody>` : ""}
+      </table>
       ${sgmPanel()}
       <div class="legend">sharp = de-vigged blend of ${sharps.join(" · ") || "—"} over every market · <span class="up">green</span> = best book vs sharp · money flow = sharp line movement + Betfair matched over time</div>`;
     wire();

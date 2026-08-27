@@ -61,13 +61,18 @@ async def _fixture_events(session: AsyncSession, fixture_ids: set[Any]) -> dict[
 async def _markets_by_source(
     session: AsyncSession, events: list[Event], *,
     now: dt.datetime | None = None, fresh_minutes: float = 20.0,
-) -> tuple[dict[tuple[str, float | None], dict[str, dict[str, float]]], dict[str, Any]]:
+) -> tuple[dict[tuple[str, float | None], dict[str, dict[str, float]]], dict[str, Any],
+           dict[str, dict[str, dict[str, float]]]]:
     """{(family, line): {source: {side: odds}}} across h2h/total/line for the
-    freshest snapshot per (source, market, side), plus Betfair money."""
+    freshest snapshot per (source, market, side), plus Betfair money, plus the
+    EXTRAS: every other market the books price ({market: {selection: {book:
+    odds}}}) — player props, disposals, novelty derivatives. No sharp blends
+    over these (no two sides to de-vig), but cross-book comparison is exactly
+    what a punter wants from them."""
     from sportsdata_agents.operations.monitoring import _market_family, _split_selection
 
     if not events:
-        return {}, {}
+        return {}, {}, {}
     ext_ids = {e.external_id for e in events}
     now = now or dt.datetime.now(dt.UTC)
     floor = now - dt.timedelta(minutes=fresh_minutes)
@@ -80,9 +85,21 @@ async def _markets_by_source(
     markets: dict[tuple[str, float | None], dict[str, dict[str, float]]] = {}
     seen: set[tuple[str, str, float | None, str]] = set()
     money: dict[str, Any] = {}
+    extras: dict[str, dict[str, dict[str, float]]] = {}
+    extras_seen: set[tuple[str, str, str]] = set()
     for s in snaps:
         family = _market_family(s.market)
         if family not in ("h2h", "total", "line"):
+            ekey = (s.book, s.market, str(s.selection))
+            if ekey in extras_seen:
+                continue
+            extras_seen.add(ekey)
+            try:
+                eodds = float(s.odds)
+            except (TypeError, ValueError):
+                continue
+            if eodds > 1.0:
+                extras.setdefault(s.market, {}).setdefault(str(s.selection), {})[s.book] = eodds
             continue
         side, line = _split_selection(str(s.selection).lower())
         if family == "h2h" and (line is not None or side not in _SIDES):
@@ -107,7 +124,7 @@ async def _markets_by_source(
             back, lay = meta.get("back_size"), meta.get("lay_size") or meta.get("lay")
             if back and lay:
                 money.setdefault("wom", {})[side] = float(back) / (float(back) + float(lay))
-    return markets, money
+    return markets, money, extras
 
 
 async def market_flow(
@@ -256,7 +273,10 @@ async def list_games(
     fixtures = [
         f for f in (await session.execute(
             select(Fixture).where(Fixture.start_time >= now,
-                                  Fixture.start_time <= now + dt.timedelta(hours=hours)))
+                                  Fixture.start_time <= now + dt.timedelta(hours=hours))
+            # every future event is welcome, but the per-fixture market
+            # assembly below is the cost — bound the scan, soonest first
+            .order_by(Fixture.start_time).limit(500))
         ).scalars()
         # real two-sided matches only — drops player props / novelty specials
         # ("Trea Turner (Home Runs)", "Correct Score") that resolve to h2h noise
@@ -265,11 +285,27 @@ async def list_games(
     events = await _fixture_events(session, {f.id for f in fixtures})
     out: list[dict[str, Any]] = []
     for f in fixtures:
-        markets, money = await _markets_by_source(session, events.get(f.id, []), now=now)
+        markets, money, extras = await _markets_by_source(session, events.get(f.id, []), now=now)
         priced = _priced_markets(markets)
         h2h = next((m for m in priced if m["family"] == "h2h"), None)
         if h2h is None:
-            continue  # a game with no sharp h2h isn't a board row
+            # No sharp priced the h2h — but if the BOOKS did, it is still a
+            # board row (this gate silently hid whole sports, AFL included,
+            # whenever the sharps skipped a league). No fair line, just odds.
+            book_h2h = markets.get(("h2h", None)) or {}
+            if not book_h2h:
+                continue  # nobody prices it at all
+            home, away = _teams(f.name)
+            out.append({
+                "fixture_id": str(f.id), "sport": f.sport, "name": f.name,
+                "home": home, "away": away,
+                "start_time": f.start_time.isoformat() if f.start_time else None,
+                "sharp_sources": [], "no_sharp": True,
+                "market_count": len(markets) + len(extras),
+                "book_count": len(book_h2h), "bf_matched": money.get("matched"),
+                "favourite": None, "fav_prob": None,
+            })
+            continue
         fair = h2h["fair"]
         home, away = _teams(f.name)
         fav = max(fair, key=lambda s: fair[s]) if fair else None
@@ -278,7 +314,7 @@ async def list_games(
             "fixture_id": str(f.id), "sport": f.sport, "name": f.name,
             "home": home, "away": away,
             "start_time": f.start_time.isoformat() if f.start_time else None,
-            "sharp_sources": h2h["sharp_sources"], "market_count": len(priced),
+            "sharp_sources": h2h["sharp_sources"], "market_count": len(priced) + len(extras),
             "book_count": n_books, "bf_matched": money.get("matched"),
             "favourite": fav, "fav_prob": round(fair[fav], 3) if fav else None,
         })
@@ -301,8 +337,27 @@ async def game_detail(session: AsyncSession, fixture_id: str,
         return None
     events = await _fixture_events(session, {f.id})
     fx_events = events.get(f.id, [])
-    markets, money = await _markets_by_source(session, fx_events, now=now)
+    markets, money, extras = await _markets_by_source(session, fx_events, now=now)
     priced = _priced_markets(markets)
+    sharp_keys = {(m["family"], m["line"]) for m in priced}
+    # Book-only h2h/total/line rows (no sharp priced them) join the board
+    # after the sharp tier — fair stays empty, the quotes are the content.
+    for (family, line), by_source in markets.items():
+        if (family, line) in sharp_keys or not by_source:
+            continue
+        priced.append({
+            "key": _market_key(family, line), "family": family, "line": line,
+            "label": _market_label(family, line), "fair": {}, "sharp_sources": [],
+            "value": {}, "quotes": dict(by_source), "n_sharp": 0, "book_only": True,
+        })
+    # The EXTRAS: every other 2-3 way market the books price (props,
+    # disposals, novelty derivatives) — cross-book comparison, no blend.
+    extra_rows = [
+        {"key": "x:" + name, "label": name.title(), "family": "book",
+         "selections": sels, "n_books": len({b for v in sels.values() for b in v})}
+        for name, sels in extras.items() if 2 <= len(sels) <= 3
+    ]
+    extra_rows.sort(key=lambda m: (-m["n_books"], m["label"]))
     h2h = next((m for m in priced if m["family"] == "h2h"), None)
     rating = await _engine_rating(session, f.sport, f)
     flow = await market_flow(session, fx_events, now=now)
@@ -315,7 +370,8 @@ async def game_detail(session: AsyncSession, fixture_id: str,
         "sharp_sources": h2h["sharp_sources"] if h2h else [],
         "value": h2h["value"] if h2h else {},
         "quotes": h2h["quotes"] if h2h else {},
-        "markets": priced,          # every priced market (h2h first)
+        "markets": priced,          # sharp tier first, then book-only rows
+        "extra_markets": extra_rows[:60],  # props & derivatives, 2-3 way
         "bf_money": money, "engine_rating": rating,
         "flow": flow,               # sharp line + Betfair money over time
     }
@@ -402,7 +458,8 @@ async def list_specials(
         if not sels:
             continue
         best = sorted(
-            ({"selection": sel, "best_odds": min(b.values()), "books": len(b)}
+            ({"selection": sel, "best_odds": min(b.values()), "books": len(b),
+              "prices": dict(sorted(b.items(), key=lambda kv: kv[1]))}
              for sel, b in sels.items()),
             # float() is for mypy, not maths: the dict literal infers object values,
             # and object is not orderable. Odds are 3dp — the cast cannot reorder them.
@@ -412,7 +469,7 @@ async def list_specials(
             "fixture_id": str(f.id), "name": f.name, "category": f.sport,
             "start_time": resolves.isoformat() if resolves else None,
             "is_resolution_time": f.start_time is None,
-            "selections": best[:6], "n_selections": len(best),
+            "selections": best[:20], "n_selections": len(best),
             "sources": sorted({b for s in sels.values() for b in s}),
         })
     return out
