@@ -115,6 +115,33 @@ _SEGMENT_QUAL = (
 # dependent variants (first/last/2nd scorer, team-scoped) never tag.
 _ANYTIME = re.compile(r"^anytime (goal|try) ?scorer$")
 
+#: Selections that are NOT a person, on markets whose selection is usually a player.
+#:
+#: The branches below read the selection AS the player name whenever it carries no digit.
+#: That is right for TAB ("Nick Daicos") and wrong for every book that offers the same
+#: market at team level or with a catch-all: Ladbrokes' "anytime try scorer" answers
+#: `home`/`away`, and the tagger duly recorded `player: "Away"` with a 0.5 tries line —
+#: a phantom ladder, which this module's own docstring calls the failure it most wants to
+#: avoid. Measured in the warehouse 2026-08-27; the real player name was sitting in
+#: `meta["team"]` all along ("Thomas Jenkins (Penrith Panthers)").
+#:
+#: Kept as an exact-match set rather than a heuristic: a player is never called "home",
+#: and guessing at what looks person-shaped is how the opposite mistake gets made.
+_NOT_A_PLAYER = frozenset({
+    "home", "away", "draw", "tie", "neither", "either", "both", "none",
+    "no", "yes", "over", "under",
+    "no goal", "no try", "no goalscorer", "not scored", "no scorer",
+    "any other player", "any other", "other", "the field", "field",
+})
+
+
+def _is_player_name(selection: str) -> bool:
+    """Could this selection be a person? Conservative: an untagged prop is a missed
+    ladder, a mis-tagged one is a priced phantom."""
+    s = " ".join(selection.strip().lower().split())
+    return bool(s) and s not in _NOT_A_PLAYER
+
+
 
 def _canon_stat(stat: str) -> str:
     return _STAT_CANON.get(stat, stat)
@@ -146,7 +173,8 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
             break
 
     anytime = _ANYTIME.match(market_l)
-    if anytime and selection_l and not any(ch.isdigit() for ch in selection_l):
+    if (anytime and selection_l and not any(ch.isdigit() for ch in selection_l)
+            and _is_player_name(selection_l)):
         stat = "goals" if anytime.group(1) == "goal" else "tries"
         return {**meta, "player": selection.strip().title(),
                 "stat": _canon_stat(stat) + qual, "stat_line": 0.5,
@@ -164,7 +192,8 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
                 "line_type": "over", "prop_tagged": True}
 
     market_nplus = _NPLUS_MARKET.match(market_l)
-    if market_nplus and selection_l and not any(ch.isdigit() for ch in selection_l):
+    if (market_nplus and selection_l and not any(ch.isdigit() for ch in selection_l)
+            and _is_player_name(selection_l)):
         # TAB inverts the ladder: the threshold IS the market, the player the
         # selection ("25+ Disposals" / "Nick Daicos")
         return {**meta, "player": selection.strip().title(),
@@ -190,7 +219,8 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
                     "line_type": ou.group("side"), "prop_tagged": True}
 
     market_stat_nplus = _STAT_NPLUS_MARKET.match(market_l)
-    if market_stat_nplus and selection_l and not any(ch.isdigit() for ch in selection_l):
+    if (market_stat_nplus and selection_l and not any(ch.isdigit() for ch in selection_l)
+            and _is_player_name(selection_l)):
         return {**meta, "player": selection.strip().title(),
                 "stat": _canon_stat(market_stat_nplus.group("stat")) + qual,
                 "stat_line": float(market_stat_nplus.group("n")) - 0.5,
@@ -212,3 +242,51 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
                 "stat_line": float(market_match.group("mline")),
                 "line_type": selection_l, "prop_tagged": True}
     return meta
+
+
+# ─── comparing a prop across books ──────────────────────────────────────
+
+
+def player_names_match(a: str, b: str) -> bool:
+    """Do these name the same person?
+
+    The SAME matcher teams use, deliberately. It already handles what person names need
+    and what a fresh implementation would have got wrong:
+
+        "Arango E"              ≈ "Emiliana Arango"   (TAB writes surname-initial)
+        "N Daicos"              ≈ "Nick Daicos"
+        "Riley Thilthorpe (ADE)" ≈ "Riley Thilthorpe" (TAB appends the club)
+        "Nick Daicos"           ≠ "Josh Daicos"       (brothers, same club)
+
+    That last one is why this is not a substring test. Two players sharing a surname and
+    a team is common, and matching them would pair one brother's price with the other's
+    line — a wrong bet at a right-looking number.
+    """
+    from sportsdata_agents.operations.resolution.resolver import team_names_match
+
+    return team_names_match(a, b)
+
+
+def same_prop(a: dict, b: dict) -> bool:
+    """Do two tagged price points describe the SAME bet, at different books?
+
+    All four parts must agree, and each one is a real way to get it wrong:
+
+      player     the person (fuzzy — books spell names differently)
+      stat       disposals ≠ kicks; canonicalised at tag time
+      stat_line  24.5 ≠ 25.5, and a half-point is a different bet
+      line_type  over ≠ under — the opposite side of the same line
+
+    Exact on everything except the name, because only the name has legitimate spelling
+    variation. A tolerance on the LINE would silently compare different bets, which is
+    the whole failure this function exists to prevent.
+    """
+    for point in (a, b):
+        if not (point.get("player") and point.get("stat") is not None
+                and point.get("stat_line") is not None and point.get("line_type")):
+            return False
+    if a["stat"] != b["stat"] or a["line_type"] != b["line_type"]:
+        return False
+    if float(a["stat_line"]) != float(b["stat_line"]):
+        return False
+    return player_names_match(str(a["player"]), str(b["player"]))
