@@ -12,11 +12,19 @@ fail returns a structured refusal — {"unavailable": reason} — never a guess:
 a wrong price with a bookmaker's name on it is worse than no price.
 
 Availability is per fixture and per book (the fixture must have a linked event
-for that provider, and the live poller's MCP manager must be up). TAB's
-resolver is a documented gap: tab_match_markets is addressed by TAB's OWN
-sport/competition/match names, which ingestion currently drops before storage
-(fetch_tab_all knows them; the PricePoint keeps only a slug). Thread those
-through Event.meta and the TAB resolver slots in beside the Sportsbet one.
+for that provider, and the live poller's MCP manager must be up).
+
+ALL SIX BOOKS RESOLVE. Five were built against captured payloads and their leg
+ids verified against the prices those books actually quoted. TAB is the
+exception and says so in `_match_tab_leg`: its sports endpoints need OAuth, so
+that resolver is written from the documented shapes rather than from a capture,
+and a TAB miss should be read as "the resolver may be wrong" before "the book
+has no market". TAB also needs no ingestion change after all — it is addressed
+by NAME, and listing its own matches for the competition and matching the
+fixture against them stands in for the id mapping ingestion does not keep.
+
+`compare` is the point of the module: the same legs at every book at once, on
+comparable units. See PRICE_UNITS for why the units are the load-bearing part.
 """
 
 from __future__ import annotations
@@ -100,10 +108,6 @@ async def available_books(session: AsyncSession, fixture_id: str, mcp: Any) -> d
     """Which bookmakers can quote this fixture, and why the rest cannot."""
     out: dict[str, Any] = {}
     for book in BOOKMAKERS:
-        if book == "tab":
-            out[book] = {"available": False,
-                         "reason": "TAB quoting needs its sport/competition names threaded through ingestion"}
-            continue
         if book not in _QUOTERS:
             # The mcp pricer exists; the leg resolver does not. Said plainly so the gap
             # reads as unfinished work rather than as the book refusing.
@@ -357,6 +361,131 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
     }
 
 
+def _match_betr_leg(leg: dict, events: list[dict], home: str, away: str) -> dict | str:
+    """One board leg -> {EventId, OutcomeId, MarketType}, or a reason string.
+
+    BetR calls a MARKET GROUP an "Event" — 91686300 is Match Result and 91712212 is Total
+    Points, both inside MasterEvent 2255977 — so EventId here is not the match. OutcomeId
+    restarts per group (both groups have an outcome "1"), which is why the pair always
+    travels together.
+
+    MarketType is `MarketTypeCode` and it is LOAD-BEARING BUT UNVALIDATED: dropping it
+    turned a verified 2.20 into 21 with ErrorNo 0, so it is copied from the outcome rather
+    than inferred. `FixedWin` is deliberately never sent — BetR treats a client-supplied
+    price as a floor on the answer.
+    """
+    fam, sel = str(leg.get("market") or ""), str(leg.get("selection") or "")
+    line, label = leg.get("line"), str(leg.get("label") or f"{leg.get('market')}:{leg.get('selection')}")
+
+    def hit(e: dict, o: dict) -> dict:
+        return {"EventId": e["EventId"], "OutcomeId": o["OutcomeId"],
+                "MarketType": o.get("MarketTypeCode")}
+
+    def live(o: dict) -> bool:
+        return bool(o.get("IsOpenForBetting")) and o.get("Price") is not None
+
+    def group(e: dict, name: str) -> list[dict]:
+        return [o for o in (e.get("Outcomes") or [])
+                if _norm(o.get("GroupByHeader", "")) == name and live(o)]
+
+    if fam == "h2h":
+        team = home if sel == "home" else away if sel == "away" else sel
+        for e in events:
+            for o in group(e, "match result"):
+                if _norm(o.get("OutcomeName", "")) == _norm(team):
+                    return hit(e, o)
+        return f"{label}: no open head-to-head selection at BetR"
+
+    if fam == "total":
+        if line is None or sel not in ("over", "under"):
+            return f"{label}: totals need a line and an over/under side"
+        want = _norm(f"{sel} {line}")
+        for e in events:
+            for o in group(e, "total points"):
+                if _norm(o.get("OutcomeName", "")) == want:
+                    return hit(e, o)
+        return f"{label}: BetR has no open total at line {line}"
+
+    if fam == "line":
+        # The handicap is on `Points`, not in the name — the name is just the team.
+        team = home if sel == "home" else away if sel == "away" else sel
+        for e in events:
+            for o in group(e, "handicap"):
+                if _norm(o.get("OutcomeName", "")) != _norm(team):
+                    continue
+                if line is None or abs(abs(float(o.get("Points") or 0)) - abs(float(line))) < 1e-9:
+                    return hit(e, o)
+        return f"{label}: BetR has no matching handicap at line {line}"
+
+    return f"{label}: market family {fam!r} is not mapped for BetR"
+
+
+def _match_entain_leg(leg: dict, markets: dict, entrants: dict, home: str, away: str) -> dict | str:
+    """One board leg -> {market_id, entrant_id}, or a reason string.
+
+    Entain's tables are keyed by uuid, the line lives on the MARKET as `handicap`, and
+    entrants carry `home_away` — so sides are matched on that rather than on team-name
+    text, which is the one thing in this file that cannot drift.
+
+    Only markets flagged `same_game_multi_available` are considered. The pricer IGNORES
+    its own flag — 12 of 14 markets marked unavailable priced anyway — so honouring it
+    here is the client-side half of that defence.
+    """
+    fam, sel = str(leg.get("market") or ""), str(leg.get("selection") or "")
+    line, label = leg.get("line"), str(leg.get("label") or f"{leg.get('market')}:{leg.get('selection')}")
+
+    def sgm_markets(name: str) -> list[dict]:
+        return [m for m in markets.values()
+                if _norm(m.get("name", "")) == name and m.get("same_game_multi_available")
+                and m.get("visible", True)]
+
+    def side(m: dict, want: str) -> dict | None:
+        for e in entrants.values():
+            if e.get("market_id") != m["id"] or not e.get("visible", True):
+                continue
+            if want in ("home", "away") and str(e.get("home_away", "")).lower() == want:
+                return e
+            if want not in ("home", "away") and _norm(e.get("name", "")) == want:
+                return e
+        return None
+
+    def hit(m: dict, e: dict) -> dict:
+        return {"market_id": m["id"], "entrant_id": e["id"]}
+
+    if fam == "h2h":
+        for m in sgm_markets("match betting"):
+            e = side(m, sel if sel in ("home", "away") else _norm(sel))
+            if e:
+                return hit(m, e)
+        return f"{label}: no open head-to-head selection at Entain"
+
+    if fam == "total":
+        if line is None or sel not in ("over", "under"):
+            return f"{label}: totals need a line and an over/under side"
+        for m in sgm_markets("total points"):
+            if abs(float(m.get("handicap") or 0) - float(line)) > 1e-9:
+                continue
+            e = side(m, sel)
+            if e:
+                return hit(m, e)
+        return f"{label}: Entain has no open total at line {line}"
+
+    if fam == "line":
+        # `handicap` is stated from ONE side (-5.5 on a market whose entrants are both
+        # teams), so the magnitude is matched and the SIDE comes from home_away. Asserting
+        # which team owns the negative number would be a guess, and a wrong guess here
+        # quotes the opposite bet at a plausible price.
+        for m in sgm_markets("line"):
+            if line is not None and abs(abs(float(m.get("handicap") or 0)) - abs(float(line))) > 1e-9:
+                continue
+            e = side(m, sel)
+            if e:
+                return hit(m, e)
+        return f"{label}: Entain has no matching line market at {line}"
+
+    return f"{label}: market family {fam!r} is not mapped for Entain"
+
+
 async def _resolve(session: AsyncSession, book: str, fixture_id: str) -> tuple[Any, str, str] | str:
     """The linked event plus the fixture's team names, or a reason string."""
     ev = await _linked_event(session, fixture_id, book)
@@ -520,6 +649,257 @@ async def compare(session: AsyncSession, mcp: Any, fixture_id: str, legs: list[d
     return out
 
 
+async def quote_betr(session: AsyncSession, mcp: Any, fixture_id: str,
+                     legs: list[dict]) -> dict[str, Any]:
+    got = await _resolve(session, "betr", fixture_id)
+    if isinstance(got, str):
+        return {"unavailable": got}
+    ev, home, away = got
+    try:
+        master = await mcp.call_tool("betr_master_event",
+                                     {"MasterEventId": int(ev.external_id)})
+    except Exception as exc:
+        return {"unavailable": f"betr_master_event failed: {exc}"}
+    events = (master or {}).get("Events") or []
+    if not events:
+        return {"unavailable": "BetR returned no market groups for this event"}
+
+    picked: list[Any] = []
+    misses: list[Any] = []
+    for leg in legs:
+        hit = _match_betr_leg(leg, events, home, away)
+        (picked if isinstance(hit, dict) else misses).append(hit)
+    if misses:
+        return {"unavailable": "could not match every leg", "unmatched": misses}
+    if len(picked) < 2:
+        return {"unavailable": "BetR will not price fewer than two legs (ErrorNo 4500)"}
+
+    try:
+        r = await mcp.call_tool("betr_sgm_price",
+                                {"MasterEventID": int(ev.external_id), "Markets": picked})
+    except Exception as exc:
+        # BetR refuses in HTTP 200 with Price 0 + ErrorNo; the engine raises that.
+        return {"unavailable": f"BetR refused to price this combination: {exc}"}
+
+    decimal = _decimal_from("betr", (r or {}).get("Price"))
+    if decimal is None:
+        return {"unavailable": f"unexpected pricer response: {r!r}"}
+    return {
+        "priced_by": "betr",
+        "book_odds": round(decimal, 2),
+        "legs_matched": len(picked),
+        "warnings": ["BetR refuses a redundant leg rather than dropping one, so this price "
+                     "is for the legs listed"],
+    }
+
+
+async def quote_entain(session: AsyncSession, mcp: Any, fixture_id: str,
+                       legs: list[dict]) -> dict[str, Any]:
+    got = await _resolve(session, "entain", fixture_id)
+    if isinstance(got, str):
+        return {"unavailable": got}
+    ev, home, away = got
+    try:
+        card = await mcp.call_tool("entain_sport_event_card", {"id": str(ev.external_id)})
+    except Exception as exc:
+        return {"unavailable": f"entain_sport_event_card failed: {exc}"}
+    markets = (card or {}).get("markets") or {}
+    entrants = (card or {}).get("entrants") or {}
+    if not markets:
+        return {"unavailable": "Entain returned no markets for this event"}
+
+    picked: list[Any] = []
+    misses: list[Any] = []
+    for leg in legs:
+        hit = _match_entain_leg(leg, markets, entrants, home, away)
+        (picked if isinstance(hit, dict) else misses).append(hit)
+    if misses:
+        return {"unavailable": "could not match every leg", "unmatched": misses}
+
+    eid = str(ev.external_id)
+    try:
+        r = await mcp.call_tool("entain_sgm_price", {
+            "same_game_multies": {eid: {"event_id": eid, "selections": picked}}})
+    except Exception as exc:
+        return {"unavailable": f"Entain refused to price this combination: {exc}"}
+
+    entry = ((r or {}).get("prices") or {}).get(eid) or {}
+    if not entry.get("available"):
+        clash = entry.get("conflicting_selections")
+        return {"unavailable": "Entain will not combine these legs",
+                **({"conflicting": clash} if clash else {})}
+    decimal = _decimal_from("entain", entry.get("odds"))
+    if decimal is None:
+        return {"unavailable": f"unexpected pricer response: {r!r}"}
+    return {
+        "priced_by": "entain",
+        "book_odds": round(decimal, 2),
+        "legs_matched": len(picked),
+        # Measured live: 5 of 41 two-entrant markets priced a pair that CANNOT both win.
+        "warnings": ["Entain's `available: true` is not proof the combination is coherent "
+                     "— it quotes some impossible pairs at long odds"],
+    }
+
+
+#: Our sport slug -> TAB's own (sport, competition) names. TAB addresses matches by NAME,
+#: not by id, so this table is what stands in for an id mapping. Adding a sport is adding
+#: a row; a sport that is missing reports that plainly rather than guessing a name.
+TAB_NAMES = {
+    "afl": ("AFL Football", "AFL"),
+    "australian_rules": ("AFL Football", "AFL"),
+    "nrl": ("Rugby League", "NRL"),
+    "rugby_league": ("Rugby League", "NRL"),
+    "nba": ("Basketball", "NBA"),
+    "basketball": ("Basketball", "NBA"),
+}
+
+
+def _match_tab_leg(leg: dict, markets: list[dict], home: str, away: str) -> int | str:
+    """One board leg -> a TAB propositionId, or a reason string.
+
+    NOT VERIFIED AGAINST A LIVE PAYLOAD. TAB's sports endpoints need OAuth, so unlike the
+    other four resolvers this one is written from the shapes documented on
+    tab_match_markets and tab_sgm_price rather than from a capture. Treat a TAB miss as
+    "this resolver may be wrong" before assuming the book has no market.
+
+    Only markets flagged `sameGame` can go in an SGM — 52 of 109 on the match TAB's pricer
+    was verified against.
+    """
+    fam, sel = str(leg.get("market") or ""), str(leg.get("selection") or "")
+    line, label = leg.get("line"), str(leg.get("label") or f"{leg.get('market')}:{leg.get('selection')}")
+
+    def combinable(m: dict) -> bool:
+        return bool(m.get("sameGame")) and _norm(m.get("bettingStatus", "open")) in ("open", "")
+
+    def props(m: dict) -> list[dict]:
+        return [p for p in (m.get("propositions") or []) if p.get("id") is not None]
+
+    want_team = home if sel == "home" else away if sel == "away" else sel
+
+    for m in markets:
+        if not combinable(m):
+            continue
+        nm = _norm(m.get("name", ""))
+        if fam == "h2h" and ("head to head" in nm or nm == "match result"):
+            for p in props(m):
+                if _norm(p.get("name", "")) == _norm(want_team):
+                    return int(p["id"])
+        elif fam == "total" and "total" in nm and sel in ("over", "under"):
+            if line is None:
+                return f"{label}: totals need a line"
+            for p in props(m):
+                pn = _norm(p.get("name", ""))
+                if pn.startswith(sel) and str(line) in pn:
+                    return int(p["id"])
+        elif fam == "line" and ("line" in nm or "handicap" in nm):
+            for p in props(m):
+                pn = _norm(p.get("name", ""))
+                if _norm(want_team) in pn and (line is None or str(abs(float(line))) in pn):
+                    return int(p["id"])
+
+    return f"{label}: no combinable TAB market matched (resolver is unverified — see docstring)"
+
+
+async def quote_tab(session: AsyncSession, mcp: Any, fixture_id: str,
+                    legs: list[dict]) -> dict[str, Any]:
+    """TAB, addressed by NAME rather than by id.
+
+    Ingestion keeps only a slug, so instead of threading TAB's names through storage this
+    lists TAB's own matches for the competition and matches the fixture against them. The
+    fixture name is already "X v Y", which is TAB's own shape.
+    """
+    ev = await _linked_event(session, fixture_id, "tab")
+    fx_id = ev.fixture_id if ev is not None else None
+    f = None
+    if fx_id is not None:
+        f = (await session.execute(select(Fixture).where(Fixture.id == fx_id))).scalar()
+    if f is None:
+        try:
+            f = (await session.execute(
+                select(Fixture).where(Fixture.id == uuid.UUID(fixture_id)))).scalar()
+        except ValueError:
+            f = None
+    if f is None or " v " not in (f.name or ""):
+        return {"unavailable": "no fixture name to match against TAB's own match names"}
+    home, away = f.name.split(" v ", 1)
+
+    slug = _norm(getattr(f, "sport", "") or "").replace(" ", "_")
+    names = TAB_NAMES.get(slug)
+    if names is None:
+        return {"unavailable": f"no TAB sport/competition mapping for {slug!r} — add a row "
+                               f"to TAB_NAMES (have: {', '.join(sorted(TAB_NAMES))})"}
+    sport, competition = names
+
+    try:
+        comp = await mcp.call_tool("tab_competition",
+                                   {"sport": sport, "competition": competition})
+    except Exception as exc:
+        return {"unavailable": f"tab_competition failed: {exc}"}
+
+    want = {_norm(home), _norm(away)}
+    match_name = None
+    for m in (comp or {}).get("matches") or []:
+        nm = str(m.get("name") or "")
+        if " v " not in nm:
+            continue
+        a, b = (t.strip() for t in nm.split(" v ", 1))
+        # Both teams must appear, in either order — TAB sometimes lists home second.
+        if {_norm(a), _norm(b)} == want or all(
+                any(_norm(t) in _norm(x) or _norm(x) in _norm(t) for x in (a, b)) for t in (home, away)):
+            match_name = nm
+            break
+    if match_name is None:
+        return {"unavailable": f"no TAB match in {competition} named for {home} v {away}"}
+
+    try:
+        mk = await mcp.call_tool("tab_match_markets",
+                                 {"sport": sport, "competition": competition, "match": match_name})
+    except Exception as exc:
+        return {"unavailable": f"tab_match_markets failed: {exc}"}
+    markets = (mk or {}).get("markets") or []
+    if not markets:
+        return {"unavailable": f"TAB returned no markets for {match_name!r}"}
+
+    ids: list[int] = []
+    misses: list[Any] = []
+    for leg in legs:
+        hit = _match_tab_leg(leg, markets, home, away)
+        if isinstance(hit, int):
+            ids.append(hit)
+        else:
+            misses.append(hit)
+    if misses:
+        return {"unavailable": "could not match every leg", "unmatched": misses,
+                "tab_match": match_name}
+
+    try:
+        r = await mcp.call_tool("tab_sgm_price", {
+            "bets": [{"type": "FIXED_ODDS", "legs": [
+                {"type": "SAME_GAME_MULTI",
+                 "propositions": [{"type": "WIN", "propositionId": i} for i in ids]}]}],
+            "returnValidationMatrix": True})
+    except Exception as exc:
+        return {"unavailable": f"TAB refused to price this combination: {exc}"}
+
+    bets = (r or {}).get("bets") or []
+    leg0 = ((bets[0] if bets else {}).get("legs") or [{}])[0]
+    decimal = _decimal_from("tab", (leg0.get("odds") or {}).get("decimal"))
+    if decimal is None:
+        return {"unavailable": f"unexpected pricer response: {r!r}"}
+
+    out: dict[str, Any] = {"priced_by": "tab", "book_odds": round(decimal, 2),
+                           "legs_matched": len(ids), "tab_match": match_name}
+    # TAB is the one book that SAYS which legs it dropped. Use it rather than assume.
+    dropped = [p for p in (leg0.get("redundantPropositions") or [])
+               if _norm(p.get("status", "")) == "redundant"]
+    if dropped:
+        out["warnings"] = [
+            f"TAB dropped {len(dropped)} redundant leg(s) and priced the rest — this quote "
+            f"is NOT for the {len(ids)} legs requested"]
+        out["legs_dropped"] = dropped
+    return out
+
+
 #: book -> its quoter. Registered here so `quote` cannot silently fall through to
 #: Sportsbet for a book whose resolver was never written — the bug that would put one
 #: book's price under another book's name.
@@ -527,6 +907,9 @@ _QUOTERS = {
     "sportsbet": lambda *a: quote_sportsbet(*a),
     "pointsbet": lambda *a: quote_pointsbet(*a),
     "unibet": lambda *a: quote_unibet(*a),
+    "betr": lambda *a: quote_betr(*a),
+    "entain": lambda *a: quote_entain(*a),
+    "tab": lambda *a: quote_tab(*a),
 }
 
 
@@ -536,9 +919,4 @@ async def quote(session: AsyncSession, mcp: Any, bookmaker: str, fixture_id: str
         return {"unavailable": f"unknown bookmaker {bookmaker!r} (have: {', '.join(BOOKMAKERS)})"}
     if mcp is None:
         return {"unavailable": "live data plane not running — book quotes need the in-process poller"}
-    if bookmaker == "tab":
-        return {"unavailable": "TAB quoting is not wired yet — see module docstring"}
-    if bookmaker in ("betr", "entain"):
-        return {"unavailable": f"{bookmaker} SGM quoting is not wired yet — the mcp pricer "
-                               f"exists ({bookmaker}_sgm_price); the leg resolver does not"}
     return await _QUOTERS[bookmaker](session, mcp, fixture_id, legs)

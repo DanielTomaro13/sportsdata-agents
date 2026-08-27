@@ -96,7 +96,6 @@ def test_no_book_can_fall_through_to_another_books_quoter():
     under another book's name."""
     for book in _QUOTERS:
         assert book in BOOKMAKERS
-    assert "tab" not in _QUOTERS, "TAB is documented as unwired; it must not quote"
 
 
 # ─── leg matchers, against real captured payloads ───────────────────────
@@ -286,3 +285,170 @@ async def test_a_single_book_reports_no_spread(monkeypatch):
     out = await _compare_with(monkeypatch, {"sportsbet": {"book_odds": 3.6}})
     assert out["best"]["book_odds"] == 3.6
     assert "spread_pct" not in out
+
+
+# ─── BetR ───────────────────────────────────────────────────────────────
+
+#: BetR calls a MARKET GROUP an "Event": 91686300 is Match Result, 91712212 is Total
+#: Points, both inside one MasterEvent. OutcomeId restarts per group.
+BETR_EVENTS = [
+    {"EventId": 91686300, "EventName": "Match Result", "Outcomes": [
+        {"OutcomeId": 1, "OutcomeName": "Western Bulldogs", "MarketTypeCode": "WIN",
+         "GroupByHeader": "Match Result", "Points": 0.0, "Price": 1.95, "IsOpenForBetting": True},
+        {"OutcomeId": 2, "OutcomeName": "Collingwood", "MarketTypeCode": "WIN",
+         "GroupByHeader": "Match Result", "Points": 0.0, "Price": 1.85, "IsOpenForBetting": True},
+        {"OutcomeId": 1, "OutcomeName": "Western Bulldogs", "MarketTypeCode": "HCWEST",
+         "GroupByHeader": "Handicap", "Points": 1.5, "Price": 1.9, "IsOpenForBetting": True}]},
+    {"EventId": 91712212, "EventName": "Total Points", "Outcomes": [
+        {"OutcomeId": 13910, "OutcomeName": "Over 139.5", "MarketTypeCode": "WIN",
+         "GroupByHeader": "Total Points", "Points": 0.0, "Price": 1.1, "IsOpenForBetting": True}]},
+]
+
+
+def test_betr_carries_the_market_type_because_it_fails_silently_without_it():
+    """Dropping MarketType turned a verified 2.20 into 21 with ErrorNo 0 — a wrong answer,
+    not an error. It is copied off the outcome rather than inferred."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_betr_leg
+    hit = _match_betr_leg({"market": "h2h", "selection": "home"}, BETR_EVENTS, HOME, AWAY)
+    assert hit == {"EventId": 91686300, "OutcomeId": 1, "MarketType": "WIN"}
+
+
+def test_betr_outcome_ids_repeat_across_groups_so_the_event_travels_too():
+    """OutcomeId 1 is the Bulldogs head-to-head in one group and the Bulldogs handicap in
+    another. Same collision as PointsBet, different vocabulary."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_betr_leg
+    h2h = _match_betr_leg({"market": "h2h", "selection": "home"}, BETR_EVENTS, HOME, AWAY)
+    line = _match_betr_leg({"market": "line", "selection": "home", "line": 1.5},
+                           BETR_EVENTS, HOME, AWAY)
+    assert h2h["OutcomeId"] == line["OutcomeId"] == 1
+    assert h2h["MarketType"] != line["MarketType"]
+
+
+def test_betr_reads_the_handicap_off_points_not_the_name():
+    """The outcome name is just the team; the line lives on `Points`."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_betr_leg
+    assert isinstance(_match_betr_leg({"market": "line", "selection": "home", "line": 9.5},
+                                      BETR_EVENTS, HOME, AWAY), str)
+
+
+def test_betr_skips_a_suspended_or_unpriced_outcome():
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_betr_leg
+    shut = [{"EventId": 1, "Outcomes": [
+        {"OutcomeId": 1, "OutcomeName": "Western Bulldogs", "MarketTypeCode": "WIN",
+         "GroupByHeader": "Match Result", "Price": None, "IsOpenForBetting": True}]}]
+    assert isinstance(_match_betr_leg({"market": "h2h", "selection": "home"},
+                                      shut, HOME, AWAY), str)
+
+
+# ─── Entain ─────────────────────────────────────────────────────────────
+
+ENTAIN_MARKETS = {
+    "mb": {"id": "mb", "name": "Match Betting", "handicap": None,
+           "same_game_multi_available": True, "visible": True},
+    "ln": {"id": "ln", "name": "Line", "handicap": -5.5,
+           "same_game_multi_available": True, "visible": True},
+    "tp": {"id": "tp", "name": "Total Points", "handicap": 173.5,
+           "same_game_multi_available": True, "visible": True},
+    "hs": {"id": "hs", "name": "Highest Scoring Half", "handicap": None,
+           "same_game_multi_available": None, "visible": True},   # flagged NOT sgm
+}
+ENTAIN_ENTRANTS = {
+    "mb-h": {"id": "mb-h", "name": "Melbourne", "home_away": "HOME", "market_id": "mb", "visible": True},
+    "mb-a": {"id": "mb-a", "name": "Carlton", "home_away": "AWAY", "market_id": "mb", "visible": True},
+    "ln-h": {"id": "ln-h", "name": "Melbourne", "home_away": "HOME", "market_id": "ln", "visible": True},
+    "tp-o": {"id": "tp-o", "name": "Over", "market_id": "tp", "visible": True},
+    "tp-u": {"id": "tp-u", "name": "Under", "market_id": "tp", "visible": True},
+    "hs-1": {"id": "hs-1", "name": "1st Half", "market_id": "hs", "visible": True},
+}
+
+
+def test_entain_picks_the_side_by_home_away_not_by_team_name():
+    """The one identifier in Entain's payload that cannot drift with a naming change."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_entain_leg
+    assert _match_entain_leg({"market": "h2h", "selection": "home"},
+                             ENTAIN_MARKETS, ENTAIN_ENTRANTS, "Melbourne", "Carlton") == \
+        {"market_id": "mb", "entrant_id": "mb-h"}
+    assert _match_entain_leg({"market": "h2h", "selection": "away"},
+                             ENTAIN_MARKETS, ENTAIN_ENTRANTS, "Melbourne", "Carlton") == \
+        {"market_id": "mb", "entrant_id": "mb-a"}
+
+
+def test_entain_reads_the_line_off_the_market_not_the_entrant():
+    """Entrants are bare "Over"/"Under"; `handicap` lives on the market."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_entain_leg
+    assert _match_entain_leg({"market": "total", "selection": "over", "line": 173.5},
+                             ENTAIN_MARKETS, ENTAIN_ENTRANTS, "Melbourne", "Carlton") == \
+        {"market_id": "tp", "entrant_id": "tp-o"}
+    assert isinstance(_match_entain_leg({"market": "total", "selection": "over", "line": 999.5},
+                                        ENTAIN_MARKETS, ENTAIN_ENTRANTS, "Melbourne", "Carlton"), str)
+
+
+def test_entain_matches_a_line_on_magnitude_because_the_sign_is_one_sided():
+    """`handicap` is -5.5 on a market whose entrants are both teams. Which team owns the
+    negative number is not stated, so the magnitude is matched and the SIDE comes from
+    home_away — guessing the sign would quote the opposite bet at a plausible price."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_entain_leg
+    assert _match_entain_leg({"market": "line", "selection": "home", "line": 5.5},
+                             ENTAIN_MARKETS, ENTAIN_ENTRANTS, "Melbourne", "Carlton") == \
+        {"market_id": "ln", "entrant_id": "ln-h"}
+
+
+def test_entain_honours_the_flag_its_own_pricer_ignores():
+    """Entain's pricer priced 12 of 14 markets it had flagged unavailable — including two
+    of the impossible quotes. Honouring `same_game_multi_available` here is the
+    client-side half of that defence."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_entain_leg
+    got = _match_entain_leg({"market": "highest_half", "selection": "1st Half"},
+                            ENTAIN_MARKETS, ENTAIN_ENTRANTS, "Melbourne", "Carlton")
+    assert isinstance(got, str), "a market flagged not-SGM must not be offered as a leg"
+
+
+# ─── TAB ────────────────────────────────────────────────────────────────
+
+TAB_MARKETS = [
+    {"id": 1, "name": "Head To Head", "sameGame": True, "bettingStatus": "OPEN",
+     "propositions": [{"id": 1016, "name": "Western Bulldogs"},
+                      {"id": 1017, "name": "Collingwood"}]},
+    {"id": 2, "name": "Total Match Points", "sameGame": True, "bettingStatus": "OPEN",
+     "propositions": [{"id": 8529, "name": "Over 169.5"}, {"id": 8530, "name": "Under 169.5"}]},
+    {"id": 3, "name": "Head To Head Alternate", "sameGame": False, "bettingStatus": "OPEN",
+     "propositions": [{"id": 999, "name": "Western Bulldogs"}]},
+]
+
+
+def test_tab_only_offers_markets_flagged_sameGame():
+    """52 of 109 markets were combinable on the match TAB's pricer was verified against.
+    A leg from a non-sameGame market is refused by TAB, so it is never proposed."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_tab_leg
+    assert _match_tab_leg({"market": "h2h", "selection": "home"},
+                          TAB_MARKETS, HOME, AWAY) == 1016   # not 999
+    only_excluded = [m for m in TAB_MARKETS if not m["sameGame"]]
+    assert isinstance(_match_tab_leg({"market": "h2h", "selection": "home"},
+                                     only_excluded, HOME, AWAY), str)
+
+
+def test_tab_matches_a_total_by_side_and_line():
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_tab_leg
+    assert _match_tab_leg({"market": "total", "selection": "over", "line": 169.5},
+                          TAB_MARKETS, HOME, AWAY) == 8529
+
+
+def test_tab_says_in_its_own_docstring_that_it_is_unverified():
+    """Five resolvers were built against captured payloads; TAB's sports endpoints need
+    OAuth so this one was written from documented shapes. That difference has to be
+    visible to whoever debugs a TAB miss, or they will chase the wrong thing."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_tab_leg
+    assert "NOT VERIFIED AGAINST A LIVE PAYLOAD" in (_match_tab_leg.__doc__ or "")
+
+
+def test_tab_has_a_sport_name_mapping_because_it_has_no_ids():
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import TAB_NAMES
+    assert TAB_NAMES["afl"] == ("AFL Football", "AFL")
+
+
+# ─── the set, as a whole ────────────────────────────────────────────────
+
+
+def test_every_bookmaker_now_resolves():
+    """The comparator is only a comparator if the books are actually in it."""
+    assert set(_QUOTERS) == set(BOOKMAKERS)
