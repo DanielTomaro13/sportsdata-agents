@@ -120,12 +120,47 @@ def _classify_snaps(snaps: Sequence[OddsSnapshot]) -> tuple[
     of one query each (500 fixtures was 500 round-trips per board poll)."""
     from sportsdata_agents.operations.monitoring import _market_family, _split_selection
 
+    # Kalshi and Polymarket carry the market as a raw event slug
+    # ("kxjleaguegame", "sweden … more votes to v or c?") — _market_family
+    # can't see h2h in that, so their games silently fell off the board and the
+    # sharp line. A two-outcome prediction market IS an h2h: map it here, before
+    # classification, keyed off the snapshot's own provider.
+    PRED = {"kalshi", "polymarket"}
+
     markets: dict[tuple[str, float | None], dict[str, dict[str, float]]] = {}
     seen: set[tuple[str, str, float | None, str]] = set()
     money: dict[str, Any] = {}
     extras: dict[str, dict[str, dict[str, float]]] = {}
     extras_seen: set[tuple[str, str, str]] = set()
+    # For prediction markets, decide h2h eligibility per (event, market): a
+    # market with exactly two non-"no " selections is a clean two-way.
+    from collections import defaultdict
+    _pred_sides: dict[tuple[str, str], dict[str, str]] = {}
+    _seen_sel: dict[tuple[str, str], set[str]] = defaultdict(set)
     for s in snaps:
+        if s.provider in PRED and not str(s.selection).startswith("no "):
+            _seen_sel[(s.event_external_id, s.market)].add(str(s.selection).lower())
+    for key, sels in _seen_sel.items():
+        if len(sels) == 2:  # a clean two-way; anything else is genuine novelty
+            lo, hi = sorted(sels)
+            _pred_sides[key] = {lo: "home", hi: "away"}
+
+    for s in snaps:
+        sides = _pred_sides.get((s.event_external_id, s.market)) if s.provider in PRED else None
+        if sides:
+            sel = str(s.selection).lower()
+            if sel.startswith("no "):
+                continue  # the affirmative side carries the price
+            side = sides.get(sel)
+            if side is None:
+                continue
+            try:
+                odds = float(s.odds)
+            except (TypeError, ValueError):
+                continue
+            if odds > 1.0:
+                markets.setdefault(("h2h", None), {}).setdefault(s.book, {})[side] = odds
+            continue
         family = _market_family(s.market)
         if family not in ("h2h", "total", "line"):
             ekey = (s.book, s.market, str(s.selection))
@@ -376,10 +411,26 @@ async def game_detail(session: AsyncSession, fixture_id: str,
     fx_events = events.get(f.id, [])
     markets, money, _extras = await _markets_by_source(session, fx_events, now=now)
     priced = _priced_markets(markets)
-    # Sharp-priced markets ONLY, with every retail book's quotes matched onto
-    # them (the quotes grid). The book-only tier and the raw props/extras
-    # section were tried and rolled back: they flooded the panel with
-    # unstructured non-two-way markets. Revisit behind curation if wanted.
+    # TWO TIERS, deliberately:
+    #   1. the sharp spine — h2h a sharp priced, with every book matched on
+    #   2. STRUCTURED book markets — totals and handicaps in the recognised
+    #      2-3 way families, shown even when no sharp priced them
+    # Sharp-only (the previous rule) hid every handicap and total the AU books
+    # price — sharps mostly quote h2h here — which also starved the SGM panel
+    # of legs. This is NOT the old raw-props flood: _market_family only admits
+    # full-game total/line families, so "74th over wicket?" still never lands.
+    sharp_keys = {(m["family"], m["line"]) for m in priced}
+    for (family, line), by_source in markets.items():
+        if (family, line) in sharp_keys or family == "h2h" or not by_source:
+            continue  # h2h stays sharp-gated: the spine must stay clean
+        sides = {sd for q in by_source.values() for sd in q}
+        if not (2 <= len(sides) <= 3):
+            continue
+        priced.append({
+            "key": _market_key(family, line), "family": family, "line": line,
+            "label": _market_label(family, line), "fair": {}, "sharp_sources": [],
+            "value": {}, "quotes": dict(by_source), "n_sharp": 0, "book_only": True,
+        })
     h2h = next((m for m in priced if m["family"] == "h2h"), None)
     rating = await _engine_rating(session, f.sport, f)
     flow = await market_flow(session, fx_events, now=now)
@@ -535,7 +586,12 @@ async def special_detail(
             continue
         if odds <= 1.0:
             continue
+        sel = " ".join(sel.split()).lower()          # canonical BEFORE both maps
         current.setdefault(sel, {})[r.book] = odds   # ascending order: last write wins
+        # Bucket on a CANONICAL selection key: books re-case and re-space the
+        # same runner between captures ("Keyd Stars" / "keyd  stars"), which
+        # fragmented one series into many one-point series — the panel then
+        # said "not enough history" while holding a thousand rows.
         bucket = r.captured_at.replace(minute=0, second=0, microsecond=0).isoformat()
         buckets = hourly.setdefault(sel, {})
         buckets[bucket] = max(buckets.get(bucket, 0.0), odds)

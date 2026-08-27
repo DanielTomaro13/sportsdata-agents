@@ -157,7 +157,13 @@
   }
 
   function spark(series) {
-    if (!series || series.length < 2) return '<span class="flatc">not enough history yet</span>';
+    if (!series || !series.length) return '<span class="flatc">no history yet</span>';
+    if (series.length === 1) {
+      // one observation is still information — show it as a dot with its price
+      return `<svg viewBox="0 0 240 44" class="spark" preserveAspectRatio="none">
+        <circle cx="120" cy="22" r="3" fill="var(--blue)"/></svg>
+        <span class="sprange">$${series[0][1].toFixed(2)} · first sighting</span>`;
+    }
     const vals = series.map((p) => p[1]);
     const min = Math.min(...vals), max = Math.max(...vals);
     const W = 240, H = 44, pad = 3;
