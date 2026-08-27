@@ -5384,7 +5384,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 6,
+   "count": 7,
    "tools": [
     {
      "name": "fanduel_racing_call",
@@ -5476,6 +5476,23 @@
       }
      ],
      "example": "{openDate, homeTeam:{shortName, abbreviation, score}, awayTeam:{...}, comp, mediaTypes}"
+    },
+    {
+     "name": "fanduel_sgp_price",
+     "desc": "PRICE A SAME GAME PARLAY you choose \u2014 give it two or more selections from one FanDuel event and get the correlation-adjusted combined price. Read the entry with `isSGM: true`; the SINGLEs alongside it are the individual leg prices, not the parlay.",
+     "args": [
+      {
+       "n": "web_key",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "betLegs",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "{respCode: 'SUCCESS', betCombinations:[{betType, isSGM, features, winAvgOdds:{trueOdds:{decimalOdds:{decimalOdds}}, americanDisplayOdds}, legCombinations:[\u2026]}], betFailures:[\u2026]}"
     }
    ]
   },

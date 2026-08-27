@@ -12,6 +12,7 @@ racing is held out (it has its own board).
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import func, select, tuple_
@@ -69,7 +70,6 @@ async def _markets_by_source(
     odds}}}) — player props, disposals, novelty derivatives. No sharp blends
     over these (no two sides to de-vig), but cross-book comparison is exactly
     what a punter wants from them."""
-    from sportsdata_agents.operations.monitoring import _market_family, _split_selection
 
     if not events:
         return {}, {}, {}
@@ -85,7 +85,7 @@ async def _markets_by_source(
     return _classify_snaps(snaps)
 
 
-def _classify_snaps(snaps: list[OddsSnapshot]) -> tuple[
+def _classify_snaps(snaps: Sequence[OddsSnapshot]) -> tuple[
         dict[tuple[str, float | None], dict[str, dict[str, float]]], dict[str, Any],
         dict[str, dict[str, dict[str, float]]]]:
     """Pure grouping of freshest-first snapshot rows — split from the fetch so
@@ -311,7 +311,7 @@ async def list_games(
     out: list[dict[str, Any]] = []
     for f in fixtures:
         fx_snaps = [r for e in events.get(f.id, []) for r in snaps_by_ext.get(e.external_id, [])]
-        markets, money, extras = _classify_snaps(fx_snaps)
+        markets, money, _extras = _classify_snaps(fx_snaps)
         priced = _priced_markets(markets)
         h2h = next((m for m in priced if m["family"] == "h2h"), None)
         if h2h is None:
@@ -347,7 +347,7 @@ async def game_detail(session: AsyncSession, fixture_id: str,
         return None
     events = await _fixture_events(session, {f.id})
     fx_events = events.get(f.id, [])
-    markets, money, extras = await _markets_by_source(session, fx_events, now=now)
+    markets, money, _extras = await _markets_by_source(session, fx_events, now=now)
     priced = _priced_markets(markets)
     # Sharp-priced markets ONLY, with every retail book's quotes matched onto
     # them (the quotes grid). The book-only tier and the raw props/extras
@@ -520,7 +520,7 @@ async def special_detail(
           "best_odds": min(books.values()),
           "series": sorted(hourly.get(sel, {}).items())}
          for sel, books in current.items()),
-        key=lambda x: x["best_odds"])
+        key=lambda x: float(x["best_odds"]))  # type: ignore[arg-type]
     resolves = f.start_time or f.end_time
     return {
         "fixture_id": str(f.id), "name": f.name, "category": f.sport,
