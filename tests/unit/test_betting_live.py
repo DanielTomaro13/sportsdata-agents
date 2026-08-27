@@ -102,6 +102,44 @@ def test_kambi_with_no_rows_refuses() -> None:
 # ─── scoping ────────────────────────────────────────────────────────────
 
 
+def test_pricing_groups_are_a_table_because_the_names_disagree() -> None:
+    """Read from the shipped specs, not derived. `sportsbet.sports` and `tab.sports` are
+    plural, `unibet.sport` and `betr.sport` singular, and Entain's pricing is in
+    `entain.rest` with no "sport" in it. Guessing f"{book}.sport" was wrong for three of
+    four books, and the symptom was a scan that priced nothing rather than an error."""
+    assert live.PRICING_GROUPS["sportsbet"] == ["sportsbet.sports", "sportsbet.cross"]
+    assert live.PRICING_GROUPS["unibet"] == ["unibet.sport"]
+    assert live.PRICING_GROUPS["entain"] == ["entain.rest"]
+    assert live.PRICING_GROUPS["tab"] == ["tab.sports"]
+
+
+def test_one_book_can_need_several_pricing_groups() -> None:
+    """Sportsbet resolves markets from `sportsbet.sports` but its SGM PRICER lives in
+    `sportsbet.cross` — a session with only the first resolves legs it then cannot
+    price. This is why the mapping is a list per book."""
+    groups = live.read_groups(["sportsbet"])
+    assert "sportsbet.sports" in groups and "sportsbet.cross" in groups
+
+
+def test_read_groups_covers_every_comparable_book_not_just_placeable_ones() -> None:
+    """A book you cannot bet at still informs the consensus; dropping it narrows the
+    field the edge is measured against."""
+    groups = live.read_groups()
+    assert live.PRICING_GROUPS["betr"][0] in groups
+    assert live.PRICING_GROUPS["pointsbet"][0] in groups
+
+
+def test_a_placing_session_can_also_re_price() -> None:
+    """Sportsbet's and TAB's price_slip are ACCOUNT-tier tools, so a session holding only
+    `<book>.write` can place a bet but not check the price first — arming the drift gate
+    and then starving it."""
+    policy = BettingPolicy(book_modes={"sportsbet": "auto"}, books=["sportsbet"])
+    assert live.scope_for(policy) == ["sportsbet.account", "sportsbet.write"]
+
+    tab = BettingPolicy(book_modes={"tab": "ask"}, books=["tab"])
+    assert live.scope_for(tab) == ["tab.account", "tab.write"]
+
+
 def test_a_paper_policy_can_place_nowhere() -> None:
     """The default. No write group means the placement tools are ABSENT from the
     session, not merely declined by the policy."""
@@ -111,13 +149,15 @@ def test_a_paper_policy_can_place_nowhere() -> None:
 def test_only_books_set_to_ask_or_auto_get_a_write_group() -> None:
     policy = BettingPolicy(book_modes={"sportsbet": "auto", "tab": "ask",
                                        "unibet": "paper", "entain": "never"})
-    assert live.scope_for(policy) == ["sportsbet.write", "tab.write"]
+    groups = live.scope_for(policy)
+    assert "sportsbet.write" in groups and "tab.write" in groups
+    assert not any(g.startswith(("unibet", "entain")) for g in groups)
 
 
 def test_a_book_outside_the_eligible_list_gets_no_write_group() -> None:
     policy = BettingPolicy(book_modes={"sportsbet": "auto", "tab": "auto"},
                            books=["sportsbet"])
-    assert live.scope_for(policy) == ["sportsbet.write"]
+    assert live.scope_for(policy) == ["sportsbet.account", "sportsbet.write"]
 
 
 def test_every_known_book_has_a_reader() -> None:

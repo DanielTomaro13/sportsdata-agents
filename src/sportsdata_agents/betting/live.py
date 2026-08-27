@@ -151,16 +151,68 @@ def scope_for(policy: BettingPolicy) -> list[str]:
     session rather than merely declined by the policy — two independent reasons a bet
     cannot happen, which is the point.
     """
-    return sorted(
-        f"{book}.write"
-        for book in policy.KNOWN_BOOKS
-        if policy.mode_for(book) in ("ask", "auto")
-        and (book in policy._eligible_books())
-    )
+    groups: set[str] = set()
+    for book in policy.KNOWN_BOOKS:
+        if policy.mode_for(book) not in ("ask", "auto"):
+            continue
+        if book not in policy._eligible_books():
+            continue
+        groups.add(f"{book}.write")
+        # ...and whatever the drift gate needs to re-price it. A session that can place
+        # but cannot re-price is one that arms the gate and then starves it.
+        groups.update(REPRICE_GROUPS.get(book, []))
+    return sorted(groups)
+
+
+#: The MCP groups holding each book's ANONYMOUS pricing tools.
+#:
+#: A LIST PER BOOK, NOT A STRING, and not derivable from the book name. Two things make
+#: this a table rather than an f-string, both found on the first live run:
+#:
+#: 1. The names disagree on the obvious: `sportsbet.sports` and `tab.sports` are plural,
+#:    `unibet.sport` and `betr.sport` are singular, and Entain's pricing sits in
+#:    `entain.rest` with no "sport" in it at all. Guessing `f"{book}.sport"` was wrong for
+#:    three of four books and surfaced as "Unknown tool: 'sportsbet_event_markets'" — a
+#:    scan that silently priced nothing rather than erroring.
+#: 2. ONE BOOK CAN NEED SEVERAL GROUPS. Sportsbet resolves markets from
+#:    `sportsbet.sports` but its SGM pricer lives in `sportsbet.cross`, so a session with
+#:    only the first resolves legs and then cannot price them.
+#:
+#: Read from the shipped specs on 2026-08-27. If a scan reports unknown tools, re-read
+#: them rather than guessing which group a tool is in.
+PRICING_GROUPS = {
+    "sportsbet": ["sportsbet.sports", "sportsbet.cross"],
+    "tab": ["tab.sports"],
+    "unibet": ["unibet.sport"],
+    "entain": ["entain.rest"],
+    "betr": ["betr.sport"],
+    "pointsbet": ["pointsbet.sports"],
+}
+
+#: The groups a book's RE-PRICE tool lives in — what the drift gate needs, which is not
+#: the same as what placement needs.
+#:
+#: Sportsbet's `sportsbet_price_slip` and TAB's `tab_price_slip` are ACCOUNT-tier tools in
+#: `<book>.account`, so a session holding only `<book>.write` can place a bet but cannot
+#: check the price first — which would arm the gate and then starve it. Entain and Unibet
+#: re-price through their anonymous pricers instead.
+REPRICE_GROUPS = {
+    "sportsbet": ["sportsbet.account"],
+    "tab": ["tab.account"],
+    "entain": ["entain.rest"],
+    "unibet": ["unibet.sport"],
+}
 
 
 def read_groups(books: list[str] | None = None) -> list[str]:
-    """Groups for the anonymous pricing side."""
-    from .policy import BettingPolicy as _P
+    """Groups for the anonymous pricing side.
 
-    return sorted(f"{b}.sport" for b in (books or sorted(_P.KNOWN_BOOKS)))
+    Defaults to every book the COMPARATOR can quote, not just the placeable four — a
+    book you cannot bet at still informs the consensus, and leaving it out would narrow
+    the field the edge is measured against.
+    """
+    wanted = books or sorted(PRICING_GROUPS)
+    missing = [b for b in wanted if b not in PRICING_GROUPS]
+    if missing:
+        raise PriceUnreadable(f"no pricing groups known for {missing} — see PRICING_GROUPS")
+    return sorted({g for b in wanted for g in PRICING_GROUPS[b]})

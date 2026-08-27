@@ -30,6 +30,8 @@ comparable units. See PRICE_UNITS for why the units are the load-bearing part.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import re
 import uuid
 from typing import Any
@@ -94,14 +96,53 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9. ]", "", str(s).lower()).strip()
 
 
+#: Serialises DB reads while the books are quoted CONCURRENTLY.
+#:
+#: An AsyncSession is not safe for concurrent use — two coroutines touching one session
+#: raise "this session is provisioning a new connection; concurrent operations are not
+#: permitted", which `compare` catches per book and reports as `unavailable`. So the
+#: symptom is not a crash: it is EVERY BOOK SILENTLY FAILING TO PRICE, which reads
+#: exactly like a fixture no book will quote. Found on the first live run of the betting
+#: plane, having never shown up in tests because the tests pass a fake mcp and never a
+#: real session.
+#:
+#: Held only around the DB reads, which every quoter does up front before it touches the
+#: network, so the slow part — the bookmakers' own calls — stays parallel.
+#:
+#: Set per `compare()` call rather than at module scope: an asyncio.Lock binds to the
+#: running loop, and a module-level one created at import time belongs to whichever loop
+#: imported it.
+_DB_LOCK: contextvars.ContextVar[asyncio.Lock | None] = contextvars.ContextVar(
+    "sgm_books_db_lock", default=None)
+
+
+@contextlib.asynccontextmanager
+async def _db():
+    """Guard one DB read. A no-op when nothing is running concurrently."""
+    lock = _DB_LOCK.get()
+    if lock is None:
+        yield
+        return
+    async with lock:
+        yield
+
+
 async def _linked_event(session: AsyncSession, fixture_id: str, provider: str) -> Event | None:
     try:
         fid = uuid.UUID(fixture_id)  # the column is a Uuid; a raw string blows up in the driver
     except ValueError:
         return None
-    row = await session.execute(
-        select(Event).where(Event.fixture_id == fid, Event.provider == provider))
-    return row.scalars().first()
+    async with _db():
+        row = await session.execute(
+            select(Event).where(Event.fixture_id == fid, Event.provider == provider))
+        return row.scalars().first()
+
+
+async def _fixture_of(session: AsyncSession, fixture_id: Any) -> Any:
+    """The fixture row, under the same guard as every other read — see `_DB_LOCK`."""
+    async with _db():
+        return (await session.execute(
+            select(Fixture).where(Fixture.id == fixture_id))).scalar()
 
 
 async def available_books(session: AsyncSession, fixture_id: str, mcp: Any) -> dict[str, Any]:
@@ -355,7 +396,7 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
     ev = await _linked_event(session, fixture_id, "sportsbet")
     if ev is None:
         return {"unavailable": "no Sportsbet event linked to this fixture"}
-    f = (await session.execute(select(Fixture).where(Fixture.id == ev.fixture_id))).scalar()
+    f = await _fixture_of(session, ev.fixture_id)
     home, away = [*f.name.split(" v ", 1), ""][:2] if f and " v " in f.name else ("", "")
 
     try:
@@ -552,7 +593,7 @@ async def _resolve(session: AsyncSession, book: str, fixture_id: str) -> tuple[A
     ev = await _linked_event(session, fixture_id, book)
     if ev is None:
         return f"no {book} event linked to this fixture"
-    f = (await session.execute(select(Fixture).where(Fixture.id == ev.fixture_id))).scalar()
+    f = await _fixture_of(session, ev.fixture_id)
     home, away = [*f.name.split(" v ", 1), ""][:2] if f and " v " in f.name else ("", "")
     return ev, home, away
 
@@ -689,7 +730,11 @@ async def compare(session: AsyncSession, mcp: Any, fixture_id: str, legs: list[d
         except Exception as exc:  # a resolver bug must not take the whole board down
             return book, {"unavailable": f"{book} quoting raised {type(exc).__name__}: {exc}"}
 
-    results = dict(await asyncio.gather(*(one(b) for b in books)))
+    token = _DB_LOCK.set(asyncio.Lock())
+    try:
+        results = dict(await asyncio.gather(*(one(b) for b in books)))
+    finally:
+        _DB_LOCK.reset(token)
 
     priced = {b: r for b, r in results.items() if r.get("book_odds")}
     unavailable = {b: r.get("unavailable", "no price") for b, r in results.items()
@@ -916,11 +961,10 @@ async def quote_tab(session: AsyncSession, mcp: Any, fixture_id: str,
     fx_id = ev.fixture_id if ev is not None else None
     f = None
     if fx_id is not None:
-        f = (await session.execute(select(Fixture).where(Fixture.id == fx_id))).scalar()
+        f = await _fixture_of(session, fx_id)
     if f is None:
         try:
-            f = (await session.execute(
-                select(Fixture).where(Fixture.id == uuid.UUID(fixture_id)))).scalar()
+            f = await _fixture_of(session, uuid.UUID(fixture_id))
         except ValueError:
             f = None
     if f is None or " v " not in (f.name or ""):

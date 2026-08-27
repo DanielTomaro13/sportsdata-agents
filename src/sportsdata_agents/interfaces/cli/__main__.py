@@ -2615,9 +2615,17 @@ def bet_scan(
     Opens TWO scoped MCP sessions: one for the anonymous pricers, one carrying only the
     `.write` groups your policy could actually place at. A book set to `paper` or `never`
     is absent from the placing session entirely, not merely declined.
+
+    RAISES THE DATA PLANE'S RESPONSE CAP for this run. The MCP caps a response at 150 KB
+    to protect a MODEL's context window, but the quoters here are code — they fetch a
+    fixture's whole market book and hand it to a matcher, never to a model. Measured live
+    2026-08-27: Sportsbet returned 1.34 MB and Unibet 557 KB on ordinary fixtures, so at
+    the default cap every book reports "unavailable" and the scan looks like a fixture
+    nobody will price. Set SPORTSDATA_MCP_MAX_BYTES yourself to override this.
     """
     import asyncio
     import json
+    import os
 
     async def go() -> None:
         from dotenv import load_dotenv
@@ -2642,6 +2650,10 @@ def bet_scan(
 
         write_groups = live.scope_for(policy)
         typer.echo(f"pricing {fixture_id}; placing scope: {write_groups or '(none — nothing can place)'}")
+
+        # See the docstring: the model-context cap does not apply to a code path, and at
+        # the default every book silently fails to price.
+        os.environ.setdefault("SPORTSDATA_MCP_MAX_BYTES", "8000000")
 
         engine = make_engine(get_settings().database_url)
         sessionmaker = make_sessionmaker(engine)
