@@ -754,50 +754,85 @@ TAB_NAMES = {
 }
 
 
+def _tab_team_matches(prop_name: str, team: str) -> bool:
+    """Does a TAB proposition name refer to this team?
+
+    TAB abbreviates: "Wst Bulldogs" for Western Bulldogs, "Sydney" for Sydney Swans. An
+    exact comparison fails on most of the league, so the test is whether the team's
+    longest distinctive word appears — "bulldogs" is in "Wst Bulldogs", "collingwood" in
+    "Collingwood". Short words are skipped so "st" out of "St Kilda" cannot match half the
+    competition.
+    """
+    pn = _norm(prop_name)
+    words = [w for w in _norm(team).split() if len(w) >= 4]
+    if not words:
+        return _norm(team) in pn
+    return max(words, key=len) in pn
+
+
 def _match_tab_leg(leg: dict, markets: list[dict], home: str, away: str) -> int | str:
     """One board leg -> a TAB propositionId, or a reason string.
 
-    NOT VERIFIED AGAINST A LIVE PAYLOAD. TAB's sports endpoints need OAuth, so unlike the
-    other four resolvers this one is written from the shapes documented on
-    tab_match_markets and tab_sgm_price rather than from a capture. Treat a TAB miss as
-    "this resolver may be wrong" before assuming the book has no market.
+    VERIFIED live 2026-08-27 against AFL Wst Bulldogs v Collingwood (174 markets, 53
+    combinable). TAB's market names are heavily abbreviated and carry the fixture in them
+    — "AFL WBdg-Coll Hd to Hd", "AFL WBdg-Coll TotPtsOU 169.5", "AFL WBdg-Coll Line +1.5"
+    — so markets are found by TOKEN rather than by a readable name, and the line is read
+    out of the market name.
 
-    Only markets flagged `sameGame` can go in an SGM — 52 of 109 on the match TAB's pricer
-    was verified against.
+    Only markets flagged `sameGame` can be combined (53 of 174 here). The per-quarter line
+    markets are the instructive counter-example: they look identical to the match line and
+    are NOT combinable, so the flag is the only thing separating them.
     """
     fam, sel = str(leg.get("market") or ""), str(leg.get("selection") or "")
     line, label = leg.get("line"), str(leg.get("label") or f"{leg.get('market')}:{leg.get('selection')}")
 
     def combinable(m: dict) -> bool:
-        return bool(m.get("sameGame")) and _norm(m.get("bettingStatus", "open")) in ("open", "")
+        return bool(m.get("sameGame")) and _norm(m.get("bettingStatus", "")) == "open"
 
     def props(m: dict) -> list[dict]:
-        return [p for p in (m.get("propositions") or []) if p.get("id") is not None]
+        return [p for p in (m.get("propositions") or [])
+                if p.get("id") is not None and p.get("isOpen", True)]
 
     want_team = home if sel == "home" else away if sel == "away" else sel
+    cands = [m for m in markets if combinable(m)]
 
-    for m in markets:
-        if not combinable(m):
-            continue
-        nm = _norm(m.get("name", ""))
-        if fam == "h2h" and ("head to head" in nm or nm == "match result"):
+    if fam == "h2h":
+        for m in cands:
+            if "hd to hd" not in _norm(m.get("name", "")):
+                continue
             for p in props(m):
-                if _norm(p.get("name", "")) == _norm(want_team):
+                if _tab_team_matches(p.get("name", ""), want_team):
                     return int(p["id"])
-        elif fam == "total" and "total" in nm and sel in ("over", "under"):
-            if line is None:
-                return f"{label}: totals need a line"
-            for p in props(m):
-                pn = _norm(p.get("name", ""))
-                if pn.startswith(sel) and str(line) in pn:
-                    return int(p["id"])
-        elif fam == "line" and ("line" in nm or "handicap" in nm):
-            for p in props(m):
-                pn = _norm(p.get("name", ""))
-                if _norm(want_team) in pn and (line is None or str(abs(float(line))) in pn):
-                    return int(p["id"])
+        return f"{label}: no combinable head-to-head market at TAB"
 
-    return f"{label}: no combinable TAB market matched (resolver is unverified — see docstring)"
+    if fam == "total":
+        if line is None or sel not in ("over", "under"):
+            return f"{label}: totals need a line and an over/under side"
+        for m in cands:
+            # The line is IN the market name: "TotPtsOU 169.5".
+            if "totptsou" not in _norm(m.get("name", "")) or str(line) not in str(m.get("name", "")):
+                continue
+            for p in props(m):
+                if _norm(p.get("name", "")).startswith(sel):
+                    return int(p["id"])
+        return f"{label}: TAB has no combinable total at line {line}"
+
+    if fam == "line":
+        for m in cands:
+            nm = _norm(m.get("name", ""))
+            # "line +1.5" — and NOT "1stqtrln"/"2ndqline", which are per-period and are
+            # excluded by the sameGame flag anyway.
+            if " line " not in f" {nm} " and not nm.endswith(" line"):
+                if "line" not in nm.split():
+                    continue
+            if line is not None and str(abs(float(line))) not in str(m.get("name", "")):
+                continue
+            for p in props(m):
+                if _tab_team_matches(p.get("name", ""), want_team):
+                    return int(p["id"])
+        return f"{label}: TAB has no combinable line market at {line}"
+
+    return f"{label}: market family {fam!r} is not mapped for TAB"
 
 
 async def quote_tab(session: AsyncSession, mcp: Any, fixture_id: str,

@@ -405,14 +405,21 @@ def test_entain_honours_the_flag_its_own_pricer_ignores():
 
 # ─── TAB ────────────────────────────────────────────────────────────────
 
+#: TAB's REAL vocabulary, copied from a live response: names are abbreviated and carry
+#: the fixture, and the line lives in the market name. The per-quarter line market is the
+#: instructive one — it looks like the match line and is NOT combinable.
 TAB_MARKETS = [
-    {"id": 1, "name": "Head To Head", "sameGame": True, "bettingStatus": "OPEN",
-     "propositions": [{"id": 1016, "name": "Western Bulldogs"},
-                      {"id": 1017, "name": "Collingwood"}]},
-    {"id": 2, "name": "Total Match Points", "sameGame": True, "bettingStatus": "OPEN",
-     "propositions": [{"id": 8529, "name": "Over 169.5"}, {"id": 8530, "name": "Under 169.5"}]},
-    {"id": 3, "name": "Head To Head Alternate", "sameGame": False, "bettingStatus": "OPEN",
-     "propositions": [{"id": 999, "name": "Western Bulldogs"}]},
+    {"id": 1, "name": "AFL WBdg-Coll Hd to Hd", "sameGame": True, "bettingStatus": "Open",
+     "propositions": [{"id": 1016, "name": "Wst Bulldogs", "isOpen": True},
+                      {"id": 1004, "name": "Collingwood", "isOpen": True}]},
+    {"id": 2, "name": "AFL WBdg-Coll TotPtsOU 169.5", "sameGame": True, "bettingStatus": "Open",
+     "propositions": [{"id": 7336, "name": "Over 169.5 Pts", "isOpen": True},
+                      {"id": 7337, "name": "Under 169.5 Pts", "isOpen": True}]},
+    {"id": 3, "name": "AFL WBdg-Coll Line +1.5", "sameGame": True, "bettingStatus": "Open",
+     "propositions": [{"id": 6464, "name": "Wst Bulldogs +1.5", "isOpen": True},
+                      {"id": 6465, "name": "Collingwood -1.5", "isOpen": True}]},
+    {"id": 4, "name": "AFL WBdg-Coll 2ndQLine +0.5", "sameGame": None, "bettingStatus": "Open",
+     "propositions": [{"id": 6355, "name": "Wst Bulldogs +0.5", "isOpen": True}]},
 ]
 
 
@@ -421,7 +428,7 @@ def test_tab_only_offers_markets_flagged_sameGame():
     A leg from a non-sameGame market is refused by TAB, so it is never proposed."""
     from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_tab_leg
     assert _match_tab_leg({"market": "h2h", "selection": "home"},
-                          TAB_MARKETS, HOME, AWAY) == 1016   # not 999
+                          TAB_MARKETS, HOME, AWAY) == 1016
     only_excluded = [m for m in TAB_MARKETS if not m["sameGame"]]
     assert isinstance(_match_tab_leg({"market": "h2h", "selection": "home"},
                                      only_excluded, HOME, AWAY), str)
@@ -430,15 +437,36 @@ def test_tab_only_offers_markets_flagged_sameGame():
 def test_tab_matches_a_total_by_side_and_line():
     from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_tab_leg
     assert _match_tab_leg({"market": "total", "selection": "over", "line": 169.5},
-                          TAB_MARKETS, HOME, AWAY) == 8529
+                          TAB_MARKETS, HOME, AWAY) == 7336
 
 
-def test_tab_says_in_its_own_docstring_that_it_is_unverified():
-    """Five resolvers were built against captured payloads; TAB's sports endpoints need
-    OAuth so this one was written from documented shapes. That difference has to be
-    visible to whoever debugs a TAB miss, or they will chase the wrong thing."""
+def test_tab_reads_the_line_out_of_the_market_name():
+    """"AFL WBdg-Coll Line +1.5" — the line is not on the proposition."""
     from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_tab_leg
-    assert "NOT VERIFIED AGAINST A LIVE PAYLOAD" in (_match_tab_leg.__doc__ or "")
+    assert _match_tab_leg({"market": "line", "selection": "home", "line": 1.5},
+                          TAB_MARKETS, HOME, AWAY) == 6464
+
+
+def test_tab_excludes_a_per_quarter_line_that_looks_like_the_match_line():
+    """The 2nd-quarter line market is shaped exactly like the match line and is NOT
+    combinable. `sameGame` is the only thing separating them, which is why it is the
+    filter rather than the market name."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _match_tab_leg
+    assert _match_tab_leg({"market": "line", "selection": "home", "line": 0.5},
+                          TAB_MARKETS, HOME, AWAY) != 6355
+
+
+def test_tab_matches_abbreviated_team_names():
+    """TAB writes "Wst Bulldogs" for Western Bulldogs and "Sydney" for Sydney Swans, so an
+    exact comparison fails on most of the league. Matching on the longest distinctive word
+    is what makes the resolver work at all — and skipping short words is what stops "st"
+    out of "St Kilda" matching half the competition."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _tab_team_matches
+    assert _tab_team_matches("Wst Bulldogs", "Western Bulldogs")
+    assert _tab_team_matches("Collingwood", "Collingwood")
+    assert _tab_team_matches("Sydney", "Sydney Swans")
+    assert not _tab_team_matches("Collingwood", "Western Bulldogs")
+    assert not _tab_team_matches("St Kilda", "Port Adelaide")
 
 
 def test_tab_has_a_sport_name_mapping_because_it_has_no_ids():
