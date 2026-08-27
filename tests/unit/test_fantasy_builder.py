@@ -135,12 +135,15 @@ agent:
 """
     with pytest.raises(ValueError, match="product-plane only"):
         await tools["save_agent_spec"].execute({"yaml": ops_yaml})
-    # money-ish capability refused by the spec models themselves
+    # A money tool is no longer refused at draft time — the blanket ban was lifted on
+    # 2026-08-27 (see docs/BETTING-PLANE.md). It drafts, and the betting policy is what
+    # decides whether a bet is ever actually placed. The guardrails that remain are the
+    # ones above: builtin-id collision, and product-plane only.
     draft = await tools["draft_agent_spec"].execute({"spec": {
-        "id": "bad", "display_name": "X", "goal_prompt": "y",
-        "native": ["place_bet"],
+        "id": "armed", "display_name": "X", "goal_prompt": "y",
+        "native": ["sportsbet_place_bet"],
     }})
-    assert draft["ok"] is False
+    assert draft["ok"] is True
 
 
 # ── discord routing core ───────────────────────────────────────────────────

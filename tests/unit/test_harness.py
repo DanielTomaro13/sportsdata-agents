@@ -191,19 +191,20 @@ async def test_unknown_tool_is_reported_to_model_not_raised() -> None:
     assert "unknown tool" in tool_msgs[0]["content"]
 
 
-async def test_denied_tool_request_is_refused_not_executed() -> None:
+async def test_a_tool_not_in_the_toolset_is_still_refused() -> None:
+    """The name-based money ban is gone, but "the model asked for a tool it does not
+    have" is a different guarantee and it still holds — the toolset is the boundary."""
     executed = []
 
     async def execute(args: dict[str, Any]) -> Any:
         executed.append(args)
         return "x"
 
-    # The model asks for a denied name that isn't even in the toolset.
-    provider = ScriptedProvider(tool_reply("place_bet"), text_reply("ok"))
+    provider = ScriptedProvider(tool_reply("sportsbet_place_bet"), text_reply("ok"))
     h = Harness(make_spec(), provider=provider, workspace=WS, tools=[echo_tool()])
     res = await h.run("q")
     tool_msgs = [m for m in res.messages if m.get("role") == "tool"]
-    assert "no-money" in tool_msgs[0]["content"]
+    assert "unknown tool" in tool_msgs[0]["content"]
     assert executed == []
 
 
@@ -220,9 +221,13 @@ async def test_tool_exception_returned_as_error_content() -> None:
     assert res.stop_reason == "done"
 
 
-def test_denied_tool_in_toolset_rejected_at_construction() -> None:
-    with pytest.raises(ValueError, match="denied tool"):
-        Harness(make_spec(), provider=ScriptedProvider(text_reply("x")), workspace=WS, tools=[echo_tool("place_bet")])
+def test_a_money_tool_in_the_toolset_is_allowed_but_logged(caplog) -> None:
+    """Since 2026-08-27 a toolset may carry a placement tool. It must never be quiet
+    about it: the warning is what makes an armed agent visible in a log before it acts."""
+    with caplog.at_level("WARNING"):
+        Harness(make_spec(), provider=ScriptedProvider(text_reply("x")), workspace=WS,
+                tools=[echo_tool("sportsbet_place_bet")])
+    assert any("money tool" in r.getMessage() for r in caplog.records)
 
 
 def test_duplicate_tool_names_rejected_at_construction() -> None:

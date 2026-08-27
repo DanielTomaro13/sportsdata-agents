@@ -32,12 +32,6 @@ class FakeManager:
         self.calls.append((name, args or {}))
         if name == "list_tools_by_capability":
             return {"tools": self._index.get(args["capability"], [])}
-        from sportsdata_agents.mcp.manager import is_denied
-
-        if is_denied(name):  # the real manager refuses at call time; so must the fake
-            from sportsdata_agents.mcp.manager import ForbiddenToolError
-
-            raise ForbiddenToolError(name)
         return {"ok": name, "args": args}
 
 
@@ -109,18 +103,20 @@ async def test_a_tool_outside_the_granted_capabilities_is_refused() -> None:
     assert not [c for c in manager.calls if c[0] == "apitennis_livescore"]
 
 
-async def test_a_money_verb_tool_is_neither_listed_nor_callable() -> None:
-    """The advisory invariant must not depend on how a tool name arrives. Discovery is a
-    new route to the catalogue, so it gets the same deny-filter — enforced twice: the
-    name is never shown, and MCPManager.call_tool refuses it even if hallucinated."""
+async def test_a_placement_tool_is_discoverable_but_still_scope_bound() -> None:
+    """The name-based ban was lifted on 2026-08-27, so discovery no longer hides a
+    placement tool — what still bounds it is SCOPE. A capability the agent was not
+    granted is unreachable however the name arrives, which is the guarantee that
+    actually survived, and it is stronger than a regex because it is structural."""
     index = {"sport.prices": INDEX["sport.prices"] + [_entry("sportsbet_place_bet", "sportsbet", "Place a bet.")]}
-    manager = FakeManager(index)
-    tools = _tools(manager, caps=["sport.prices"])
+    tools = _tools(FakeManager(index), caps=["sport.prices"])
 
     listed = await tools["find_data_tools"].execute({"query": "bet"})
-    assert "sportsbet_place_bet" not in [m["tool"] for m in listed["matches"]]
+    assert "sportsbet_place_bet" in [m["tool"] for m in listed["matches"]]
 
-    called = await tools["call_data_tool"].execute({"tool_name": "sportsbet_place_bet", "args": {}})
+    # ...but a tool outside the granted capabilities stays unreachable.
+    out_of_scope = _tools(FakeManager(index), caps=["sport.schedule"])
+    called = await out_of_scope["call_data_tool"].execute({"tool_name": "sportsbet_place_bet", "args": {}})
     assert "not reachable" in called["error"]
 
 

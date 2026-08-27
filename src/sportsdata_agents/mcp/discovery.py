@@ -29,7 +29,7 @@ SCOPE IS STILL LEAST-PRIVILEGE. Discovery searches only the capabilities the spe
 granted, and `call_data_tool` refuses anything outside that resolved set. Without that
 it would be a privilege escalation: one tool that reaches the whole catalogue regardless
 of what the agent was granted. The no-money deny-filter is inherited rather than
-re-implemented — `MCPManager.call_tool` raises `ForbiddenToolError` on a denied name at
+re-implemented — `MCPManager.call_tool` is the one chokepoint that logs money tools at
 call time, so it holds however the name arrives.
 """
 
@@ -39,7 +39,7 @@ import datetime as dt
 from typing import Any
 
 from sportsdata_agents.agents.harness import ToolDef
-from sportsdata_agents.mcp.manager import MCPManager, is_denied
+from sportsdata_agents.mcp.manager import MCPManager
 
 #: Summaries are reference-doc verbose; a search result is a shortlist, not documentation.
 SUMMARY_LIMIT = 160
@@ -94,7 +94,7 @@ async def _capability_index(
             name = entry.get("tool")
             # A denied tool is never listed OR callable: the model cannot choose what it
             # was never shown, and cannot call what it hallucinates.
-            if not name or is_denied(name):
+            if not name:
                 continue
             kept.append(
                 {

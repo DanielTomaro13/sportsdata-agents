@@ -2,14 +2,39 @@
 
 Spawns ``sportsdata-mcp`` as a **stdio subprocess**, scoped per agent via the
 ``SPORTSDATA_MCP_GROUPS`` env var (least privilege, §13), and exposes the scoped tool
-catalogue. Two structural guarantees live here:
+catalogue.
 
-1. **Scoping** — the subprocess only ever registers the groups it was started with;
-   an agent cannot call a tool outside its scope because the server never has it.
-2. **No-money deny-filter (defense in depth)** — the MCP has no placement/deposit/
-   account tools at source (verified pre-flight), but the manager additionally hides
-   and refuses any tool whose name matches money/placement verbs, so a compromised or
-   future data plane still can't surface one to an agent.
+**Scoping** is the structural guarantee that remains: the subprocess only ever registers
+the groups it was started with, so an agent cannot call a tool outside its scope because
+the server never has it. Placement tools live in a `<provider>.write` group reachable
+only by exact name — never via a preset, a glob or `all` — so a session that was not
+deliberately started with that group has no money tool in it at all.
+
+## The no-money deny-filter was removed (2026-08-27), deliberately
+
+This module used to hide and refuse any tool whose NAME matched money verbs
+(`place|stake|balance|…`), on the stated premise that "the MCP has no placement tools at
+source". That premise stopped being true when the data plane gained
+`sportsbet_place_bet` and its three siblings, and the ban was removed rather than
+quietly worked around.
+
+What replaced it is a real gate rather than a name match: `sportsdata_agents.betting`
+decides — in deterministic code, on typed numeric fields — whether a bet may be placed,
+at what size, and whether a human must approve first. See `betting/policy.py`.
+
+**What this costs, stated plainly.** A name filter could not be talked out of anything;
+a policy can only be as good as its own arithmetic. The scanner reads bookmaker pages
+and API responses, which are attacker-controlled content, so the risk this filter used
+to blunt — injected text steering an agent toward a placement — is now carried entirely
+by that policy and by group scoping. The policy is therefore written to touch no free
+text at all, and no prompt can widen one of its limits.
+
+**What it buys.** The filter was blunt enough to hide read-only tools that matter:
+account balance (which Kelly sizing needs), cash-out availability, and every
+`*_price_slip` pre-placement quote. Those are back.
+
+`moves_money()` survives as a CLASSIFIER, not a gate — it labels the tools that can move
+real money so they can be logged, surfaced differently, and asserted about in tests.
 
 The Pydantic AI toolset adapter over this manager lands at M0.6 with the agent runtime.
 """
@@ -59,34 +84,39 @@ def _check_mcp_version(init_result: Any) -> None:
         )
 
 
-# Money/placement verbs an agent-facing tool name must never carry (§13). Deliberately
-# strict: it also hides the read-only `betfair_cashout` availability feed — losing one
-# harmless tool is the accepted cost of an airtight name-based deny.
-DENY_PATTERN = re.compile(
-    r"(place|deposit|withdraw|stake|wager|payout|wallet|balance|transfer|betslip|bet_slip|checkout|cashout)",
+# Tools that can move REAL money. This is a classifier, not a gate — nothing here
+# blocks a call. It exists so money-movers can be logged loudly, shown differently in a
+# UI, and asserted about in tests.
+#
+# Narrower than the old deny-filter on purpose. That one matched `balance`, `cashout`
+# and `betslip` too, which are READS: knowing an account balance is how Kelly sizing
+# gets a bankroll, and a `*_price_slip` quote is the call you are supposed to make
+# immediately BEFORE placing. Lumping reads in with writes is what made the old filter
+# cost real functionality.
+MONEY_PATTERN = re.compile(
+    r"(place_bet|placebet|deposit|withdraw|_wager|payout_request|wallet_transfer)",
     re.IGNORECASE,
 )
 
-# EXACT names exempted from the pattern above, and nothing else ever gets added
-# casually. The invariant is "no agent places a bet or moves money"; these move a
-# footballer between a squad and a bench for in-game currency, and no real money exists
-# anywhere in the endpoint. The filter is a NAME filter and cannot tell the two senses
-# of "transfer" apart.
-#
-# Listed by exact name on purpose. Relaxing the regex instead — say, requiring a word
-# boundary or excluding an `fpl_` prefix — would silently re-admit anything else that
-# happens to be named that way, and the value of this filter is that it is blunt.
-DENY_EXCEPTIONS = frozenset({
+# EXACT names that match the pattern but move no real money. Listed by exact name on
+# purpose: loosening the regex instead would silently re-admit anything else named that
+# way, and the value of this classifier is that it is blunt.
+MONEY_EXCEPTIONS = frozenset({
     "fpl_transfers",         # MCP: FPL squad transfers (in-game currency only)
     "fpl_propose_transfer",  # native: the policy-gated wrapper around it
 })
 
 
 class ForbiddenToolError(PermissionError):
-    """Raised when something asks for a tool the no-money invariant forbids."""
+    """Raised when something refuses a tool call on policy grounds.
+
+    No longer raised by this module — the blanket name-ban is gone (see the module
+    docstring). Kept because callers still catch it, and because the betting plane's
+    own gate is the right place for a refusal to originate.
+    """
 
     def __init__(self, tool: str) -> None:
-        super().__init__(f"tool {tool!r} is forbidden by the no-money invariant (§13); refusing to expose or call it")
+        super().__init__(f"tool {tool!r} was refused by policy; refusing to expose or call it")
         self.tool = tool
 
 
@@ -146,11 +176,28 @@ CURRENT_POLL_BUDGET: contextvars.ContextVar[PollBudget | None] = contextvars.Con
 )
 
 
-def is_denied(tool_name: str) -> bool:
-    """True if a tool name trips the no-money deny-filter."""
-    if tool_name in DENY_EXCEPTIONS:
+def moves_money(tool_name: str) -> bool:
+    """True if calling this tool can move real money.
+
+    A LABEL, not a permission check. Callers use it to log loudly and to mark a tool in
+    a UI; the decision about whether a bet may actually be placed belongs to
+    `sportsdata_agents.betting.policy`, which reasons about edge, stake and budget
+    rather than about spelling.
+    """
+    if tool_name in MONEY_EXCEPTIONS:
         return False
-    return bool(DENY_PATTERN.search(tool_name))
+    return bool(MONEY_PATTERN.search(tool_name))
+
+
+def is_denied(tool_name: str) -> bool:
+    """Deprecated. The no-money name-ban was removed on 2026-08-27; nothing is denied by
+    name any more, so this always returns False.
+
+    Kept so existing call sites keep working while they are migrated. Do not add new
+    uses — if you want to know whether a tool touches money, ask `moves_money`; if you
+    want to know whether a bet may be placed, ask the betting policy.
+    """
+    return False
 
 
 class MCPManager:
@@ -237,7 +284,10 @@ class MCPManager:
     # ── catalogue ──────────────────────────────────────────────────────────
 
     async def list_tools(self) -> list[Any]:
-        """The scoped tool catalogue, deny-filtered, cached for the session.
+        """The scoped tool catalogue, cached for the session.
+
+        No longer deny-filtered: scoping (which groups the subprocess registered) is what
+        bounds this, not a name match. See the module docstring.
 
         Follows ``nextCursor`` pagination — an unscoped discovery session can exceed one
         page (342 tools), and silently truncating it would hide tools from the orchestrator.
@@ -251,7 +301,7 @@ class MCPManager:
                 cursor = getattr(result, "nextCursor", None)
                 if not cursor:
                     break
-            self._tools_cache = [t for t in tools if not is_denied(t.name)]
+            self._tools_cache = tools
         return self._tools_cache
 
     async def tool_names(self) -> set[str]:
@@ -262,7 +312,7 @@ class MCPManager:
         payload = await self.call_tool("list_tools_by_capability", {"capability": capability})
         tools = payload.get("tools", []) if isinstance(payload, dict) else []
         names = [t.get("tool") or t.get("name") for t in tools if isinstance(t, dict)]
-        return [n for n in names if n and not is_denied(n)]
+        return [n for n in names if n]
 
     # ── calls ──────────────────────────────────────────────────────────────
 
@@ -273,13 +323,18 @@ class MCPManager:
         *,
         timeout_seconds: float = 60.0,
     ) -> Any:
-        """Call a tool and return its JSON payload. Denied names are refused up front.
+        """Call a tool and return its JSON payload. Nothing is refused by name here —
+        a tool that can move money is logged loudly and passed through, because the
+        decision to place belongs to the betting policy, not to a regex.
 
         A default read timeout stops a wedged upstream from hanging the agent forever
         (the harness's own budgets layer on top at M0.7).
         """
-        if is_denied(name):
-            raise ForbiddenToolError(name)
+        if moves_money(name):
+            # Not a gate — the betting policy decides that. But a call that can move real
+            # money is never allowed to happen quietly: this is the one chokepoint every
+            # route reaches, so it is the honest place to record that it happened.
+            log.warning("MONEY TOOL CALLED: %s — this can move real funds", name)
         # Charged here, the one chokepoint every route reaches — a directly attached
         # tool, a discovered one via call_data_tool, or a delegated sub-agent's call.
         budget = CURRENT_POLL_BUDGET.get()

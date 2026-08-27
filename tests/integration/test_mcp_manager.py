@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from sportsdata_agents.mcp.manager import ForbiddenToolError, MCPManager
+from sportsdata_agents.mcp.manager import MCPManager
 
 MCP_BIN = Path("/Users/danieltomaro/Documents/Projects/sportsdata-mcp/.venv/bin/sportsdata-mcp")
 
@@ -37,15 +37,23 @@ async def test_scoped_session_registers_only_its_groups() -> None:
     assert "list_tools_by_capability" in names
 
 
-async def test_deny_filter_holds_end_to_end() -> None:
+async def test_reads_the_old_deny_filter_hid_are_back() -> None:
+    """The name-based ban was removed on 2026-08-27 (docs/BETTING-PLANE.md). It was blunt
+    enough to hide READS — the cash-out availability feed among them — which is the
+    functionality its removal buys back."""
     async with _manager(["betfair.exchange", "betfair.inplay"]) as m:
         names = await m.tool_names()
-        # the strict filter hides the read-only cashout feed
-        assert "betfair_cashout" not in names
+        assert "betfair_cashout" in names
         assert "betfair_market_prices" in names
-        # calling a denied name is refused before any subprocess traffic
-        with pytest.raises(ForbiddenToolError):
-            await m.call_tool("betfair_cashout", {"marketIds": ["1.1"]})
+
+
+async def test_scoping_is_what_actually_bounds_a_session() -> None:
+    """The guarantee that survived, and the stronger one: a placement tool is absent from
+    a session that did not register its `.write` group — structurally, because the
+    subprocess never registered it, not because a regex matched its name."""
+    async with _manager(["betfair.exchange"]) as m:
+        names = await m.tool_names()
+        assert not any(n.endswith("_place_bet") for n in names)
 
 
 async def test_capability_lookup_is_cross_provider() -> None:

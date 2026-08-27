@@ -9,7 +9,7 @@ import pytest
 from sportsdata_agents.agents.loader import load_builtin_specs
 from sportsdata_agents.agents.runtime import AgentRuntime
 from sportsdata_agents.agents.skills import builtin_skills_dir, load_skillset
-from sportsdata_agents.mcp.manager import is_denied
+from sportsdata_agents.mcp.manager import moves_money
 from sportsdata_agents.models.gateway import ModelReply
 from sportsdata_agents.tools.registry import NATIVE_TOOLS
 from sportsdata_agents.workspace import Workspace
@@ -65,11 +65,12 @@ def test_lint_flags_unknown_skill() -> None:
     assert any("ghost_skill" in p for p in problems)
 
 
-def test_kelly_name_dodges_the_deny_filter_deliberately() -> None:
-    """The naming matters: 'kelly_stake' would (rightly) be denied; kelly_fraction is
-    informational and passes."""
-    assert is_denied("kelly_stake")
-    assert not is_denied("kelly_fraction")
+def test_kelly_sizing_helpers_are_not_money_movers() -> None:
+    """Both are arithmetic. Under the old blunt deny-filter `kelly_stake` was hidden
+    because it contained "stake" — which is exactly the kind of useful read the filter
+    cost us. Neither moves money; the betting policy decides what is actually staked."""
+    assert not moves_money("kelly_stake")
+    assert not moves_money("kelly_fraction")
 
 
 # ── builtin skill bundles ────────────────────────────────────────────────

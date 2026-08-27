@@ -79,11 +79,15 @@ def test_error_carries_source_path() -> None:
         load_spec_text("spec_version: 1\nagent: {}", source="bad.yaml")
 
 
-def test_money_tool_in_spec_is_rejected() -> None:
-    """The no-money invariant holds at authoring time (§13)."""
-    bad = VALID.replace("native: [vig_removal]", "native: [place_bet]")
-    with pytest.raises(SpecError, match="no-money"):
-        load_spec_text(bad, source="bad.yaml")
+def test_a_money_tool_in_a_spec_is_allowed_but_never_silent(caplog) -> None:
+    """The authoring-time ban was lifted on 2026-08-27 along with the runtime one — a
+    spec may grant a placement tool. What replaced the refusal is a record: the grant is
+    logged so it surfaces in review rather than in a bank statement."""
+    armed = VALID.replace("native: [vig_removal]", "native: [sportsbet_place_bet]")
+    with caplog.at_level("WARNING"):
+        spec = load_spec_text(armed, source="armed.yaml")
+    assert "sportsbet_place_bet" in spec.tools.native
+    assert any("money tool" in r.getMessage() for r in caplog.records)
 
 
 def test_allowed_and_forbidden_overlap_rejected() -> None:

@@ -34,7 +34,7 @@ from sportsdata_agents.agents.outputs import (
 )
 from sportsdata_agents.agents.skills import SkillSet
 from sportsdata_agents.agents.spec import AgentSpec
-from sportsdata_agents.mcp.manager import is_denied
+from sportsdata_agents.mcp.manager import moves_money
 from sportsdata_agents.models.gateway import BudgetExceededError, ModelReply, RunBudget
 from sportsdata_agents.workspace import Workspace
 
@@ -243,8 +243,11 @@ class Harness:
             raise ValueError(f"toolset must not define {FINAL_ANSWER_TOOL!r} when output_type is set")
 
         for name in self.tools:
-            if is_denied(name):  # defense in depth — the spec validator already refuses these
-                raise ValueError(f"toolset contains denied tool {name!r} (§13)")
+            if moves_money(name):
+                # Allowed since 2026-08-27, but loud: a toolset that can move real money
+                # is worth seeing in a log before it does. The gate that decides whether a
+                # bet is actually placed is sportsdata_agents.betting.policy.
+                logger.warning("agent %r is armed with the money tool %r", spec.id, name)
 
         # §8.1: spec limits are clamped to the workspace's ceilings.
         b = workspace.budgets
@@ -578,8 +581,8 @@ class Harness:
         return payload
 
     async def _execute_tool_inner(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
-        if is_denied(name):
-            return f"error: tool {name!r} is forbidden by the no-money invariant", False
+        if moves_money(name):
+            logger.warning("MONEY TOOL CALLED by agent: %s", name)
         deny = CURRENT_MCP_DENY.get()  # B2: scoped-out provider — never shown, never run
         if deny and name.split("_", 1)[0] in deny:
             return f"error: tool {name!r} is outside this conversation's data scope", False
