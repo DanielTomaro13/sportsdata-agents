@@ -64,7 +64,7 @@
     let d;
     if (isReplay()) { await ensureFrames(); d = { games: curFrame().games || [] }; }
     else {
-      try { d = await api("/api/games"); }
+      try { d = await api("/api/games?hours=48"); }
       catch { if (cfg.forceReplay || cfg.replayUrl) { enterReplay(); await ensureFrames(); d = { games: curFrame().games || [] }; } else { setConn(false); return; } }
     }
     setConn(true);
@@ -77,9 +77,11 @@
   }
 
   function renderSportFilters() {
-    const sports = [...new Set(state.games.map((g) => g.sport))].sort();
+    const counts = {};
+    for (const g of state.games) counts[g.sport] = (counts[g.sport] || 0) + 1;
+    const sports = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b));
     $("gsports").innerHTML = ["ALL", ...sports].map((s) =>
-      `<button class="schip ${state.sportFilter === s ? "on" : ""}" data-s="${esc(s)}">${s === "ALL" ? "ALL" : s.toUpperCase()}</button>`).join("");
+      `<button class="schip ${state.sportFilter === s ? "on" : ""}" data-s="${esc(s)}">${s === "ALL" ? `ALL ${state.games.length}` : `${s.toUpperCase()} ${counts[s]}`}</button>`).join("");
     $("gsports").querySelectorAll(".schip").forEach((b) => b.onclick = () => { state.sportFilter = b.dataset.s; renderSportFilters(); renderGames(); });
   }
 
@@ -101,7 +103,7 @@
         <div><span class="spcat">${esc((x.category || "").toUpperCase())}</span>
         <div class="gname">${esc(x.name)}</div>
         <div class="spsels">${sels}${more} · <span class="gsrc">${(x.sources || []).join(", ")}</span></div></div>
-        <div class="ttj ${t.c}">${t.t}</div>
+        <div class="ttj ${t.c}">${x.is_resolution_time ? `<span class="gsrc">resolves</span> ` : ""}${t.t}</div>
       </div>`;
     }).join("");
   }

@@ -14,7 +14,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sportsdata_agents.data.models import (
@@ -322,7 +322,7 @@ async def game_detail(session: AsyncSession, fixture_id: str,
 
 
 async def list_specials(
-    session: AsyncSession, *, days: float = 90.0, limit: int = 80,
+    session: AsyncSession, *, days: float = 1500.0, limit: int = 80,
     now: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Novelty and outright markets — elections, entertainment, economics,
@@ -346,15 +346,31 @@ async def list_specials(
             select(Event.fixture_id).where(Event.provider.in_(("kalshi", "polymarket")),
                                            Event.fixture_id.is_not(None)))).all()
     }
-    fixtures = [
+    # Markets, not matches: most novelty fixtures carry NO start_time — the
+    # date that matters is end_time, when the market resolves. Filter and sort
+    # on whichever exists (an election "starts" when it settles).
+    when = func.coalesce(Fixture.start_time, Fixture.end_time)
+    candidates = [
         f for f in (await session.execute(
             select(Fixture).where(Fixture.id.in_(fixture_ids),
-                                  Fixture.start_time >= now - dt.timedelta(hours=6),
-                                  Fixture.start_time <= now + dt.timedelta(days=days))
-            .order_by(Fixture.start_time))
+                                  when >= now - dt.timedelta(hours=1),
+                                  when <= now + dt.timedelta(days=days))
+            .order_by(when))
         ).scalars()
         if f.sport not in RACING_SPORTS and split_sides(f.name or "") is None
-    ][:limit]
+    ]
+    # Soonest-first alone lets high-frequency dailies (crypto hourlies, stock
+    # closes) crowd out the marquee long-horizon markets — cap each category
+    # so elections and entertainment surface beside them.
+    per_cat: dict[str, int] = {}
+    fixtures = []
+    for f in candidates:
+        if per_cat.get(f.sport, 0) >= 8:
+            continue
+        per_cat[f.sport] = per_cat.get(f.sport, 0) + 1
+        fixtures.append(f)
+        if len(fixtures) >= limit:
+            break
     if not fixtures:
         return []
     events = await _fixture_events(session, {f.id for f in fixtures})
@@ -391,9 +407,11 @@ async def list_specials(
             # float() is for mypy, not maths: the dict literal infers object values,
             # and object is not orderable. Odds are 3dp — the cast cannot reorder them.
             key=lambda x: float(x["best_odds"]))  # type: ignore[arg-type]
+        resolves = f.start_time or f.end_time
         out.append({
             "fixture_id": str(f.id), "name": f.name, "category": f.sport,
-            "start_time": f.start_time.isoformat() if f.start_time else None,
+            "start_time": resolves.isoformat() if resolves else None,
+            "is_resolution_time": f.start_time is None,
             "selections": best[:6], "n_selections": len(best),
             "sources": sorted({b for s in sels.values() for b in s}),
         })
