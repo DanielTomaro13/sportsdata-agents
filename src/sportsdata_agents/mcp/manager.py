@@ -63,7 +63,14 @@ log = logging.getLogger(__name__)
 # desktop DMG co-bundles a matched pair, but `uvx`/dev installs don't), so we read the
 # server's version from the MCP `initialize` handshake and WARN on a mismatch rather than
 # fail — a too-old data plane surfaces as a loud log line, not a silent tool error.
-MIN_MCP_VERSION = (0, 12, 0)
+# 0.31.1 is the floor because of a CORRECTNESS difference, not a missing feature.
+# 0.31.0 shipped Unibet's placement with the wrong auth (a `Cookie` header from
+# UNIBET_KAMBI_COOKIE) and the wrong coupon strings ("COMBINATION" for both operation
+# and type). Against that data plane the betting plane sends a credential Kambi never
+# wanted, in a body it would not recognise, and gets a 401 that looks like a dead token.
+# The tools EXIST at 0.31.0, so nothing errors on startup — which is exactly why the
+# floor has to be a version rather than a capability check.
+MIN_MCP_VERSION = (0, 31, 1)
 
 
 def _ver_tuple(v: str) -> tuple[int, ...]:

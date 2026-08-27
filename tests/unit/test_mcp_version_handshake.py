@@ -35,3 +35,12 @@ def test_silent_on_current_or_foreign_server(caplog):
         _check_mcp_version(_init("some-other-mcp", "0.0.1"))      # not ours
         _check_mcp_version(_init("sportsdata-mcp", ""))           # no version reported
     assert not caplog.records
+
+
+def test_the_floor_is_the_unibet_contract_fix() -> None:
+    """Not a feature floor — a CORRECTNESS one. sportsdata-mcp 0.31.0 shipped Unibet's
+    placement with the wrong auth (a Cookie header) and the wrong coupon strings
+    ("COMBINATION" rather than "AND"/"BET_BUILDER"). The tools exist at 0.31.0, so
+    nothing fails at startup and a capability check would pass — the bet just gets a 401
+    that reads like a dead token. Only a version floor catches it."""
+    assert MIN_MCP_VERSION >= (0, 31, 1)
