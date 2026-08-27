@@ -30,8 +30,11 @@ comparable units. See PRICE_UNITS for why the units are the load-bearing part.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import re
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import select
@@ -94,14 +97,53 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9. ]", "", str(s).lower()).strip()
 
 
+#: Serialises DB reads while the books are quoted CONCURRENTLY.
+#:
+#: An AsyncSession is not safe for concurrent use — two coroutines touching one session
+#: raise "this session is provisioning a new connection; concurrent operations are not
+#: permitted", which `compare` catches per book and reports as `unavailable`. So the
+#: symptom is not a crash: it is EVERY BOOK SILENTLY FAILING TO PRICE, which reads
+#: exactly like a fixture no book will quote. Found on the first live run of the betting
+#: plane, having never shown up in tests because the tests pass a fake mcp and never a
+#: real session.
+#:
+#: Held only around the DB reads, which every quoter does up front before it touches the
+#: network, so the slow part — the bookmakers' own calls — stays parallel.
+#:
+#: Set per `compare()` call rather than at module scope: an asyncio.Lock binds to the
+#: running loop, and a module-level one created at import time belongs to whichever loop
+#: imported it.
+_DB_LOCK: contextvars.ContextVar[asyncio.Lock | None] = contextvars.ContextVar(
+    "sgm_books_db_lock", default=None)
+
+
+@contextlib.asynccontextmanager
+async def _db():
+    """Guard one DB read. A no-op when nothing is running concurrently."""
+    lock = _DB_LOCK.get()
+    if lock is None:
+        yield
+        return
+    async with lock:
+        yield
+
+
 async def _linked_event(session: AsyncSession, fixture_id: str, provider: str) -> Event | None:
     try:
         fid = uuid.UUID(fixture_id)  # the column is a Uuid; a raw string blows up in the driver
     except ValueError:
         return None
-    row = await session.execute(
-        select(Event).where(Event.fixture_id == fid, Event.provider == provider))
-    return row.scalars().first()
+    async with _db():
+        row = await session.execute(
+            select(Event).where(Event.fixture_id == fid, Event.provider == provider))
+        return row.scalars().first()
+
+
+async def _fixture_of(session: AsyncSession, fixture_id: Any) -> Any:
+    """The fixture row, under the same guard as every other read — see `_DB_LOCK`."""
+    async with _db():
+        return (await session.execute(
+            select(Fixture).where(Fixture.id == fixture_id))).scalar()
 
 
 async def available_books(session: AsyncSession, fixture_id: str, mcp: Any) -> dict[str, Any]:
@@ -121,6 +163,48 @@ async def available_books(session: AsyncSession, fixture_id: str, mcp: Any) -> d
         out[book] = ({"available": True} if ev is not None else
                      {"available": False, "reason": f"no {book} event linked to this fixture"})
     return out
+
+
+def _team_matches(candidate: str, team: str) -> bool:
+    """Does a book's participant name refer to the same team as the board's?
+
+    EXACT EQUALITY IS NOT ENOUGH, and assuming it was cost a live scan. Books carry the
+    full nickname where the fixture carries the short name: Kambi says "TCU Horned Frogs"
+    where the fixture says "TCU", so `_norm(a) == _norm(b)` fails and the leg reports "no
+    open head-to-head selection" — which reads as a suspended market rather than a naming
+    mismatch. (TAB has the same shape in the other direction: "Wst Bulldogs".)
+
+    So: exact first, then containment on WORD BOUNDARIES. Word boundaries matter — a bare
+    substring test makes "Sydney" match "Sydney Swans" AND "Sydney FC", and pairs the
+    wrong team's price with the right team's name.
+
+    Callers must apply this to every candidate and accept the match only when EXACTLY ONE
+    lands; see `_unique_team_match`. A helper that returns the first hit would silently
+    pick one of two plausible teams.
+    """
+    a, b = _norm(candidate), _norm(team)
+    if a == b:
+        return True
+    at, bt = a.split(), b.split()
+    if not at or not bt:
+        return False
+    # every word of the shorter name appears in the longer, in order-independent fashion
+    short, long_ = (bt, at) if len(bt) <= len(at) else (at, bt)
+    return all(w in long_ for w in short)
+
+
+def _unique_team_match[T](candidates: list[T], team: str, key: Callable[[T], str]) -> T | None:
+    """The one candidate whose name refers to `team`, or None if zero or several do.
+
+    Ambiguity returns None on purpose: two plausible teams means the resolver does not
+    know which price it is looking at, and a wrong leg is a wrong bet at a right-looking
+    price.
+    """
+    exact = [c for c in candidates if _norm(key(c)) == _norm(team)]
+    if len(exact) == 1:
+        return exact[0]
+    loose = [c for c in candidates if _team_matches(key(c), team)]
+    return loose[0] if len(loose) == 1 else None
 
 
 def _match_sportsbet_leg(leg: dict, markets: list[dict], home: str, away: str) -> dict | str:
@@ -263,9 +347,10 @@ def _match_unibet_leg(leg: dict, offers: list[dict], home: str, away: str) -> in
         for b in offers:
             if type_of(b) not in ("head to head", "match"):
                 continue
-            for o in (b.get("outcomes") or []):
-                if live(o) and _norm(o.get("participant", "")) == _norm(team):
-                    return int(o["id"])
+            outs = [o for o in (b.get("outcomes") or []) if live(o)]
+            hit = _unique_team_match(outs, team, lambda o: o.get("participant", "") or "")
+            if hit is not None:
+                return int(hit["id"])
         return f"{label}: no open head-to-head selection at Unibet"
 
     if fam == "total":
@@ -355,7 +440,7 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
     ev = await _linked_event(session, fixture_id, "sportsbet")
     if ev is None:
         return {"unavailable": "no Sportsbet event linked to this fixture"}
-    f = (await session.execute(select(Fixture).where(Fixture.id == ev.fixture_id))).scalar()
+    f = await _fixture_of(session, ev.fixture_id)
     home, away = [*f.name.split(" v ", 1), ""][:2] if f and " v " in f.name else ("", "")
 
     try:
@@ -408,6 +493,17 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
         "quote_id": price.get("quoteId"),
         "legs_matched": len(outcomes),
         "warnings": ["a Sportsbet quote is short-lived — re-price before betting"],
+        # Everything the placement payload needs, resolved once here rather than a
+        # second time by the betting plane — the external-id lookup above is the
+        # expensive part and getting it wrong is an HTTP 500, not a wrong price.
+        "placement": {
+            "classExternalId": class_ext,
+            "competitionExternalId": comp_ext,
+            "eventExternalId": int(ev.external_id),
+            "parts": outcomes,          # [{marketExternalId, outcomeExternalId}]
+            "priceNum": num,
+            "priceDen": den,
+        },
     }
 
 
@@ -541,7 +637,7 @@ async def _resolve(session: AsyncSession, book: str, fixture_id: str) -> tuple[A
     ev = await _linked_event(session, fixture_id, book)
     if ev is None:
         return f"no {book} event linked to this fixture"
-    f = (await session.execute(select(Fixture).where(Fixture.id == ev.fixture_id))).scalar()
+    f = await _fixture_of(session, ev.fixture_id)
     home, away = [*f.name.split(" v ", 1), ""][:2] if f and " v " in f.name else ("", "")
     return ev, home, away
 
@@ -636,6 +732,12 @@ async def quote_unibet(session: AsyncSession, mcp: Any, fixture_id: str,
         "legs_matched": len(ids),
         # The only book of the seven that says what it actually priced. Use it.
         "legs_priced": r.get("selectedOutcomeIds"),
+        # Kambi's coupon wants the outcome ids and the price in THOUSANDTHS, which is
+        # the raw form the pricer returned — carried through unrounded on purpose.
+        "placement": {
+            "outcome_ids": list(r.get("selectedOutcomeIds") or ids),
+            "odds_thousandths": (r.get("selectedOdds") or {}).get("decimal"),
+        },
     }
     if decimal >= 1001.0:
         out["warnings"] = ["1001.0 is Kambi's payout CEILING, not a quote — the true price "
@@ -672,7 +774,11 @@ async def compare(session: AsyncSession, mcp: Any, fixture_id: str, legs: list[d
         except Exception as exc:  # a resolver bug must not take the whole board down
             return book, {"unavailable": f"{book} quoting raised {type(exc).__name__}: {exc}"}
 
-    results = dict(await asyncio.gather(*(one(b) for b in books)))
+    token = _DB_LOCK.set(asyncio.Lock())
+    try:
+        results = dict(await asyncio.gather(*(one(b) for b in books)))
+    finally:
+        _DB_LOCK.reset(token)
 
     priced = {b: r for b, r in results.items() if r.get("book_odds")}
     unavailable = {b: r.get("unavailable", "no price") for b, r in results.items()
@@ -785,6 +891,9 @@ async def quote_entain(session: AsyncSession, mcp: Any, fixture_id: str,
         "priced_by": "entain",
         "book_odds": round(decimal, 2),
         "legs_matched": len(picked),
+        # market_id/entrant_id are the same identifiers placement wants, so one
+        # resolution serves both — see entain_place_bet's `bets` description.
+        "placement": {"event_id": eid, "selections": picked, "odds": entry.get("odds")},
         # Measured live: 5 of 41 two-entrant markets priced a pair that CANNOT both win.
         "warnings": ["Entain's `available: true` is not proof the combination is coherent "
                      "— it quotes some impossible pairs at long odds"],
@@ -896,11 +1005,10 @@ async def quote_tab(session: AsyncSession, mcp: Any, fixture_id: str,
     fx_id = ev.fixture_id if ev is not None else None
     f = None
     if fx_id is not None:
-        f = (await session.execute(select(Fixture).where(Fixture.id == fx_id))).scalar()
+        f = await _fixture_of(session, fx_id)
     if f is None:
         try:
-            f = (await session.execute(
-                select(Fixture).where(Fixture.id == uuid.UUID(fixture_id)))).scalar()
+            f = await _fixture_of(session, uuid.UUID(fixture_id))
         except ValueError:
             f = None
     if f is None or " v " not in (f.name or ""):

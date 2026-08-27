@@ -78,21 +78,18 @@ def test_the_agent_is_never_granted_a_raw_write_tool():
     assert "sport.transactions" in spec["agent"]["forbidden_capabilities"]
 
 
-def test_the_no_money_filter_still_denies_everything_that_moves_money():
-    """FPL "transfers" tripped the money-verb filter, so two exact names are exempt.
-    This pins the hole to exactly those two — the filter's value is that it is blunt,
-    and a relaxed regex would silently re-admit the real money verbs."""
-    from sportsdata_agents.mcp.manager import DENY_EXCEPTIONS, is_denied
+def test_fpl_transfers_are_not_classified_as_real_money():
+    """FPL "transfers" move a footballer between a squad and a bench for in-game
+    currency. The classifier is a name matcher and cannot tell that from a bank
+    transfer, so the two exact names are exempt — pinned here to exactly those two,
+    because loosening the regex instead would silently reclassify real money verbs."""
+    from sportsdata_agents.mcp.manager import MONEY_EXCEPTIONS, moves_money
 
-    assert {"fpl_transfers", "fpl_propose_transfer"} == DENY_EXCEPTIONS
-    for name in (
-        "betfair_cashout", "place_bet", "account_balance", "wallet_withdraw",
-        "sportsbet_betslip", "deposit_funds", "bank_transfer", "wire_transfer",
-        "fpl_transfers_v2", "transfer_money",
-    ):
-        assert is_denied(name), f"{name} must stay denied"
-    assert not is_denied("fpl_transfers")
-    assert not is_denied("fpl_propose_transfer")
+    assert {"fpl_transfers", "fpl_propose_transfer"} == MONEY_EXCEPTIONS
+    assert not moves_money("fpl_transfers")
+    assert not moves_money("fpl_propose_transfer")
+    for name in ("sportsbet_place_bet", "wallet_transfer", "deposit_funds", "account_withdraw"):
+        assert moves_money(name), f"{name} moves real money"
 
 
 def test_the_propose_tools_are_registered_and_resolvable():

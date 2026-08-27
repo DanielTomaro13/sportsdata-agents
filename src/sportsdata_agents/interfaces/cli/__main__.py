@@ -2481,6 +2481,268 @@ def fantasy_tick(
     typer.echo(f"\n{result.checked} checked, {result.alerts} alert(s), {result.runs} run(s)")
 
 
+# ── bet: the betting plane's console ────────────────────────────────────────
+# Reading and tuning the policy, seeing what it decided, and answering the bets
+# it wants approved. Everything money-moving needs an explicit mode change
+# first: a fresh policy is `paper` everywhere and cannot place.
+
+bet_app = typer.Typer(
+    name="bet",
+    help="The betting plane: `policy` shows your rules, `set` changes one, "
+         "`pending`/`approve`/`reject` answer proposals, `ledger` is what happened.",
+    no_args_is_help=True,
+)
+app.add_typer(bet_app, name="bet")
+
+
+def _bet_policy():
+    from sportsdata_agents.betting.policy import BettingPolicy, load_policy
+    from sportsdata_agents.paths import bet_policy_path
+
+    path = bet_policy_path()
+    return (load_policy(path) if path.exists() else BettingPolicy()), path
+
+
+def _bet_store():
+    from sportsdata_agents.betting.approvals import Store
+    from sportsdata_agents.paths import bet_proposals_path
+
+    return Store.load(bet_proposals_path())
+
+
+@bet_app.command("policy")
+def bet_policy_show() -> None:
+    """Show the current rules, and where they live."""
+    from dataclasses import asdict
+
+    policy, path = _bet_policy()
+    typer.echo(f"policy: {path}{'' if path.exists() else '  (defaults — not yet saved)'}")
+    for key, value in sorted(asdict(policy).items()):
+        typer.echo(f"  {key:24} {value}")
+    placing = [b for b in sorted(policy.KNOWN_BOOKS) if policy.mode_for(b) in ("auto",)]
+    unverified = [b for b in placing if b not in policy.VERIFIED_BOOKS]
+    if not placing:
+        typer.echo("\nNo book is set to place. Nothing here can move money.")
+    else:
+        typer.echo(f"\nWould place unattended at: {', '.join(placing)}")
+        if unverified and not policy.allow_unverified_auto:
+            typer.echo(f"  ...except {', '.join(unverified)}, which will ASK "
+                       f"(placement path never round-tripped; set allow_unverified_auto to change)")
+
+
+@bet_app.command("set")
+def bet_policy_set(pairs: list[str] = typer.Argument(..., help="key=value, e.g. min_ev=0.05")) -> None:
+    """Change one or more settings. Validated before saving, so a bad value fails here
+    rather than at placement time."""
+    import json
+    from dataclasses import asdict, fields
+
+    from sportsdata_agents.betting.policy import BettingPolicy, save_policy
+
+    policy, path = _bet_policy()
+    data = asdict(policy)
+    typed = {f.name: f.type for f in fields(BettingPolicy)}
+
+    for pair in pairs:
+        if "=" not in pair:
+            typer.echo(f"error: expected key=value, got {pair!r}", err=True)
+            raise typer.Exit(1)
+        key, raw = pair.split("=", 1)
+        if key not in data:
+            typer.echo(f"error: no such setting {key!r} — see `agents bet policy`", err=True)
+            raise typer.Exit(1)
+        try:
+            data[key] = json.loads(raw)
+        except json.JSONDecodeError:
+            data[key] = raw          # a bare string (a mode, a book name)
+        typer.echo(f"  {key} = {data[key]!r}")
+
+    if isinstance(data.get("quiet_hours"), list):
+        data["quiet_hours"] = tuple(data["quiet_hours"])
+    try:
+        updated = BettingPolicy(**data)
+    except (ValueError, TypeError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    save_policy(updated, path)
+    typer.echo(f"saved to {path}")
+    assert typed  # fields() consulted for the error message above
+
+
+@bet_app.command("pending")
+def bet_pending() -> None:
+    """Proposals waiting on you. Expired ones are not shown — a stale price is not a
+    price, and re-scanning is the answer rather than approving it late."""
+    store = _bet_store()
+    live = store.pending()
+    store.save()
+    if not live:
+        typer.echo("nothing waiting.")
+        return
+    for p in live:
+        typer.echo(p.as_notification())
+        typer.echo("")
+
+
+@bet_app.command("approve")
+def bet_approve(prefix: str = typer.Argument(..., help="the proposal id, or enough of it")) -> None:
+    """Approve one proposal. It is still re-priced and drift-checked before it goes on."""
+    store = _bet_store()
+    proposal, message = store.approve(prefix)
+    typer.echo(message if proposal is None else f"{proposal.id[:8]}: {message}")
+    if proposal is not None and message == "approved":
+        typer.echo("run `agents bet place` to send it — the price is re-checked first.")
+
+
+@bet_app.command("reject")
+def bet_reject(prefix: str = typer.Argument(...)) -> None:
+    """Decline one proposal."""
+    store = _bet_store()
+    proposal, message = store.reject(prefix)
+    typer.echo(message if proposal is None else f"{proposal.id[:8]}: {message}")
+
+
+@bet_app.command("scan")
+def bet_scan(
+    fixture_id: str = typer.Argument(..., help="the fixture to price"),
+    legs: str = typer.Option(
+        ..., "--legs",
+        help='JSON list of legs, e.g. \'[{"market":"h2h","selection":"Bulldogs"}]\'',
+    ),
+) -> None:
+    """Price one combination at every book, score it, and act on the best per your policy.
+
+    Opens TWO scoped MCP sessions: one for the anonymous pricers, one carrying only the
+    `.write` groups your policy could actually place at. A book set to `paper` or `never`
+    is absent from the placing session entirely, not merely declined.
+
+    RAISES THE DATA PLANE'S RESPONSE CAP for this run. The MCP caps a response at 150 KB
+    to protect a MODEL's context window, but the quoters here are code — they fetch a
+    fixture's whole market book and hand it to a matcher, never to a model. Measured live
+    2026-08-27: Sportsbet returned 1.34 MB and Unibet 557 KB on ordinary fixtures, so at
+    the default cap every book reports "unavailable" and the scan looks like a fixture
+    nobody will price. Set SPORTSDATA_MCP_MAX_BYTES yourself to override this.
+    """
+    import asyncio
+    import json
+    import os
+
+    async def go() -> None:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        from sportsdata_agents.betting import live, runner
+        from sportsdata_agents.betting.approvals import Store
+        from sportsdata_agents.betting.ledger import Ledger
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.interfaces.sportsboard import sgm_books
+        from sportsdata_agents.mcp.manager import MCPManager
+        from sportsdata_agents.paths import bet_ledger_path, bet_proposals_path
+
+        policy, _ = _bet_policy()
+        try:
+            parsed = json.loads(legs)
+        except json.JSONDecodeError as exc:
+            typer.echo(f"error: --legs must be JSON: {exc}", err=True)
+            raise typer.Exit(1) from exc
+
+        write_groups = live.scope_for(policy)
+        typer.echo(f"pricing {fixture_id}; placing scope: {write_groups or '(none — nothing can place)'}")
+
+        # See the docstring: the model-context cap does not apply to a code path, and at
+        # the default every book silently fails to price.
+        os.environ.setdefault("SPORTSDATA_MCP_MAX_BYTES", "8000000")
+
+        engine = make_engine(get_settings().database_url)
+        sessionmaker = make_sessionmaker(engine)
+        async with sessionmaker() as db, MCPManager(groups=live.read_groups()) as read_mcp:
+            comparison = await sgm_books.compare(db, read_mcp, fixture_id, parsed)
+            typer.echo(f"  {comparison.get('books_priced', 0)} books priced; "
+                       f"{comparison.get('note', '')}")
+
+            async with MCPManager(groups=write_groups) as write_mcp:
+                async def call(tool: str, /, **kwargs):
+                    return await write_mcp.call_tool(tool, kwargs)
+
+                result = await runner.scan_fixture(
+                    comparison=comparison, fixture_id=fixture_id, policy=policy,
+                    ledger=Ledger(bet_ledger_path()), call=call,
+                    store=Store.load(bet_proposals_path()),
+                )
+        for c in result.candidates[:5]:
+            typer.echo(f"  {c.summary()}")
+        typer.echo("")
+        typer.echo(result.summary())
+
+    asyncio.run(go())
+
+
+@bet_app.command("place")
+def bet_place() -> None:
+    """Place every approved, unexpired proposal — each re-priced and drift-checked first."""
+    import asyncio
+
+    async def go() -> None:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        from sportsdata_agents.betting import runner
+        from sportsdata_agents.betting.approvals import Store
+        from sportsdata_agents.betting.ledger import Ledger
+        from sportsdata_agents.mcp.manager import MCPManager
+        from sportsdata_agents.paths import bet_ledger_path, bet_proposals_path
+
+        policy, _ = _bet_policy()
+        store = Store.load(bet_proposals_path())
+        approved = store.approved()
+        if not approved:
+            typer.echo("nothing approved and still live.")
+            return
+
+        groups = sorted({f"{p.book}.write" for p in approved}
+                        | {f"{p.book}.sport" for p in approved})
+        typer.echo(f"placing {len(approved)} bet(s); scope: {groups}")
+
+        async with MCPManager(groups=groups) as mcp:
+            async def call(tool: str, /, **kwargs):
+                return await mcp.call_tool(tool, kwargs)
+
+            # No `reprice` passed on purpose: place_approved resolves each proposal's
+            # OWN reader, because two approved bets can sit at two different books and
+            # one book's reader reads a price off the wrong shape.
+            outcomes = await runner.place_approved(
+                store=store, policy=policy, ledger=Ledger(bet_ledger_path()),
+                call=call)
+        for o in outcomes:
+            typer.echo(f"  {o.status:9} ${o.stake:.2f} @ {o.price:.2f}  {o.reason}")
+
+    asyncio.run(go())
+
+
+@bet_app.command("ledger")
+def bet_ledger(limit: int = typer.Option(20, help="how many rows"),
+               all_rows: bool = typer.Option(False, "--all", help="include skips")) -> None:
+    """What the plane decided, most recent last. Refusals are included by default
+    because whether the floor is set right is the useful question."""
+    from sportsdata_agents.betting.ledger import Ledger
+    from sportsdata_agents.paths import bet_ledger_path
+
+    rows = list(Ledger(bet_ledger_path()))
+    if not all_rows:
+        rows = [r for r in rows if r.status != "skipped"]
+    if not rows:
+        typer.echo("ledger is empty.")
+        return
+    for r in rows[-limit:]:
+        typer.echo(f"{r.at[:19]}  {r.status:9} {r.book:10} "
+                   f"${r.stake:>7.2f} @ {r.odds:>6.2f}  {r.reason[:70]}")
+    staked = sum(r.stake for r in rows if r.spends_budget())
+    typer.echo(f"\n{len(rows)} rows; ${staked:.2f} actually staked")
+
+
 # Must stay LAST: `python -m sportsdata_agents.interfaces.cli` executes the module top to
 # bottom, so anything below this line would not be registered before app() runs.
 if __name__ == "__main__":  # pragma: no cover

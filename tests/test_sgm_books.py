@@ -480,3 +480,47 @@ def test_tab_has_a_sport_name_mapping_because_it_has_no_ids():
 def test_every_bookmaker_now_resolves():
     """The comparator is only a comparator if the books are actually in it."""
     assert set(_QUOTERS) == set(BOOKMAKERS)
+
+
+# ── team-name matching: exact equality is not enough ──────────────────────
+# Found live 2026-08-27: Kambi's participant is "TCU Horned Frogs" where the fixture
+# name is "TCU v North Carolina", so `_norm(a) == _norm(b)` failed and the leg reported
+# "no open head-to-head selection" — which reads as a suspended market rather than a
+# naming mismatch, and made a scan look like a fixture nobody would price.
+
+
+def test_a_book_may_carry_the_full_nickname() -> None:
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _team_matches
+
+    assert _team_matches("TCU Horned Frogs", "TCU")
+    assert _team_matches("North Carolina Tar Heels", "North Carolina")
+    assert _team_matches("Wst Bulldogs", "Wst Bulldogs")
+
+
+def test_matching_is_on_word_boundaries_not_substrings() -> None:
+    """A bare substring test makes "Sydney" match both "Sydney Swans" and "Sydney FC",
+    pairing the wrong team's price with the right team's name."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _team_matches
+
+    assert not _team_matches("Newcastle United", "New")
+    assert not _team_matches("Port Adelaide", "Adelaide United")
+
+
+def test_an_ambiguous_team_name_matches_nothing() -> None:
+    """Two plausible teams means the resolver does not know which price it is looking
+    at, and a wrong leg is a wrong bet at a right-looking price."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _unique_team_match
+
+    outs = [{"participant": "Sydney Swans"}, {"participant": "Sydney FC"}]
+    assert _unique_team_match(outs, "Sydney", lambda o: o["participant"]) is None
+
+    one = [{"participant": "Sydney Swans"}, {"participant": "Carlton Blues"}]
+    assert _unique_team_match(one, "Sydney", lambda o: o["participant"])["participant"] == "Sydney Swans"
+
+
+def test_exact_wins_over_a_loose_match() -> None:
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import _unique_team_match
+
+    outs = [{"participant": "Adelaide"}, {"participant": "Adelaide Crows"}]
+    hit = _unique_team_match(outs, "Adelaide", lambda o: o["participant"])
+    assert hit["participant"] == "Adelaide"

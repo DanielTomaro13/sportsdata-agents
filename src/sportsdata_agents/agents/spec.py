@@ -3,19 +3,27 @@
 A spec is YAML: ``spec_version`` + an ``agent`` block. Users author these (directly,
 or via the agent-builder); the runtime (M0.7) binds them to an executable agent. The
 schema is strict (``extra="forbid"``) so a typo'd field fails loudly instead of being
-silently ignored, and the no-money invariant is enforced at validation time: a spec
-simply cannot name a money-ish tool or capability (§13).
+silently ignored.
+
+A spec MAY now name a money tool. The blanket ban that used to reject one at validation
+time was lifted on 2026-08-27, when the data plane gained real placement tools and the
+premise behind it stopped holding. Granting one is logged rather than refused, and
+whether a bet may actually be placed is decided at run time by
+``sportsdata_agents.betting.policy`` — on typed numbers, not on a tool's name.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from sportsdata_agents.mcp.manager import is_denied
+from sportsdata_agents.mcp.manager import moves_money
 from sportsdata_agents.models.policy import TIERS
+
+log = logging.getLogger(__name__)
 
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
@@ -165,16 +173,25 @@ class AgentSpec(BaseModel):
         raise ValueError(f"model_tier {v!r} must be one of {TIERS} or an explicit 'provider/model'")
 
     @model_validator(mode="after")
-    def _no_money_anywhere(self) -> AgentSpec:
-        """The no-money invariant, enforced at authoring time (§13)."""
+    def _record_money_grants(self) -> AgentSpec:
+        """Money tools are allowed in a spec, but never granted silently."""
         for kind, names in (
             ("native tool", self.tools.native),
             ("mcp capability", self.tools.mcp_capabilities),
             ("skill", self.skills),
         ):
             for name in names:
-                if is_denied(name):
-                    raise ValueError(f"{kind} {name!r} trips the no-money deny-filter (§13); specs cannot grant it")
+                if moves_money(name):
+                    # NOT refused any more — the blanket ban was lifted on 2026-08-27 when
+                    # the data plane gained real placement tools. A spec may now grant one,
+                    # but never silently: the grant is recorded so it shows up in review
+                    # rather than being discovered from a bank statement. Whether a bet may
+                    # actually be placed is decided by sportsdata_agents.betting.policy.
+                    log.warning(
+                        "agent spec %r grants the money tool %r (%s) — placement is gated by "
+                        "the betting policy, not by this spec",
+                        self.id, name, kind,
+                    )
         return self
 
     @model_validator(mode="after")

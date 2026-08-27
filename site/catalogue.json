@@ -3744,7 +3744,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 17,
+   "count": 18,
    "tools": [
     {
      "name": "entain_cms_entries",
@@ -3842,6 +3842,23 @@
       }
      ],
      "example": "{metadata:{title, url}} (empty {} when no override)"
+    },
+    {
+     "name": "entain_place_bet",
+     "desc": "PLACE A REAL BET WITH REAL MONEY on your own Ladbrokes/Neds account. Irreversible. Price with entain_sgm_price first and send those odds \u2014 this endpoint takes odds you assert.",
+     "args": [
+      {
+       "n": "stake",
+       "t": "number",
+       "r": true
+      },
+      {
+       "n": "bets",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "{transaction_id, status: 'accepted', accepted_stake, message, placed_odds:[{product_type_id, odds:{decimal, numerator, denominator}}]}"
     },
     {
      "name": "entain_quicklinks_list",
@@ -13888,8 +13905,65 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 45,
+   "count": 48,
    "tools": [
+    {
+     "name": "sportsbet_bet_history",
+     "desc": "Your own bets at Sportsbet. THIS IS HOW A PLACEMENT IS CONFIRMED \u2014 placing answers 202 Accepted, so a bet is only really on once it appears here.",
+     "args": [
+      {
+       "n": "appToken",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "customerId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "channel",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "requestId",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "filterType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "dateType",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "limit",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "includeLegData",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "sortField",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "sortOrder",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{bets:[\u2026]}  \u2014 the account's bets. VERIFIED live 2026-08-27.\n\nTHIS IS HOW A PLACEMENT IS CONFIRMED. sportsbet_place_bet answers 202 Accepted, which means taken for processing rather than on, so a bet is only really placed once it appears here. Match on the `betId` the placement returned, and check the STAKE AND THE PRICE, not merely that a bet exists.\n\n`filterType` takes SETTLED (verified). PENDING"
+    },
     {
      "name": "sportsbet_bet_live",
      "desc": "BetLive feed \u2014 events currently in-play and bettable live.",
@@ -14127,6 +14201,63 @@
      "example": "{modules:[{type, items:[]}]}"
     },
     {
+     "name": "sportsbet_place_bet",
+     "desc": "PLACE A REAL BET WITH REAL MONEY on your own Sportsbet account. Irreversible. Call sportsbet_price_slip first and send the price it returned \u2014 this endpoint takes an asserted price, not a quote id.",
+     "args": [
+      {
+       "n": "appToken",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "customerId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "channel",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "requestId",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "betItems",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "checkBalance",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "returnBalance",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "returnCashoutAvailable",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "fullDetails",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "errorDetail",
+       "t": "string",
+       "r": false
+      }
+     ],
+     "example": "{pendingBetCount, betPlacements:[{betNo, betId, receipt, totalStake, currency, betPotentialWin, cashoutAvailable}]}"
+    },
+    {
      "name": "sportsbet_popular_promotions",
      "desc": "Trending / popular promotions for a promo provider + client.",
      "args": [
@@ -14152,6 +14283,68 @@
       }
      ],
      "example": "{promotions:[{id, title, url}]}"
+    },
+    {
+     "name": "sportsbet_price_slip",
+     "desc": "PRICE A BET SLIP \u2014 the authoritative, current price for selections you are about to back. Call this IMMEDIATELY before sportsbet_place_bet: placement takes a price you assert, not a quote id, so this is the only way to place at a real number.",
+     "args": [
+      {
+       "n": "appToken",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "customerId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "channel",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "requestId",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "betItems",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "outcomeGroups",
+       "t": "json",
+       "r": false
+      },
+      {
+       "n": "returnOutcomeDetails",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "returnCashoutAvailable",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "returnFreebetTokens",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "returnVouchers",
+       "t": "boolean",
+       "r": false
+      },
+      {
+       "n": "includeMBS",
+       "t": "boolean",
+       "r": false
+      }
+     ],
+     "example": "{betBuilds:[{betNo, enhancedOdds:[{outcome, priceDecimal, priceNum, priceDen, legType}], betCombinations:[{betType, betTypeName, betMinStake, betNoOfLines, cashoutAvailable, betEnhancedPrice}], vouchers:[]}]}"
     },
     {
      "name": "sportsbet_race_preview",
@@ -15230,7 +15423,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 25,
+   "count": 27,
    "tools": [
     {
      "name": "tab_cms_call",
@@ -15370,6 +15563,70 @@
       }
      ],
      "example": "{id, name, sportName, displayName, ...multi-builder markets for the sport}"
+    },
+    {
+     "name": "tab_place_bet",
+     "desc": "PLACE A REAL BET WITH REAL MONEY on your own TAB account. Irreversible. Call tab_price_slip first \u2014 every leg needs the decoToken that call issues, which is what ties the bet to a price TAB quoted.",
+     "args": [
+      {
+       "n": "accountNumber",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "transactionId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "decoTokens",
+       "t": "json",
+       "r": true
+      },
+      {
+       "n": "bets",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "{updatedTime, ticketCost, errors:[], accountNumber, accountBalance, bets:[{type, errors:[], stake, legs:[{type, propositionId, odds}], expectedReturn, betCost, ticketSerialNumber, betSellTime, status}]}"
+    },
+    {
+     "name": "tab_price_slip",
+     "desc": "PRICE A BET SLIP on your own account and get the decoTokens that tab_place_bet requires. The account-tier twin of tab_sgm_price: same envelope, but only this version issues the tokens that bind a bet to a quoted price.",
+     "args": [
+      {
+       "n": "accountNumber",
+       "t": "integer",
+       "r": true
+      },
+      {
+       "n": "uuid",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "clientVersion",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "jurisdiction",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "channel",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "bets",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "{uuid, clientDetails:{accountNumber, customerId, channel, jurisdiction, homeState}, bets:[{type, status, stake, legs:[{decoToken, type, propositionId, odds}], multiplierAvailable, \u2026}]}"
     },
     {
      "name": "tab_racing_dates",
@@ -16607,7 +16864,7 @@
    "byo": false,
    "proxied": false,
    "verified": true,
-   "count": 5,
+   "count": 7,
    "tools": [
     {
      "name": "unibet_kambi_call",
@@ -16665,6 +16922,33 @@
      "example": "[{name, steps:[{odds, converted}]}]  (top-level array \u2014 fractional + decimal ladders)"
     },
     {
+     "name": "unibet_place_bet",
+     "desc": "PLACE A REAL BET WITH REAL MONEY on your own Unibet (Kambi) account. Irreversible. Price with unibet_sgm_price and CHECK with unibet_validate_coupon first, then send the odds validate confirmed \u2014 Kambi takes the odds you assert on the coupon, not a quote id.",
+     "args": [
+      {
+       "n": "lang",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "market",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "channel_id",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "body",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "Kambi's coupon receipt. VERIFIED ONLY THAT THE REQUEST SHAPE IS REAL \u2014 this body is verbatim from a successful browser placement (a 2-leg SGM, 2026-08-27) \u2014 but the RESPONSE was not captured and a HEADLESS placement has NOT been round-tripped, so no success-field list is asserted here. On rejection Kambi uses {status, message} (its validate envelope), and HTTP 200 is NOT proof on Kambi any more th"
+    },
+    {
      "name": "unibet_racing_call",
      "desc": "Call any of Unibet's persisted racing GraphQL operations against\nrsa.unibet.com.au/api/v1/graphql by name + variables. The sha256 hash lives\nserver-side; a PERSISTED_QUERY_NOT_FOUND error means the bundle drifted. Race\nidentifiers are `eventKey`s like \"202606040200.T.AUS.hawkesbury.1\"\n(date.raceType.country.track.raceNumber). Read unibet://racing/operations for\nthe op list + variable signatures.",
      "args": [
@@ -16712,6 +16996,33 @@
       }
      ],
      "example": "{eventId, selectedOutcomeIds:[\u2026], selectedOdds:{decimal: 3400, american, fractional}, combinableOutcomeIds:[\u2026]}"
+    },
+    {
+     "name": "unibet_validate_coupon",
+     "desc": "VALIDATE AND RE-PRICE a bet slip before placing it \u2014 the pre-placement go/no-go. Send the exact Kambi coupon you intend to place; it returns the current price and rejects an impossible or clashing combination, the same check Unibet's betslip fires. Anonymous (no login). Call IMMEDIATELY before unibet_place_bet and only place if this comes back clean.",
+     "args": [
+      {
+       "n": "lang",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "market",
+       "t": "string",
+       "r": false
+      },
+      {
+       "n": "channel_id",
+       "t": "integer",
+       "r": false
+      },
+      {
+       "n": "body",
+       "t": "json",
+       "r": true
+      }
+     ],
+     "example": "Kambi's coupon envelope. ON REJECTION (seen live): {status:<number>, message:<string>} \u2014 the SAME envelope validate returns for a stale/impossible/clashing coupon, so a non-2xx or a `status` that is not the accepted value MEANS the coupon would not place, whatever the HTTP code. The SUCCESS body (a re-priced, placeable coupon) was NOT captured here and is not documented rather than guessed \u2014 read"
     }
    ]
   },

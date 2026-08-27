@@ -990,6 +990,14 @@ a low-cost acquisition lever. Decisions: **D18** (packaging), **D19** (cost reco
   filtered to exclude any placement/deposit/withdrawal tool; agent specs cannot grant one;
   the runtime denies them even if requested. Advisory-only is enforced by capability, not
   just by prompt.
+
+  > **SUPERSEDED 2026-08-27.** This is no longer true, and the change was deliberate. The
+  > data plane gained real placement tools (`sportsbet_place_bet` and three siblings),
+  > which broke the premise the filter rested on, and the name-based ban was removed at
+  > all three layers rather than worked around. What enforces safety now is a
+  > deterministic policy gate (`sportsdata_agents/betting/policy.py`) plus MCP group
+  > scoping. See `docs/BETTING-PLANE.md` for the reasoning, the trade-off, and the two
+  > rules that are still not configurable.
 - **Secrets** are never in specs or prompts; they're per-workspace references resolved at
   run time and injected only into the agent/sandbox that needs them.
 - **LLM keys by provisioning mode (§8.1):** under **BYO-LLM** the customer's provider keys are
@@ -1237,7 +1245,7 @@ launch remains gated on legal review).
 
 | Risk | Mitigation |
 |---|---|
-| An agent is coaxed toward placing a bet | No money/placement tool exists in the catalogue; structural deny, not prompt-only (§13) |
+| An agent is coaxed toward placing a bet | **Superseded 2026-08-27** — placement tools now exist. Mitigated by a deterministic policy gate that reads no free text (edge floor, per-bet/daily/exposure caps, per-book mode, `paper` by default) plus MCP group scoping; see `docs/BETTING-PLANE.md` |
 | Bookmaker APIs geo-block / change shape | The MCP **contract tests** + QA agent detect drift; alerts + PRs (§15) |
 | Runaway LLM/sandbox cost | Per-run + per-tenant budgets, tier routing, eval on routing efficiency |
 | Bad/over-confident model recommendations | Calibration evals, CLV as the truth metric, human always decides, clear disclaimers |
