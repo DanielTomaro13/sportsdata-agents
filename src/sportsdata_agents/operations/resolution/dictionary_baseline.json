@@ -1,9 +1,9 @@
 {
-  "_aliases_note": "Built from the PACKAGED dictionary only (packaged_aliases), never from a machine with local overrides \u2014 a baseline that captures the stewards local market_dictionary.local.json fails everywhere else.",
   "aliases": {
     "h2h - match (regular time)": "h2h",
     "h2h - win": "h2h",
     "handicap": "spread",
+    "hd to hd": "h2h",
     "head to head": "h2h",
     "kxabagame": "h2h",
     "kxacbgame": "h2h",
@@ -62,9 +62,11 @@
     "pick your own line": "spread",
     "place": "place",
     "point spread": "spread",
+    "total game points - over/under": "total",
     "total match points": "total",
     "total points": "total",
     "total points (over/under)": "total",
+    "total points o/u": "total",
     "total points over/under": "total",
     "totals": "total",
     "win": "win"

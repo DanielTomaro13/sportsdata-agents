@@ -675,9 +675,7 @@ def _coverage_gate(sub: Subscription, moving_book: str,
     books = set(quotes) | {moving_book}
     if min_books and len(books) < min_books:
         return True
-    if bool(sub.params.get("require_sharp", False)) and not (books & _SHARP_BOOKS):
-        return True
-    return False
+    return bool(sub.params.get("require_sharp", False)) and not (books & _SHARP_BOOKS)
 
 
 def _exchange_alone(sub: Subscription, ctx: dict[str, Any],

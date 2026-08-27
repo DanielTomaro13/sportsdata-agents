@@ -2774,7 +2774,11 @@ def dictionary_drift(
         baseline = dd.load_baseline()
         if rebaseline:
             data = report.to_baseline()
-            data["aliases"] = dd.current_aliases()
+            # PACKAGED, never current_aliases(): the latter merges this machine's
+            # market_dictionary.local.json, and a baseline built from it captured 14
+            # aliases no other environment had — the guard then failed everywhere but
+            # here, from the day it was added. See packaged_aliases().
+            data["aliases"] = dd.packaged_aliases()
             data["known_unmapped"] = sorted({m for (_b, m) in report.unmapped})
             dd.save_baseline(data)
             typer.echo(f"baselined {len(data['coverage'])} books, "

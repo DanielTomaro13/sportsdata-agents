@@ -54,7 +54,8 @@
       "match odds",
       "moneyline 2-way",
       "h2h - win",
-      "h2h - match (regular time)"
+      "h2h - match (regular time)",
+      "hd to hd"
     ],
     "spread": [
       "line",
@@ -70,7 +71,9 @@
       "total points (over/under)",
       "over/under",
       "total points over/under",
-      "total match points"
+      "total match points",
+      "total game points - over/under",
+      "total points o/u"
     ],
     "win": [
       "win"

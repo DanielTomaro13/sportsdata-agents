@@ -192,6 +192,8 @@ PRICING_GROUPS = {
     "entain": ["entain.rest"],
     "betr": ["betr.sport"],
     "pointsbet": ["pointsbet.sports"],
+    "dabble": ["dabble.sport"],
+    "fanduel": ["fanduel.sportsbook"],
 }
 
 #: The groups a book's RE-PRICE tool lives in — what the drift gate needs, which is not

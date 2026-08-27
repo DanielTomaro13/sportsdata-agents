@@ -67,6 +67,18 @@ _NPLUS_MARKET = re.compile(
 _STAT_NPLUS_MARKET = re.compile(
     rf"^(?P<stat>{_STATS_ALT})\s*[-\u2013]\s*(?P<n>\d{{1,3}})\+$")
 
+# market "Player to get at least N <stat>" with the PLAYER as the selection —
+# KAMBI's shape, and the phrasing no other book uses ("Player to get at least 20
+# Disposals" / participant "Josh Daicos"). Kambi is the whole of Unibet's sportsbook,
+# so missing this left every Unibet player prop untagged and invisible to any
+# cross-book comparison — found while matching a real Daicos line across books.
+#
+# "at least N" is the N-plus ladder in words: at least 20 IS over 19.5, same as "20+".
+# The optional leading "player" is Kambi's own prefix; the trailing "- including
+# overtime" and similar are stripped by the segment-qualifier pass before this runs.
+_AT_LEAST_MARKET = re.compile(
+    rf"^(?:player )?to (?:kick|score|get|have) at least (?P<n>\d{{1,3}})\s+(?P<stat>{_STATS_ALT})$")
+
 # a cheap pre-filter: no stat word anywhere → not a prop, skip the regexes
 _ANY_STAT = re.compile(rf"\b(?:{_STATS_ALT})\b")
 
@@ -135,11 +147,28 @@ _NOT_A_PLAYER = frozenset({
 })
 
 
+#: Separators books use to name SEVERAL players in one selection. Entain sells
+#: "Bailey Dale / Josh Daicos to have 35+ Disposals Combined" beside the single-player
+#: ladder, and the combined bet is far harder, so its price is far longer.
+#:
+#: Left untagged, that is a missed market. Tagged as a player, it is worse than wrong:
+#: the name "Bailey Dale / Josh Daicos" fuzzy-matches "Josh Daicos" (every token of the
+#: shorter name finds a partner), so `same_prop` called a two-player combination the SAME
+#: BET as the single, and its longer price would read as an enormous edge. Verified
+#: 2026-08-27 on the real Bulldogs v Collingwood card.
+_MULTI_PLAYER = (" / ", " & ", " + ", " and ")
+
+#: Market phrasings that mean the same thing on the market side rather than the selection.
+_COMBINATION_MARKET = ("combined", "either player", "duos", "trios", "double", "each")
+
+
 def _is_player_name(selection: str) -> bool:
-    """Could this selection be a person? Conservative: an untagged prop is a missed
+    """Could this selection be ONE person? Conservative: an untagged prop is a missed
     ladder, a mis-tagged one is a priced phantom."""
     s = " ".join(selection.strip().lower().split())
-    return bool(s) and s not in _NOT_A_PLAYER
+    if not s or s in _NOT_A_PLAYER:
+        return False
+    return not any(sep in f" {s} " for sep in _MULTI_PLAYER)
 
 
 
@@ -159,6 +188,12 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
         return meta
     market_l = market.strip().lower()
     selection_l = selection.strip().lower()
+
+    # A combination market is not a player ladder, however player-shaped its selection
+    # looks — see _MULTI_PLAYER. Checked on the MARKET too because some books put the
+    # combining word there and a single name in the selection.
+    if any(word in market_l for word in _COMBINATION_MARKET):
+        return meta
 
     # segment-qualified props keep their qualifier IN the stat name
     qual = ""
@@ -217,6 +252,15 @@ def tag_prop(market: str, selection: str, meta: dict) -> dict:
                     "stat": _canon_stat(market_stat) + qual,
                     "stat_line": float(ou.group("line")),
                     "line_type": ou.group("side"), "prop_tagged": True}
+
+    at_least = _AT_LEAST_MARKET.match(market_l)
+    if (at_least and selection_l and not any(ch.isdigit() for ch in selection_l)
+            and _is_player_name(selection_l)):
+        # "at least 20" is the over side of a 19.5 line — the same ladder "20+" means
+        return {**meta, "player": selection.strip().title(),
+                "stat": _canon_stat(at_least.group("stat")) + qual,
+                "stat_line": float(at_least.group("n")) - 0.5,
+                "line_type": "over", "prop_tagged": True}
 
     market_stat_nplus = _STAT_NPLUS_MARKET.match(market_l)
     if (market_stat_nplus and selection_l and not any(ch.isdigit() for ch in selection_l)
