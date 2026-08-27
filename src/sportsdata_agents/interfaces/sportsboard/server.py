@@ -151,6 +151,29 @@ async def api_sgm(body: dict) -> JSONResponse:
     return JSONResponse(result)
 
 
+@app.post("/api/sgm/compare")
+async def api_sgm_compare(body: dict) -> JSONResponse:
+    """Price the SAME legs at every book that will quote them, side by side.
+
+    Body: {"fixture_id", "legs": [{"market", "selection", "line"}], "books": optional}.
+
+    This is what no single book's app can show: one combination under each book's own
+    correlation model, on comparable units. Books are asked concurrently, so one being
+    down or refusing does not decide whether the others get asked.
+    """
+    from sportsdata_agents.interfaces.sportsboard import live, sgm_books
+
+    legs = list(body.get("legs") or [])
+    if len(legs) < 2:
+        return JSONResponse({"warning": "a same-game multi needs at least 2 legs"},
+                            status_code=400)
+    books = tuple(body.get("books") or sgm_books.BOOKMAKERS)
+    async with _sessionmaker()() as session:
+        out = await sgm_books.compare(session, live.current_manager,
+                                      str(body.get("fixture_id", "")), legs, books=books)
+    return JSONResponse(out)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
     return (STATIC_DIR / "index.html").read_text()
