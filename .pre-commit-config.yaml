@@ -1,16 +1,47 @@
+# Local gate — deliberately runs THE SAME TOOLS AS CI, not its own pinned copies.
+#
+# The hooks used to pull ruff and mypy from upstream mirrors at their own pins
+# (ruff v0.6.9, mypy v1.11.2) while CI installs `ruff>=0.6` / `mypy>=1.10` — i.e.
+# whatever is current. That drift is not theoretical: it let four consecutive red
+# commits reach main. The failure was RUF059, a rule that DOES NOT EXIST in 0.6.9 —
+# the pinned hook could not have caught it however diligently it was run, and would
+# have reported a clean tree right up to the moment CI went red.
+#
+# A local gate that disagrees with CI is worse than none: it teaches you to trust a
+# green that means nothing. So these are `repo: local` and call the project's own
+# venv. Same install, same versions, same answer — by construction, not by remembering
+# to bump a pin.
+#
+# NO ruff-format hook, deliberately. The old config listed one, but the hooks were
+# evidently never installed — running it rewrites 210 files / 11k lines, because the
+# codebase has been hand-formatted for a long time. CI runs `ruff check .` and does not
+# check formatting at all, so a format hook would enforce a standard neither the repo nor
+# CI asks for, and would bury real review in reformat noise. Lint is the gate; layout is
+# not.
+#
+# Install once:  pre-commit install && pre-commit install --hook-type pre-push
+#
+# Split by cost, because a gate people bypass is a gate that does not exist:
+#   pre-commit  ruff check (fast — sub-second, catches the lint that broke main)
+#   pre-push    mypy (~20s — too slow per commit, and CI runs it after ruff anyway,
+#               so a mypy error stayed invisible until the lint was fixed first)
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+  - repo: local
     hooks:
       - id: ruff
-        args: [--fix]
-      - id: ruff-format
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
-    hooks:
+        name: ruff (project venv — same version as CI)
+        entry: .venv/bin/ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
       - id: mypy
-        additional_dependencies: [pydantic>=2.7]
-        pass_filenames: false
+        name: mypy (project venv — same version as CI)
+        entry: .venv/bin/mypy
+        language: system
+        pass_filenames: false          # mypy is configured by pyproject `files`
+        stages: [pre-push]             # too slow per-commit; CI order makes it the second wall
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
