@@ -17022,7 +17022,7 @@
        "r": true
       }
      ],
-     "example": "Kambi's coupon envelope. ON REJECTION (seen live): {status:<number>, message:<string>} \u2014 the SAME envelope validate returns for a stale/impossible/clashing coupon, so a non-2xx or a `status` that is not the accepted value MEANS the coupon would not place, whatever the HTTP code. The SUCCESS body (a re-priced, placeable coupon) was NOT captured here and is not documented rather than guessed \u2014 read"
+     "example": "VERIFIED live 2026-08-27: {status: \"SUCCESS\", validSession: <bool>, rewardInfo:{validRewards, validGroupRewards, implicitGroupRewards}}.\n\nTHE ANSWER IS `status`, and on a good coupon it is the STRING \"SUCCESS\" \u2014 not a number, not an absence. A rejection uses the same envelope with a different status and a `message`.\n\nIT DOES NOT ECHO A PRICE. There are no couponRows in the reply, so this call CANN"
     }
    ]
   },
