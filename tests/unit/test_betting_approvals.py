@@ -159,7 +159,12 @@ async def test_a_scan_in_paper_mode_places_nothing(tmp_path) -> None:
 async def test_a_scan_acts_on_the_best_candidate_only(tmp_path) -> None:
     """Placing the same combination at several books is the same opinion several times,
     consuming the budget several times."""
-    calls = Calls(answers={"sportsbet_place_bet": {"betId": "B1"}})
+    calls = Calls(answers={
+        # The drift gate is armed automatically now, so the book must answer a re-price
+        # before it is asked to take money — refusing to place blind is the default.
+        "sportsbet_price_slip": {"betBuilds": [{"betCombinations": [{"betEnhancedPrice": 3.6}]}]},
+        "sportsbet_place_bet": {"betId": "B1"},
+    })
     policy = BettingPolicy(mode="auto", books=["sportsbet", "tab", "unibet"])
     result = await runner.scan_fixture(
         comparison=COMPARISON, fixture_id="f1", policy=policy,
@@ -279,3 +284,36 @@ def test_the_placing_copy_does_not_mutate_the_callers_policy() -> None:
 def test_the_alert_channel_defaults_to_quiet(monkeypatch) -> None:
     monkeypatch.delenv("BETTING_ALERT_CHANNEL", raising=False)
     assert approvals.alert_channel() == "log"
+
+
+# ─── the drift gate is armed by default, not opt-in ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_scan_will_not_place_without_a_readable_re_price(tmp_path) -> None:
+    """The gate arms itself: scan_fixture builds the book's re-price args from the
+    adapter and resolves that book's own reader. A book that answers with nothing
+    usable is a book we do not place at — this was silently skipped when the reprice
+    args were left to the caller."""
+    calls = Calls(answers={"sportsbet_price_slip": {}, "sportsbet_place_bet": {"betId": "B1"}})
+    result = await runner.scan_fixture(
+        comparison=COMPARISON, fixture_id="f1",
+        policy=BettingPolicy(mode="auto", books=["sportsbet"]),
+        ledger=Ledger(tmp_path / "l.jsonl"), call=calls, now=NOON)
+    assert result.outcome.status == "rejected"
+    assert "sportsbet_place_bet" not in calls.seen
+
+
+@pytest.mark.asyncio
+async def test_a_scan_abandons_a_bet_whose_price_shortened(tmp_path) -> None:
+    calls = Calls(answers={
+        "sportsbet_price_slip": {"betBuilds": [{"betCombinations": [{"betEnhancedPrice": 2.9}]}]},
+        "sportsbet_place_bet": {"betId": "B1"},
+    })
+    result = await runner.scan_fixture(
+        comparison=COMPARISON, fixture_id="f1",
+        policy=BettingPolicy(mode="auto", books=["sportsbet"], max_price_drift=0.02),
+        ledger=Ledger(tmp_path / "l.jsonl"), call=calls, now=NOON)
+    assert result.outcome.status == "rejected"
+    assert "shortened" in result.outcome.reason
+    assert "sportsbet_place_bet" not in calls.seen

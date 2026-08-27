@@ -220,10 +220,45 @@ payload — that string goes to a human who acts on it.
 
     agents bet policy              # your rules, and whether anything can place
     agents bet set min_ev=0.05     # validated before saving
+    agents bet scan <fixture> --legs '[...]'   # price, score, act
     agents bet pending             # proposals waiting on you
     agents bet approve <id>        # still re-priced before it goes on
     agents bet reject <id>
+    agents bet place               # send everything approved and still live
     agents bet ledger              # what happened, refusals included
+
+## Live wiring: two sessions, and the gate that arms itself
+
+`bet scan` opens **two scoped MCP sessions**, not one:
+
+    read  → <book>.sport      the comparator's pricers, all anonymous
+    write → <book>.write      only the books the policy could actually place at
+
+The MCP registers exactly the groups it is started with, so a session never given
+`<book>.write` has no placement tool in it *at all* — absent, not hidden. `scope_for`
+derives the write groups from the policy, so a book left at `paper` or `never` cannot
+appear in a placeable session in the first place. That makes "this scan cannot place
+anything" a property of the process rather than a promise.
+
+**The drift gate arms itself.** `scan_fixture` builds the book's re-price arguments from
+the adapter and resolves that book's own price reader — neither is left to the caller.
+Written the other way first, and it meant a scan never re-priced at all: the gate was
+present, configured, and fetching nothing. A book that answers with nothing readable is a
+book we do not place at.
+
+Readers are per book and deliberately narrow, because each has a unit trap that produces
+a *plausible* wrong number rather than an error:
+
+| Book | Trap |
+|---|---|
+| Sportsbet | price on the combination, not the leg |
+| TAB | prices per leg only — the multi price is the **product** |
+| Entain | fractions: `decimal = num/den + 1`; dropping the `+1` is wrong on every bet |
+| Unibet | **thousandths** — 3400 is 3.40, and its `{status, message}` refusal is not a price |
+
+`place_approved` resolves the reader **per proposal**, not once per batch: two approved
+bets can sit at two books, and one book's reader against another's response reads a price
+off the wrong shape.
 
 ## Status
 

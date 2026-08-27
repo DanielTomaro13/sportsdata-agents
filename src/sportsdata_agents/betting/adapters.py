@@ -229,3 +229,49 @@ def payload_for(candidate: Candidate, *, stake: float) -> dict[str, Any]:
             )
         raise AdapterError(f"no placement adapter for {candidate.book!r}")
     return build(candidate, stake=stake)
+
+
+# ─── re-pricing the same bet ────────────────────────────────────────────
+#
+# The drift gate needs to ask the book "what is this bet worth NOW", which means
+# rebuilding the same request against the book's pricing tool rather than its placement
+# one. Same resolved identifiers, different envelope — so it belongs here beside the
+# payload builders, not in the executor, which should stay ignorant of bookmaker shapes.
+
+
+def sportsbet_reprice_args(candidate: Candidate, *, stake: float) -> dict[str, Any]:
+    """`sportsbet_price_slip` takes the same betItems the placement does."""
+    return {"betItems": sportsbet_payload(candidate, stake=stake)["betItems"]}
+
+
+def entain_reprice_args(candidate: Candidate, *, stake: float) -> dict[str, Any]:
+    """`entain_sgm_price` takes the same selections the quoter used."""
+    p = _placement(candidate)
+    eid = p["event_id"]
+    return {"same_game_multies": {eid: {"event_id": eid, "selections": p["selections"]}}}
+
+
+def unibet_reprice_args(candidate: Candidate, *, stake: float) -> dict[str, Any]:
+    """`unibet_validate_coupon` takes the coupon itself — the anonymous go/no-go that
+    answered 400 rather than 401 with no session cookie."""
+    return unibet_payload(candidate, stake=stake)
+
+
+REPRICE_ARGS = {
+    "sportsbet": sportsbet_reprice_args,
+    "entain": entain_reprice_args,
+    "unibet": unibet_reprice_args,
+}
+
+
+def reprice_args_for(candidate: Candidate, *, stake: float) -> dict[str, Any]:
+    """Args for the book's re-price tool, or {} when the book cannot be re-priced from a
+    comparison quote.
+
+    An empty dict means the executor skips the drift gate for this book, which is only
+    correct where a re-price is genuinely impossible — TAB, whose account-tier slip is
+    what issues its tokens in the first place. Returning {} for a book that COULD be
+    re-priced would silently disarm the gate.
+    """
+    build = REPRICE_ARGS.get(candidate.book)
+    return build(candidate, stake=stake) if build else {}

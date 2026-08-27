@@ -2602,6 +2602,114 @@ def bet_reject(prefix: str = typer.Argument(...)) -> None:
     typer.echo(message if proposal is None else f"{proposal.id[:8]}: {message}")
 
 
+@bet_app.command("scan")
+def bet_scan(
+    fixture_id: str = typer.Argument(..., help="the fixture to price"),
+    legs: str = typer.Option(
+        ..., "--legs",
+        help='JSON list of legs, e.g. \'[{"market":"h2h","selection":"Bulldogs"}]\'',
+    ),
+) -> None:
+    """Price one combination at every book, score it, and act on the best per your policy.
+
+    Opens TWO scoped MCP sessions: one for the anonymous pricers, one carrying only the
+    `.write` groups your policy could actually place at. A book set to `paper` or `never`
+    is absent from the placing session entirely, not merely declined.
+    """
+    import asyncio
+    import json
+
+    async def go() -> None:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        from sportsdata_agents.betting import live, runner
+        from sportsdata_agents.betting.approvals import Store
+        from sportsdata_agents.betting.ledger import Ledger
+        from sportsdata_agents.config import get_settings
+        from sportsdata_agents.data.db import make_engine, make_sessionmaker
+        from sportsdata_agents.interfaces.sportsboard import sgm_books
+        from sportsdata_agents.mcp.manager import MCPManager
+        from sportsdata_agents.paths import bet_ledger_path, bet_proposals_path
+
+        policy, _ = _bet_policy()
+        try:
+            parsed = json.loads(legs)
+        except json.JSONDecodeError as exc:
+            typer.echo(f"error: --legs must be JSON: {exc}", err=True)
+            raise typer.Exit(1) from exc
+
+        write_groups = live.scope_for(policy)
+        typer.echo(f"pricing {fixture_id}; placing scope: {write_groups or '(none — nothing can place)'}")
+
+        engine = make_engine(get_settings().database_url)
+        sessionmaker = make_sessionmaker(engine)
+        async with sessionmaker() as db, MCPManager(groups=live.read_groups()) as read_mcp:
+            comparison = await sgm_books.compare(db, read_mcp, fixture_id, parsed)
+            typer.echo(f"  {comparison.get('books_priced', 0)} books priced; "
+                       f"{comparison.get('note', '')}")
+
+            async with MCPManager(groups=write_groups) as write_mcp:
+                async def call(tool: str, /, **kwargs):
+                    return await write_mcp.call_tool(tool, kwargs)
+
+                result = await runner.scan_fixture(
+                    comparison=comparison, fixture_id=fixture_id, policy=policy,
+                    ledger=Ledger(bet_ledger_path()), call=call,
+                    store=Store.load(bet_proposals_path()),
+                )
+        for c in result.candidates[:5]:
+            typer.echo(f"  {c.summary()}")
+        typer.echo("")
+        typer.echo(result.summary())
+
+    asyncio.run(go())
+
+
+@bet_app.command("place")
+def bet_place() -> None:
+    """Place every approved, unexpired proposal — each re-priced and drift-checked first."""
+    import asyncio
+
+    async def go() -> None:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        from sportsdata_agents.betting import runner
+        from sportsdata_agents.betting.approvals import Store
+        from sportsdata_agents.betting.ledger import Ledger
+        from sportsdata_agents.mcp.manager import MCPManager
+        from sportsdata_agents.paths import bet_ledger_path, bet_proposals_path
+
+        policy, _ = _bet_policy()
+        store = Store.load(bet_proposals_path())
+        approved = store.approved()
+        if not approved:
+            typer.echo("nothing approved and still live.")
+            return
+
+        groups = sorted({f"{p.book}.write" for p in approved}
+                        | {f"{p.book}.sport" for p in approved})
+        typer.echo(f"placing {len(approved)} bet(s); scope: {groups}")
+
+        async with MCPManager(groups=groups) as mcp:
+            async def call(tool: str, /, **kwargs):
+                return await mcp.call_tool(tool, kwargs)
+
+            # No `reprice` passed on purpose: place_approved resolves each proposal's
+            # OWN reader, because two approved bets can sit at two different books and
+            # one book's reader reads a price off the wrong shape.
+            outcomes = await runner.place_approved(
+                store=store, policy=policy, ledger=Ledger(bet_ledger_path()),
+                call=call)
+        for o in outcomes:
+            typer.echo(f"  {o.status:9} ${o.stake:.2f} @ {o.price:.2f}  {o.reason}")
+
+    asyncio.run(go())
+
+
 @bet_app.command("ledger")
 def bet_ledger(limit: int = typer.Option(20, help="how many rows"),
                all_rows: bool = typer.Option(False, "--all", help="include skips")) -> None:

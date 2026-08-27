@@ -94,8 +94,17 @@ async def scan_fixture(
     stake = policy.size(edge=best.edge, odds=best.odds)
     try:
         payload = adapters.payload_for(best, stake=stake)
+        # Built here too, so the drift gate has something to fetch. A book that cannot be
+        # re-priced from a comparison quote yields {} and the gate is skipped for it —
+        # currently only TAB, whose account-tier slip is what issues its tokens at all.
+        args = reprice_args if reprice_args is not None else adapters.reprice_args_for(best, stake=stake)
     except adapters.AdapterError as exc:
         return ScanResult(fixture_id, candidates, note=f"cannot build a placement for {best.book}: {exc}")
+
+    # Resolve the reader for THIS book rather than trusting a caller-supplied one to be
+    # the right one — a reader for another book returns a price from a different shape.
+    if reprice is None and args:
+        reprice = _reader_for(best.book)
 
     intent = Intent(
         book=best.book,
@@ -103,7 +112,7 @@ async def scan_fixture(
         odds=best.odds,
         edge=best.edge,
         payload=payload,
-        reprice_args=reprice_args or {},
+        reprice_args=args,
         summary=best.summary(),
     )
 
@@ -165,8 +174,12 @@ async def place_approved(
             summary=proposal.summary,
             intent_id=proposal.id[:12],
         )
+        # Per PROPOSAL, not once for the batch: two approved bets can be at two books,
+        # and one book's reader against another's response reads a price off the wrong
+        # shape — or worse, off the right-looking field of a different bet.
+        reader = reprice or _reader_for(proposal.book)
         outcome = await run_intent(
-            intent, policy=placing, ledger=ledger, call=call, now=now, reprice=reprice,
+            intent, policy=placing, ledger=ledger, call=call, now=now, reprice=reader,
         )
         store.record_outcome(proposal.id, ok=outcome.status == "placed", detail=outcome.reason)
         out.append(outcome)
@@ -189,3 +202,17 @@ def _as_placing_policy(policy: BettingPolicy, book: str) -> BettingPolicy:
     p.allow_unverified_auto = True
     p.quiet_hours = None  # a human is demonstrably awake
     return p
+
+
+def _reader_for(book: str) -> Callable[[Any], float] | None:
+    """The book's own re-quoted-price reader, or None if it has none.
+
+    Imported lazily: `live` is the only module in the package that knows about MCP, and
+    the rest of the plane stays testable without it.
+    """
+    from .live import PriceUnreadable, reader_for
+
+    try:
+        return reader_for(book)
+    except PriceUnreadable:
+        return None
