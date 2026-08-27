@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TypedDict
 
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +57,33 @@ async def _fixture_events(session: AsyncSession, fixture_ids: set[Any]) -> dict[
     for e in rows:
         out.setdefault(e.fixture_id, []).append(e)
     return out
+
+
+class SelectionRow(TypedDict):
+    """One selection's cross-book prices, as the board renders it.
+
+    Declared because an inline dict literal infers `dict[str, object]`, and `object` is
+    not orderable — so every `sorted(..., key=lambda x: x["best_odds"])` over these rows
+    needed a float() cast and a type: ignore. That happened three times in this file in
+    one day, each fix identical and each one only reached after CI went red. The shape
+    is the same every time; naming it fixes the class of bug rather than the instances.
+    """
+
+    selection: str
+    best_odds: float
+    prices: dict[str, float]      # book -> odds, cheapest first
+
+
+class CountedSelectionRow(SelectionRow):
+    """A board row: how many books priced it."""
+
+    books: int
+
+
+class SeriesSelectionRow(SelectionRow):
+    """A detail-panel row: hourly best-odds history alongside the current prices."""
+
+    series: list[tuple[str, float]]   # (hour_iso, best odds that hour)
 
 
 async def _markets_by_source(
@@ -451,13 +478,12 @@ async def list_specials(
                 sels.setdefault(sel, {})[book] = odds
         if not sels:
             continue
-        best = sorted(
-            ({"selection": sel, "best_odds": min(b.values()), "books": len(b),
-              "prices": dict(sorted(b.items(), key=lambda kv: kv[1]))}
-             for sel, b in sels.items()),
-            # float() is for mypy, not maths: the dict literal infers object values,
-            # and object is not orderable. Odds are 3dp — the cast cannot reorder them.
-            key=lambda x: float(x["best_odds"]))  # type: ignore[arg-type]
+        board_rows: list[CountedSelectionRow] = [
+            {"selection": sel, "best_odds": min(b.values()), "books": len(b),
+             "prices": dict(sorted(b.items(), key=lambda kv: kv[1]))}
+            for sel, b in sels.items()
+        ]
+        best = sorted(board_rows, key=lambda x: x["best_odds"])
         resolves = f.start_time or f.end_time
         out.append({
             "fixture_id": str(f.id), "name": f.name, "category": f.sport,
@@ -514,13 +540,14 @@ async def special_detail(
         buckets = hourly.setdefault(sel, {})
         buckets[bucket] = max(buckets.get(bucket, 0.0), odds)
 
-    sels = sorted(
-        ({"selection": sel,
-          "prices": dict(sorted(books.items(), key=lambda kv: kv[1])),
-          "best_odds": min(books.values()),
-          "series": sorted(hourly.get(sel, {}).items())}
-         for sel, books in current.items()),
-        key=lambda x: float(x["best_odds"]))  # type: ignore[arg-type]
+    series_rows: list[SeriesSelectionRow] = [
+        {"selection": sel,
+         "prices": dict(sorted(books.items(), key=lambda kv: kv[1])),
+         "best_odds": min(books.values()),
+         "series": sorted(hourly.get(sel, {}).items())}
+        for sel, books in current.items()
+    ]
+    sels = sorted(series_rows, key=lambda x: x["best_odds"])
     resolves = f.start_time or f.end_time
     return {
         "fixture_id": str(f.id), "name": f.name, "category": f.sport,
