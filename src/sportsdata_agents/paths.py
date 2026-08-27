@@ -182,3 +182,22 @@ def migrate_legacy_layout() -> list[str]:
             shutil.copy2(entry, target)
         moved.append(entry.name)
     return moved
+
+
+def betting_dir() -> Path:
+    """Policy, proposals and the bet ledger. Separate from ops state because this
+    directory holds a money record: it is the thing you would reach for to answer "what
+    did it actually bet", and it should not be mixed with rotating job state."""
+    return _sub("betting")
+
+
+def bet_ledger_path() -> Path:
+    return betting_dir() / "ledger.jsonl"
+
+
+def bet_policy_path() -> Path:
+    return betting_dir() / "policy.json"
+
+
+def bet_proposals_path() -> Path:
+    return betting_dir() / "proposals.json"

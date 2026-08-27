@@ -152,6 +152,25 @@ class BettingPolicy:
     #: at the worse number — the edge was the whole reason for the bet.
     max_price_drift: float = 0.02
 
+    #: How `edge` is measured, and therefore what `min_ev` is compared against.
+    #:
+    #: "relative" — best_odds / consensus_odds - 1: how much more this book pays for the
+    #:   identical bet. Needs no assumption beyond "the books carry similar margin", which
+    #:   is why it is the default. It is NOT expected value: 3% relative is not 3% EV.
+    #: "ev" — fair_probability * odds - 1, the ordinary definition, which needs
+    #:   `assumed_overround` to turn vig-inclusive quotes into a fair probability.
+    #:
+    #: STORED, and recorded on every ledger row, because a ledger that mixes bases holds
+    #: numbers that cannot be compared with each other. Changing this mid-experiment
+    #: invalidates the comparison, not just the next bet.
+    edge_basis: Literal["relative", "ev"] = "relative"
+
+    #: The margin assumed to be baked into the field's quotes, used only by the "ev"
+    #: basis. Left at 0.0 the field's implied probability is treated as fair, which
+    #: counts the whole margin as edge and OVERSTATES every candidate — the scanner
+    #: warns when it is used that way.
+    assumed_overround: float = 0.0
+
     #: Allow `auto` on a book whose placement path has never been round-tripped
     #: headlessly (currently Unibet and Entain — see VERIFIED_BOOKS).
     #:

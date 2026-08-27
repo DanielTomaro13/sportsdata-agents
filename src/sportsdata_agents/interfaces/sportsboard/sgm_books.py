@@ -408,6 +408,17 @@ async def quote_sportsbet(session: AsyncSession, mcp: Any, fixture_id: str,
         "quote_id": price.get("quoteId"),
         "legs_matched": len(outcomes),
         "warnings": ["a Sportsbet quote is short-lived — re-price before betting"],
+        # Everything the placement payload needs, resolved once here rather than a
+        # second time by the betting plane — the external-id lookup above is the
+        # expensive part and getting it wrong is an HTTP 500, not a wrong price.
+        "placement": {
+            "classExternalId": class_ext,
+            "competitionExternalId": comp_ext,
+            "eventExternalId": int(ev.external_id),
+            "parts": outcomes,          # [{marketExternalId, outcomeExternalId}]
+            "priceNum": num,
+            "priceDen": den,
+        },
     }
 
 
@@ -636,6 +647,12 @@ async def quote_unibet(session: AsyncSession, mcp: Any, fixture_id: str,
         "legs_matched": len(ids),
         # The only book of the seven that says what it actually priced. Use it.
         "legs_priced": r.get("selectedOutcomeIds"),
+        # Kambi's coupon wants the outcome ids and the price in THOUSANDTHS, which is
+        # the raw form the pricer returned — carried through unrounded on purpose.
+        "placement": {
+            "outcome_ids": list(r.get("selectedOutcomeIds") or ids),
+            "odds_thousandths": (r.get("selectedOdds") or {}).get("decimal"),
+        },
     }
     if decimal >= 1001.0:
         out["warnings"] = ["1001.0 is Kambi's payout CEILING, not a quote — the true price "
@@ -785,6 +802,9 @@ async def quote_entain(session: AsyncSession, mcp: Any, fixture_id: str,
         "priced_by": "entain",
         "book_odds": round(decimal, 2),
         "legs_matched": len(picked),
+        # market_id/entrant_id are the same identifiers placement wants, so one
+        # resolution serves both — see entain_place_bet's `bets` description.
+        "placement": {"event_id": eid, "selections": picked, "odds": entry.get("odds")},
         # Measured live: 5 of 41 two-entrant markets priced a pair that CANNOT both win.
         "warnings": ["Entain's `available: true` is not proof the combination is coherent "
                      "— it quotes some impossible pairs at long odds"],
