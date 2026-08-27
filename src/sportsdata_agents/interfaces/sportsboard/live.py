@@ -35,6 +35,19 @@ def live_enabled() -> bool:
     return os.environ.get("SPORTSBOARD_LIVE", "").strip().lower() in _TRUTHY
 
 
+async def _monitor_loop(sf, every_s: float = 300.0) -> None:
+    from sportsdata_agents.operations.monitoring import run_watches
+    while True:
+        await asyncio.sleep(every_s)
+        try:
+            report = await run_watches(sf)
+            if report.get("alerts"):
+                logger.info("monitor: %s alerts across %s watches",
+                            report["alerts"], report["subscriptions"])
+        except Exception:  # a watch failure must never take the poller down
+            logger.exception("monitor pass failed")
+
+
 async def _resolve_loop(sf: async_sessionmaker[AsyncSession]) -> None:
     """Re-link each provider's events into shared fixtures on a fixed cadence
     (DB-only — no MCP), so newly-ingested games join the board."""
@@ -110,8 +123,16 @@ async def run_poller() -> None:
             await ingest_once(manager, sf, feeds)
             await resolve_events(sf)
             logger.info("live mode: entering poll + resolve loops")
-            # ingest per feed cadence; resolve on its own timer (DB-only, no MCP).
-            await asyncio.gather(run_loop(manager, sf, feeds), _resolve_loop(sf))
+            loops = [run_loop(manager, sf, feeds), _resolve_loop(sf)]
+            if os.environ.get("SPORTSBOARD_MONITOR", "").strip().lower() in _TRUTHY:
+                # The watches ride IN-PROCESS on a co-located SQLite deploy:
+                # as a separate process they fight the continuous ingest for
+                # the single write lock and starve (lived, 2026-08-27: every
+                # cross-process pass died on "database is locked" despite the
+                # 120s busy timeout). In here their writes serialize through
+                # the same engine, like resolve's do.
+                loops.append(_monitor_loop(sf))
+            await asyncio.gather(*loops)
     except Exception:  # a live-poll failure must never take the server down
         logger.exception("live poller stopped")
     finally:
