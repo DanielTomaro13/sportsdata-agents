@@ -140,10 +140,13 @@ def _classify_snaps(snaps: Sequence[OddsSnapshot]) -> tuple[
     for s in snaps:
         if s.provider in PRED and not str(s.selection).startswith("no "):
             _seen_sel[(s.event_external_id, s.market)].add(str(s.selection).lower())
-    for key, sels in _seen_sel.items():
+    # `pred_key`, not `key`: the dedupe loop below binds `key` to a 4-tuple in the same
+    # function scope, and reusing the name made mypy read the later assignment as a type
+    # error rather than a different variable.
+    for pred_key, sels in _seen_sel.items():
         if len(sels) == 2:  # a clean two-way; anything else is genuine novelty
             lo, hi = sorted(sels)
-            _pred_sides[key] = {lo: "home", hi: "away"}
+            _pred_sides[pred_key] = {lo: "home", hi: "away"}
 
     for s in snaps:
         sides = _pred_sides.get((s.event_external_id, s.market)) if s.provider in PRED else None
