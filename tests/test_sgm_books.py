@@ -524,3 +524,20 @@ def test_exact_wins_over_a_loose_match() -> None:
     outs = [{"participant": "Adelaide"}, {"participant": "Adelaide Crows"}]
     hit = _unique_team_match(outs, "Adelaide", lambda o: o["participant"])
     assert hit["participant"] == "Adelaide"
+
+
+def test_the_tab_sport_lookup_uses_the_keys_normalisation() -> None:
+    """`_norm` strips underscores, so a raw TAB_NAMES.get(_norm(sport)) could never match
+    a key like "australian_rules": the lookup asks for "australianrules". Every AFL
+    fixture reported "no TAB sport/competition mapping" while TAB was listing the match.
+    Found live 2026-08-27 on Western Bulldogs v Collingwood."""
+    from sportsdata_agents.interfaces.sportsboard.sgm_books import (
+        _TAB_NAMES_NORMALISED,
+        TAB_NAMES,
+    )
+
+    assert "australianrules" in _TAB_NAMES_NORMALISED
+    assert "rugbyleague" in _TAB_NAMES_NORMALISED
+    # every declared sport survives the normalisation, none collide away
+    assert len(_TAB_NAMES_NORMALISED) == len(TAB_NAMES)
+    assert _TAB_NAMES_NORMALISED["australianrules"] == ("AFL Football", "AFL")

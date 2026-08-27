@@ -913,6 +913,10 @@ TAB_NAMES = {
 }
 
 
+#: TAB_NAMES keyed the way a lookup actually arrives — see the note at the call site.
+_TAB_NAMES_NORMALISED = {_norm(k).replace(" ", ""): v for k, v in TAB_NAMES.items()}
+
+
 def _tab_team_matches(prop_name: str, team: str) -> bool:
     """Does a TAB proposition name refer to this team?
 
@@ -1015,8 +1019,13 @@ async def quote_tab(session: AsyncSession, mcp: Any, fixture_id: str,
         return {"unavailable": "no fixture name to match against TAB's own match names"}
     home, away = f.name.split(" v ", 1)
 
-    slug = _norm(getattr(f, "sport", "") or "").replace(" ", "_")
-    names = TAB_NAMES.get(slug)
+    # Look the sport up through the SAME normalisation the keys are stored under.
+    # `_norm` strips underscores, so a raw `TAB_NAMES.get(_norm(sport))` could never
+    # match a key like "australian_rules": the lookup asked for "australianrules" and
+    # every AFL fixture reported "no TAB sport/competition mapping" while TAB was
+    # listing the match. Found live 2026-08-27 on Western Bulldogs v Collingwood.
+    slug = _norm(getattr(f, "sport", "") or "").replace(" ", "")
+    names = _TAB_NAMES_NORMALISED.get(slug)
     if names is None:
         return {"unavailable": f"no TAB sport/competition mapping for {slug!r} — add a row "
                                f"to TAB_NAMES (have: {', '.join(sorted(TAB_NAMES))})"}
