@@ -55,17 +55,40 @@ async def health() -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+# One board poll costs a full warehouse assembly over thousands of fixtures;
+# every viewer reloading must not repeat it. 20s covers the poll cadence.
+_cache: dict[str, tuple[float, Any]] = {}
+
+def _cached(key: str, ttl: float = 20.0) -> Any | None:
+    hit = _cache.get(key)
+    if hit and (asyncio.get_event_loop().time() - hit[0]) < ttl:
+        return hit[1]
+    return None
+
+def _store(key: str, value: Any) -> Any:
+    _cache[key] = (asyncio.get_event_loop().time(), value)
+    return value
+
+
 @app.get("/api/games")
 async def api_games(hours: float = 12.0) -> JSONResponse:
+    key = f"games:{hours}"
+    hit = _cached(key)
+    if hit is not None:
+        return JSONResponse({"games": hit})
     async with _sessionmaker()() as s:
-        return JSONResponse({"games": await list_games(s, hours=hours)})
+        return JSONResponse({"games": _store(key, await list_games(s, hours=hours))})
 
 
 @app.get("/api/specials")
 async def api_specials(days: float = 90.0) -> JSONResponse:
     """Novelty/outright markets — everything the two-sided games gate drops."""
+    key = f"specials:{days}"
+    hit = _cached(key)
+    if hit is not None:
+        return JSONResponse({"specials": hit})
     async with _sessionmaker()() as s:
-        return JSONResponse({"specials": await list_specials(s, days=days)})
+        return JSONResponse({"specials": _store(key, await list_specials(s, days=days))})
 
 
 @app.get("/api/special/{fixture_id}")

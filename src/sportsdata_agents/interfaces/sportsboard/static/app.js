@@ -29,15 +29,36 @@
     return frames;
   }
   const curFrame = () => frames[replayFrame % frames.length];
+  let liveFails = 0, probeTimer = null;
   function enterReplay() {
     if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
     state.mode = "replay";
     if (!replayTimer && cfg.animate !== false) replayTimer = setInterval(replayTick, 2600);
+    // Replay is a fallback, not a destination: keep probing the live API and
+    // climb back out the moment it answers (a throttled background tab used
+    // to strand the page in replay until a manual reload).
+    if (apiBase && !probeTimer) probeTimer = setInterval(async () => {
+      try {
+        const r = await fetch(apiBase.replace(/^ws/, "http") + "/api/health");
+        if (r.ok) leaveReplay();
+      } catch {}
+    }, 15000);
+  }
+  function leaveReplay() {
+    if (probeTimer) { clearInterval(probeTimer); probeTimer = null; }
+    if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+    const b = $("banner"); if (b) b.classList.remove("show");
+    state.mode = "live"; liveFails = 0;
+    if (!liveTimer) liveTimer = setInterval(loadGames, 15000);
+    loadGames();
   }
   function replayTick() { replayFrame++; loadGames(); }
   async function api(path) {
     if (isReplay()) throw new Error("replay");
-    return (await fetch(apiBase.replace(/^ws/, "http") + path)).json();
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 20000);
+    try { return await (await fetch(apiBase.replace(/^ws/, "http") + path, { signal: ctl.signal })).json(); }
+    finally { clearTimeout(t); }
   }
 
   // Server timestamps are UTC but often naive — parse as UTC or the board
@@ -68,8 +89,16 @@
     if (isReplay()) { await ensureFrames(); d = { games: curFrame().games || [] }; }
     else {
       try { d = await api("/api/games?hours=17520"); }  // two years = everything scheduled
-      catch { if (cfg.forceReplay || cfg.replayUrl) { enterReplay(); await ensureFrames(); d = { games: curFrame().games || [] }; } else { setConn(false); return; } }
+      catch {
+        liveFails++;
+        // One timed-out request (a backgrounded tab, a server restart) used to
+        // flip the page into replay permanently. Ride out blips; only fall to
+        // replay after three straight misses, and even then keep probing back.
+        if (liveFails < 3 || !(cfg.forceReplay || cfg.replayUrl)) { setConn(false); return; }
+        enterReplay(); await ensureFrames(); d = { games: curFrame().games || [] };
+      }
     }
+    if (!isReplay()) liveFails = 0;
     setConn(true);
     state.games = d.games || [];
     $("s-games").textContent = state.games.length;
