@@ -42,45 +42,65 @@ def test_the_default_policy_places_nothing() -> None:
     assert d.stake and d.stake > 0  # it still sizes, so the paper trail is meaningful
 
 
-# ─── the two rules that cannot be configured away ───────────────────────
+# ─── nothing is unconfigurable; the cautious side is merely the default ──
 
 
 @pytest.mark.parametrize("book", ["unibet", "entain"])
-def test_an_unverified_book_cannot_be_set_to_auto(book: str) -> None:
-    """Unibet's and Entain's placement paths were captured from real browser bets but
-    never driven headlessly, so nobody knows whether the stored credential alone is
-    accepted. Unattended placement there is a guess with money on it."""
-    with pytest.raises(ValueError, match="round-tripped"):
-        BettingPolicy(book_modes={book: "auto"})
+def test_an_unverified_auto_downgrades_to_ask_by_default(book: str) -> None:
+    """Unibet's and Entain's contracts were captured from real BROWSER bets, so the
+    request is known good and the stored credential is not. The default is to ask rather
+    than place — but it is a default, not a refusal: the policy still constructs."""
+    p = BettingPolicy(book_modes={book: "auto"}, books=[book])
+    d = p.decide(book=book, edge=0.20, odds=3.0, now=NOON)
+    assert d.verdict is Verdict.ASK
+    assert "round-tripped" in d.reason
+    assert d.stake  # sized, so a human can approve it as-is
+
+
+@pytest.mark.parametrize("book", ["unibet", "entain"])
+def test_the_owner_can_turn_unverified_auto_on(book: str) -> None:
+    """It is the owner's money and the owner's call. One flag."""
+    p = BettingPolicy(book_modes={book: "auto"}, books=[book], allow_unverified_auto=True)
+    assert p.decide(book=book, edge=0.20, odds=3.0, now=NOON).verdict is Verdict.PLACE
+
+
+def test_turning_it_on_is_warned_about_not_blocked(caplog) -> None:
+    with caplog.at_level("WARNING"):
+        BettingPolicy(book_modes={"unibet": "auto"}, books=["unibet"], allow_unverified_auto=True)
+    assert any("UNATTENDED" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize("book", ["sportsbet", "tab"])
-def test_a_verified_book_may_be_auto(book: str) -> None:
-    BettingPolicy(book_modes={book: "auto"})  # does not raise
+def test_a_verified_book_places_without_the_flag(book: str) -> None:
+    p = BettingPolicy(book_modes={book: "auto"}, books=[book])
+    assert p.decide(book=book, edge=0.20, odds=3.0, now=NOON).verdict is Verdict.PLACE
 
 
-def test_an_unverified_book_may_still_ask() -> None:
-    """`ask` is how a book graduates — a human watches one go through."""
-    p = BettingPolicy(book_modes={"unibet": "ask"}, books=["unibet"])
-    assert p.decide(book="unibet", edge=0.10, odds=3.0, now=NOON).verdict is Verdict.ASK
+def test_a_global_auto_still_covers_unverified_books() -> None:
+    """`mode="auto"` with no book list applies to every known book. It constructs, and
+    the unverified ones ask unless the flag is set."""
+    p = BettingPolicy(mode="auto")
+    assert p.decide(book="sportsbet", edge=0.2, odds=3.0, now=NOON).verdict is Verdict.PLACE
+    assert p.decide(book="unibet", edge=0.2, odds=3.0, now=NOON).verdict is Verdict.ASK
 
 
-def test_a_global_auto_cannot_smuggle_in_an_unverified_book() -> None:
-    """The per-book check is not enough on its own: `mode="auto"` with no book list
-    would apply to every known book, unverified ones included."""
-    with pytest.raises(ValueError, match="unproven"):
-        BettingPolicy(mode="auto")
+def test_a_zero_or_negative_edge_floor_is_allowed_but_warned(caplog) -> None:
+    """The owner may run at any floor. At zero it warns, because every candidate then
+    clears and the plane donates the vig at machine speed."""
+    with caplog.at_level("WARNING"):
+        p = BettingPolicy(min_ev=0.0, book_modes={"sportsbet": "auto"}, books=["sportsbet"])
+    assert any("min_ev" in r.getMessage() for r in caplog.records)
+    assert p.decide(book="sportsbet", edge=0.0, odds=3.0, now=NOON).verdict is Verdict.PLACE
 
 
-def test_a_global_auto_is_fine_when_scoped_to_verified_books() -> None:
-    BettingPolicy(mode="auto", books=["sportsbet", "tab"])  # does not raise
-
-
-def test_zero_edge_is_rejected_at_construction() -> None:
-    with pytest.raises(ValueError, match="min_ev must be positive"):
-        BettingPolicy(min_ev=0.0)
-    with pytest.raises(ValueError, match="min_ev must be positive"):
-        BettingPolicy(min_ev=-0.01)
+def test_only_arithmetic_nonsense_still_raises() -> None:
+    """Not betting rules — values with no meaning, and books with no placement tool."""
+    with pytest.raises(ValueError, match="cannot be negative"):
+        BettingPolicy(daily_cap=-1)
+    with pytest.raises(ValueError, match="kelly_fraction"):
+        BettingPolicy(kelly_fraction=2.0)
+    with pytest.raises(ValueError, match="no placement tool"):
+        BettingPolicy(books=["ladbrokes_nz"])
 
 
 # ─── the edge floor ─────────────────────────────────────────────────────
@@ -184,8 +204,6 @@ def test_per_book_mode_overrides_the_global_one() -> None:
 
 def test_an_unknown_book_is_refused_not_guessed() -> None:
     assert BettingPolicy().decide(book="ladbrokes_nz", edge=0.2, odds=3.0, now=NOON).verdict is Verdict.SKIP
-    with pytest.raises(ValueError, match="unknown book"):
-        BettingPolicy(books=["ladbrokes_nz"])
 
 
 # ─── quiet hours ────────────────────────────────────────────────────────
@@ -222,10 +240,24 @@ def test_a_policy_round_trips(tmp_path) -> None:
     assert back.quiet_hours == p.quiet_hours  # tuple survives the JSON list round-trip
 
 
-def test_a_saved_policy_that_breaks_a_rule_is_rejected_on_load(tmp_path) -> None:
-    """Editing the file by hand — or an agent editing it — must not be a way around the
-    unverified-book rule."""
+def test_a_saved_policy_is_revalidated_on_load(tmp_path) -> None:
+    """A file edited by hand — or by an agent — goes through the same construction as
+    any other policy, so nonsense in the file fails on load rather than at placement."""
     path = tmp_path / "policy.json"
-    path.write_text(json.dumps({"book_modes": {"unibet": "auto"}}))
-    with pytest.raises(ValueError, match="round-tripped"):
+    path.write_text(json.dumps({"daily_cap": -5}))
+    with pytest.raises(ValueError, match="cannot be negative"):
         load_policy(path)
+
+
+def test_the_unverified_default_survives_a_round_trip(tmp_path) -> None:
+    """The cautious default is a stored setting, so it cannot be lost by saving and
+    reloading — and an owner who turned it on keeps it on."""
+    path = tmp_path / "policy.json"
+    save_policy(BettingPolicy(book_modes={"unibet": "auto"}, books=["unibet"]), path)
+    assert load_policy(path).allow_unverified_auto is False
+
+    save_policy(BettingPolicy(book_modes={"unibet": "auto"}, books=["unibet"],
+                              allow_unverified_auto=True), path)
+    back = load_policy(path)
+    assert back.allow_unverified_auto is True
+    assert back.decide(book="unibet", edge=0.2, odds=3.0, now=NOON).verdict is Verdict.PLACE

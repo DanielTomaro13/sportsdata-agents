@@ -73,21 +73,29 @@ Configured globally and overridable per book:
 mode of a plane that acts too freely is money that is gone, while the failure mode of one
 that records too much is a longer ledger.
 
-## The two rules that cannot be configured away
+## Everything is configurable
 
-Both raise at construction, so they cannot be reached by accident — or by an agent
-editing the config file, which `load_policy` re-validates for exactly that reason.
+**No betting rule is locked.** Two settings default to the cautious side and warn loudly
+when moved, because each is grounded in a measurement rather than a preference — but both
+are the owner's to change:
 
-1. **A book whose placement path has never been round-tripped cannot be `auto`.**
-   Sportsbet and TAB were driven end to end against real accounts. Unibet and Entain were
-   not: their contracts were captured from real placements made *in a browser*, which
-   proves the request shape and nothing about whether a stored credential alone is
-   accepted — Entain additionally sits behind Kasada with a config-derived token endpoint.
-   `ask` is allowed, and watching one go through is exactly how a book graduates.
-   `VERIFIED_BOOKS` is a record of evidence, not a preference.
+1. **`allow_unverified_auto` (default `False`).** Sportsbet and TAB were driven end to end
+   against real accounts. Unibet and Entain were not: their contracts were captured from
+   real placements made *in a browser*, which proves the request shape and nothing about
+   whether a stored credential alone is accepted — Entain additionally sits behind Kasada
+   with a config-derived token endpoint. With the flag off, `auto` on those books is
+   **downgraded to `ask`**, not refused, so a first live placement is watched; watching one
+   go through is how a book earns its way into `VERIFIED_BOOKS`. Turning the flag on places
+   unattended and logs a warning saying so.
 
-2. **`min_ev` cannot be zero or negative.** A plane willing to place at zero edge donates
-   the vig on every bet it can find, forever, at machine speed.
+2. **`min_ev` (default `0.03`).** Zero or negative is permitted and warns: at that floor
+   every candidate clears, so the plane donates the vig on every bet it finds, at machine
+   speed.
+
+The only things that still raise are **arithmetic nonsense** (a negative cap, a
+`kelly_fraction` outside `(0, 1]`) and **a book with no placement tool** — a capability
+limit, not a policy one. `load_policy` runs the same construction, so a hand-edited file
+fails on load rather than at placement time.
 
 ## The money path
 

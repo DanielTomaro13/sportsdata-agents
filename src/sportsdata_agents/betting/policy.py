@@ -20,20 +20,25 @@ runs, every decision is recorded, and nothing reaches a bookmaker. Autonomy is o
 into book by book, because the failure mode of a plane that acts too freely is money
 that is gone, while the failure mode of one that records too much is a longer ledger.
 
-## The rules that are not configurable
+## Everything is configurable
 
-Two, and both are rejected at construction rather than defaulted, so they cannot be
-reached by accident or by an agent editing a config file:
+There are no betting rules the owner cannot change. Two settings are nonetheless
+DEFAULTED to the cautious side and warn loudly when moved, because each is grounded in a
+measurement rather than a preference:
 
-1. **A book whose placement path has never been round-tripped cannot be `auto`.** As of
-   2026-08-27 that is Unibet and Ladbrokes/Entain: their place-bet contracts were
-   captured from real browser placements, but neither has been driven headlessly, so
-   nobody knows whether the credential alone satisfies the book. `ask` is allowed —
-   a human watching a first live placement is exactly how a book graduates — but
-   unattended is not. `VERIFIED_BOOKS` is the list, and it grew by measurement.
+1. **`allow_unverified_auto` (default off).** As of 2026-08-27 Unibet and Ladbrokes/
+   Entain have place-bet contracts captured from real BROWSER placements — so the
+   request is known good and the stored CREDENTIAL is not, because neither has been
+   driven headlessly. With the flag off, `auto` on those books is downgraded to `ask`
+   rather than refused, so a first live placement is watched; turning it on places
+   unattended. `VERIFIED_BOOKS` grew by measurement and is the list of the proven ones.
 
-2. **`min_ev` cannot be zero or negative.** A plane willing to place at zero edge is a
-   plane that donates the vig on every bet it finds, forever, at machine speed.
+2. **`min_ev` (default 0.03).** Zero or negative is permitted and warns: at that floor
+   every candidate clears, so the plane donates the vig on every bet it finds, at
+   machine speed.
+
+The only things that still raise are arithmetic nonsense (a negative cap) and a book the
+plane has no placement tool for — a capability limit, not a policy one.
 
 ## Why this gate is deterministic
 
@@ -48,11 +53,14 @@ module reads free text, and no prompt can widen a limit.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, time
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Literal
+
+log = logging.getLogger(__name__)
 
 #: paper — run everything, place nothing (the default, and the only safe starting point)
 #: ask   — build the bet, hand it to a human, wait
@@ -144,42 +152,70 @@ class BettingPolicy:
     #: at the worse number — the edge was the whole reason for the bet.
     max_price_drift: float = 0.02
 
+    #: Allow `auto` on a book whose placement path has never been round-tripped
+    #: headlessly (currently Unibet and Entain — see VERIFIED_BOOKS).
+    #:
+    #: OFF BY DEFAULT, NOT FORBIDDEN. Leaving it off downgrades an unverified `auto` to
+    #: `ask` rather than refusing to start, so nothing is silently placed on a path
+    #: nobody has proven; turning it on is a deliberate line in a config file. The reason
+    #: to leave it off is narrow and factual: those two contracts were captured from
+    #: browser placements, so the REQUEST is known good and the stored CREDENTIAL is not.
+    allow_unverified_auto: bool = False
+
     notes: list[str] = field(default_factory=list)
 
-    # ─── the rules that are not configurable ────────────────────────────
+    # ─── validation ─────────────────────────────────────────────────────
+    #
+    # NOTHING HERE IS A BETTING RULE. Every policy question — how much edge is enough,
+    # what may be staked, which books, attended or not — is a setting the owner controls,
+    # including the two that used to raise. What remains is arithmetic sanity: values
+    # that have no meaning at all (a negative cap), and books the plane has no tool for.
+    # Those are reported rather than obeyed, because a policy built from them cannot
+    # execute regardless of what anyone intended.
 
     def __post_init__(self) -> None:
         if self.min_ev <= 0:
-            raise ValueError(
-                "min_ev must be positive. A plane that places at zero or negative edge "
-                "pays the vig on every bet it can find, at machine speed."
+            # Allowed — it is the owner's call — but never silent. At zero or below, the
+            # plane pays the vig on every bet it can find, at machine speed.
+            log.warning(
+                "betting policy has min_ev=%s: every candidate clears the edge floor, "
+                "including negative-expectation bets", self.min_ev,
             )
-        for book, mode in self.book_modes.items():
-            if book not in self.KNOWN_BOOKS:
-                raise ValueError(f"unknown book {book!r} — known: {sorted(self.KNOWN_BOOKS)}")
-            if mode == "auto" and book not in self.VERIFIED_BOOKS:
-                raise ValueError(
-                    f"{book!r} cannot be 'auto': its placement path has never been "
-                    f"round-tripped headlessly, so nobody knows whether the stored "
-                    f"credential alone is accepted. Use 'ask' and watch one go through; "
-                    f"verified books are {sorted(self.VERIFIED_BOOKS)}."
-                )
-        if self.mode == "auto" and not self.VERIFIED_BOOKS.issuperset(self._eligible_books()):
-            unverified = sorted(set(self._eligible_books()) - self.VERIFIED_BOOKS)
-            raise ValueError(
-                f"a global mode of 'auto' would place unattended on {unverified}, whose "
-                f"placement paths are unproven. Set mode='ask', or list only verified "
-                f"books in `books`, or set those books to 'auto' individually."
+        unverified_auto = sorted(
+            b for b, m in self.book_modes.items()
+            if m == "auto" and b not in self.VERIFIED_BOOKS
+        )
+        if self.mode == "auto":
+            unverified_auto = sorted(
+                set(unverified_auto) | (set(self._eligible_books()) - self.VERIFIED_BOOKS
+                                        - {b for b, m in self.book_modes.items() if m != "auto"})
             )
+        if unverified_auto and not self.allow_unverified_auto:
+            log.warning(
+                "betting policy sets 'auto' on %s, whose placement paths have never been "
+                "round-tripped headlessly — these will ASK instead. Set "
+                "allow_unverified_auto=True to place on them unattended.",
+                unverified_auto,
+            )
+        elif unverified_auto:
+            log.warning(
+                "betting policy will place UNATTENDED on %s via allow_unverified_auto — "
+                "their stored credentials have never been proven to satisfy the book",
+                unverified_auto,
+            )
+
         for name, value in (("max_stake", self.max_stake), ("daily_cap", self.daily_cap),
                             ("base_stake", self.base_stake), ("max_open_exposure", self.max_open_exposure)):
             if value < 0:
-                raise ValueError(f"{name} cannot be negative")
+                raise ValueError(f"{name} cannot be negative — a negative limit has no meaning")
         if not 0 < self.kelly_fraction <= 1:
             raise ValueError("kelly_fraction must be in (0, 1] — 1.0 is full Kelly and already aggressive")
-        for book in self.books:
+        for book in [*self.books, *self.book_modes]:
             if book not in self.KNOWN_BOOKS:
-                raise ValueError(f"unknown book {book!r} — known: {sorted(self.KNOWN_BOOKS)}")
+                raise ValueError(
+                    f"no placement tool for book {book!r} — the plane can place at "
+                    f"{sorted(self.KNOWN_BOOKS)}. This is a capability limit, not a policy one."
+                )
 
     def _eligible_books(self) -> frozenset[str]:
         return frozenset(self.books) if self.books else self.KNOWN_BOOKS
@@ -247,6 +283,17 @@ class BettingPolicy:
             return Decision(Verdict.ASK, f"policy: {book} is set to ask", stake=stake)
 
         # auto — the only branch that can move money unattended.
+        if book not in self.VERIFIED_BOOKS and not self.allow_unverified_auto:
+            # Downgraded, not refused: the owner asked for unattended placement on a book
+            # whose stored credential has never been proven to satisfy it. Flipping
+            # allow_unverified_auto makes this place.
+            return Decision(
+                Verdict.ASK,
+                f"{book} is set to auto but its placement path has never been "
+                f"round-tripped headlessly — asking instead (set allow_unverified_auto "
+                f"to place unattended)",
+                stake=stake,
+            )
         if self.in_quiet_hours(now):
             return Decision(
                 Verdict.ASK,
