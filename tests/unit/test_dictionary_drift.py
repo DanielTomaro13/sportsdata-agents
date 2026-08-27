@@ -32,8 +32,17 @@ def baseline():
 
 def test_every_baselined_alias_still_maps(baseline) -> None:
     """THE test. An alias that disappears takes every row of that market out of every
-    cross-book comparison, and says nothing while doing it."""
-    findings = dd.check_dictionary_regression(baseline["aliases"])
+    cross-book comparison, and says nothing while doing it.
+
+    Compared against the PACKAGED dictionary, not this machine's. `current_aliases()`
+    folds in `market_dictionary.local.json` — the steward's working file, which exists on
+    exactly one machine — so both sides of the comparison have to be the shipped seed or
+    the guard measures the developer rather than the code. It was written against
+    `current_aliases()` and consequently failed from the commit that introduced it.
+    """
+    findings = dd.check_dictionary_regression(
+        baseline["aliases"], current=dd.packaged_aliases()
+    )
     assert findings == [], "\n".join(str(f) for f in findings)
 
 
@@ -116,14 +125,25 @@ def test_a_name_we_have_already_judged_book_local_stays_quiet(baseline) -> None:
 
 
 def test_the_baseline_is_real_measurement_not_a_guess(baseline) -> None:
-    """Generated from the live warehouse on 2026-08-27, not hand-written. Re-baselined
-    after the racing families landed: overall market-row coverage went 10% → 21%, and
-    Betfair 6% → 68%, on four aliases."""
+    """Coverage and row counts come from the live warehouse (2026-08-27, after the racing
+    families took coverage 10% → 21% and Betfair 6% → 68%). The ALIASES do not: they are
+    the shipped dictionary, so the guard reproduces on any machine rather than on the one
+    that generated it."""
     assert baseline["coverage"], "no per-book coverage recorded"
     assert baseline["rows"], "no row counts recorded"
     # every book with a coverage figure has the row count that produced it
     assert set(baseline["coverage"]) == set(baseline["rows"])
-    assert len(baseline["aliases"]) >= 79
+
+    # The aliases must be EXACTLY the packaged dictionary's — not a floor, an identity.
+    # A count threshold is what let the original baseline ship with 14 aliases that came
+    # from the generating machine's market_dictionary.local.json: it was comfortably over
+    # the floor and comprehensively wrong. Identity is reproducible on any machine, which
+    # a threshold never was.
+    assert baseline["aliases"] == dd.packaged_aliases(), (
+        "the baseline no longer matches the shipped dictionary. If an alias was added or "
+        "removed on purpose, re-baseline from packaged_aliases() so the change shows up "
+        "as a reviewable diff — never from a machine with local overrides."
+    )
 
 
 # ─── the racing families ────────────────────────────────────────────────

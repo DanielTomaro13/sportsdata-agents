@@ -100,10 +100,41 @@ class CoverageReport:
 
 
 def current_aliases() -> dict[str, str]:
-    """alias → family, as the running system resolves it (seed + OTA + local overrides)."""
+    """alias → family, as THIS MACHINE resolves it (seed + OTA + local overrides).
+
+    Machine-specific by construction: `market_dictionary.local.json` is the steward's
+    working file and exists nowhere else. Right for the operator-machine drift report,
+    wrong for a baseline — see `packaged_aliases`.
+    """
     from sportsdata_agents.operations.ingestion.normalizers import _dictionary
 
     return dict(_dictionary()["markets"])
+
+
+def packaged_aliases() -> dict[str, str]:
+    """alias → family from the SHIPPED dictionary only — no local overrides.
+
+    The baseline has to be built from something every environment shares. Built from
+    `current_aliases()` it captured 14 aliases that existed only on the machine that
+    generated it, so the guard reported them "lost" everywhere else and failed from the
+    day it was added — including in CI, which is the one place it was meant to run.
+
+    A guard measured against machine-local state cannot pass anywhere else, and a guard
+    that never passes gets ignored rather than fixed.
+    """
+    import json
+
+    from sportsdata_agents.operations.datafeed import data_text
+    from sportsdata_agents.operations.ingestion.normalizers import _norm_name
+
+    seed = json.loads(data_text("market_dictionary"))
+    # Same shape the runtime builds: family -> [aliases] inverted, names normalised the
+    # way canonical_market() will normalise a book's market before looking it up.
+    return {
+        _norm_name(alias): family
+        for family, aliases in (seed.get("markets") or {}).items()
+        for alias in aliases
+    }
 
 
 def check_dictionary_regression(
