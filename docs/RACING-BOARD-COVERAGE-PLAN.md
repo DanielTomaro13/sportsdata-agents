@@ -293,3 +293,128 @@ startup rather than hard-coding, or a silent re-issue of an id mislabels a whole
   from the active-competitions feed; a future refactor that "tidies" it back onto `sportId`
   silently drops all 137 racing meetings. Worth a guard.
 - **Sportsbet dominates per-race cost** at 0.26s and will bound any within-race fan-out.
+
+---
+
+## Review before execution
+
+The plan was reviewed against the code on 2026-08-31. Seven findings; **two are blockers
+that change what gets built first.**
+
+### B1 (BLOCKER) — a 60-second cache sits under every price call, so WS3 cannot work
+
+`config.py:19` sets `CACHE_TTL_DEFAULT = 60.0`, applied to **every GET response** per
+provider. **No racing endpoint anywhere carries `never_cache`** — not `tab_racing_race`,
+`sportsbet_racecard`, `pointsbet_racing_meeting`, `entain_racing_racecard` nor
+`dabble_competition_fixtures`. The agents side never sets `SPORTSDATA_MCP_CACHE_TTL`.
+
+Proven live on a meeting with 360 prices — five calls over 12 seconds:
+
+```
+call 1:  13ms  races=12 prices=360 sha=da53fa56d0e6
+call 2:  24ms  races=12 prices=360 sha=da53fa56d0e6
+call 3:  25ms  races=12 prices=360 sha=da53fa56d0e6
+call 4:  25ms  races=12 prices=360 sha=da53fa56d0e6
+call 5:  12ms  races=12 prices=360 sha=da53fa56d0e6
+```
+
+Byte-identical, 12–25ms against 311ms cold. Every repeat was the cache.
+
+**This invalidates the headline requirement.** "Maximum-rate polling from two hours out"
+cannot beat a 60s cache: poll every 2s and 29 of every 30 calls return the same bytes.
+It also means **the board's current `price_interval=8` is already a fiction** — it polls
+8-secondly for data that refreshes at most once a minute. Every measurement of "how fast
+can we poll" in this document is a measurement of the wrong thing.
+
+**Fix:** `never_cache: true` on the racing price endpoints, or a low per-provider
+`cache_ttl_seconds`. The precedent is already in the tree — `entain_sgm_price` carries
+`never_cache: true` with a comment giving exactly this reasoning: *a price re-read from
+cache defeats the check, because the comparison comes out equal.*
+
+**But it must land WITH the limiter, never before it.** That cache is currently the only
+thing bounding request volume upstream. Removing it while WS3's limiter is still
+unbuilt turns a 60s-throttled board straight into an unthrottled one against five
+bookmakers. **B1 and WS3 are one change.**
+
+### B2 (BLOCKER) — Dabble has no race number, and the canonical key requires one
+
+Fixture keys are `id, name, advertisedStart, actualStart, competition, competitionId,
+competitionName, country, status, state, isDisplayed, created, updated, markets,
+selections, prices`. There is **no `raceNumber`**, and `name` is the race's *name*
+(`"Sportsbet Final"`, `"Brandt 3YO Maiden Plate"`) — not its number.
+
+WS1/WS2 key races on `(code, venue_canonical, race_no, date)`. Dabble cannot supply
+`race_no`, so as written **Dabble joins nothing and contributes zero prices** despite
+being verified on all three codes.
+
+**Fix:** the canonical race must carry **both** `race_no` and `advertised_start`, and the
+resolver must accept a match on either. Dabble joins on
+`(code, venue_canonical, advertised_start)` — start times are exact to the minute and
+unique within a meeting, so this is as strong a key as the number. Every other book
+supplies both.
+
+### 3 — Runner-level matching is absent from the plan, and is where prices actually join
+
+The whole plan operates at venue/race level, but a price is per **runner**.
+`corporate.py` joins them on `_norm_runner` — name only. And unlike `_norm_venue`, which
+cuts at `(`, **`_norm_runner` does not**: it strips a leading saddlecloth number and
+non-alpha characters, so `Jadzia (NZ)` normalises to `jadzianz` and never meets `Jadzia`.
+
+Not yet biting on the AU sample checked (`Blue Suede Shoes`, `Don't Doubt Tigga` — all
+clean). But country suffixes are a convention on **imported and international** runners,
+which is precisely the coverage this plan is adding: Saratoga, Woodbine, Northfield Park.
+Expect it to bite exactly when WS1 lands.
+
+**Add a workstream.** Same rules as WS2 — cut at `(`, refuse on ambiguity — plus the
+existing runner-number↔name bridge as a cross-check where a book gives both.
+
+### 4 — The real rate ceiling is in the MCP specs, not the agents-side limiter
+
+WS3 designs an adaptive per-book limiter in the agents layer, but each spec carries its
+own fixed `rate_limit_rps`: **TAB 2.5, Dabble 3, and Sportsbet / PointsBet / Entain none
+at all.** The agents-side limiter cannot exceed a ceiling set below it — Dabble's
+137-meeting sweep took 42.7s wall purely because of `rps: 3`, not latency and not the
+book pushing back.
+
+So WS3 spans both repos: the adaptive limiter is useless unless the spec-level limit is
+raised to meet it, and the three books with *no* limit are the ones actually exposed.
+
+### 5 — Dabble breaks the per-race polling model, and the request estimate with it
+
+WS3 tiers by race ("nearest to jump"). Dabble fetches by **meeting** — one call returns
+races spread across hours, landing in several bands at once. It cannot be scheduled per
+race like the others.
+
+This also makes `86 races × 5 books = 430 requests` wrong: Dabble's share is per meeting,
+so the real figure is nearer `86 × 4 + ~20 = ~364`, and a full Dabble refresh is ~137
+requests against ~700 for a per-race book. **Schedule Dabble per meeting, at the band of
+its earliest unfinished race.**
+
+### 6 — The sequence contradicts itself
+
+The plan states "WS3 must land with WS1, not after it", then sequences WS1 as step 2 and
+WS3 as step 3. With B1 folded in, these are one deployable unit: **discovery, tiering,
+limiter and cache control ship together, or the board triples its volume unthrottled.**
+
+### 7 — "~1,400 races" is a sum presented as a union
+
+Book totals sum to 2,944 (1200+710+621+413). The plan asserts ~1,400 after dedupe without
+showing the working, and WS3's whole sizing rests on it. Measure the actual union early —
+it is a by-product of the WS2 resolver and should be the first number WS7 reports.
+
+### What survives review unchanged
+
+The two load-bearing diagnoses hold. **Coverage is a name-matching problem, not a missing-
+price problem** — every book carries the tracks reported uncovered. And **volume, not
+latency, is the constraint**. The refusal-on-ambiguity rule, and the per-code gate that
+keeps `Woodbine` apart from `Woodbine Mohawk Park`, are the right shape.
+
+### Revised sequence
+
+1. **WS2 venue resolver + runner normalisation (finding 3) + WS7 coverage metric** — the
+   multiplier, and the means to prove it. Report the true union size (finding 7).
+2. **Canonical key carrying both `race_no` and `advertised_start`** (B2) — gates Dabble.
+3. **WS1 + WS3 + B1 as ONE change** — discovery, tiering, adaptive limiter, spec rate
+   limits (finding 4), Dabble scheduled per meeting (finding 5), cache control last within
+   the change.
+4. **WS5 Ladbrokes + Dabble** → **WS4 speed** → **WS6 frontend** → **WS7 guards**
