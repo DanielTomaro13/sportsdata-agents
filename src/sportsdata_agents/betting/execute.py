@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from . import drift
-from .ledger import Entry, Ledger, now_iso
+from .ledger import Entry, Ledger
 from .policy import BettingPolicy, Decision, Verdict
 
 
@@ -132,8 +132,16 @@ async def run_intent(
 
     def record(status: str, reason: str, *, stake: float = 0.0, price: float = 0.0,
                receipt: dict | None = None) -> Outcome:
+        # Stamped with the SAME `now` the budget was decided against, not a fresh wall
+        # clock. They are not interchangeable: `today` above comes from `now`, while
+        # `staked_on(today)` reads the day off each entry's `at`. Taking `at` from a
+        # second clock reading meant a bet could be budgeted against one day and
+        # RECORDED on another, and the next bet would then see a spend of zero and the
+        # daily cap would not bind. Narrow in production — it needs the two readings to
+        # straddle UTC midnight — but it is a cap that silently does not hold, which is
+        # the one kind of bug this plane cannot have.
         ledger.append(Entry(
-            intent_id=intent.intent_id, at=now_iso(), status=status,  # type: ignore[arg-type]
+            intent_id=intent.intent_id, at=now.astimezone(UTC).isoformat(), status=status,  # type: ignore[arg-type]
             book=intent.book, reason=reason, legs=intent.legs,
             stake=stake, odds=price or intent.odds, edge=intent.edge,
             receipt=receipt or {},

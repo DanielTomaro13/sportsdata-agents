@@ -262,3 +262,25 @@ def test_drift_returns_the_fresh_price_to_place_at() -> None:
 def test_drift_rejects_a_non_price() -> None:
     assert not drift.check(quoted=3.0, current=0.0, tolerance=0.02).ok
     assert not drift.check(quoted=1.0, current=3.0, tolerance=0.02).ok
+
+
+async def test_the_ledger_is_stamped_with_the_clock_the_budget_used(tmp_path) -> None:
+    """The mechanism behind the cap holding, pinned directly.
+
+    `today` is derived from `now`, while `staked_on(today)` reads the day off each
+    entry's `at`. When `at` came from a second, fresh clock reading the two could
+    disagree, and a bet budgeted against one day was recorded on another — after which
+    the next bet saw a spend of zero and the daily cap did not bind.
+
+    Asserting the recorded timestamp equals the decision's clock is what stops that
+    returning by another route; asserting only the trimmed stake would not catch a
+    re-introduction that happened to keep the two readings on the same side of midnight.
+    """
+    ledger = Ledger(tmp_path / "l.jsonl")
+    await run_intent(intent(), policy=auto_policy(base_stake=10.0, daily_cap=50.0),
+                     ledger=ledger, call=Calls(answers={"sportsbet_place_bet": {"betId": "B1"}}),
+                     now=NOON)
+    rows = list(ledger)
+    assert len(rows) == 1
+    assert datetime.fromisoformat(rows[0].at) == NOON, (
+        "the entry was stamped from a different clock than the budget decision used")
