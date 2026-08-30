@@ -49,6 +49,18 @@ class SportsDataEngine:
         specs = load_all_specs()
         cfg = load_config()
 
+        # Run the corporate books at full tilt on THIS engine instance only. The MCP's
+        # per-provider token bucket reads `rate_limit_rps` / `burst` from user config in
+        # preference to the spec default, so overriding them here raises the ceiling for
+        # the board without touching the MCP subprocess any other agent talks to.
+        #
+        # TAB is excluded by construction (see Settings.unthrottled_books): it is the only
+        # authenticated, Akamai-gated source here, so it keeps its spec limit.
+        for provider_id in settings.unthrottled_books:
+            prov = cfg.providers.setdefault(provider_id, {})
+            prov["rate_limit_rps"] = settings.book_rps
+            prov["burst"] = settings.book_burst
+
         self._handlers: dict[str, Any] = {}
         self._clients = []  # keep HTTPClients alive (they own httpx sessions)
         for spec in specs:

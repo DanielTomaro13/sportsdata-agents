@@ -42,6 +42,28 @@ class Settings:
     # instantaneous request rate against any one of them.
     book_concurrency: int = int(os.environ.get("MF_BOOK_CONCURRENCY", "8"))
 
+    # --- upstream throttling ---
+    # The books the board may hit AT FULL TILT. The sportsdata-mcp engine applies a
+    # per-provider token bucket (default 10 rps, and some specs set less); the board
+    # overrides it for these books only, on its OWN engine instance, so nothing else
+    # that talks to the MCP is affected.
+    #
+    # TAB IS DELIBERATELY ABSENT AND MUST STAY ABSENT. It is the one source here reached
+    # through an authenticated Akamai handshake rather than an anonymous public feed, so
+    # it is the one where hitting hard is a real account risk rather than a bandwidth
+    # question. It keeps its spec limit (2.5 rps). Adding "tab" to this tuple would
+    # silently remove that protection, which is why the set is named rather than derived
+    # as "everything except".
+    unthrottled_books: tuple[str, ...] = tuple(
+        b.strip() for b in os.environ.get(
+            "MF_UNTHROTTLED_BOOKS", "pointsbet,sportsbet,entain,dabble").split(",")
+        if b.strip() and b.strip() != "tab"
+    )
+    # Sustained rate and burst applied to each of the above. High by intent: these are
+    # anonymous public racecard feeds and the board's whole job is fresh prices.
+    book_rps: float = float(os.environ.get("MF_BOOK_RPS", "50"))
+    book_burst: int = int(os.environ.get("MF_BOOK_BURST", "50"))
+
     # TAB jurisdiction for the meetings spine.
     jurisdiction: str = os.environ.get("MF_JURISDICTION", "NSW")
 
