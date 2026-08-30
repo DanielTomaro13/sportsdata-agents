@@ -301,7 +301,7 @@ startup rather than hard-coding, or a silent re-issue of an id mislabels a whole
 The plan was reviewed against the code on 2026-08-31. Seven findings; **two are blockers
 that change what gets built first.**
 
-### B1 (BLOCKER) — a 60-second cache sits under every price call, so WS3 cannot work
+### B1 — RESOLVED 2026-08-31 (was a blocker)
 
 `config.py:19` sets `CACHE_TTL_DEFAULT = 60.0`, applied to **every GET response** per
 provider. **No racing endpoint anywhere carries `never_cache`** — not `tab_racing_race`,
@@ -326,15 +326,27 @@ It also means **the board's current `price_interval=8` is already a fiction** �
 8-secondly for data that refreshes at most once a minute. Every measurement of "how fast
 can we poll" in this document is a measurement of the wrong thing.
 
-**Fix:** `never_cache: true` on the racing price endpoints, or a low per-provider
-`cache_ttl_seconds`. The precedent is already in the tree — `entain_sgm_price` carries
-`never_cache: true` with a comment giving exactly this reasoning: *a price re-read from
-cache defeats the check, because the comparison comes out equal.*
+**Fixed** in sportsdata-mcp `ab0c465`: `never_cache: true` on the six racecard endpoints
+— `tab_racing_race`, `pointsbet_racing_race`, `sportsbet_racecard`,
+`entain_racing_racecard`, `dabble_competition_fixtures`, `dabble_fixture_details`.
+Verified after the change: discovery stays a flat 3-4ms cache hit while prices go to the
+network every call (14-60ms, varying). `test_price_freshness` pins both halves of that
+split, and mutation-testing confirms the guard fails when the flag is removed.
 
-**But it must land WITH the limiter, never before it.** That cache is currently the only
-thing bounding request volume upstream. Removing it while WS3's limiter is still
-unbuilt turns a 60s-throttled board straight into an unthrottled one against five
-bookmakers. **B1 and WS3 are one change.**
+Racing **discovery** endpoints keep the cache deliberately — per-day data, ~100x on repeat.
+
+**The volume this releases, and why it is safe today.** The board's cadences are now real
+rather than notional. TAB was effectively 1 request per race per 60s; at
+`price_interval=8` it is now 7.5x that. At today's `max_active_races=12` that is
+**~1.5 rps against TAB's spec limit of 2.5** — inside budget, and the per-provider token
+buckets in the MCP are untouched by this change, so they remain the throttle. Removing
+the cache did not remove rate limiting.
+
+**But it makes finding 4 the binding constraint for WS3.** At WS3's target of 41-86 active
+races, `86 / 8s` is **~10.75 rps against TAB's 2.5** — over budget by 4x. So WS3 cannot
+simply widen the horizon: it must raise the spec limits deliberately per book, lengthen
+intervals, or both. That trade is now the first thing WS3 has to size, and it is
+measurable rather than guessed.
 
 ### B2 (BLOCKER) — Dabble has no race number, and the canonical key requires one
 
