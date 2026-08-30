@@ -16,6 +16,7 @@ so every snapshot carries the latest corporate prices even between fetches.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -23,7 +24,6 @@ from .config import settings
 from .engine import SportsDataEngine
 from .models import RaceRef, RaceSnapshot
 from .sources import _norm_runner, _norm_venue, _venue_compatible
-
 
 # ---- code mapping per book (verified live) ----
 PB_TYPE_TO_CODE = {1: "R", 2: "H", 3: "G", 4: "G"}
@@ -151,11 +151,20 @@ class CorporateSource:
         self._last_fetch: dict[str, float] = {}
 
     async def refresh_indices(self, engine: SportsDataEngine, date: str) -> None:
-        for book in self.books:
+        """Rebuild every book's index concurrently.
+
+        The books are independent upstreams; serially this cost the SUM of their index
+        latencies (0.38-0.63s each, cold) on a path that runs before any race can be
+        priced. One book's failure must not touch the others, so each is caught
+        individually rather than letting gather() abandon the set.
+        """
+        async def one(book: CorporateBook) -> None:
             try:
                 await book.build_index(engine, date)
             except Exception as exc:
                 print(f"[corporate] {book.name} index error: {exc}")
+
+        await asyncio.gather(*(one(b) for b in self.books))
 
     async def enrich(self, engine: SportsDataEngine, race: RaceRef, snapshot: RaceSnapshot) -> None:
         """Fetch (throttled) and apply corporate prices onto a snapshot's runners."""
@@ -163,16 +172,28 @@ class CorporateSource:
         due = now - self._last_fetch.get(race.race_key, 0) >= settings.corp_interval
         if due:
             merged: dict[str, dict[str, float]] = {}
-            for book in self.books:
+
+            # Books are priced CONCURRENTLY: a race costs the slowest book rather than
+            # the sum of all of them. Bounded by book_concurrency so adding books cannot
+            # multiply the instantaneous rate against any single upstream.
+            sem = asyncio.Semaphore(max(1, settings.book_concurrency))
+
+            async def price_one(book: CorporateBook) -> tuple[str, dict] | None:
                 handle = book.handle_for(race)
                 if handle is None:
+                    return None
+                async with sem:
+                    try:
+                        return book.name, await book.prices(engine, handle)
+                    except Exception:
+                        return None  # one book failing must not cost the others
+
+            for got in await asyncio.gather(*(price_one(b) for b in self.books)):
+                if got is None:
                     continue
-                try:
-                    prices = await book.prices(engine, handle)
-                except Exception:
-                    continue
+                book_name, prices = got
                 for runner_norm, p in prices.items():
-                    merged.setdefault(runner_norm, {})[book.name] = p["price"]
+                    merged.setdefault(runner_norm, {})[book_name] = p["price"]
             if merged:
                 self._cache[race.race_key] = merged
                 self._last_fetch[race.race_key] = now

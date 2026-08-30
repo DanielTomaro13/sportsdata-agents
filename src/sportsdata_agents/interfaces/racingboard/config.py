@@ -35,6 +35,12 @@ class Settings:
     horizon_minutes: int = int(os.environ.get("MF_HORIZON_MINUTES", "45"))
     # Max races polled at full cadence at once (protects the upstreams).
     max_active_races: int = int(os.environ.get("MF_MAX_ACTIVE_RACES", "12"))
+    # How many books to price CONCURRENTLY within one race. Books are independent
+    # upstreams, so walking them serially made a race cost the SUM of their latencies
+    # (~0.47s over five books) when it need only cost the slowest (~0.26s, Sportsbet).
+    # Bounded rather than unbounded so adding books cannot silently multiply the
+    # instantaneous request rate against any one of them.
+    book_concurrency: int = int(os.environ.get("MF_BOOK_CONCURRENCY", "8"))
 
     # TAB jurisdiction for the meetings spine.
     jurisdiction: str = os.environ.get("MF_JURISDICTION", "NSW")
