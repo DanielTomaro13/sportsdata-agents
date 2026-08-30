@@ -61,8 +61,19 @@ class Settings:
     )
     # Sustained rate and burst applied to each of the above. High by intent: these are
     # anonymous public racecard feeds and the board's whole job is fresh prices.
-    book_rps: float = float(os.environ.get("MF_BOOK_RPS", "50"))
-    book_burst: int = int(os.environ.get("MF_BOOK_BURST", "50"))
+    #
+    # 200 is where the measured curve flattens, not a guess. Sweeping 120 real price
+    # requests across PointsBet + Sportsbet (2026-08-31, never_cache so every call hits
+    # the network):
+    #
+    #     rps=  10 ->  23 req/s      rps= 200 -> 310 req/s
+    #     rps=  50 -> 237 req/s      rps=1000 -> 234 req/s
+    #
+    # Past ~200 the token bucket is no longer the constraint — the connection pool is —
+    # so a larger number buys nothing and only widens the blast radius if a book starts
+    # objecting. Runner counts were identical (312) and errors zero at every setting.
+    book_rps: float = float(os.environ.get("MF_BOOK_RPS", "200"))
+    book_burst: int = int(os.environ.get("MF_BOOK_BURST", "200"))
 
     # TAB jurisdiction for the meetings spine.
     jurisdiction: str = os.environ.get("MF_JURISDICTION", "NSW")
