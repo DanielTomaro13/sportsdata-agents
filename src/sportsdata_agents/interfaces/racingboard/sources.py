@@ -111,8 +111,23 @@ async def tab_snapshot(engine: SportsDataEngine, race: RaceRef) -> RaceSnapshot 
             break
 
     status = "OPEN"
-    if data.get("results"):
+    results = winners = None
+    raw_results = data.get("results")
+    if raw_results:
         status = "RESULTED"
+        # The status was being set from these and the numbers themselves thrown
+        # away, so the board reported RESULTED with results=None -- and the placer,
+        # which grades `won = results and results[0] == number`, scored EVERY bet on
+        # a finished race as a loss. Great Idea won at Taree R7 and was recorded at
+        # -$0.36 against a book that paid +$1.86.
+        #
+        # TAB gives the finishing order as GROUPS, a group holding more than one on
+        # a dead-heat. Keep the flat order for display and the whole first group as
+        # `winners`, so a dead-heat credits everyone who won.
+        results = [n for group in raw_results
+                   for n in (group if isinstance(group, list) else [group])]
+        first = raw_results[0]
+        winners = list(first) if isinstance(first, list) else [first]
     elif str(data.get("raceStatus", "")).upper() in ("CLOSED", "INTERIM", "PAYING"):
         status = data["raceStatus"].upper()
 
@@ -120,6 +135,8 @@ async def tab_snapshot(engine: SportsDataEngine, race: RaceRef) -> RaceSnapshot 
         ts=time.time(),
         runners=runners,
         tote_win_pool=win_pool,
+        results=results,
+        winners=winners,
         status=status,
     )
 

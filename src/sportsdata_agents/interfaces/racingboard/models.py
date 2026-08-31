@@ -111,6 +111,8 @@ class RaceSnapshot:
 
     # Race-level money aggregates.
     tote_win_pool: float | None = None     # gross win pool ($) if TAB reports it
+    results: list[int] | None = None       # finishing order (runner numbers) once run
+    winners: list[int] | None = None       # the whole first group — >1 on a dead-heat
     bf_total_matched: float | None = None  # Betfair matched on the WIN market ($)
     status: str = "OPEN"
 
