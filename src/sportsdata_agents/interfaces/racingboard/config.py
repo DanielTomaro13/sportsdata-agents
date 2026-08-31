@@ -79,7 +79,18 @@ class Settings:
     #: join used by books that publish no race number.
     start_tolerance_seconds: int = int(os.environ.get("MF_START_TOLERANCE", "180"))
     #: Grace window after the jump, so a race stays visible through the moment it runs.
-    past_grace_seconds: int = int(os.environ.get("MF_PAST_GRACE", "120"))
+    #: How long a race stays on the board AFTER it jumps. Thirty minutes, not two.
+    #:
+    #: Results post several minutes after the off, and everything downstream needs
+    #: the race to still be there when they do: the placer grades a bet by asking
+    #: the board whether its race is RESULTED, and the training store writes its
+    #: outcome the same way. At two minutes the race vanished first, so a confirmed
+    #: bet on Corowa R1 was not slow to settle -- it could never settle at all, and
+    #: neither could the outcome row behind it.
+    #:
+    #: The previous board used 1800 for exactly this reason and said so in a comment
+    #: that survived the rewrite while the number did not.
+    past_grace_seconds: int = int(os.environ.get("MF_PAST_GRACE", "1800"))
     # How many books to price CONCURRENTLY within one race. Books are independent
     # upstreams, so walking them serially made a race cost the SUM of their latencies
     # (~0.47s over five books) when it need only cost the slowest (~0.26s, Sportsbet).
