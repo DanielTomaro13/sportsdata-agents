@@ -353,27 +353,87 @@ class LadbrokesBook(CorporateBook):
                   + ", ".join(f"{c} e.g. {n!r}" for c, n in unknown.items()))
         self.races = races
 
+    #: A win book's overround. Below 1.0 is not a win market at all (it is a place
+    #: or tote product, where the shares sum under one); above 1.45 is not a price
+    #: anyone offers. Anything inside is plausibly a fixed-win line.
+    WIN_OVERROUND = (1.05, 1.45)
+
     async def prices(self, engine: SportsDataEngine, handle: Any) -> dict[str, dict[str, Any]]:
+        """Entain's fixed-win line for one race.
+
+        Two things about this payload are not what they look like.
+
+        The racecard is WRAPPED: entrants and prices live under `data`, not at the
+        top level. Reading them from the root returns empty for every race, which is
+        indistinguishable from a book that simply has no prices — Ladbrokes indexed
+        710 races a day and contributed a price to none of them.
+
+        And `prices` is keyed `<entrant_id>:<product_type_id>:`, not by entrant, with
+        ~84 products per runner and the odds under `odds.numerator/denominator` —
+        not `win_numerator`. Entain never names the products in this response, so the
+        win line has to be recognised by its shape rather than looked up: take the
+        products that price the WHOLE field, keep those whose implied probabilities
+        sum inside a real book's margin, and prefer the tightest. That last tiebreak
+        is what makes it stable — the primary fixed-win line is the sharpest one
+        Entain publishes for a race; the looser siblings are derived products.
+        """
         rc = await engine.try_call("entain_racing_racecard", method="racecard", id=handle)
-        out: dict[str, dict[str, Any]] = {}
-        entrants = (rc or {}).get("entrants") or {}
-        prices = (rc or {}).get("prices") or {}
-        for eid, en in entrants.items():
-            if en.get("is_scratched") or en.get("scratched_time"):
+        data = (rc or {}).get("data") or {}
+        entrants = {eid: en for eid, en in (data.get("entrants") or {}).items()
+                    if not (en.get("is_scratched") or en.get("scratched_time"))}
+        if not entrants:
+            return {}
+
+        by_product: dict[str, dict[str, float]] = {}
+        for key, value in (data.get("prices") or {}).items():
+            parts = key.split(":")
+            if len(parts) < 2 or parts[0] not in entrants:
                 continue
-            name = en.get("name") or ""
-            px = prices.get(eid) or {}
+            odds = (value or {}).get("odds") or {}
+            num, den = odds.get("numerator"), odds.get("denominator")
             # Entain quotes fractional: decimal = num/den + 1. Dropping the +1 would
             # understate every price on the board.
-            num, den = px.get("win_numerator"), px.get("win_denominator")
-            price = None
-            if isinstance(num, (int, float)) and isinstance(den, (int, float)) and den:
-                price = round(num / den + 1.0, 2)
-            elif isinstance(px.get("win_decimal"), (int, float)):
-                price = float(px["win_decimal"])
-            if price and price > 1.0 and name:
-                out[norm_runner(name)] = {"price": price, "open": None,
-                                          "name": name, "number": en.get("runner_number")}
+            if not (isinstance(num, (int, float)) and isinstance(den, (int, float)) and den):
+                continue
+            by_product.setdefault(parts[1], {})[parts[0]] = num / den + 1.0
+
+        # `entrants` spans EVERY market on the race -- Final Field and Live Racing
+        # both -- so "covers the whole field" against all of them matches nothing,
+        # and the products that do span the lot are place and each-way books, which
+        # is why the plausible overrounds came out between 2.3 and 4.3. Candidates
+        # are judged per market instead: a win line prices one market completely.
+        fields: dict[str, set[str]] = {}
+        for eid, en in entrants.items():
+            fields.setdefault(str(en.get("market_id") or ""), set()).add(eid)
+
+        # The race's field is the BIGGEST market, not any market. Ranking candidates
+        # across markets by overround silently prefers the smallest one, because a
+        # shorter field sums to less by construction -- that priced a 13-runner
+        # Warrnambool race off a 7-runner book at a 6% margin.
+        field = max(fields.values(), key=len, default=set())
+        best: dict[str, float] | None = None
+        best_round = None
+        if len(field) >= 4:
+            for quotes in by_product.values():
+                covered = {eid: p for eid, p in quotes.items() if eid in field}
+                if len(covered) != len(field):
+                    continue
+                total = sum(1.0 / p for p in covered.values() if p > 1.0)
+                if not (self.WIN_OVERROUND[0] <= total <= self.WIN_OVERROUND[1]):
+                    continue
+                if best_round is None or total < best_round:
+                    best, best_round = covered, total
+        if not best:
+            return {}
+
+        out: dict[str, dict[str, Any]] = {}
+        for eid, price in best.items():
+            en = entrants.get(eid) or {}
+            name = en.get("name") or ""
+            if price > 1.0 and name:
+                out[norm_runner(name)] = {"price": round(price, 2), "open": None,
+                                          "name": name,
+                                          "number": en.get("number") or en.get("runner_number")}
         return out
 
 
