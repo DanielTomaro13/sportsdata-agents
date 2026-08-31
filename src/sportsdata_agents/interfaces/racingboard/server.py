@@ -169,7 +169,27 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await hub.remove(ws)
 
 
+class _RevalidatingStatic(StaticFiles):
+    """StaticFiles that asks the browser to check before reusing a file.
+
+    The default sends an ETag and Last-Modified but no Cache-Control, so a browser
+    is free to reuse app.js from disk for as long as it likes without asking --
+    and Cloudflare, in front of the public board, does the same. A frontend change
+    then ships to the server and reaches nobody: the board kept rendering the old
+    book label for a deploy that had already landed correctly.
+
+    `no-cache` does not mean "do not cache". It means "cache it, but revalidate
+    before use", which is exactly right for a dashboard: the ETag turns an
+    unchanged file into a 304 costing no bytes, and a changed one arrives at once.
+    """
+
+    def file_response(self, *args, **kwargs):  # type: ignore[override]
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Serve the frontend at root so asset paths (styles.css / app.js / config.js /
 # data/replay.json) resolve identically here and on GitHub Pages. Mounted LAST so
 # the explicit /api and /ws routes above still win.
-app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+app.mount("/", _RevalidatingStatic(directory=str(STATIC_DIR), html=True), name="static")
