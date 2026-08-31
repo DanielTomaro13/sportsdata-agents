@@ -286,29 +286,42 @@ def finalize_snapshot(snapshot: RaceSnapshot) -> None:
     source: dict[int, str] = {}
     threshold = max(4, int(0.6 * len(active)))
 
-    # The sportsdata racing engine wins when it covers the field: the form
-    # model sees a wide barrier or a 3kg swing the market prices slowly.
-    # Renormalise its probs over the runners it covers so fair is a proper
-    # distribution even when a couple of runners are engine-blind.
-    eng = {r.number: r.engine_prob for r in active
-           if r.engine_prob and r.engine_prob > 0}
-    if len(eng) >= threshold:
-        total = sum(eng.values())
-        if total > 0:
-            for num, p in eng.items():
-                fair_prob[num] = p / total
-                source[num] = "engine"
-
-    # Betfair mids fill anyone the engine didn't cover (and engine-less races).
+    # BETFAIR FIRST, and it is never overridden. The exchange is the sharpest
+    # single source we have and the only one whose calibration has been measured
+    # on this data: AU thoroughbreds land at ratio 1.004 with a log-loss of
+    # 0.2879 over 2,305 graded runners. The form engine has never yet produced a
+    # row -- race_form was empty until form ingestion was scheduled -- so its
+    # accuracy here is entirely unmeasured, and an unmeasured model must not be
+    # allowed to displace a measured one on a bot betting real money.
+    #
+    # It used to be the other way round: the engine claimed the field at 60%
+    # coverage and Betfair only filled the gaps. That ordering was harmless
+    # exactly as long as the engine returned nothing, which is a poor reason for
+    # it to be safe. Reversed deliberately on 1 Sep 2026.
     mids = {r.number: (r.bf_back + r.bf_lay) / 2
             for r in active if r.bf_back and r.bf_lay}
     if len(mids) >= threshold:
         inv_total = sum(1.0 / m for m in mids.values())
         if inv_total > 0:
             for num, m in mids.items():
+                fair_prob[num] = (1.0 / m) / inv_total
+                source[num] = "betfair"
+
+    # The engine fills only what the exchange does not price -- a wide barrier
+    # or a 3kg swing the market prices slowly is still worth seeing on a runner
+    # Betfair has no market for. Renormalised over its own covered set so the
+    # numbers remain a proper distribution. The placer refuses any runner
+    # without a two-sided Betfair price anyway (require_betfair_fair), so this
+    # informs the BOARD without ever reaching a bet.
+    eng = {r.number: r.engine_prob for r in active
+           if r.engine_prob and r.engine_prob > 0}
+    if len(eng) >= threshold:
+        total = sum(eng.values())
+        if total > 0:
+            for num, p in eng.items():
                 if num not in fair_prob:
-                    fair_prob[num] = (1.0 / m) / inv_total
-                    source[num] = "betfair"
+                    fair_prob[num] = p / total
+                    source[num] = "engine"
 
     # Tote pool share fills any runner still uncovered (and tote-only races).
     for r in active:
