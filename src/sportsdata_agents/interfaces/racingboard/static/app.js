@@ -10,7 +10,9 @@
   const pct = (x) => (x == null ? "–" : (x * 100).toFixed(1));
   const money = (x) => (x == null ? null : "$" + Math.round(x).toLocaleString());
   const esc = (s) => (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const BOOK = { pointsbet: "PB", sportsbet: "SB", betfair: "BF", tab: "TAB" };
+  // Five books now, not two. The BEST column and the per-book tooltip both iterate
+  // the corp dict generically, so adding a book here is all that is required to show it.
+  const BOOK = { pointsbet: "PB", sportsbet: "SB", ladbrokes: "LB", dabble: "DAB", betfair: "BF", tab: "TAB" };
   function ttg(iso) {
     const m = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
     if (isNaN(m)) return "";

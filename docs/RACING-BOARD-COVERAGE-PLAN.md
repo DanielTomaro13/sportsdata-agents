@@ -1,5 +1,35 @@
 # Racing board — five books, multi-source discovery, fast inside two hours
 
+> **STATUS: IMPLEMENTED 2026-08-31.** All workstreams shipped. Measured after:
+>
+> | | before | after |
+> |---|---|---|
+> | race universe | 413 (TAB only) | **1,314** — 901 of them TAB does not carry |
+> | books pricing | 2 | **5** |
+> | PointsBet coverage | — | 88% of the active board |
+> | Ladbrokes coverage | absent (thought auth-walled) | 88% |
+> | Sportsbet coverage | — | 81% |
+> | Dabble coverage | absent (thought too slow) | 38% (AU-only catalogue) |
+> | races with no book at all | — | **0** |
+> | price cache | 60s | none (mcp 0.32.1) |
+> | book request rate | 10/s | 200/s, TAB still 2.5/s |
+>
+> Audit it any time with
+> `python -m sportsdata_agents.interfaces.racingboard --coverage`.
+>
+> Five bugs the implementation found, each of which failed silently rather than
+> raising: Ladbrokes' race field is `number` not `race_number` (indexed zero races);
+> Sportsbet's `startTime` is an epoch integer, not ISO (every start parsed as None);
+> PointsBet's is `advertisedStartDateTimeUtc`; two of the three Ladbrokes category
+> UUIDs had been copied from a truncated display and were wrong; and the venue
+> normaliser stripped bare month names, so `Del Mar` reduced to an empty token set and
+> vanished from the board entirely.
+>
+> The one design decision worth knowing: `(code, venue, race_no)` is **not** a unique
+> race. Townsville runs a day and a night greyhound card, each with a race 1, and
+> PointsBet carried 121 such pairs. The advertised start is part of the identity, which
+> is also what lets Dabble — which publishes no race number at all — join.
+
 The board today shows one race universe (TAB's), prices from two corporate books, and
 polls a 45-minute horizon. This plan takes it to **five books**, a **union discovery
 spine**, and **maximum-rate polling from two hours out**.

@@ -27,29 +27,12 @@ from .models import RaceRef, RaceSnapshot, RunnerFlow
 # helpers
 # --------------------------------------------------------------------------
 
-def _norm_venue(name: str) -> str:
-    """'Bathurst (AUS) 8th Jul' / 'BATHURST' -> 'bathurst'."""
-    name = name.lower()
-    name = re.split(r"[(]|\d", name, maxsplit=1)[0]  # cut at '(' or first digit
-    return re.sub(r"[^a-z]", "", name)
-
-
-def _venue_compatible(a: str, b: str) -> bool:
-    """Equal, or one is a >=5-char prefix of the other.
-
-    Handles TAB 'RICCARTON' vs Betfair 'Riccarton Park'. Kept strict enough
-    (>=5 chars, prefix only) to avoid matching unrelated tracks.
-    """
-    if a == b:
-        return True
-    short, long = sorted((a, b), key=len)
-    return len(short) >= 5 and long.startswith(short)
-
-
-def _norm_runner(name: str) -> str:
-    """'1. Chix Diggus' / 'CHIX DIGGUS' -> 'chixdiggus'."""
-    name = re.sub(r"^\s*\d+[.\)]\s*", "", name)  # drop leading saddlecloth number
-    return re.sub(r"[^a-z]", "", name.lower())
+# Venue and runner matching live in `venues.py` — the exact-then-unique-subset rule
+# that lets `MOHAWK` reach `Woodbine Mohawk Park` without letting `Woodbine` do the
+# same. Re-exported here because the Betfair matcher below joins on the same keys.
+from .venues import norm_runner as _norm_runner  # noqa: E402
+from .venues import norm_venue as _norm_venue  # noqa: E402
+from .venues import unique_venue_match  # noqa: E402
 
 
 def _to_epoch(iso: str) -> float | None:
@@ -60,51 +43,6 @@ def _to_epoch(iso: str) -> float | None:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return None
-
-
-# --------------------------------------------------------------------------
-# discovery (TAB spine)
-# --------------------------------------------------------------------------
-
-async def discover_races(engine: SportsDataEngine, date: str) -> list[RaceRef]:
-    """All races across enabled codes for `date`, within the jump horizon."""
-    data = await engine.try_call(
-        "tab_racing_meetings", date=date, jurisdiction=settings.jurisdiction
-    )
-    if not data:
-        return []
-
-    now = time.time()
-    horizon = now + settings.horizon_minutes * 60
-    races: list[RaceRef] = []
-    for m in data.get("meetings", []):
-        code = m.get("raceType")
-        if code not in settings.codes:
-            continue
-        venue = m.get("meetingName", "")
-        mnem = m.get("venueMnemonic", "")
-        for race in m.get("races", []):
-            no = race.get("raceNumber")
-            start = race.get("raceStartTime", "")
-            ep = _to_epoch(start)
-            # Keep races that are upcoming and inside the horizon (plus a small
-            # grace window so a race stays visible through the jump).
-            if ep is None or ep < now - 120 or ep > horizon:
-                continue
-            races.append(
-                RaceRef(
-                    race_key=f"{code}:{mnem}:{no}:{date}",
-                    code=code,
-                    venue=venue,
-                    venue_mnem=mnem,
-                    race_no=int(no),
-                    race_name=race.get("raceName", ""),
-                    start_time=start,
-                    date=date,
-                )
-            )
-    races.sort(key=lambda r: r.start_time)
-    return races
 
 
 # --------------------------------------------------------------------------
@@ -208,7 +146,8 @@ class BetfairMatcher:
                 continue
             for mn in meetings:
                 vnorm = _norm_venue(mn.get("name", ""))
-                if not any(_venue_compatible(vnorm, wv) for wv in wanted_venues):
+                if unique_venue_match(mn.get("name", ""),
+                                      [(v, v) for v in wanted_venues]) is None:
                     continue
                 menu_id = mn["nodeId"]
                 if menu_id in self._meeting_scanned:
@@ -240,18 +179,15 @@ class BetfairMatcher:
             self._market_index[(code, vnorm, race_no)] = info["marketId"]
 
     def market_id_for(self, race: RaceRef) -> str | None:
-        tab_v = _norm_venue(race.venue)
-        # Exact venue match first, then tolerate a suffix mismatch such as
-        # TAB "RICCARTON" vs Betfair "Riccarton Park" (prefix, >= 5 chars).
-        exact = self._market_index.get((race.code, tab_v, race.race_no))
+        exact = self._market_index.get((race.code, race.venue_key, race.race_no))
         if exact:
             return exact
-        for (code, vnorm, no), mid in self._market_index.items():
-            if code != race.code or no != race.race_no:
-                continue
-            if _venue_compatible(tab_v, vnorm):
-                return mid
-        return None
+        # Otherwise resolve the name properly: same code and race number, and the one
+        # venue that uniquely names this track. Refuses when two could, because a wrong
+        # market id prices the wrong race.
+        candidates = [(vnorm, mid) for (code, vnorm, no), mid in self._market_index.items()
+                      if code == race.code and no == race.race_no]
+        return unique_venue_match(race.venue, candidates)
 
 
 def _best(levels: list[dict[str, Any]] | None) -> tuple[float | None, float | None]:

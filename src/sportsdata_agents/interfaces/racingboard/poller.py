@@ -18,13 +18,14 @@ from .betfair import BetfairClient
 from .config import settings
 from .corporate import CorporateSource
 from .engine import SportsDataEngine
+from .corporate import TabBook, build_books
 from .sources import (
     BetfairMatcher,
     betfair_enrich,
-    discover_races,
     finalize_snapshot,
     tab_snapshot,
 )
+from .spine import discover_races
 from .store import Store
 
 
@@ -35,8 +36,16 @@ class Poller:
         self.engine = SportsDataEngine()
         self.betfair = BetfairClient() if settings.enable_betfair else None
         self.matcher = BetfairMatcher(self.betfair) if self.betfair else None
-        self.corporate = CorporateSource() if settings.enable_corporate else None
+        # TAB is a CONTRIBUTOR to the spine, not the spine. It still supplies the tote
+        # pool through `tab_snapshot`, which no corporate book has, but it no longer
+        # decides which races exist — that was the ceiling on coverage.
+        books = build_books()
+        if settings.enable_tab:
+            books = [TabBook(), *books]
+        self.corporate = CorporateSource(books=books) if settings.enable_corporate else None
+        self._books = books
         self._active_keys: list[str] = []
+        self._cycle = 0
         self._running = False
 
     @staticmethod
@@ -65,12 +74,18 @@ class Poller:
 
     async def _discover_once(self) -> None:
         date = self._today()
-        races = await discover_races(self.engine, date)
+
+        # Indices first: the spine is assembled from them, so this is the one place
+        # they must be fresh before anything else runs.
+        if self.corporate:
+            await self.corporate.refresh_indices(self.engine, date)
+
+        races = await discover_races(self.engine, date, self._books)
         for ref in races:
             self.store.upsert_ref(ref)
 
         # Track the nearest-to-jump races at full cadence.
-        races.sort(key=lambda r: r.start_time)
+        races.sort(key=lambda r: r.start_epoch or 0)
         active = races[: settings.max_active_races]
         self._active_keys = [r.race_key for r in active]
 
@@ -85,16 +100,19 @@ class Poller:
             except Exception as exc:
                 print(f"[discovery] betfair index error: {exc}")
 
-        # Refresh corporate-book indices (Sportsbet / Pointsbet) for the day.
-        if self.corporate:
-            await self.corporate.refresh_indices(self.engine, date)
-
         # Drop races that are well past the jump to keep memory bounded.
         keep = {r.race_key for r in races}
         self.store.prune(keep)
         if self.corporate:
             self.corporate.prune(keep)
-        print(f"[discovery] {len(races)} races tracked, {len(active)} active @ {time.strftime('%H:%M:%S')}")
+        cov = self.corporate.coverage(active) if self.corporate else {}
+        cov_s = " ".join(f"{b}={n}" for b, n in sorted(cov.items()))
+        by_code: dict[str, int] = {}
+        for r in races:
+            by_code[r.code] = by_code.get(r.code, 0) + 1
+        print(f"[discovery] {len(races)} races tracked "
+              f"({' '.join(f'{c}={n}' for c, n in sorted(by_code.items()))}), "
+              f"{len(active)} active | coverage {cov_s} @ {time.strftime('%H:%M:%S')}")
 
     # ---- prices ----
 
@@ -106,14 +124,91 @@ class Poller:
                 print(f"[price] error: {exc}")
             await asyncio.sleep(settings.price_interval)
 
+    def _due_this_cycle(self, key: str) -> bool:
+        """Priority bands: nearest-to-jump refreshes every cycle, the rest less often.
+
+        A flat cap refreshed the first N races and starved everything else, which with
+        a two-hour horizon means most of the board never updates. Banding spends the
+        budget where the prices actually move — inside the last ten minutes — while
+        still keeping the far end alive.
+        """
+        st = self.store.races.get(key)
+        if st is None or st.ref.start_epoch is None:
+            return True
+        mins = (st.ref.start_epoch - time.time()) / 60.0
+        if mins <= settings.band_urgent_minutes:
+            return True
+        if mins <= settings.band_near_minutes:
+            return self._cycle % max(1, settings.band_near_divisor) == 0
+        return self._cycle % max(1, settings.band_far_divisor) == 0
+
     async def _poll_active(self) -> None:
-        keys = list(self._active_keys)
+        self._cycle += 1
+        keys = [k for k in list(self._active_keys) if self._due_this_cycle(k)]
         # Snapshot each active race concurrently (bounded by upstream rate limits
         # inside the engine / Betfair client).
         await asyncio.gather(*(self._poll_race(k) for k in keys))
         if self.broadcast:
             await self.broadcast({"type": "board", "board": self.store.board(),
                                   "movers": self.store.movers()})
+
+    async def _book_snapshot(self, ref):
+        """A snapshot built from the books, for a race TAB does not carry.
+
+        Most of the union spine is exactly that — TAB has 413 races where the books
+        between them have ~1,400 — so without this the wider spine would discover races
+        the board then refused to render, and coverage would look unchanged.
+
+        There is no tote pool here: that is TAB's alone. The row carries fixed-odds
+        prices, a best-price column and the market-implied fair, which is what the
+        corporate columns show anyway.
+        """
+        from .models import RaceSnapshot, RunnerFlow
+
+        if not self.corporate:
+            return None
+
+        merged: dict[str, dict] = {}
+        sem = asyncio.Semaphore(max(1, settings.book_concurrency))
+
+        async def one(book):
+            handle = book.handle_for(ref)
+            if handle is None:
+                return None
+            async with sem:
+                try:
+                    return book.name, await book.prices(self.engine, handle)
+                except Exception:
+                    return None
+
+        for got in await asyncio.gather(*(one(b) for b in self.corporate.books)):
+            if got is None:
+                continue
+            book_name, prices = got
+            for key, p in prices.items():
+                row = merged.setdefault(key, {"name": p.get("name") or key,
+                                              "number": p.get("number"), "books": {}})
+                row["books"][book_name] = p["price"]
+                # Prefer any book that actually publishes a saddlecloth number.
+                if row["number"] is None and p.get("number") is not None:
+                    row["number"] = p["number"]
+        if not merged:
+            return None
+
+        runners: list[RunnerFlow] = []
+        # Books that give no number get a positional one, assigned in price order so it
+        # is at least stable within a snapshot. It is labelling, not identity — the
+        # cross-book join is by name, in `venues.norm_runner`.
+        for i, (_, row) in enumerate(sorted(merged.items(), key=lambda kv: kv[0]), start=1):
+            books = row["books"]
+            best_book, best_price = max(books.items(), key=lambda kv: kv[1])
+            runners.append(RunnerFlow(
+                number=int(row["number"]) if row["number"] is not None else i,
+                name=row["name"], corp=dict(books),
+                corp_best=best_price, corp_best_book=best_book,
+            ))
+        runners.sort(key=lambda r: r.number)
+        return RaceSnapshot(ts=time.time(), runners=runners)
 
     async def _poll_race(self, race_key: str) -> None:
         st = self.store.races.get(race_key)
@@ -122,8 +217,13 @@ class Poller:
         ref = st.ref
 
         snap = None
-        if settings.enable_tab:
+        if settings.enable_tab and ref.venue_mnem:
             snap = await tab_snapshot(self.engine, ref)
+        if snap is None:
+            # TAB does not have this race — most of the union spine is exactly that.
+            # Build the runner list from the books instead, or the board could still
+            # only ever show races TAB carries, which is the ceiling this removes.
+            snap = await self._book_snapshot(ref)
         if snap is None:
             return
 

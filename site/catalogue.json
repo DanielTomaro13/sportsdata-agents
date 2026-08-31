@@ -13962,7 +13962,7 @@
        "r": false
       }
      ],
-     "example": "{bets:[\u2026]}  \u2014 the account's bets. VERIFIED live 2026-08-27.\n\nTHIS IS HOW A PLACEMENT IS CONFIRMED. sportsbet_place_bet answers 202 Accepted, which means taken for processing rather than on, so a bet is only really placed once it appears here. Match on the `betId` the placement returned, and check the STAKE AND THE PRICE, not merely that a bet exists.\n\n`filterType` takes SETTLED (verified). PENDING"
+     "example": "{betList:[\u2026]}  \u2014 the account's bets. VERIFIED live 2026-08-28.\n\nTHE KEY IS `betList`, NOT `bets`. Reading `bets` returns nothing and looks exactly like an empty account \u2014 which is a dangerous false negative when you are checking whether a placement landed.\n\nTHIS IS HOW A PLACEMENT IS CONFIRMED. sportsbet_place_bet answers 202 Accepted, which means taken for processing rather than on, so a bet is o"
     },
     {
      "name": "sportsbet_bet_live",
@@ -14225,6 +14225,16 @@
        "r": false
       },
       {
+       "n": "transUniqueId",
+       "t": "string",
+       "r": true
+      },
+      {
+       "n": "apiVersion",
+       "t": "string",
+       "r": false
+      },
+      {
        "n": "betItems",
        "t": "json",
        "r": true
@@ -14312,6 +14322,11 @@
        "n": "betItems",
        "t": "json",
        "r": true
+      },
+      {
+       "n": "apiVersion",
+       "t": "string",
+       "r": false
       },
       {
        "n": "outcomeGroups",

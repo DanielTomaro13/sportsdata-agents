@@ -8,22 +8,44 @@ from typing import Any
 
 @dataclass
 class RaceRef:
-    """Canonical identity of a race, sourced from the TAB meetings spine."""
+    """Canonical identity of a race, from the UNION of every book's card.
 
-    race_key: str          # stable id: "{code}:{venue_mnem}:{race_no}:{date}"
+    Identity is `(code, venue, race_no, date)` with the venue resolved through
+    `venues.py`. It deliberately no longer depends on TAB's `venueMnemonic`: that does
+    not exist for a race TAB does not carry, so keying on it capped the board at TAB's
+    card — the smallest of the five. The mnemonic survives only as TAB's own handle,
+    and is None for the many races TAB does not have.
+    """
+
+    race_key: str          # stable id: "{code}:{venue_key}:{race_no}:{date}"
     code: str              # R | G | H
-    venue: str             # display name, e.g. "BATHURST"
-    venue_mnem: str        # TAB mnemonic, e.g. "BAT"
+    venue: str             # display name, the most informative spelling seen
+    venue_mnem: str | None  # TAB mnemonic, e.g. "BAT" — None when TAB lacks the race
     race_no: int
     race_name: str
     start_time: str        # ISO8601
     date: str              # YYYY-MM-DD
 
+    #: Advertised start as epoch seconds. First-class rather than derived, because it
+    #: is the join key for books that publish no race number (Dabble).
+    start_epoch: float | None = None
+
+    #: Which books contributed this race to the spine — the coverage signal.
+    books: list[str] = field(default_factory=list)
+
     # Optional cross-book handles filled in during enrichment.
     betfair_market_id: str | None = None
 
+    @property
+    def venue_key(self) -> str:
+        from .venues import norm_venue
+
+        return norm_venue(self.venue)
+
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["venue_key"] = self.venue_key
+        return d
 
 
 @dataclass

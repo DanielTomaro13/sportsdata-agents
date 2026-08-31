@@ -31,10 +31,36 @@ class Settings:
     # Corporate books rate-limit, so price them on a slower cadence than the tote.
     corp_interval: float = float(os.environ.get("MF_CORP_INTERVAL", "20"))
 
-    # How far ahead to track races for the board (minutes to jump).
-    horizon_minutes: int = int(os.environ.get("MF_HORIZON_MINUTES", "45"))
+    # How far ahead to track races for the board (minutes to jump). Two hours: the
+    # requirement is that everything inside it is polled hard, which is 41 races at a
+    # quiet moment and 86 at the busiest rolling window of the day.
+    horizon_minutes: int = int(os.environ.get("MF_HORIZON_MINUTES", "120"))
     # Max races polled at full cadence at once (protects the upstreams).
-    max_active_races: int = int(os.environ.get("MF_MAX_ACTIVE_RACES", "12"))
+    max_active_races: int = int(os.environ.get("MF_MAX_ACTIVE_RACES", "120"))
+
+    # --- priority bands (minutes to jump) ---
+    # When the budget cannot refresh everything inside the horizon, nearest-to-jump
+    # wins. A single global cap starves the far band entirely, which is what a flat
+    # `max_active_races` of 12 did to everything beyond a few minutes out.
+    band_urgent_minutes: int = int(os.environ.get("MF_BAND_URGENT", "10"))
+    band_near_minutes: int = int(os.environ.get("MF_BAND_NEAR", "30"))
+    #: Refresh multiplier per band: urgent every cycle, near every 2nd, far every 4th.
+    band_near_divisor: int = int(os.environ.get("MF_BAND_NEAR_DIVISOR", "2"))
+    band_far_divisor: int = int(os.environ.get("MF_BAND_FAR_DIVISOR", "4"))
+
+    # --- the spine ---
+    # Books contributing races AND prices. TAB is always a contributor and is added
+    # separately; these are the corporate books.
+    books: tuple[str, ...] = tuple(
+        b.strip() for b in os.environ.get(
+            "MF_BOOKS", "pointsbet,sportsbet,ladbrokes,dabble").split(",") if b.strip()
+    )
+    #: How far apart two books' advertised starts may be and still be one race. Books
+    #: disagree slightly on a scheduled time; this is the tolerance for the start-time
+    #: join used by books that publish no race number.
+    start_tolerance_seconds: int = int(os.environ.get("MF_START_TOLERANCE", "180"))
+    #: Grace window after the jump, so a race stays visible through the moment it runs.
+    past_grace_seconds: int = int(os.environ.get("MF_PAST_GRACE", "120"))
     # How many books to price CONCURRENTLY within one race. Books are independent
     # upstreams, so walking them serially made a race cost the SUM of their latencies
     # (~0.47s over five books) when it need only cost the slowest (~0.26s, Sportsbet).
