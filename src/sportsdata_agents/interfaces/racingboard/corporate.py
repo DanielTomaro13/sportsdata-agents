@@ -353,10 +353,13 @@ class LadbrokesBook(CorporateBook):
                   + ", ".join(f"{c} e.g. {n!r}" for c, n in unknown.items()))
         self.races = races
 
-    #: A win book's overround. Below 1.0 is not a win market at all (it is a place
-    #: or tote product, where the shares sum under one); above 1.45 is not a price
-    #: anyone offers. Anything inside is plausibly a fixed-win line.
-    WIN_OVERROUND = (1.05, 1.45)
+    #: A real bookmaker's win margin. The floor matters more than it looks: an
+    #: earlier version accepted 1.05 and preferred the TIGHTEST book, which is
+    #: backwards -- nobody offers a 5% margin, so that rule reliably picked
+    #: whichever derived product happened to look least like a bookmaker. On
+    #: Marburg R4 it published Ideal Tiger at $6.00 against a real price of $1.95,
+    #: off a set summing to 1.052. The genuine win line there summed to 1.308.
+    WIN_OVERROUND = (1.10, 1.70)
 
     async def prices(self, engine: SportsDataEngine, handle: Any) -> dict[str, dict[str, Any]]:
         """Entain's fixed-win line for one race.
@@ -408,23 +411,36 @@ class LadbrokesBook(CorporateBook):
 
         # The race's field is the BIGGEST market, not any market. Ranking candidates
         # across markets by overround silently prefers the smallest one, because a
-        # shorter field sums to less by construction -- that priced a 13-runner
-        # Warrnambool race off a 7-runner book at a 6% margin.
+        # shorter field sums to less by construction -- that priced a 13-entrant
+        # Warrnambool race off a 7-runner book.
         field = max(fields.values(), key=len, default=set())
-        best: dict[str, float] | None = None
-        best_round = None
-        if len(field) >= 4:
-            for quotes in by_product.values():
-                covered = {eid: p for eid, p in quotes.items() if eid in field}
-                if len(covered) != len(field):
-                    continue
-                total = sum(1.0 / p for p in covered.values() if p > 1.0)
-                if not (self.WIN_OVERROUND[0] <= total <= self.WIN_OVERROUND[1]):
-                    continue
-                if best_round is None or total < best_round:
-                    best, best_round = covered, total
-        if not best:
+        if len(field) < 4:
             return {}
+
+        # CONSENSUS, not the tightest book. Entain publishes the same win line under
+        # many product ids -- nine of them carried Marburg R4's real prices -- while
+        # the derived products (each-way legs, boosted specials, early lines) each
+        # differ. So group the candidate books by the prices they actually quote and
+        # take the line the most products agree on. That needs no product UUID, which
+        # is the point: Entain never names them in this response, and a hard-coded id
+        # would rot silently the day they reissue it.
+        agree: dict[tuple, list[dict[str, float]]] = {}
+        for quotes in by_product.values():
+            covered = {eid: p for eid, p in quotes.items() if eid in field}
+            if len(covered) != len(field):
+                continue
+            total = sum(1.0 / p for p in covered.values() if p > 1.0)
+            if not (self.WIN_OVERROUND[0] <= total <= self.WIN_OVERROUND[1]):
+                continue
+            signature = tuple(sorted((eid, round(p, 2)) for eid, p in covered.items()))
+            agree.setdefault(signature, []).append(covered)
+        if not agree:
+            return {}
+        # Most-agreed wins; ties break toward the tighter book, which among genuine
+        # win lines is the better price rather than a different kind of market.
+        best_sig = max(agree, key=lambda k: (len(agree[k]),
+                                             -sum(1.0 / p for _e, p in k if p > 1.0)))
+        best = agree[best_sig][0]
 
         out: dict[str, dict[str, Any]] = {}
         for eid, price in best.items():
@@ -458,7 +474,11 @@ class DabbleBook(CorporateBook):
     #: Racing win markets. Dabble leaves market NAMES null in the slim fixtures feed, so
     #: the win market has to be identified by `resultingType`. RacingSrm* is Same-Race-
     #: Multi and RacingDD* exotics — both must stay out of a win-price comparison.
-    _WIN_PREFIXES = ("racingfixed", "racingsp")
+    #: The fixed-odds win market, then the SP win market as a fallback. Exact names,
+    #: not prefixes: the old "racingfixed"/"racingsp" prefixes also matched
+    #: RacingFixedPlace and RacingSPPlace, so place prices were being mixed into the
+    #: win line whenever anything matched at all.
+    _WIN_TYPES = ("racingfixedwin", "racingspwin")
 
     def __init__(self) -> None:
         super().__init__()
@@ -497,22 +517,36 @@ class DabbleBook(CorporateBook):
     async def prices(self, engine: SportsDataEngine, handle: Any) -> dict[str, dict[str, Any]]:
         d = await engine.try_call("dabble_fixture_details", fixtureId=handle)
         det = (d or {}).get("sportFixtureDetail") or {}
-        win_ids = {
-            m.get("id") for m in (det.get("markets") or [])
-            if str(m.get("resultingType") or "").lower().startswith(self._WIN_PREFIXES)
-        }
+        markets = det.get("markets") or []
+        # Prefer the fixed-odds win market; fall back to SP win only if there is no
+        # fixed one. Both exist on most races and they are different products.
+        win_ids: set = set()
+        for want in self._WIN_TYPES:
+            win_ids = {m.get("id") for m in markets
+                       if str(m.get("resultingType") or "").lower() == want}
+            if win_ids:
+                break
         if not win_ids:
             return {}
-        px = {p.get("selectionId"): p.get("price") for p in (det.get("prices") or [])}
+
+        # The MARKET LINK IS ON THE PRICE, not on the selection: a Dabble selection
+        # carries only {id, name, isDisplayed}. The old code filtered selections by
+        # `marketId`, a key they do not have, so the test never passed and Dabble
+        # returned nothing for every race on the board -- present on the spine,
+        # absent from every price grid.
+        names = {sel.get("id"): (sel.get("name") or "")
+                 for sel in (det.get("selections") or [])
+                 if sel.get("isDisplayed") is not False}
         out: dict[str, dict[str, Any]] = {}
-        for s in (det.get("selections") or []):
-            if s.get("marketId") not in win_ids or s.get("isScratched"):
+        for entry in (det.get("prices") or []):
+            if entry.get("marketId") not in win_ids:
                 continue
-            price = px.get(s.get("id"))
-            if price and price > 1.0:
-                out[norm_runner(s.get("name") or "")] = {
-                    "price": float(price), "open": None,
-                    "name": s.get("name") or "", "number": None}
+            name = names.get(entry.get("selectionId"))
+            price = entry.get("price")
+            if not name or not isinstance(price, (int, float)) or price <= 1.0:
+                continue
+            out[norm_runner(name)] = {"price": float(price), "open": None,
+                                      "name": name, "number": None}
         return out
 
 
@@ -602,6 +636,7 @@ class CorporateSource:
     def __init__(self, books: list[CorporateBook] | None = None) -> None:
         self.books = books if books is not None else build_books()
         self._cache: dict[str, dict[str, dict[str, float]]] = {}
+        self._cache_by_number: dict[str, dict[int, dict[str, float]]] = {}
         self._last_fetch: dict[str, float] = {}
 
     async def refresh_indices(self, engine: SportsDataEngine, date: str) -> None:
@@ -642,21 +677,36 @@ class CorporateSource:
                     except Exception:
                         return None  # one book failing must not cost the others
 
+            by_number: dict[int, dict[str, float]] = {}
             for got in await asyncio.gather(*(price_one(b) for b in self.books)):
                 if got is None:
                     continue
                 book_name, prices = got
                 for runner_norm, p in prices.items():
                     merged.setdefault(runner_norm, {})[book_name] = p["price"]
+                    # Saddle number as a second key. TAB truncates long runner names
+                    # ("LAST TANGO IN HEAV"), and since the merge matched on the
+                    # normalised name alone, every runner TAB had clipped silently
+                    # got no book prices at all -- on Globe Derby R2 that was three
+                    # of six runners carrying a tote price and nothing else, from
+                    # every corporate book at once. The number is the same in all of
+                    # them and cannot be truncated.
+                    num = p.get("number")
+                    if isinstance(num, (int, float)):
+                        by_number.setdefault(int(num), {})[book_name] = p["price"]
             if merged:
                 self._cache[race.race_key] = merged
+                self._cache_by_number[race.race_key] = by_number
                 self._last_fetch[race.race_key] = now
 
         cache = self._cache.get(race.race_key)
         if not cache:
             return
+        by_number = self._cache_by_number.get(race.race_key) or {}
         for r in snapshot.runners:
             books = cache.get(norm_runner(r.name))
+            if not books and r.number is not None:
+                books = by_number.get(int(r.number))
             if not books:
                 continue
             r.corp = dict(books)
@@ -677,4 +727,5 @@ class CorporateSource:
         for key in list(self._cache):
             if key not in keep_keys:
                 self._cache.pop(key, None)
+                self._cache_by_number.pop(key, None)
                 self._last_fetch.pop(key, None)

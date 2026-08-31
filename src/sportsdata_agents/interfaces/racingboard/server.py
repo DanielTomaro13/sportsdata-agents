@@ -9,8 +9,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+import hashlib
 
 from .config import settings
 from .poller import Poller
@@ -167,6 +168,41 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await hub.remove(ws)
     except Exception:
         await hub.remove(ws)
+
+
+def _asset_version() -> str:
+    """A short hash of the frontend files, for cache-busting their URLs.
+
+    Headers alone are not enough here. The origin sends Cache-Control: no-cache,
+    but Cloudflare sits in front of the public board and replaces it with
+    max-age=14400 -- so a browser is told to keep app.js for four hours and a
+    normal refresh will not beat that. A deploy then lands correctly on the server
+    and the board keeps rendering the old frontend, which is exactly what happened
+    to the Ladbrokes label.
+
+    Versioning the URL sidesteps every cache in the path, because a changed file is
+    simply a different URL. Computed once per process, at import.
+    """
+    h = hashlib.sha256()
+    for name in ("app.js", "styles.css", "config.js"):
+        f = STATIC_DIR / name
+        if f.exists():
+            h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+ASSET_V = _asset_version()
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/index.html", include_in_schema=False)
+async def index() -> Response:
+    """index.html with versioned asset URLs. Mounted before StaticFiles so it wins."""
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "styles.css", "config.js"):
+        html = html.replace(f'"{name}"', f'"{name}?v={ASSET_V}"')
+    return Response(html, media_type="text/html",
+                    headers={"Cache-Control": "no-cache"})
 
 
 class _RevalidatingStatic(StaticFiles):
