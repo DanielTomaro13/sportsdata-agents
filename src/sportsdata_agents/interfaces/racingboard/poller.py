@@ -23,6 +23,7 @@ from .engine import SportsDataEngine
 from .corporate import TabBook, build_books
 from .sources import (
     BetfairMatcher,
+    apply_betfair_market,
     betfair_enrich,
     finalize_snapshot,
     tab_snapshot,
@@ -62,7 +63,10 @@ class Poller:
     async def start(self) -> None:
         self._running = True
         await self._discover_once()  # prime before serving
-        await asyncio.gather(self._discovery_loop(), self._price_loop())
+        loops = [self._discovery_loop(), self._price_loop()]
+        if self.betfair:
+            loops.append(self._fast_loop())
+        await asyncio.gather(*loops)
 
     async def stop(self) -> None:
         self._running = False
@@ -217,6 +221,124 @@ class Poller:
         runners.sort(key=lambda r: r.number)
         return RaceSnapshot(ts=time.time(), runners=runners)
 
+    async def _fast_loop(self) -> None:
+        """Refresh the two markets the bot actually trades on, far faster than the rest.
+
+        The placer bets into SPORTSBET at a fair price derived from BETFAIR, so those
+        two are the board's real clock; the tote is context. Both are unthrottled, and
+        every active exchange market batches into ONE market_prices call, so this is
+        cheap in a way the full poll can never be -- the full poll is gated by TAB's
+        2.5 rps, which is 19.6s of pure serialisation across 49 races.
+
+        The previous board ran exactly this loop at 3s and the rewrite dropped it,
+        which quietly slowed the sharpest signal on the board from 3 seconds to
+        twenty. This restores it and adds Sportsbet to it for races near the jump,
+        where prices move fastest and where the bot is actually trying to fire.
+        """
+        while self._running:
+            await asyncio.sleep(settings.fast_interval)
+            try:
+                await self._refresh_fast()
+            except Exception as exc:
+                print(f"[fast] error: {exc}")
+
+    async def _refresh_fast(self) -> None:
+        id_to_key: dict[str, str] = {}
+        near: list[str] = []
+        now = time.time()
+        for key in list(self._active_keys):
+            st = self.store.races.get(key)
+            if st is None or st.latest is None:
+                continue
+            if st.ref.betfair_market_id:
+                id_to_key[st.ref.betfair_market_id] = key
+            if st.ref.start_epoch is not None and \
+                    (st.ref.start_epoch - now) / 60.0 <= settings.band_near_minutes:
+                near.append(key)
+
+        updated: set[str] = set()
+        if id_to_key:
+            blocks = await self.betfair.market_prices(list(id_to_key))
+            for et in blocks:
+                for ev in et.get("eventNodes", []):
+                    for mkt in ev.get("marketNodes", []):
+                        key = id_to_key.get(mkt.get("marketId"))
+                        st = self.store.races.get(key) if key else None
+                        if not st or not st.latest:
+                            continue
+                        apply_betfair_market(st.latest, mkt)
+                        updated.add(key)
+
+        # Sportsbet (and its unthrottled siblings) for races near the jump. Bounded
+        # by the same concurrency the full poll uses, so this cannot outrun the books.
+        if self.corporate and near:
+            async def one(key: str) -> None:
+                st = self.store.races.get(key)
+                if st is None or st.latest is None:
+                    return
+                try:
+                    await self.corporate.enrich(self.engine, st.ref, st.latest)
+                    updated.add(key)
+                except Exception:
+                    pass
+            await asyncio.gather(*(one(k) for k in near))
+
+        self._fast_cycle = getattr(self, "_fast_cycle", 0) + 1
+        if self._fast_cycle % 30 == 0:
+            print(f"[fast] markets={len(id_to_key)} near={len(near)} "
+                  f"updated={len(updated)} @ {time.strftime('%H:%M:%S')}")
+
+        for key in updated:
+            st = self.store.races.get(key)
+            if st and st.latest:
+                finalize_snapshot(st.latest)   # fair/value depend on the bf mids
+        if self.broadcast and updated:
+            # Same payload the price loop sends. The old board's Store had value()
+            # and firm(); this one does not, and reaching for them threw on every
+            # tick -- after the prices had already been applied, so the board stayed
+            # correct while the websocket push silently died two times a second.
+            await self.broadcast({"type": "board", "board": self.store.board(),
+                                  "movers": self.store.movers()})
+
+    def _tab_due(self, st) -> bool:
+        """Should we spend a TAB call on this race THIS cycle?
+
+        TAB is the only rate-limited source on the board -- 2.5 rps by its own spec,
+        because it is the one feed behind an authenticated Akamai handshake -- and it
+        sits on the critical path of every race it carries, with the unthrottled books
+        and Betfair queued behind it. With 49 races in the horizon that is 19.6s of
+        pure serialisation, and it showed: a race two minutes from the jump was
+        refreshing every 21.7s against a price_interval of 8.
+
+        The asymmetry that makes this safe is that the tote is the slowest thing TAB
+        gives us. A pool share is a total of money already bet; the fixed odds and the
+        exchange are what move in the last minutes. So the tote is refreshed every
+        cycle where it is actually changing fast -- inside the urgent band, and the
+        first time we see a race -- and every few cycles elsewhere, with the previous
+        share carried forward in between.
+        """
+        if st.latest is None or st.ref.start_epoch is None:
+            return True                      # never seen it, or cannot tell: fetch
+        mins = (st.ref.start_epoch - time.time()) / 60.0
+        if mins <= settings.band_urgent_minutes:
+            return True
+        return self._cycle % max(1, settings.tab_far_divisor) == 0
+
+    @staticmethod
+    def _carry_tote(previous, snap) -> None:
+        """Copy the last tote reading onto a book-built snapshot, by runner number."""
+        was = {r.number: r for r in previous.runners}
+        for runner in snap.runners:
+            old = was.get(runner.number)
+            if old is None:
+                continue
+            if runner.tote_win is None:
+                runner.tote_win = old.tote_win
+            if runner.tote_pool_share is None:
+                runner.tote_pool_share = old.tote_pool_share
+        if getattr(snap, "tote_win_pool", None) is None:
+            snap.tote_win_pool = getattr(previous, "tote_win_pool", None)
+
     async def _poll_race(self, race_key: str) -> None:
         st = self.store.races.get(race_key)
         if st is None:
@@ -224,8 +346,15 @@ class Poller:
         ref = st.ref
 
         snap = None
-        if settings.enable_tab and ref.venue_mnem:
+        if settings.enable_tab and ref.venue_mnem and self._tab_due(st):
             snap = await tab_snapshot(self.engine, ref)
+        if snap is None and settings.enable_tab and ref.venue_mnem and st.latest:
+            # TAB was skipped this cycle, not absent. Build from the books and carry
+            # the tote forward, so the board keeps a pool share rather than blinking
+            # it out between refreshes.
+            snap = await self._book_snapshot(ref)
+            if snap is not None:
+                self._carry_tote(st.latest, snap)
         if snap is None:
             # TAB does not have this race — most of the union spine is exactly that.
             # Build the runner list from the books instead, or the board could still

@@ -58,6 +58,14 @@ class Settings:
     #: Refresh multiplier per band: urgent every cycle, near every 2nd, far every 4th.
     band_near_divisor: int = int(os.environ.get("MF_BAND_NEAR_DIVISOR", "2"))
     band_far_divisor: int = int(os.environ.get("MF_BAND_FAR_DIVISOR", "4"))
+    # How often a race outside the urgent band spends a TAB call. TAB is the only
+    # throttled source (2.5 rps, authenticated) and sits on every race's critical
+    # path, so this is the single biggest lever on how fresh the board is.
+    tab_far_divisor: int = int(os.environ.get("MF_TAB_FAR_DIVISOR", "6"))
+    # How often Betfair and Sportsbet refresh -- the two markets the bot trades on,
+    # both unthrottled, batched into one exchange call. This is the board's real
+    # clock; price_interval only governs the tote-bound full sweep.
+    fast_interval: float = float(os.environ.get("MF_FAST_INTERVAL", "2"))
 
     # --- the spine ---
     # Books contributing races AND prices. TAB is always a contributor and is added

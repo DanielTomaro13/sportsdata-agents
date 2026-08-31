@@ -8,6 +8,8 @@ they need no auth and we poll them hard.
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Any, Iterable
 
 import httpx
@@ -67,17 +69,38 @@ class BetfairClient:
             },
         )
 
+    #: Markets per request. Betfair answers 25 and returns 400 Bad Request at 30 --
+    #: measured against the live endpoint, not guessed. 20 leaves margin for the
+    #: limit being on response size rather than a round count, since the payload
+    #: grows with the runners in each market.
+    MARKETS_PER_REQUEST = 20
+
     async def market_prices(self, market_ids: Iterable[str]) -> list[dict[str, Any]]:
+        """Exchange prices for any number of markets, in as few requests as allowed.
+
+        Chunked because the board now tracks every race in the horizon rather than
+        the nearest thirty, and asking for them all in one call is a 400 that takes
+        the whole refresh with it -- the fast loop was failing on every tick and the
+        exchange prices, the sharpest number on the board, simply stopped updating.
+        Chunks go concurrently, so this stays one round trip's worth of latency.
+        """
         ids = list(market_ids)
         if not ids:
             return []
-        data = await self._get(
-            PRICES_URL,
-            {
-                "marketIds": ",".join(ids),
+        chunks = [ids[i:i + self.MARKETS_PER_REQUEST]
+                  for i in range(0, len(ids), self.MARKETS_PER_REQUEST)]
+        results = await asyncio.gather(
+            *(self._get(PRICES_URL, {
+                "marketIds": ",".join(chunk),
                 "types": PRICE_TYPES,
                 "rollupModel": "STAKE",
                 "rollupLimit": 25,
-            },
+            }) for chunk in chunks),
+            return_exceptions=True,
         )
-        return data.get("eventTypes", [])
+        out: list[dict[str, Any]] = []
+        for data in results:
+            if isinstance(data, BaseException):
+                continue          # one bad chunk must not lose the others
+            out.extend(data.get("eventTypes", []))
+        return out
