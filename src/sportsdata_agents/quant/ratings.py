@@ -343,9 +343,18 @@ async def record_ratings_slate(
     horizon_hours: float = 48.0,
     dedupe_hours: float = 12.0,
     max_events: int = 40,
+    racing_only: bool = False,
 ) -> dict[str, Any]:
     """Record book-independent fair prices: ratings boards for team sports,
-    form boards for racing. Returns {"recorded","events","skipped_*",...}."""
+    form boards for racing. Returns {"recorded","events","skipped_*",...}.
+
+    ``racing_only`` skips the team-sport half entirely. The racing board wants
+    the form engine and nothing else, and the two halves are independent: the
+    team-sport pass fits pools per sport and prices upcoming fixtures, which is
+    minutes of work and a pile of Prediction rows that nothing on the racing
+    side reads. Running the whole slate to reach the racing block would spend
+    that on every tick and widen the blast radius of a racing job to every
+    sport in the warehouse."""
     try:
         from sportsdata_engines.core.types import FixtureInputs
     except ImportError:
@@ -415,7 +424,7 @@ async def record_ratings_slate(
     # ── team sports: ratings from settled results ──────────────────────────
     from sportsdata_agents.operations.ingestion.coverage import sport_covered
 
-    for sport, labels in RATINGS_SPORTS:
+    for sport, labels in ([] if racing_only else RATINGS_SPORTS):
         if not any(sport_covered(label) for label in labels):
             continue  # fitting an uncovered sport burns minutes and records
             # fairs nothing is allowed to alert on
