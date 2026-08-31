@@ -672,7 +672,15 @@ class CorporateSource:
     async def enrich(self, engine: SportsDataEngine, race: RaceRef, snapshot: RaceSnapshot) -> None:
         """Fetch (throttled) and apply corporate prices onto a snapshot's runners."""
         now = time.time()
-        due = now - self._last_fetch.get(race.race_key, 0) >= settings.corp_interval
+        # Refresh faster the closer a race is to jumping. The fast loop already asks
+        # every couple of seconds for near-jump races; without this it was asking a
+        # gate that said no for twenty seconds at a time, so the loop existed and
+        # changed nothing.
+        interval = settings.corp_interval
+        start = getattr(race, "start_epoch", None)
+        if start is not None and (start - now) / 60.0 <= settings.band_near_minutes:
+            interval = settings.corp_urgent_interval
+        due = now - self._last_fetch.get(race.race_key, 0) >= interval
         if due:
             merged: dict[str, dict[str, float]] = {}
 

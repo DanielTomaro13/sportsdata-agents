@@ -30,6 +30,13 @@ class Settings:
     price_interval: float = float(os.environ.get("MF_PRICE_INTERVAL", "8"))
     # Corporate books rate-limit, so price them on a slower cadence than the tote.
     corp_interval: float = float(os.environ.get("MF_CORP_INTERVAL", "20"))
+    # ... but not near the jump. A 20-second-old Sportsbet price is where the bot's
+    # phantom edges come from: it only tries to place when it sees value, and value
+    # appears exactly when our price is stale-long, so the placements it attempts
+    # are disproportionately the ones where we are wrong. Measured over eleven
+    # refused placements, eight came back SHORTER on the slip, median -9.1% -- a
+    # one-sided distribution that random market drift does not produce.
+    corp_urgent_interval: float = float(os.environ.get("MF_CORP_URGENT_INTERVAL", "3"))
 
     # How far ahead to track races for the board (minutes to jump). Two hours: the
     # requirement is that everything inside it is polled hard, which is 41 races at a
