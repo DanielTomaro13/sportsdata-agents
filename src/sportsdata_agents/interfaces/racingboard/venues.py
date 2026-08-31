@@ -135,8 +135,15 @@ def venue_tokens(name: str) -> frozenset[str]:
 
 
 def norm_venue(name: str) -> str:
-    """A stable, comparable string form — the canonical venue key."""
-    return " ".join(sorted(venue_tokens(name)))
+    """A stable, comparable string form — the canonical venue key.
+
+    Joined with a hyphen, not a space, because this string becomes the middle of
+    `race_key` and `race_key` becomes a URL path segment (`/api/race/{key}`). A
+    space there is not merely ugly: urllib refuses the request outright, so every
+    multi-word track — Prairie Meadows, Kentucky Downs, Woodbine Mohawk Park —
+    would be unreachable for any client that builds a URL from the key.
+    """
+    return "-".join(sorted(venue_tokens(name)))
 
 
 def venues_match(a: str, b: str) -> bool:

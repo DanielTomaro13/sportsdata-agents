@@ -35,6 +35,17 @@ class Settings:
     # requirement is that everything inside it is polled hard, which is 41 races at a
     # quiet moment and 86 at the busiest rolling window of the day.
     horizon_minutes: int = int(os.environ.get("MF_HORIZON_MINUTES", "120"))
+
+    # --- training store -------------------------------------------------------
+    # The board is also the record: every snapshot and every result lands in
+    # sqlite so calibration, the firm model and the placer's analysis have a
+    # history to work from. Without this the board is a screen and nothing else.
+    db_path: str = os.environ.get("MF_DB_PATH", "/var/lib/racingboard/racingboard.db")
+    enable_datalog: bool = os.environ.get("MF_DATALOG", "1") == "1"
+    datalog_buckets: tuple[int, ...] = tuple(
+        int(x) for x in os.environ.get("MF_DATALOG_BUCKETS", "120,90,60,45,30,20,15,10,5,2").split(","))
+    # Firm label threshold: open→jump shortened by ≥ this fraction ⇒ firmed.
+    firm_threshold: float = float(os.environ.get("MF_FIRM_THRESHOLD", "0.08"))
     # Max races polled at full cadence at once (protects the upstreams).
     max_active_races: int = int(os.environ.get("MF_MAX_ACTIVE_RACES", "120"))
 

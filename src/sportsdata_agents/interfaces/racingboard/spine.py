@@ -137,6 +137,8 @@ def cluster_races(book_races: Iterable[tuple[str, BookRace]]) -> list[RaceRef]:
                     date="",
                     start_epoch=min(starts) if starts else None,
                     books=sorted({book for book, _ in group}),
+                    location=next((br.location for book, br in group
+                                   if book == "tab" and br.location), ""),
                 ))
     return out
 

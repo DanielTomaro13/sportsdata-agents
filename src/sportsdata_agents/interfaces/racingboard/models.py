@@ -33,6 +33,11 @@ class RaceRef:
     #: Which books contributed this race to the spine — the coverage signal.
     books: list[str] = field(default_factory=list)
 
+    #: TAB's meeting location: an AU state (NSW/VIC/...) or a country code. Empty
+    #: for the many races TAB does not carry. The placer gates its tote blend on
+    #: this, and that is consistent: no TAB race means no TAB pool to blend.
+    location: str = ""
+
     # Optional cross-book handles filled in during enrichment.
     betfair_market_id: str | None = None
 

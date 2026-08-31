@@ -119,6 +119,11 @@ class BookRace:
     start: float | None     # epoch seconds
     handle: Any             # whatever this book needs to price it
     name: str = ""          # the race's own name, for the board's label
+    #: TAB's meeting location -- an AU state (NSW/VIC/...) or a country code. Only
+    #: TAB publishes it, so it is empty for a race TAB does not carry. Downstream
+    #: this gates the tote blend, which is only meaningful where a TAB pool exists
+    #: in the first place, so the two absences line up exactly.
+    location: str = ""
 
     @property
     def venue_key(self) -> str:
@@ -489,6 +494,7 @@ class TabBook(CorporateBook):
                     code=code, venue=venue, race_no=int(rno),
                     start=_epoch(ra.get("raceStartTime")),
                     handle=(code, mnem, int(rno)), name=ra.get("raceName", ""),
+                    location=m.get("location") or "",
                 ))
         self.races = races
 

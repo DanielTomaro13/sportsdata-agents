@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from .betfair import BetfairClient
 from .config import settings
 from .corporate import CorporateSource
+from .datalog import DataLogger
+from .db import DB
 from .engine import SportsDataEngine
 from .corporate import TabBook, build_books
 from .sources import (
@@ -33,6 +35,11 @@ class Poller:
     def __init__(self, store: Store, broadcast=None) -> None:
         self.store = store
         self.broadcast = broadcast  # async callable(dict) or None
+        # The training store. Optional so a dev run can skip it, but on by
+        # default: a board that does not record what it saw cannot be measured
+        # against what happened.
+        self.db = DB(settings.db_path) if settings.enable_datalog else None
+        self.datalog = DataLogger(self.db) if self.db else None
         self.engine = SportsDataEngine()
         self.betfair = BetfairClient() if settings.enable_betfair else None
         self.matcher = BetfairMatcher(self.betfair) if self.betfair else None
@@ -256,7 +263,13 @@ class Poller:
         finalize_snapshot(snap)
         self.store.add_snapshot(race_key, snap)
 
-        if self.broadcast:
-            detail = self.store.race_detail(race_key)
-            if detail:
+        detail = self.store.race_detail(race_key)
+        if detail:
+            # Recording must never break the poll cycle for a race.
+            if self.datalog:
+                try:
+                    self.datalog.observe(race_key, detail)
+                except Exception as exc:
+                    print(f"[datalog] observe error for {race_key}: {exc}")
+            if self.broadcast:
                 await self.broadcast({"type": "race", "race_key": race_key, "detail": detail})
