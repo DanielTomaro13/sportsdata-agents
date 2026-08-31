@@ -203,6 +203,28 @@ class Poller:
                 # Prefer any book that actually publishes a saddlecloth number.
                 if row["number"] is None and p.get("number") is not None:
                     row["number"] = p["number"]
+
+        # One horse, one row. Merging on the normalised name alone split a runner
+        # in two whenever the books spelled it differently -- Globe Derby R3 showed
+        # "#5 KETO" carrying only the tote beside "#5 Keto Nz" carrying the other
+        # four books. That is worse than a missing price: it inflates the field, so
+        # the de-vig divides by the wrong number and every fair price in the race is
+        # wrong. The saddlecloth number is the identity the books agree on.
+        by_number: dict[int, dict] = {}
+        for key in list(merged):
+            row = merged[key]
+            num = row.get("number")
+            if num is None:
+                continue
+            first = by_number.get(int(num))
+            if first is None:
+                by_number[int(num)] = row
+                continue
+            first["books"].update(row["books"])
+            # Keep the fuller spelling; it is the one a person recognises.
+            if len(row["name"]) > len(first["name"]):
+                first["name"] = row["name"]
+            merged.pop(key, None)
         if not merged:
             return None
 

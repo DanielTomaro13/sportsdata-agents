@@ -70,6 +70,20 @@ async def tab_snapshot(engine: SportsDataEngine, race: RaceRef) -> RaceSnapshot 
         scratched = bool(r.get("scratched")) or (r.get("runnerStatus") == "SCRATCHED")
         pari = (r.get("parimutuel") or {}).get("returnWin")
         fixed = (r.get("fixedOdds") or {}).get("returnWin")
+        # TAB marks a non-runner with fixedOdds 1.01 and NO tote price, and sets
+        # neither `scratched` nor runnerStatus -- both come back None. The tote path
+        # already drops it (`pari > 0`), but the fixed price did not, so a scratched
+        # greyhound went onto the board at $1.01: Traralgon R1 carried two of them,
+        # which alone pushed TAB's book to an overround of 3.24 and made every other
+        # book look like it was missing runners it had correctly left out.
+        #
+        # Deliberately narrow. A 1.01 shortener is conceivable in a two-horse field,
+        # so this only fires when the tote has nothing for the runner AND the race
+        # has tote prices elsewhere -- which is what makes a zero here meaningful
+        # rather than just a race TAB does not pool.
+        if not scratched and fixed and fixed <= 1.02 and not (pari and pari > 0):
+            if any((x.get("parimutuel") or {}).get("returnWin") for x in data.get("runners", [])):
+                scratched = True
         rf = RunnerFlow(
             number=int(num),
             name=r.get("runnerName", ""),

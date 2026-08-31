@@ -195,10 +195,21 @@ def unique_venue_match(
 #: so `Jadzia (NZ)` reduced to `jadzianz` and never met `Jadzia`.
 _RUNNER_SUFFIX_RE = re.compile(r"\((?:[a-z]{2,4})\)")
 
+#: Country of origin, written BARE rather than in brackets. Entain does this --
+#: "Keto Nz" where TAB has "KETO", "Ideal Tiger Nz" for "IDEAL TIGER" -- so the
+#: bracket-only rule above matched neither and the same horse arrived as two
+#: runners. Spelled out as a fixed list rather than "any short trailing word",
+#: because a horse really can be called Big Us or Cotton On.
+_ORIGINS = ("nz", "aus", "gb", "gbr", "ire", "irl", "usa", "us", "fr", "fra",
+            "ger", "deu", "jpn", "saf", "rsa", "arg", "brz", "bra", "chi", "chl",
+            "uru", "ury", "ita", "ity", "spa", "hk", "sin", "kor", "can", "ind")
+_RUNNER_ORIGIN_RE = re.compile(r"\s+(?:" + "|".join(_ORIGINS) + r")\s*$")
+
 
 def norm_runner(name: str) -> str:
     """'1. Chix Diggus' / 'CHIX DIGGUS' / 'Jadzia (NZ)' -> comparable form."""
     n = name.lower().strip()
     n = re.sub(r"^\s*\d+[.)]\s*", "", n)      # leading saddlecloth number
-    n = _RUNNER_SUFFIX_RE.sub(" ", n)          # country of origin
+    n = _RUNNER_SUFFIX_RE.sub(" ", n)          # country of origin, bracketed
+    n = _RUNNER_ORIGIN_RE.sub("", n)           # ... and unbracketed
     return re.sub(r"[^a-z0-9]", "", n)

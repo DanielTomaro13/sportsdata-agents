@@ -600,12 +600,26 @@ class TabBook(CorporateBook):
             "tab_racing_race", date=self._date, raceType=code,
             venueMnemonic=mnem, raceNumber=rno, jurisdiction=settings.jurisdiction,
         )
+        runners = (rc or {}).get("runners", [])
+        # Does this race have a tote pool at all? A missing tote price only means
+        # "not running" when the rest of the field has one.
+        has_tote = any((x.get("parimutuel") or {}).get("returnWin") for x in runners)
         out: dict[str, dict[str, Any]] = {}
-        for r in (rc or {}).get("runners", []):
+        for r in runners:
             if r.get("scratched"):
                 continue
             odds = r.get("fixedOdds") or {}
             price = odds.get("returnWin")
+            # TAB prices a NON-RUNNER at 1.01 with no tote, and sets neither
+            # `scratched` nor runnerStatus -- both come back None. Publishing that
+            # put scratched greyhounds on the board at $1.01 and pushed TAB's book
+            # to an overround of 3.35 on Traralgon R2, while every other book looked
+            # like it was missing runners it had correctly left out. The same guard
+            # lives in sources.tab_snapshot; this is the second, independent path
+            # into `corp`, and it needed its own.
+            pari = (r.get("parimutuel") or {}).get("returnWin")
+            if has_tote and price and price <= 1.02 and not (pari and pari > 0):
+                continue
             if price and price > 1.0:
                 out[norm_runner(r.get("runnerName", ""))] = {
                     "price": price, "open": odds.get("returnWinOpen"),
