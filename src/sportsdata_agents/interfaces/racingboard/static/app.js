@@ -378,7 +378,19 @@
         <div class="tt-r"><span>RACE</span><b>${esc(j.venue)} R${j.race_no}</b></div>`;
     } else {
       const corp = j.corp || {};
-      const rows = Object.entries(corp).sort((a, z) => z[1] - a[1]).map(([b, px]) => `<div class="tt-r"><span>${BOOK[b] || b}${b === j.corp_best_book ? " ★" : ""}</span><b>${px.toFixed(2)}</b></div>`).join("");
+      let rows = Object.entries(corp).sort((a, z) => z[1] - a[1]).map(([b, px]) => `<div class="tt-r"><span>${BOOK[b] || b}${b === j.corp_best_book ? " ★" : ""}</span><b>${px.toFixed(2)}</b></div>`).join("");
+      // The engine's own price, sat with the books it is meant to be read
+      // against. Deliberately NOT merged into `corp`: that dict is the
+      // bookmaker set, corp_best is the best price available to back, and the
+      // placer bets against it — a model price in there would be a phantom
+      // bet at odds nobody is offering.
+      //
+      // Absent for anyone arriving through the tunnel: the server strips
+      // engine_prob from public responses, so this row simply does not render
+      // for the internet. See _redact() in server.py.
+      if (j.engine_prob > 0) {
+        rows += `<div class="tt-r eng-row"><span>ENGINE</span><b>${(1 / j.engine_prob).toFixed(2)}</b></div>`;
+      }
       h = `<div class="tt-t">#${j.number} ${esc(j.name)}</div>
         <div class="tt-r"><span>POOL SHARE</span><b>${pct(j.tote_pool_share)}%</b></div>
         <div class="tt-r"><span>MONEY IN</span><b class="${j.direction === "firming" ? "up" : "flatc"}">${j.share_delta != null ? (j.share_delta > 0 ? "+" : "") + (j.share_delta * 100).toFixed(1) + "pt" : "–"}</b></div>

@@ -7,7 +7,7 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -79,17 +79,48 @@ async def health() -> JSONResponse:
     return JSONResponse({"ok": True, "races": len(store.races)})
 
 
+# The engine's OUTPUT is the commercial product. The engine's CODE is kept out
+# of every public venv, but RunnerFlow.to_dict() is asdict(), so `engine_prob`
+# and `fair_source` rode into the API payload for free -- and this board is
+# tunnelled to live.sportsdata-ai.com. That was harmless only while the engine
+# produced nothing; the moment the ratings job priced a race, the model's win
+# probabilities would have been published to the world, per runner, per poll.
+#
+# cloudflared always injects CF-Connecting-IP, and nothing on the LAN or the
+# tailnet does. So the header is a reliable "this came from the internet" flag:
+# strip the engine fields when it is present, keep them for local viewers.
+_ENGINE_FIELDS = ("engine_prob",)
+
+
+def _from_tunnel(request: Request) -> bool:
+    return "cf-connecting-ip" in request.headers
+
+
+def _redact(detail: dict, public: bool) -> dict:
+    if not public:
+        return detail
+    for r in detail.get("runners") or []:
+        for f in _ENGINE_FIELDS:
+            r.pop(f, None)
+        # fair_source names the engine even when the number is gone.
+        if r.get("fair_source") == "engine":
+            r["fair_source"] = "model"
+    return detail
+
+
 @app.get("/api/board")
 async def api_board() -> JSONResponse:
+    # The board summary carries no per-runner engine field today, but it is
+    # built from the same dataclasses, so it goes through the same door.
     return JSONResponse({"board": store.board(), "movers": store.movers()})
 
 
 @app.get("/api/race/{race_key:path}")
-async def api_race(race_key: str) -> JSONResponse:
+async def api_race(race_key: str, request: Request) -> JSONResponse:
     detail = store.race_detail(race_key)
     if detail is None:
         return JSONResponse({"error": "not found or not yet polled"}, status_code=404)
-    return JSONResponse(detail)
+    return JSONResponse(_redact(detail, _from_tunnel(request)))
 
 
 def _win_probs_for(race_key: str) -> tuple[dict[int, float], str]:
@@ -160,8 +191,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
             if req.get("type") == "subscribe" and req.get("race_key"):
                 detail = store.race_detail(req["race_key"])
                 if detail:
+                    # Same door as the REST route: a socket opened through the
+                    # tunnel is the internet and does not see the engine.
                     await ws.send_text(json.dumps(
-                        {"type": "race", "race_key": req["race_key"], "detail": detail},
+                        {"type": "race", "race_key": req["race_key"],
+                         "detail": _redact(detail, "cf-connecting-ip" in ws.headers)},
                         default=str,
                     ))
     except WebSocketDisconnect:
