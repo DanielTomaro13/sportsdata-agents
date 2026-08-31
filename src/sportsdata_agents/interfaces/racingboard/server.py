@@ -7,7 +7,7 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -79,33 +79,22 @@ async def health() -> JSONResponse:
     return JSONResponse({"ok": True, "races": len(store.races)})
 
 
-# The engine's OUTPUT is the commercial product. The engine's CODE is kept out
-# of every public venv, but RunnerFlow.to_dict() is asdict(), so `engine_prob`
-# and `fair_source` rode into the API payload for free -- and this board is
-# tunnelled to live.sportsdata-ai.com. That was harmless only while the engine
-# produced nothing; the moment the ratings job priced a race, the model's win
-# probabilities would have been published to the world, per runner, per poll.
+# PUBLISHING THE ENGINE PRICE IS DELIBERATE. Operator's decision, 1 Sep 2026.
 #
-# cloudflared always injects CF-Connecting-IP, and nothing on the LAN or the
-# tailnet does. So the header is a reliable "this came from the internet" flag:
-# strip the engine fields when it is present, keep them for local viewers.
-_ENGINE_FIELDS = ("engine_prob",)
-
-
-def _from_tunnel(request: Request) -> bool:
-    return "cf-connecting-ip" in request.headers
-
-
-def _redact(detail: dict, public: bool) -> dict:
-    if not public:
-        return detail
-    for r in detail.get("runners") or []:
-        for f in _ENGINE_FIELDS:
-            r.pop(f, None)
-        # fair_source names the engine even when the number is gone.
-        if r.get("fair_source") == "engine":
-            r["fair_source"] = "model"
-    return detail
+# RunnerFlow.to_dict() is asdict(), so `engine_prob` and `fair_source` go out
+# on the public API at live.sportsdata-ai.com along with everything else. That
+# is intended, not an oversight: the board shows the engine's opinion next to
+# the books, and it shows it to everyone.
+#
+# This note exists because the shape of it looks exactly like a leak, and it
+# WAS briefly gated behind a CF-Connecting-IP check on the strength of that
+# resemblance. If you are reading this because you just noticed a model's win
+# probabilities on a public endpoint: it is on purpose, ask before removing it.
+#
+# What is NOT public, and must stay that way, is the engine CODE. The
+# sportsdata_engines package is absent from every board venv by design and
+# lives only in /opt/racing-engine and /opt/ledger, neither of which serves
+# anything. Publishing an output is a choice; publishing the model is not.
 
 
 @app.get("/api/board")
@@ -116,11 +105,11 @@ async def api_board() -> JSONResponse:
 
 
 @app.get("/api/race/{race_key:path}")
-async def api_race(race_key: str, request: Request) -> JSONResponse:
+async def api_race(race_key: str) -> JSONResponse:
     detail = store.race_detail(race_key)
     if detail is None:
         return JSONResponse({"error": "not found or not yet polled"}, status_code=404)
-    return JSONResponse(_redact(detail, _from_tunnel(request)))
+    return JSONResponse(detail)
 
 
 def _win_probs_for(race_key: str) -> tuple[dict[int, float], str]:
@@ -191,11 +180,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
             if req.get("type") == "subscribe" and req.get("race_key"):
                 detail = store.race_detail(req["race_key"])
                 if detail:
-                    # Same door as the REST route: a socket opened through the
-                    # tunnel is the internet and does not see the engine.
                     await ws.send_text(json.dumps(
-                        {"type": "race", "race_key": req["race_key"],
-                         "detail": _redact(detail, "cf-connecting-ip" in ws.headers)},
+                        {"type": "race", "race_key": req["race_key"], "detail": detail},
                         default=str,
                     ))
     except WebSocketDisconnect:

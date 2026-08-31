@@ -385,9 +385,9 @@
       // placer bets against it — a model price in there would be a phantom
       // bet at odds nobody is offering.
       //
-      // Absent for anyone arriving through the tunnel: the server strips
-      // engine_prob from public responses, so this row simply does not render
-      // for the internet. See _redact() in server.py.
+      // Public, deliberately — see the note in server.py. It stays a separate
+      // row for the corp_best reason above, not for any reason to do with who
+      // is allowed to see it.
       if (j.engine_prob > 0) {
         rows += `<div class="tt-r eng-row"><span>ENGINE</span><b>${(1 / j.engine_prob).toFixed(2)}</b></div>`;
       }

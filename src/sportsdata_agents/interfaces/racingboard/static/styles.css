@@ -239,8 +239,7 @@ footer a { color: var(--muted); }
 
 /* The engine's own price in the runner tooltip, sat with the books. Tinted so
    it reads as a different KIND of number: the books are prices you can back,
-   this one is an opinion. Only ever rendered for local viewers — the server
-   strips engine_prob from anything arriving through the tunnel. */
+   this one is an opinion. Shown to everyone, on purpose. */
 .tt-r.eng-row { border-top: 1px solid rgba(255,255,255,.12); margin-top: 3px; padding-top: 3px; }
 .tt-r.eng-row span { color: var(--amber); font-weight: 700; letter-spacing: .04em; }
 .tt-r.eng-row b { color: var(--amber); }
