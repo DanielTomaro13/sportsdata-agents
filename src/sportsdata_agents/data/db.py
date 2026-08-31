@@ -53,6 +53,22 @@ def make_engine(url: str) -> AsyncEngine:
             cur.execute("PRAGMA journal_mode=WAL")
             cur.execute("PRAGMA synchronous=NORMAL")
             cur.execute("PRAGMA busy_timeout=120000")
+            # Cap the WAL. Without this the sports warehouse ran to 22 GB
+            # against a 14 GB database, ~850 MB/minute, and came within about
+            # three hours of filling the root disk on 1 Sep 2026.
+            #
+            # The subtlety is WHY the hourly wal_checkpoint(TRUNCATE) could not
+            # save it: TRUNCATE needs an exclusive moment, and the collectors
+            # write continuously, so it returned busy every hour for three
+            # hours while a PASSIVE checkpoint was meanwhile copying 4.9M pages
+            # out just fine. Pages were landing in the db; the FILE just never
+            # got reset, because resetting is the part that needs the lock.
+            #
+            # journal_size_limit needs no such lock. It is applied whenever a
+            # checkpoint completes, so the routine autocheckpoint that already
+            # runs constantly now also trims the file back to this bound. That
+            # turns an unbounded sawtooth into a ceiling.
+            cur.execute("PRAGMA journal_size_limit=536870912")   # 512 MB
             cur.close()
 
     return engine

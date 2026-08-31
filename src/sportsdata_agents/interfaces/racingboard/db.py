@@ -113,10 +113,35 @@ class DB:
                     venue: str, race_no: int, race_name: str, jump_time: str,
                     field_size: int) -> None:
         with self._lock:
+            # NOT `INSERT OR IGNORE`. A race enters the spine the moment ANY book
+            # carries it, and TAB is usually not the first -- it publishes an
+            # overseas meeting hours after Betfair has a market up. `country`
+            # comes only from TAB, so the first write is very often blank, and
+            # OR IGNORE froze that blank in place for the life of the race even
+            # though TAB filled in later. 308 of 2,394 races (13%) carried no
+            # country because of this, all of them the ones we had not yet met.
+            #
+            # So: fill blanks as better data arrives, never overwrite something
+            # real with something empty. Later is not automatically better --
+            # only non-empty is. jump_time is the exception and updates outright,
+            # because a re-scheduled race genuinely has a new jump time and the
+            # newest report of it is the one worth having.
             self._conn.execute(
-                "INSERT OR IGNORE INTO races "
+                "INSERT INTO races "
                 "(race_key,date,code,country,venue,race_no,race_name,jump_time,field_size,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(race_key) DO UPDATE SET "
+                "  country    = CASE WHEN COALESCE(races.country,'')   = '' "
+                "                    THEN COALESCE(excluded.country, races.country) "
+                "                    ELSE races.country END, "
+                "  venue      = CASE WHEN COALESCE(races.venue,'')     = '' "
+                "                    THEN excluded.venue ELSE races.venue END, "
+                "  race_name  = CASE WHEN COALESCE(races.race_name,'') = '' "
+                "                    THEN excluded.race_name ELSE races.race_name END, "
+                "  field_size = CASE WHEN COALESCE(races.field_size,0) = 0 "
+                "                    THEN excluded.field_size ELSE races.field_size END, "
+                "  jump_time  = CASE WHEN COALESCE(excluded.jump_time,'') <> '' "
+                "                    THEN excluded.jump_time ELSE races.jump_time END",
                 (race_key, date, code, country, venue, race_no, race_name, jump_time,
                  field_size, time.time()))
             self._conn.commit()
