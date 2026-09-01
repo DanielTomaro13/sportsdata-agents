@@ -279,7 +279,14 @@ class Poller:
                 near.append(key)
 
         updated: set[str] = set()
-        if id_to_key:
+
+        # Betfair and Sportsbet are fetched IN PARALLEL: the whole strategy is
+        # catching Sportsbet lagging a Betfair move, so the two clocks must tick
+        # together — serially, the second feed's freshness is degraded by exactly
+        # the first feed's latency, on every single cycle.
+        async def _betfair_leg() -> None:
+            if not id_to_key:
+                return
             blocks = await self.betfair.market_prices(list(id_to_key))
             for et in blocks:
                 for ev in et.get("eventNodes", []):
@@ -303,34 +310,50 @@ class Poller:
         # collapses ~11 req/s of individual racecard fetches into ~1 request per
         # cycle, which is what stops Sportsbet's bot-detection 403s (2,064/day
         # before this).
-        if self.corporate and near:
+        async def _sportsbet_leg() -> None:
+            if not (self.corporate and near):
+                return
             sb = next((b for b in self.corporate.books if b.name == "sportsbet"), None)
-            if sb is not None:
-                id_to_near: dict[str, str] = {}
-                for key in near:
-                    st = self.store.races.get(key)
+            if sb is None:
+                return
+            id_to_near: dict[str, str] = {}
+            for key in near:
+                st = self.store.races.get(key)
+                if st is None or st.latest is None:
+                    continue
+                h = sb.handle_for(st.ref)
+                if h is not None:
+                    id_to_near[str(h)] = key
+
+            async def one_chunk(chunk: list[str]) -> None:
+                try:
+                    data = await self.engine.try_call(
+                        "sportsbet_multiple_racecards", eventIds=",".join(chunk))
+                except Exception:
+                    return
+                for evd in (data or {}).get("events", []):
+                    key = id_to_near.get(str(evd.get("id")))
+                    st = self.store.races.get(key) if key else None
                     if st is None or st.latest is None:
                         continue
-                    h = sb.handle_for(st.ref)
-                    if h is not None:
-                        id_to_near[str(h)] = key
-                ids = list(id_to_near)
-                for i in range(0, len(ids), 20):   # the endpoint caps a batch at 20
-                    try:
-                        data = await self.engine.try_call(
-                            "sportsbet_multiple_racecards",
-                            eventIds=",".join(ids[i:i + 20]))
-                    except Exception:
-                        continue
-                    for evd in (data or {}).get("events", []):
-                        key = id_to_near.get(str(evd.get("id")))
-                        st = self.store.races.get(key) if key else None
-                        if st is None or st.latest is None:
-                            continue
-                        prices = sb.parse_win(evd)
-                        if prices:
-                            self.corporate.apply_book(key, "sportsbet", prices, st.latest)
-                            updated.add(key)
+                    prices = sb.parse_win(evd)
+                    if prices:
+                        self.corporate.apply_book(key, "sportsbet", prices, st.latest)
+                        updated.add(key)
+
+            ids = list(id_to_near)
+            # Chunks run concurrently too (the endpoint caps a batch at 20 ids):
+            # ~45 near races is 3 requests, and burst-tested at 2.4 req/s the
+            # endpoint answered 24/24 with median 182ms — the cycle costs the
+            # SLOWEST request, not the sum.
+            await asyncio.gather(*(one_chunk(ids[i:i + 20])
+                                   for i in range(0, len(ids), 20)))
+
+        # One leg failing must not cost the other's already-applied updates.
+        for r in await asyncio.gather(_betfair_leg(), _sportsbet_leg(),
+                                      return_exceptions=True):
+            if isinstance(r, Exception):
+                print(f"[fast] leg error: {r}")
 
         self._fast_cycle = getattr(self, "_fast_cycle", 0) + 1
         if self._fast_cycle % 30 == 0:
