@@ -336,7 +336,10 @@ class Poller:
 
             # Recycle the dedicated session by age; a flagged session 403s
             # everything until replaced, and replacing an unflagged one is free.
-            if time.time() - self._sb_engine_born > 600:
+            # 300s, not 600: at the 0.5s cycle a session makes ~4 req/s, and a
+            # shorter life keeps each one's request count well under wherever the
+            # WAF's flag threshold lives.
+            if time.time() - self._sb_engine_born > 300:
                 self._sb_engine = SportsDataEngine()
                 self._sb_engine_born = time.time()
 
