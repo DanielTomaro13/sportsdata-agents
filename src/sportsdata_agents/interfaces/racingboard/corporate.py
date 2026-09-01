@@ -284,8 +284,14 @@ class SportsbetBook(CorporateBook):
                         ))
         self.races = races
 
-    async def prices(self, engine: SportsDataEngine, handle: Any) -> dict[str, dict[str, Any]]:
-        rc = await engine.try_call("sportsbet_racecard", eventId=handle)
+    @staticmethod
+    def parse_win(rc: dict | None) -> dict[str, dict[str, Any]]:
+        """Extract win prices from one racecard's `markets` block.
+
+        Shared by the single-racecard path below and the poller's batched fast
+        refresh: MultipleRacecards returns the same market/selection shape per
+        event entry (verified live 2026-09-01 — `recentOddsFluctuations` is
+        populated for priced AU races, with the CURRENT price first)."""
         out: dict[str, dict[str, Any]] = {}
         markets = (rc or {}).get("markets", [])
         win = next((m for m in markets if "win" in (m.get("name", "").lower())), None)
@@ -303,6 +309,10 @@ class SportsbetBook(CorporateBook):
                     "price": price, "open": flucs[-1] if flucs else None,
                     "name": s.get("name", ""), "number": s.get("runnerNumber")}
         return out
+
+    async def prices(self, engine: SportsDataEngine, handle: Any) -> dict[str, dict[str, Any]]:
+        rc = await engine.try_call("sportsbet_racecard", eventId=handle)
+        return self.parse_win(rc)
 
 
 # ─── Ladbrokes / Neds (Entain) ──────────────────────────────────────────
@@ -725,6 +735,36 @@ class CorporateSource:
         if not cache:
             return
         by_number = self._cache_by_number.get(race.race_key) or {}
+        for r in snapshot.runners:
+            books = cache.get(norm_runner(r.name))
+            if not books and r.number is not None:
+                books = by_number.get(int(r.number))
+            if not books:
+                continue
+            r.corp = dict(books)
+            best_book, best_price = max(books.items(), key=lambda kv: kv[1])
+            r.corp_best = best_price
+            r.corp_best_book = best_book
+
+    def apply_book(self, race_key: str, book_name: str,
+                   prices: dict[str, dict[str, Any]], snapshot: RaceSnapshot) -> None:
+        """Merge ONE book's fresh prices into the cache and onto a snapshot.
+
+        The fast loop refreshes Sportsbet alone (batched, every couple of
+        seconds); `enrich` would replace the whole race entry and throw away the
+        other books' last-known prices, so this merges per-book instead.
+        `_last_fetch` is deliberately NOT stamped — the main poll's full enrich
+        (every book, including throttled TAB) stays on its own clock.
+        """
+        if not prices:
+            return
+        cache = self._cache.setdefault(race_key, {})
+        by_number = self._cache_by_number.setdefault(race_key, {})
+        for runner_norm, p in prices.items():
+            cache.setdefault(runner_norm, {})[book_name] = p["price"]
+            num = p.get("number")
+            if isinstance(num, (int, float)):
+                by_number.setdefault(int(num), {})[book_name] = p["price"]
         for r in snapshot.runners:
             books = cache.get(norm_runner(r.name))
             if not books and r.number is not None:

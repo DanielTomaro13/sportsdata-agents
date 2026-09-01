@@ -291,19 +291,46 @@ class Poller:
                         apply_betfair_market(st.latest, mkt)
                         updated.add(key)
 
-        # Sportsbet (and its unthrottled siblings) for races near the jump. Bounded
-        # by the same concurrency the full poll uses, so this cannot outrun the books.
+        # Sportsbet for races near the jump — ONE batched MultipleRacecards call
+        # per 20 races, mirroring how Betfair batches into one market_prices call
+        # above. This used to run the full corporate `enrich` per near race, which
+        # meant a TAB request per race behind TAB's 2.5 rps throttle: with ~33
+        # near races the "2-second" loop actually cycled every ~21 SECONDS, and
+        # the placer bet into prices that stale — measured 1 Sep as a -16% average
+        # move on every mid-placement rejection. Sportsbet is the book the bot
+        # strikes, so it is the one that must be fresh; TAB and the other books
+        # stay on the main poll's clock, where the throttle belongs. Batching also
+        # collapses ~11 req/s of individual racecard fetches into ~1 request per
+        # cycle, which is what stops Sportsbet's bot-detection 403s (2,064/day
+        # before this).
         if self.corporate and near:
-            async def one(key: str) -> None:
-                st = self.store.races.get(key)
-                if st is None or st.latest is None:
-                    return
-                try:
-                    await self.corporate.enrich(self.engine, st.ref, st.latest)
-                    updated.add(key)
-                except Exception:
-                    pass
-            await asyncio.gather(*(one(k) for k in near))
+            sb = next((b for b in self.corporate.books if b.name == "sportsbet"), None)
+            if sb is not None:
+                id_to_near: dict[str, str] = {}
+                for key in near:
+                    st = self.store.races.get(key)
+                    if st is None or st.latest is None:
+                        continue
+                    h = sb.handle_for(st.ref)
+                    if h is not None:
+                        id_to_near[str(h)] = key
+                ids = list(id_to_near)
+                for i in range(0, len(ids), 20):   # the endpoint caps a batch at 20
+                    try:
+                        data = await self.engine.try_call(
+                            "sportsbet_multiple_racecards",
+                            eventIds=",".join(ids[i:i + 20]))
+                    except Exception:
+                        continue
+                    for evd in (data or {}).get("events", []):
+                        key = id_to_near.get(str(evd.get("id")))
+                        st = self.store.races.get(key) if key else None
+                        if st is None or st.latest is None:
+                            continue
+                        prices = sb.parse_win(evd)
+                        if prices:
+                            self.corporate.apply_book(key, "sportsbet", prices, st.latest)
+                            updated.add(key)
 
         self._fast_cycle = getattr(self, "_fast_cycle", 0) + 1
         if self._fast_cycle % 30 == 0:
