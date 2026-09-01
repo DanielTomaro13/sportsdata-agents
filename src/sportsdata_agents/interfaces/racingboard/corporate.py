@@ -695,13 +695,13 @@ class CorporateSource:
         if due:
             merged: dict[str, dict[str, float]] = {}
 
-            # Near the jump the fast loop already batch-refreshes Sportsbet every
-            # cycle, so fetching its individual racecard here is pure duplication —
-            # and it was the load pattern that tripped Sportsbet's WAF (sustained
-            # ~4.5 individual req/s produced 403 bursts even after the fast loop
-            # was batched). Skip the book here and carry its cached prices forward
-            # below; far races still fetch it individually at the slow cadence.
-            books = [b for b in self.books if not (near and b.name == "sportsbet")]
+            # Sportsbet never fetches here AT ALL: the fast loop batch-refreshes
+            # it for every race (near ones each cycle, far ones every ~10th)
+            # through its own recycled session. The individual-racecard endpoint
+            # this path used is what earned the WAF flag that froze prices on
+            # 1 Sep — the board no longer touches it. Its cached prices are
+            # carried forward below so replacing the race entry can't erase them.
+            books = [b for b in self.books if b.name != "sportsbet"]
             skipped = {b.name for b in self.books} - {b.name for b in books}
 
             # Books are priced CONCURRENTLY: a race costs the slowest book rather than

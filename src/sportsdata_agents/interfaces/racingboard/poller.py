@@ -11,6 +11,7 @@ Two loops run concurrently:
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from datetime import datetime, timezone
 
@@ -53,6 +54,19 @@ class Poller:
         self.corporate = CorporateSource(books=books) if settings.enable_corporate else None
         self._books = books
         self._active_keys: list[str] = []
+        # Sportsbet gets its OWN engine, recycled on failure and by age. Their WAF
+        # flags a long-lived session that has made enough requests — once flagged,
+        # EVERY sportsbet call on that session 403s while a fresh session from the
+        # same IP works fine (measured 1 Sep: board session 403ing at 70/min while
+        # a fresh client ran 120 calls at 3/s clean). Recycling is the antidote,
+        # and isolating it here means a flagged sportsbet session can never take
+        # TAB's OAuth state down with it.
+        self._sb_engine = SportsDataEngine()
+        self._sb_engine_born = time.time()
+        self._sb_fail_streak = 0
+        self._sb_skip_until = 0.0
+        self._sb_index_ts = 0.0
+        self._sb_far_cycle = 0
         self._cycle = 0
         self._running = False
 
@@ -267,6 +281,7 @@ class Poller:
     async def _refresh_fast(self) -> None:
         id_to_key: dict[str, str] = {}
         near: list[str] = []
+        sb_far: list[str] = []
         now = time.time()
         for key in list(self._active_keys):
             st = self.store.races.get(key)
@@ -277,6 +292,8 @@ class Poller:
             if st.ref.start_epoch is not None and \
                     (st.ref.start_epoch - now) / 60.0 <= settings.band_near_minutes:
                 near.append(key)
+            else:
+                sb_far.append(key)
 
         updated: set[str] = set()
 
@@ -311,28 +328,65 @@ class Poller:
         # cycle, which is what stops Sportsbet's bot-detection 403s (2,064/day
         # before this).
         async def _sportsbet_leg() -> None:
-            if not (self.corporate and near):
+            if not self.corporate or time.time() < self._sb_skip_until:
                 return
             sb = next((b for b in self.corporate.books if b.name == "sportsbet"), None)
             if sb is None:
                 return
-            id_to_near: dict[str, str] = {}
-            for key in near:
+
+            # Recycle the dedicated session by age; a flagged session 403s
+            # everything until replaced, and replacing an unflagged one is free.
+            if time.time() - self._sb_engine_born > 600:
+                self._sb_engine = SportsDataEngine()
+                self._sb_engine_born = time.time()
+
+            # Keep the event-id index alive on OUR session too: discovery rebuilds
+            # it on the shared engine, and if that session gets flagged the index
+            # quietly fossilises — old ids keep resolving, tomorrow's never appear.
+            if time.time() - self._sb_index_ts > 900:
+                try:
+                    await sb.build_index(
+                        self._sb_engine,
+                        datetime.now(timezone.utc).date().isoformat())
+                    self._sb_index_ts = time.time()
+                except Exception as exc:
+                    print(f"[fast] sportsbet index rebuild failed: {exc}")
+
+            # Near races every cycle; far races every 10th cycle. ALL of it goes
+            # through the batch endpoint — the individual-racecard endpoint is
+            # what earned the WAF flag and the board no longer touches it.
+            self._sb_far_cycle += 1
+            targets = list(near)
+            if self._sb_far_cycle % 10 == 0:
+                targets += sb_far
+            id_to_race: dict[str, str] = {}
+            for key in targets:
                 st = self.store.races.get(key)
                 if st is None or st.latest is None:
                     continue
                 h = sb.handle_for(st.ref)
                 if h is not None:
-                    id_to_near[str(h)] = key
+                    id_to_race[str(h)] = key
+
+            failures = [0]
 
             async def one_chunk(chunk: list[str]) -> None:
+                # Shuffle so the query string differs every cycle: the engine
+                # caches identical GETs for 60s, and a cache hit here is a stale
+                # price wearing a fresh timestamp — the exact thing this loop
+                # exists to prevent (Galloping Jessie sat at a frozen $11 while
+                # the real price was $9.50).
+                random.shuffle(chunk)
                 try:
-                    data = await self.engine.try_call(
+                    data = await self._sb_engine.try_call(
                         "sportsbet_multiple_racecards", eventIds=",".join(chunk))
-                except Exception:
+                except Exception as exc:
+                    failures[0] += 1
+                    if self._sb_fail_streak == 0:
+                        print(f"[fast] sportsbet chunk failed: {str(exc)[:120]}")
                     return
                 for evd in (data or {}).get("events", []):
-                    key = id_to_near.get(str(evd.get("id")))
+                    key = id_to_race.get(str(evd.get("id")))
                     st = self.store.races.get(key) if key else None
                     if st is None or st.latest is None:
                         continue
@@ -341,13 +395,30 @@ class Poller:
                         self.corporate.apply_book(key, "sportsbet", prices, st.latest)
                         updated.add(key)
 
-            ids = list(id_to_near)
-            # Chunks run concurrently too (the endpoint caps a batch at 20 ids):
-            # ~45 near races is 3 requests, and burst-tested at 2.4 req/s the
-            # endpoint answered 24/24 with median 182ms — the cycle costs the
-            # SLOWEST request, not the sum.
+            ids = list(id_to_race)
+            # Chunks run concurrently (endpoint caps 20 ids/batch); the cycle
+            # costs the slowest request, not the sum.
             await asyncio.gather(*(one_chunk(ids[i:i + 20])
                                    for i in range(0, len(ids), 20)))
+
+            if failures[0]:
+                # Failing loudly and RECYCLING is the whole play: a flagged
+                # session never recovers on its own, and silent retries against
+                # it are how the board served a frozen price for an hour.
+                self._sb_fail_streak += 1
+                self._sb_engine = SportsDataEngine()
+                self._sb_engine_born = time.time()
+                if self._sb_fail_streak >= 3:
+                    # Back off briefly so a genuinely angry WAF sees quiet, not
+                    # a fresh session every second.
+                    self._sb_skip_until = time.time() + 15
+                    print(f"[fast] sportsbet leg backing off 15s "
+                          f"(streak {self._sb_fail_streak})")
+            else:
+                if self._sb_fail_streak:
+                    print(f"[fast] sportsbet leg recovered "
+                          f"(after streak {self._sb_fail_streak})")
+                self._sb_fail_streak = 0
 
         # One leg failing must not cost the other's already-applied updates.
         for r in await asyncio.gather(_betfair_leg(), _sportsbet_leg(),
