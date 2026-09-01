@@ -180,6 +180,10 @@ class Store:
             "ref": st.ref.to_dict(),
             "status": snap.status,
             "ts": snap.ts,
+            # When a REAL Sportsbet quote last landed on this race (0 = never).
+            # The placer refuses quotes older than 45s -- this is the field
+            # that turns a silently frozen price into a visible refusal.
+            "sb_ts": getattr(snap, "sb_ts", 0.0),
             "bf_total_matched": snap.bf_total_matched,
             "tote_win_pool": snap.tote_win_pool,
             "results": snap.results,

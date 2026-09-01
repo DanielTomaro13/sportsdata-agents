@@ -348,9 +348,11 @@ class Poller:
             # quietly fossilises — old ids keep resolving, tomorrow's never appear.
             if time.time() - self._sb_index_ts > 900:
                 try:
-                    await sb.build_index(
-                        self._sb_engine,
-                        datetime.now(timezone.utc).date().isoformat())
+                    # LOCAL date, same as discovery: Sportsbet's eventDate is an
+                    # AEST card, and the UTC date is yesterday until 10am -- an
+                    # index built on it after midnight replaces today's card
+                    # with resulted races until discovery wins the fight back.
+                    await sb.build_index(self._sb_engine, self._today())
                     self._sb_index_ts = time.time()
                 except Exception as exc:
                     print(f"[fast] sportsbet index rebuild failed: {exc}")
