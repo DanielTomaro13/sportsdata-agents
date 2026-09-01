@@ -688,11 +688,21 @@ class CorporateSource:
         # changed nothing.
         interval = settings.corp_interval
         start = getattr(race, "start_epoch", None)
-        if start is not None and (start - now) / 60.0 <= settings.band_near_minutes:
+        near = start is not None and (start - now) / 60.0 <= settings.band_near_minutes
+        if near:
             interval = settings.corp_urgent_interval
         due = now - self._last_fetch.get(race.race_key, 0) >= interval
         if due:
             merged: dict[str, dict[str, float]] = {}
+
+            # Near the jump the fast loop already batch-refreshes Sportsbet every
+            # cycle, so fetching its individual racecard here is pure duplication —
+            # and it was the load pattern that tripped Sportsbet's WAF (sustained
+            # ~4.5 individual req/s produced 403 bursts even after the fast loop
+            # was batched). Skip the book here and carry its cached prices forward
+            # below; far races still fetch it individually at the slow cadence.
+            books = [b for b in self.books if not (near and b.name == "sportsbet")]
+            skipped = {b.name for b in self.books} - {b.name for b in books}
 
             # Books are priced CONCURRENTLY: a race costs the slowest book rather than
             # the sum of all of them. Bounded by book_concurrency so adding books cannot
@@ -710,7 +720,7 @@ class CorporateSource:
                         return None  # one book failing must not cost the others
 
             by_number: dict[int, dict[str, float]] = {}
-            for got in await asyncio.gather(*(price_one(b) for b in self.books)):
+            for got in await asyncio.gather(*(price_one(b) for b in books)):
                 if got is None:
                     continue
                 book_name, prices = got
@@ -727,6 +737,19 @@ class CorporateSource:
                     if isinstance(num, (int, float)):
                         by_number.setdefault(int(num), {})[book_name] = p["price"]
             if merged:
+                # A skipped book's prices live in the cache (the fast loop wrote
+                # them via apply_book); replacing the race entry wholesale would
+                # silently erase them. Carry them into the new entry first.
+                if skipped:
+                    prev = self._cache.get(race.race_key) or {}
+                    prev_num = self._cache_by_number.get(race.race_key) or {}
+                    for name in skipped:
+                        for rn, bks in prev.items():
+                            if name in bks:
+                                merged.setdefault(rn, {})[name] = bks[name]
+                        for num, bks in prev_num.items():
+                            if name in bks:
+                                by_number.setdefault(num, {})[name] = bks[name]
                 self._cache[race.race_key] = merged
                 self._cache_by_number[race.race_key] = by_number
                 self._last_fetch[race.race_key] = now
