@@ -781,6 +781,8 @@ class CorporateSource:
         """
         if not prices:
             return
+        if book_name == "sportsbet":
+            snapshot.sb_ts = time.time()
         cache = self._cache.setdefault(race_key, {})
         by_number = self._cache_by_number.setdefault(race_key, {})
         for runner_norm, p in prices.items():

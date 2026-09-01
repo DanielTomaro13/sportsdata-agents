@@ -109,6 +109,14 @@ class RaceSnapshot:
     ts: float                              # epoch seconds
     runners: list[RunnerFlow] = field(default_factory=list)
 
+    # When the fast loop last applied a REAL Sportsbet quote to this race.
+    # 0.0 means never: the race's sportsbet price, if any, came from discovery
+    # and has not been refreshed -- exactly the state that held CHARLIE MASON
+    # (Ripon, 1 Sep) at a frozen $11 for 7+ minutes while Sportsbet quoted
+    # $9.50. The placer refuses to strike any quote older than its freshness
+    # window, so a race the batch cannot venue-match simply never gets bet.
+    sb_ts: float = 0.0
+
     # Race-level money aggregates.
     tote_win_pool: float | None = None     # gross win pool ($) if TAB reports it
     results: list[int] | None = None       # finishing order (runner numbers) once run
@@ -119,6 +127,7 @@ class RaceSnapshot:
     def to_dict(self) -> dict[str, Any]:
         return {
             "ts": self.ts,
+            "sb_ts": self.sb_ts,
             "status": self.status,
             "tote_win_pool": self.tote_win_pool,
             "bf_total_matched": self.bf_total_matched,
