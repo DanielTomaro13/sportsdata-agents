@@ -3,6 +3,7 @@ the worker isolates feed failures and honours per-feed schedules."""
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from typing import Any
 
@@ -826,3 +827,33 @@ async def test_cross_book_board_joins_lined_markets_across_market_names(
             select(Price).where(Price.book == "FanDuel"))).scalars().first()
         quotes = await _cross_book_quotes(s, row)
     assert quotes == {"TAB": 1.85}  # family-matched, decoy line excluded
+
+
+async def test_refresh_is_throttled_unless_meta_moves(
+    db_sessionmaker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unchanged price re-seen inside SNAPSHOT_REFRESH_S is not rewritten —
+    unless its meta changed (exchange volume) or the window has passed."""
+    monkeypatch.setenv("SPORTSDATA_AGENTS_SNAPSHOT_REFRESH_S", "300")
+    soon = T0 + dt.timedelta(seconds=60)
+    await record_points(db_sessionmaker, [_point(1.85)], captured_at=T0)
+    r_soon = await record_points(db_sessionmaker, [_point(1.85)], captured_at=soon)
+    assert r_soon["refreshed"] == 0
+    async with db_sessionmaker() as s:
+        at = (await s.execute(select(OddsSnapshot.captured_at))).scalar_one()
+        assert at.replace(tzinfo=dt.UTC) == T0  # untouched
+
+    moved = dataclasses.replace(_point(1.85), meta={"total_matched": 1234.5})
+    r_meta = await record_points(db_sessionmaker, [moved], captured_at=soon)
+    assert r_meta["refreshed"] == 1  # meta moved: refreshed inside the window
+    async with db_sessionmaker() as s:
+        at = (await s.execute(select(OddsSnapshot.captured_at))).scalar_one()
+        assert at.replace(tzinfo=dt.UTC) == soon
+
+    r_late = await record_points(db_sessionmaker, [moved], captured_at=T2)  # 9 min on
+    assert r_late["refreshed"] == 1  # window passed: refreshed
+    r_off = await record_points(db_sessionmaker, [moved], captured_at=T2)
+    assert r_off["refreshed"] == 0
+    monkeypatch.setenv("SPORTSDATA_AGENTS_SNAPSHOT_REFRESH_S", "0")
+    r_always = await record_points(db_sessionmaker, [moved], captured_at=T2)
+    assert r_always["refreshed"] == 1  # 0 = the old every-capture behaviour

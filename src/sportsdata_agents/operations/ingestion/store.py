@@ -128,12 +128,12 @@ async def _load_latest_odds(
 async def _load_latest_snapshots(
     session: AsyncSession, points: list[PricePoint]
 ) -> dict[_Key, tuple[Any, Decimal]]:
-    """The latest snapshot row's (id, odds) for every key this batch touches —
-    the in-place-refresh targets. Grouped like _load_latest_odds: a handful of
-    chunked queries, never one per point."""
+    """The latest snapshot row's (id, odds, captured_at, meta) for every key
+    this batch touches — the in-place-refresh targets. Grouped like
+    _load_latest_odds: a handful of chunked queries, never one per point."""
     providers = sorted({p.provider for p in points})
     event_ids = sorted({p.event_external_id for p in points})
-    latest: dict[_Key, tuple[Any, Decimal]] = {}
+    latest: dict[_Key, tuple[Any, Decimal, Any, Any]] = {}
     for start in range(0, len(event_ids), _DEDUPE_CHUNK):
         chunk = event_ids[start : start + _DEDUPE_CHUNK]
         sub = (
@@ -157,7 +157,8 @@ async def _load_latest_snapshots(
             await session.execute(
                 select(OddsSnapshot.id, OddsSnapshot.provider, OddsSnapshot.book,
                        OddsSnapshot.event_external_id, OddsSnapshot.market,
-                       OddsSnapshot.selection, OddsSnapshot.odds).join(
+                       OddsSnapshot.selection, OddsSnapshot.odds,
+                       OddsSnapshot.captured_at, OddsSnapshot.meta).join(
                     sub,
                     and_(
                         OddsSnapshot.provider == sub.c.provider,
@@ -172,8 +173,21 @@ async def _load_latest_snapshots(
         ).all()
         for r in rows:
             latest[_price_key(r.provider, r.book, r.event_external_id, r.market, r.selection)] = (
-                r.id, r.odds)
+                r.id, r.odds, r.captured_at, r.meta)
     return latest
+
+
+def _snapshot_refresh_every() -> dt.timedelta:
+    """How long an unchanged price's confirmation stamp may age before the
+    standing row is rewritten. See record_points."""
+    import os
+
+    raw = os.environ.get("SPORTSDATA_AGENTS_SNAPSHOT_REFRESH_S", "")
+    try:
+        secs = float(raw) if raw.strip() else 300.0
+    except ValueError:
+        secs = 300.0
+    return dt.timedelta(seconds=max(secs, 0.0))
 
 
 async def record_points(
@@ -190,7 +204,20 @@ async def record_points(
     first_four") drops those markets at the door — the operator's storage dial
     for exotics the scans never read. Empty (default) stores everything.
     SPORTSDATA_AGENTS_SNAPSHOT_APPEND=1 restores the old append-every-observation
-    behaviour (the rollback lever)."""
+    behaviour (the rollback lever).
+
+    The refresh is THROTTLED: an unchanged price whose standing row was
+    confirmed within SPORTSDATA_AGENTS_SNAPSHOT_REFRESH_S (default 300; 0 =
+    every capture) and whose meta is identical is left alone. The rewrite is
+    the single most expensive thing the warehouse does — captured_at sits in
+    the primary key and three indexes, so every refreshed row moves five
+    B-tree entries, and a full-book feed refreshes 40k rows a cycle: 10-25s
+    holding SQLite's only write lock, every cycle, every feed (lived,
+    2026-09-02, with everything else on the warehouse timing out behind it).
+    Nothing reads captured_at finer than a 20-minute staleness gate, so a
+    stamp up to five minutes behind changes no decision; a meta that moved
+    (exchange volume, a start time that just appeared) still refreshes at
+    once."""
     import os
 
     captured_at = captured_at or dt.datetime.now(dt.UTC)
@@ -201,7 +228,9 @@ async def record_points(
     if not points:
         return {"snapshots": 0, "price_changes": 0, "refreshed": 0}
     append_mode = os.environ.get("SPORTSDATA_AGENTS_SNAPSHOT_APPEND", "") == "1"
+    refresh_every = _snapshot_refresh_every()
     changes = 0
+    unchanged = 0
     async with session_factory() as session:
         latest = await _load_latest_odds(session, points)
         snap_targets = ({} if append_mode
@@ -216,6 +245,13 @@ async def record_points(
                 # same price as the standing row: refresh its freshness stamp and
                 # meta (traded volume etc. move even when the odds don't) — every
                 # staleness gate reads captured_at as "last confirmed live"
+                confirmed = target[2]
+                if confirmed is not None and confirmed.tzinfo is None:
+                    confirmed = confirmed.replace(tzinfo=dt.UTC)  # SQLite hands back naive UTC
+                if (confirmed is not None and target[3] == p.meta
+                        and captured_at - confirmed < refresh_every):
+                    unchanged += 1
+                    continue  # fresh enough and nothing to say: not worth a write
                 refresh_rows.append({
                     "b_id": target[0], "captured_at": captured_at, "meta": p.meta,
                     # feeds that GAINED a start stamp after a row was first
@@ -248,7 +284,7 @@ async def record_points(
                 if not append_mode:
                     # a later duplicate of this key in the SAME batch must refresh,
                     # not insert twice (id unknown yet: None marks "just inserted")
-                    snap_targets[key] = (None, new_odds)
+                    snap_targets[key] = (None, new_odds, captured_at, p.meta)
             prev = latest.get(key)
             if prev is None or prev != new_odds:
                 price_rows.append({
@@ -293,6 +329,8 @@ async def record_points(
                 _price_insert(session).values(chunk).on_conflict_do_nothing(index_elements=_PRICE_UQ)
             )
         await session.commit()
+    if unchanged:
+        logger.debug("snapshot refresh skipped for %d fresh, unchanged rows", unchanged)
     return {"snapshots": len(points), "price_changes": changes, "refreshed": len(refresh_rows)}
 
 
