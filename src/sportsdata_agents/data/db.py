@@ -87,9 +87,32 @@ def make_engine(url: str) -> AsyncEngine:
 
         log = logging.getLogger(__name__)
 
+        _DML = ("INSERT", "UPDATE", "DELETE", "REPLACE")
+
         @event.listens_for(engine.sync_engine, "before_cursor_execute")
         def _sql_started(conn, cursor, statement, parameters, context, executemany):
             conn.info["_sql_started"] = time.monotonic()
+            # The first write of a transaction is when SQLite's write lock is
+            # taken; name it, so a transaction that then sits on the lock
+            # across many fast statements (or an await) can be attributed.
+            if "_txn_first_write" not in conn.info and statement.lstrip()[:7].upper().startswith(_DML):
+                conn.info["_txn_first_write"] = (time.monotonic(), " ".join(statement.split())[:160])
+
+        def _txn_ended(conn, how):
+            first = conn.info.pop("_txn_first_write", None)
+            if first is None:
+                return
+            held_ms = (time.monotonic() - first[0]) * 1000
+            if held_ms >= slow_ms:
+                log.warning("write lock held %.0fms until %s; first write: %s", held_ms, how, first[1])
+
+        @event.listens_for(engine.sync_engine, "commit")
+        def _txn_commit(conn):
+            _txn_ended(conn, "commit")
+
+        @event.listens_for(engine.sync_engine, "rollback")
+        def _txn_rollback(conn):
+            _txn_ended(conn, "rollback")
 
         @event.listens_for(engine.sync_engine, "after_cursor_execute")
         def _sql_finished(conn, cursor, statement, parameters, context, executemany):
