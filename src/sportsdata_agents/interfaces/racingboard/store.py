@@ -22,6 +22,16 @@ class RaceState:
         self.latest: RaceSnapshot | None = None
 
     def add(self, snap: RaceSnapshot) -> None:
+        # A snapshot built by the discovery/tote sweep arrives with sb_ts=0: its
+        # Sportsbet price is the fast loop's last quote (read back from the
+        # corporate cache), but the STAMP of that quote lives on the snapshot
+        # being replaced. Dropping it made every race look "never refreshed"
+        # for up to a fast-loop cycle -- one second near the jump, ten seconds
+        # in the far band -- and the placer, which refuses any quote without a
+        # fresh stamp, logged ~1,000 "sportsbet price stale" verdicts an hour
+        # on races the board was in fact refreshing (2 Sep 2026). Carry it.
+        if not snap.sb_ts and self.latest is not None and self.latest.sb_ts:
+            snap.sb_ts = self.latest.sb_ts
         self._fill_movement(snap)
         self.history.append(snap)
         self.latest = snap
