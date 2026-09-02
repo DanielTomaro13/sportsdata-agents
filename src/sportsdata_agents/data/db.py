@@ -71,6 +71,37 @@ def make_engine(url: str) -> AsyncEngine:
             cur.execute("PRAGMA journal_size_limit=536870912")   # 512 MB
             cur.close()
 
+    # SPORTSDATA_AGENTS_SLOW_SQL_MS=<n>: warn for any statement that takes
+    # longer than n ms, with its text. On a single-writer SQLite warehouse a
+    # slow statement inside a transaction IS the write-lock hold every other
+    # connection is timing out on, and nothing outside the process can name it
+    # (the busy handler only ever reports the victims). Off by default.
+    import os
+
+    slow_ms = int(os.environ.get("SPORTSDATA_AGENTS_SLOW_SQL_MS", "0") or 0)
+    if slow_ms > 0:
+        import logging
+        import time
+
+        from sqlalchemy import event
+
+        log = logging.getLogger(__name__)
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def _sql_started(conn, cursor, statement, parameters, context, executemany):
+            conn.info["_sql_started"] = time.monotonic()
+
+        @event.listens_for(engine.sync_engine, "after_cursor_execute")
+        def _sql_finished(conn, cursor, statement, parameters, context, executemany):
+            started = conn.info.pop("_sql_started", None)
+            if started is None:
+                return
+            took_ms = (time.monotonic() - started) * 1000
+            if took_ms >= slow_ms:
+                rows = len(parameters) if executemany and hasattr(parameters, "__len__") else 1
+                log.warning("slow sql %.0fms (%d row%s): %s", took_ms, rows,
+                            "" if rows == 1 else "s", " ".join(statement.split())[:240])
+
     return engine
 
 
