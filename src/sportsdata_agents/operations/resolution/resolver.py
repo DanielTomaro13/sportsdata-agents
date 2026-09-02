@@ -208,9 +208,23 @@ def _fixture_day(fixture: Fixture) -> str:
 
 
 async def resolve_events(
-    session_factory: async_sessionmaker[AsyncSession], *, dry_run: bool = False
+    session_factory: async_sessionmaker[AsyncSession], *, dry_run: bool = False,
+    since: dt.datetime | None = None,
 ) -> dict[str, Any]:
-    """Map every unresolved (provider, event id) seen in the warehouse onto a fixture."""
+    """Map every unresolved (provider, event id) seen in the warehouse onto a fixture.
+
+    ``since`` bounds the snapshot scan to rows captured at or after it. The
+    unbounded form walks EVERY snapshot (an index scan plus a row fetch per
+    key for the name/meta columns): 6.7 GB and 3.5 min on a 14M-row, 17 GB
+    warehouse, and the board's resolve loop asked for it every 60 s — so it ran
+    back to back, read 1.1 TB in seven hours, kept the page cache cold for
+    everything else, and stretched the ingest's commits into multi-minute
+    holds of the single write lock (lived, 2026-09-02: feeds AND an external
+    pricing job dying on 'database is locked' hourly). A tick only needs the
+    keys captured since the previous tick; an unmapped event nobody has priced
+    lately is not on the board and does not need re-examining every minute.
+    None keeps the full scan for the CLI's one-off pass.
+    """
     async with session_factory() as session:
         mapped_keys = {
             (provider, external_id)
@@ -218,20 +232,19 @@ async def resolve_events(
                 await session.execute(select(Event.provider, Event.external_id))
             ).all()
         }
-        seen = (
-            await session.execute(
-                select(
-                    OddsSnapshot.provider,
-                    OddsSnapshot.event_external_id,
-                    func.max(OddsSnapshot.event_name),
-                    func.max(OddsSnapshot.sport),
-                    func.min(OddsSnapshot.captured_at),
-                    func.max(OddsSnapshot.start_time),
-                    func.max(OddsSnapshot.end_time),
-                    func.max(OddsSnapshot.meta["competition"].as_string()),
-                ).group_by(OddsSnapshot.provider, OddsSnapshot.event_external_id)
-            )
-        ).all()
+        seen_q = select(
+            OddsSnapshot.provider,
+            OddsSnapshot.event_external_id,
+            func.max(OddsSnapshot.event_name),
+            func.max(OddsSnapshot.sport),
+            func.min(OddsSnapshot.captured_at),
+            func.max(OddsSnapshot.start_time),
+            func.max(OddsSnapshot.end_time),
+            func.max(OddsSnapshot.meta["competition"].as_string()),
+        ).group_by(OddsSnapshot.provider, OddsSnapshot.event_external_id)
+        if since is not None:  # ix_odds_snapshots_captured_at turns the scan into a range read
+            seen_q = seen_q.where(OddsSnapshot.captured_at >= since)
+        seen = (await session.execute(seen_q)).all()
         fixtures = (await session.execute(select(Fixture))).scalars().all()
         fixtures_by_id: dict[uuid.UUID, Fixture] = {f.id: f for f in fixtures}
         # in-memory candidate index:

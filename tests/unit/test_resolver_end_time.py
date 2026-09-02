@@ -85,3 +85,34 @@ async def test_exchange_only_fixture_has_no_real_start() -> None:
         assert fx.start_time is None
         assert fx.end_time is not None
         assert abs((_aware(fx.end_time) - end).total_seconds()) < 2
+
+
+async def test_since_bounds_the_snapshot_scan() -> None:
+    """resolve_events(since=) examines only keys captured at/after ``since`` — the
+    board's per-minute tick must not re-walk every snapshot in the warehouse."""
+    sf = await _sf()
+    now = dt.datetime.now(dt.UTC)
+    start = now + dt.timedelta(hours=2)
+    old_cap = now - dt.timedelta(hours=6)
+    new_cap = now - dt.timedelta(minutes=1)
+
+    await record_points(sf, [PricePoint(
+        provider="sportsbet", book="Sportsbet", sport="basketball", event_external_id="OLD",
+        event_name="Heat v Bulls", market="h2h", selection="Heat", odds=1.8,
+        meta={"start_time": _iso(start)})], captured_at=old_cap)
+    await record_points(sf, [PricePoint(
+        provider="tab", book="TAB", sport="basketball", event_external_id="NEW",
+        event_name="Suns v Nets", market="h2h", selection="Suns", odds=2.1,
+        meta={"start_time": _iso(start)})], captured_at=new_cap)
+
+    bounded = await resolve_events(sf, since=now - dt.timedelta(hours=1))
+    assert bounded["examined"] == 1 and bounded["created"] == 1
+    async with sf() as s:
+        mapped = {e.external_id for e in (await s.execute(select(Event))).scalars()}
+    assert mapped == {"NEW"}  # the stale key was never looked at
+
+    unbounded = await resolve_events(sf)  # the CLI's one-off pass still sees everything
+    assert unbounded["examined"] == 1 and unbounded["created"] == 1
+    async with sf() as s:
+        mapped = {e.external_id for e in (await s.execute(select(Event))).scalars()}
+    assert mapped == {"OLD", "NEW"}

@@ -14,6 +14,7 @@ minutes as snapshots accumulate, exactly like the racing board on a cold start.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import os
 
@@ -23,6 +24,13 @@ logger = logging.getLogger("sportsboard.live")
 
 _TRUTHY = {"1", "true", "yes", "on"}
 _RESOLVE_EVERY_S = 60.0  # cross-provider fixture resolution cadence (DB-only, no MCP)
+# Each tick examines only snapshots captured since the PREVIOUS tick started,
+# less this slack (a feed that committed while the last tick was mid-scan lands
+# in the next one). The priming pass looks back this far instead of scanning
+# the whole warehouse: the board serves a 48h window, so an event with no
+# capture in two days is not on it. See resolve_events(since=).
+_RESOLVE_SLACK_S = 2 * _RESOLVE_EVERY_S
+_RESOLVE_PRIME_LOOKBACK_S = 48 * 3600.0
 
 # The live poller's MCP manager while it runs, None otherwise. sgm_books.py
 # borrows it for book SGM quotes; a warehouse-only server (live mode off)
@@ -53,10 +61,14 @@ async def _resolve_loop(sf: async_sessionmaker[AsyncSession]) -> None:
     (DB-only — no MCP), so newly-ingested games join the board."""
     from sportsdata_agents.operations.resolution import resolve_events
 
+    prev_started = dt.datetime.now(dt.UTC)  # the priming pass has just run
     while True:
         await asyncio.sleep(_RESOLVE_EVERY_S)
+        started = dt.datetime.now(dt.UTC)
         try:
-            await resolve_events(sf)
+            await resolve_events(
+                sf, since=prev_started - dt.timedelta(seconds=_RESOLVE_SLACK_S))
+            prev_started = started  # a failed tick leaves the window open for the next
         except Exception:
             logger.exception("resolve tick failed")
 
@@ -121,7 +133,9 @@ async def run_poller() -> None:
             # the board can blend the sharp line across books for a single game.
             logger.info("live mode: priming %d feeds …", len(feeds))
             await ingest_once(manager, sf, feeds)
-            await resolve_events(sf)
+            await resolve_events(
+                sf, since=dt.datetime.now(dt.UTC)
+                - dt.timedelta(seconds=_RESOLVE_PRIME_LOOKBACK_S))
             logger.info("live mode: entering poll + resolve loops")
             loops = [run_loop(manager, sf, feeds), _resolve_loop(sf)]
             if os.environ.get("SPORTSBOARD_MONITOR", "").strip().lower() in _TRUTHY:
