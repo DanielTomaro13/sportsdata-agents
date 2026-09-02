@@ -69,7 +69,9 @@ async def tab_snapshot(engine: SportsDataEngine, race: RaceRef) -> RaceSnapshot 
             continue
         scratched = bool(r.get("scratched")) or (r.get("runnerStatus") == "SCRATCHED")
         pari = (r.get("parimutuel") or {}).get("returnWin")
-        fixed = (r.get("fixedOdds") or {}).get("returnWin")
+        fixed_odds = r.get("fixedOdds") or {}
+        fixed = fixed_odds.get("returnWin")
+        tab_prop = fixed_odds.get("propositionNumber")
         # TAB marks a non-runner with fixedOdds 1.01 and NO tote price, and sets
         # neither `scratched` nor runnerStatus -- both come back None. The tote path
         # already drops it (`pari > 0`), but the fixed price did not, so a scratched
@@ -90,6 +92,7 @@ async def tab_snapshot(engine: SportsDataEngine, race: RaceRef) -> RaceSnapshot 
             scratched=scratched,
             tote_win=pari if pari and pari > 0 else None,
             fixed_win=fixed if fixed and fixed > 0 else None,
+            tab_prop=int(tab_prop) if tab_prop else None,
         )
         if rf.tote_win and not scratched:
             implied[rf.number] = 1.0 / rf.tote_win

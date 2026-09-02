@@ -67,6 +67,12 @@ class RunnerFlow:
 
     # TAB fixed odds.
     fixed_win: float | None = None
+    # TAB's proposition number for this runner's WIN price. It is the key the
+    # push websocket (push.beta.tab.com.au /odds-update) subscribes on, so the
+    # board captures it here purely to hand downstream consumers (the placer)
+    # what they need to open a real-time TAB price stream. The board itself does
+    # not use it.
+    tab_prop: int | None = None
 
     # Corporate fixed odds (Sportsbet, Pointsbet, …) — book -> win price, plus
     # the best (highest) price on offer across books.
