@@ -232,19 +232,40 @@ async def resolve_events(
                 await session.execute(select(Event.provider, Event.external_id))
             ).all()
         }
-        seen_q = select(
-            OddsSnapshot.provider,
-            OddsSnapshot.event_external_id,
-            func.max(OddsSnapshot.event_name),
-            func.max(OddsSnapshot.sport),
-            func.min(OddsSnapshot.captured_at),
-            func.max(OddsSnapshot.start_time),
-            func.max(OddsSnapshot.end_time),
-            func.max(OddsSnapshot.meta["competition"].as_string()),
-        ).group_by(OddsSnapshot.provider, OddsSnapshot.event_external_id)
-        if since is not None:  # ix_odds_snapshots_captured_at turns the scan into a range read
-            seen_q = seen_q.where(OddsSnapshot.captured_at >= since)
-        seen = (await session.execute(seen_q)).all()
+        src: Any = OddsSnapshot.__table__.c
+        if since is not None:
+            # A plain WHERE captured_at >= since is NOT enough: SQLite's planner
+            # serves the GROUP BY straight off ix_snap_key_time and applies the
+            # range as a per-row filter — the same full scan, verified with
+            # EXPLAIN QUERY PLAN. A MATERIALIZED CTE forces the captured_at
+            # index range read first (0.5s vs 210s on the 14M-row warehouse);
+            # Postgres honours the keyword too and would have used the index
+            # anyway.
+            src = (
+                select(
+                    OddsSnapshot.provider, OddsSnapshot.event_external_id,
+                    OddsSnapshot.event_name, OddsSnapshot.sport,
+                    OddsSnapshot.captured_at, OddsSnapshot.start_time,
+                    OddsSnapshot.end_time, OddsSnapshot.meta,
+                )
+                .where(OddsSnapshot.captured_at >= since)
+                .cte("recent_snapshots")
+                .prefix_with("MATERIALIZED")
+            ).c
+        seen = (
+            await session.execute(
+                select(
+                    src.provider,
+                    src.event_external_id,
+                    func.max(src.event_name),
+                    func.max(src.sport),
+                    func.min(src.captured_at),
+                    func.max(src.start_time),
+                    func.max(src.end_time),
+                    func.max(src.meta["competition"].as_string()),
+                ).group_by(src.provider, src.event_external_id)
+            )
+        ).all()
         fixtures = (await session.execute(select(Fixture))).scalars().all()
         fixtures_by_id: dict[uuid.UUID, Fixture] = {f.id: f for f in fixtures}
         # in-memory candidate index:
