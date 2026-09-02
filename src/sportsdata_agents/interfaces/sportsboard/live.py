@@ -26,11 +26,14 @@ _TRUTHY = {"1", "true", "yes", "on"}
 _RESOLVE_EVERY_S = 60.0  # cross-provider fixture resolution cadence (DB-only, no MCP)
 # Each tick examines only snapshots captured since the PREVIOUS tick started,
 # less this slack (a feed that committed while the last tick was mid-scan lands
-# in the next one). The priming pass looks back this far instead of scanning
-# the whole warehouse: the board serves a 48h window, so an event with no
-# capture in two days is not on it. See resolve_events(since=).
+# in the next one). The priming pass looks back this far — enough to cover a
+# restart's downtime, no more. A live event is recaptured every cycle, so any
+# key still worth mapping re-enters a later tick's window on its own; one that
+# stopped being captured is not on the board. 48h was tried first and fetched
+# 7M of 14M rows by index — slower than the full scan it replaced.
+# See resolve_events(since=).
 _RESOLVE_SLACK_S = 2 * _RESOLVE_EVERY_S
-_RESOLVE_PRIME_LOOKBACK_S = 48 * 3600.0
+_RESOLVE_PRIME_LOOKBACK_S = 15 * 60.0
 
 # The live poller's MCP manager while it runs, None otherwise. sgm_books.py
 # borrows it for book SGM quotes; a warehouse-only server (live mode off)
