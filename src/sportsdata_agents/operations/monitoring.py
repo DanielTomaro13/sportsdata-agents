@@ -3260,9 +3260,18 @@ async def _run_watches_locked(
             report["alerts"] += fired
             if await _push_digest(session, sub, push, now):
                 report["digests"] = report.get("digests", 0) + 1
+            # Commit PER WATCH. The cursor advance is a write, so on SQLite it
+            # takes the warehouse's only write lock — and one commit at the end
+            # of the pass held that lock across every later watch's scan:
+            # minutes, every pass, with the ingest feeds timing out behind it
+            # (lived, 2026-09-02: a 5-minute hold with no slow statement in
+            # it). Each watch's cursor was always meant to advance on its own
+            # scan; the advisory lock survives commits on Postgres.
+            await session.commit()
         except Exception as e:  # one broken watch must not sink the pass
             logger.warning("watch %s (%s) failed: %s", sub.name, sub.kind, e)
             report[f"error:{sub.name}"] = str(e)
+            await session.rollback()  # drop this watch's half-done writes, keep the pass going
     try:
         report["outcomes_measured"] = await measure_arb_outcomes(session, now=now)
     except Exception as e:  # measurement is bookkeeping — never sink the pass
