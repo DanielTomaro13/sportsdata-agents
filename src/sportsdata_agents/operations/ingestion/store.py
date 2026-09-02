@@ -31,6 +31,7 @@ from sportsdata_agents.operations.ingestion.normalizers import PricePoint
 logger = logging.getLogger(__name__)
 
 _DEDUPE_CHUNK = 500  # event ids per latest-price query (well under SQLite's var cap)
+_WRITE_SLICE_ROWS = 1000  # rows per committed slice of a capture (see record_points)
 
 # The logical change-point key (unique index uq_prices_change, migration 0013). An ingest
 # insert that collides on it is a re-run / same-timestamp race → DO NOTHING (idempotent).
@@ -231,12 +232,20 @@ async def record_points(
     refresh_every = _snapshot_refresh_every()
     changes = 0
     unchanged = 0
+    # One capture is COMMITTED IN SLICES, not as one transaction. Every write
+    # here is idempotent (a re-run refreshes the same rows, ON CONFLICT DO
+    # NOTHING on the change-points), so atomicity buys nothing, while a
+    # single-transaction full-book pass held SQLite's only write lock for
+    # 10-40s and every other writer on the box timed out behind it (lived,
+    # 2026-09-02). ~1000 rows is a hold of a second or two.
+    slice_rows = _WRITE_SLICE_ROWS
     async with session_factory() as session:
         latest = await _load_latest_odds(session, points)
         snap_targets = ({} if append_mode
                         else await _load_latest_snapshots(session, points))
         price_rows: list[dict[str, Any]] = []
         refresh_rows: list[dict[str, Any]] = []
+        pending_inserts = 0
         for p in points:
             key = _price_key(p.provider, p.book, p.event_external_id, p.market, p.selection)
             new_odds = Decimal(str(p.odds))
@@ -285,6 +294,10 @@ async def record_points(
                     # a later duplicate of this key in the SAME batch must refresh,
                     # not insert twice (id unknown yet: None marks "just inserted")
                     snap_targets[key] = (None, new_odds, captured_at, p.meta)
+                pending_inserts += 1
+                if pending_inserts >= slice_rows:
+                    await session.commit()
+                    pending_inserts = 0
             prev = latest.get(key)
             if prev is None or prev != new_odds:
                 price_rows.append({
@@ -308,7 +321,7 @@ async def record_points(
             # core-table update: an executemany refresh, not an ORM bulk update
             # (the ORM path insists on a session-synchronization strategy)
             table: Any = OddsSnapshot.__table__
-            await session.execute(
+            refresh_stmt = (
                 update(table)
                 .where(table.c.id == bindparam("b_id"))
                 .values(captured_at=bindparam("captured_at"), meta=bindparam("meta"),
@@ -316,18 +329,21 @@ async def record_points(
                         start_time=func.coalesce(bindparam("b_start"),
                                                  table.c.start_time),
                         end_time=func.coalesce(bindparam("b_end"),
-                                               table.c.end_time)),
-                refresh_rows,
+                                               table.c.end_time))
             )
+            for start in range(0, len(refresh_rows), slice_rows):
+                await session.execute(refresh_stmt, refresh_rows[start:start + slice_rows])
+                await session.commit()
         # ON CONFLICT DO NOTHING on the change-point unique index: a re-run or a
         # same-timestamp concurrent writer can't double-insert the same change-point.
         # CHUNKED: asyncpg caps one statement at 32,767 bind params (10 per row) —
         # a full-book feed's first pass ships enough change-points to blow it.
-        for start in range(0, len(price_rows), 3000):
-            chunk = price_rows[start:start + 3000]
+        for start in range(0, len(price_rows), min(slice_rows, 3000)):
+            chunk = price_rows[start:start + min(slice_rows, 3000)]
             await session.execute(
                 _price_insert(session).values(chunk).on_conflict_do_nothing(index_elements=_PRICE_UQ)
             )
+            await session.commit()
         await session.commit()
     if unchanged:
         logger.debug("snapshot refresh skipped for %d fresh, unchanged rows", unchanged)
