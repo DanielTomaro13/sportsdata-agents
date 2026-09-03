@@ -484,6 +484,16 @@ class Poller:
                 runner.tote_win = old.tote_win
             if runner.tote_pool_share is None:
                 runner.tote_pool_share = old.tote_pool_share
+            # The TAB proposition number and fixed price ride the same TAB call as
+            # the tote, so a book-built snapshot has neither. Carry them too: a
+            # race outside the urgent band (refreshed from TAB every few cycles)
+            # otherwise showed `tab_prop` None on every runner for most of its
+            # life, and the placer refused every TAB bet on it as "no proposition
+            # id" (3 Sep 2026, Northern Gold at Warrnambool, Claude's pick).
+            if getattr(runner, "tab_prop", None) is None:
+                runner.tab_prop = getattr(old, "tab_prop", None)
+            if getattr(runner, "fixed_win", None) is None:
+                runner.fixed_win = getattr(old, "fixed_win", None)
         if getattr(snap, "tote_win_pool", None) is None:
             snap.tote_win_pool = getattr(previous, "tote_win_pool", None)
 
