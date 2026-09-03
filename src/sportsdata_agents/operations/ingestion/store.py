@@ -74,6 +74,17 @@ def _parse_start(value: Any) -> dt.datetime | None:
 
 _Key = tuple[str, str, str, str, str]
 
+#: The standing snapshot row for a key: (id, odds, captured_at, meta).
+#:
+#: Named rather than spelled out at each use because it is written in two places that
+#: must agree — the annotation on `_load_latest_snapshots` and the dict it builds — and
+#: when the tuple grew from (id, odds) to carry the confirmation stamp and meta, only
+#: the dict was updated. The signature kept promising a 2-tuple, so every caller was
+#: type-checked against the wrong shape and `target[2]`/`target[3]` read as out of
+#: range. `id` is None for a row inserted earlier in the same batch, whose id is not
+#: yet known.
+_Standing = tuple[Any, Decimal, "dt.datetime | None", "dict[str, Any]"]
+
 
 def _price_key(provider: str, book: str, event_id: str, market: str, selection: str) -> _Key:
     return (provider, book, event_id, market, selection)
@@ -128,13 +139,13 @@ async def _load_latest_odds(
 
 async def _load_latest_snapshots(
     session: AsyncSession, points: list[PricePoint]
-) -> dict[_Key, tuple[Any, Decimal]]:
+) -> dict[_Key, _Standing]:
     """The latest snapshot row's (id, odds, captured_at, meta) for every key
     this batch touches — the in-place-refresh targets. Grouped like
     _load_latest_odds: a handful of chunked queries, never one per point."""
     providers = sorted({p.provider for p in points})
     event_ids = sorted({p.event_external_id for p in points})
-    latest: dict[_Key, tuple[Any, Decimal, Any, Any]] = {}
+    latest: dict[_Key, _Standing] = {}
     for start in range(0, len(event_ids), _DEDUPE_CHUNK):
         chunk = event_ids[start : start + _DEDUPE_CHUNK]
         sub = (
